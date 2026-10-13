@@ -47,8 +47,9 @@ One Go module. All packages live under `internal/` for v1; a future GUI would be
 
 | Group | Packages |
 |---|---|
-| Core (no UI imports) | `api` (plain data types with JSON tags, the shared contract), `config`, `store` (catalog and history), `sync`, `bq` (BigQuery ports and the real implementation), `search`, `sqlx` (tokenizer, completion, parameters), `runs`, `policy`, `favorites`, `export` |
+| Core (no UI imports) | `api` (plain data types with JSON tags, the shared contract), `config`, `store` (catalog and history), `sync`, `bq` (BigQuery ports and the real implementation; `bq/bqtest` holds the fake, the contract suite and the synthetic catalog generator), `engine` (the facade below), `logging`, `version`, `search`, `sqlx` (tokenizer, completion, parameters), `runs`, `policy`, `favorites`, `export` |
 | Frontends | `tui`, `cli`, `mcp`, `cmd/bqt` |
+| Tests | `archtest` (the import-boundary test) |
 
 Rules:
 
@@ -187,7 +188,7 @@ Both SQLite files use `modernc.org/sqlite`, WAL, `busy_timeout`, `synchronous=NO
 
 - Discover regions first: REST `datasets.list` per project, through the generated service (Go's `DatasetIterator` discards `location`), which also returns `unreachable[]` (surfaced as warnings).
 - Apply `ignore` to datasets right after `datasets.list`.
-- Group datasets by `(project, location)`. For each group, run region-qualified `INFORMATION_SCHEMA` queries (`` `proj`.`region-X`.INFORMATION_SCHEMA.* ``) as jobs on the Execution project with `Location` set explicitly: `TABLES`, `COLUMNS`, `COLUMN_FIELD_PATHS`, `TABLE_OPTIONS`, and the view definitions. About 4 to 6 queries per `(project, region)` unit, roughly 20 to 90 per full sync, against 4,000 or more per-dataset queries.
+- Group datasets by `(project, location)`. For each group, run region-qualified `INFORMATION_SCHEMA` queries (`` `proj`.`region-X`.INFORMATION_SCHEMA.* ``) as jobs on the Execution project with `Location` set explicitly: `SCHEMATA_OPTIONS` (dataset descriptions, friendly names and labels; region scope only, so the dataset-scope fallback has no dataset descriptions), `TABLES`, `TABLE_OPTIONS`, `VIEWS` (view SQL; materialized-view definitions are not captured yet), `COLUMNS` and `COLUMN_FIELD_PATHS`. That is 6 queries per `(project, region)` unit, run concurrently within the unit, roughly 20 to 90 per full sync, against 4,000 or more per-dataset queries. Large regions are dominated by BigQuery's own execution time (see section 17 item 13).
 - Filter region results to the `datasets.list` set (deleted-in-time-travel and temp datasets can leak into region views). Apply `ignore` to tables locally.
 - Corrections to the seed: `TABLES` has no last-modified time, `COLUMNS` has no descriptions (use `COLUMN_FIELD_PATHS` and `TABLE_OPTIONS`), regions must be found through REST, and there is no cheap delta signal. The baseline is a full re-snapshot per unit plus a local diff, deleting by absence.
 - Compute shard families after each unit's table snapshot.
@@ -342,7 +343,7 @@ See section 15 for the table. Principles: three zones (Explorer, Editor, Results
 - Subcommands: `search <query>`, `schema <table>`, `query [--dry-run] [--file f.sql] [--param k=v]`, `history`, `favorites list|show|run`, `status`, `sync`, `init`, `config edit|path`, `doctor`, `mcp`.
 - Every non-TUI command writes one JSON document to stdout (the core type serialized as-is). JSON is the default when stdout is not a TTY; `--format text` gives human tables, `--format json` forces JSON.
 - Envelope: `{"schema_version":1,"data":…,"truncated":bool,"next_cursor":…}`. Changes within a version are additive only.
-- Errors: JSON on stderr, `{"error":{"code","message","hint"}}`, with documented exit codes (usage, config, auth, over-limit, BigQuery error, cancelled).
+- Errors: JSON on stderr, `{"error":{"code","message","hint"}}`, with documented exit codes: 0 ok, 1 failure, 2 usage, 3 config, 4 auth, 5 over limit, 6 BigQuery error, 7 cancelled. `bqt sync` prints its result and then exits 6 if any unit failed, 4 if every failure was an authentication failure, and 7 if cancelled.
 - `--limit` defaults to 50, with a cursor. The CLI and MCP return the same result types.
 
 ### 14.2 MCP server
@@ -425,6 +426,8 @@ Verified:
 4. **`lastModifiedTime` moves on a metadata-only edit.** Changing a table's description changed the table's `lastModifiedTime`; the dataset's did not move. A per-table delta signal therefore exists through `tables.get` or the legacy `__TABLES__` view, but `INFORMATION_SCHEMA.TABLES` does not expose it, so the full re-snapshot baseline in section 7 stands. Whether `__TABLES__` is a cheaper signal at scale was not measured.
 5. **Error positions are not always present.** A syntax error carries `at [1:1]`; a "table not found" error did not carry a position. The `{message, line, col}` parse in 10.3 must treat position as optional.
 6. **Scale.** One project here has about 1,280 datasets, well above the 50 to 200 assumed, and `datasets.list` pages correctly at `maxResults=1000`. All tables sit in one region (EU). Table types seen: `BASE TABLE`, `VIEW`, `SNAPSHOT` and `CLONE`; `CLONE` is added to the `type:` filter (8.2).
+
+13. **Sync at scale (measured while building phase 1).** A real first sync of one EU region with about 1,240 datasets, 9,400 tables and 533,000 field paths took about 45 s end to end (84 s before the six queries ran concurrently), almost all of it BigQuery executing `COLUMN_FIELD_PATHS` (about 35 s) and `COLUMNS` (about 20 s); larger result pages did not help. The process peaked around 580 MB because a unit's snapshot is held in memory. Applying 50,000 tables with 1.3 million field paths to the catalog takes about 14 s the first time, 1.1 s when nothing changed and 1.5 s when 1% changed, but only because `columns(parent_id)` is indexed: without it, deleting a changed table's columns scans the whole table once per deleted row and a 1% change took over a minute at one tenth of that size. Possible later optimizations: split very large regions across datasets in parallel, and stream rows into SQLite.
 
 Not verified. Items 7, 8 and 9 are not needed for the author's own use and are **blockers before any public release**; resolve them if the tool is ever released:
 
