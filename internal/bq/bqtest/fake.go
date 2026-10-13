@@ -59,7 +59,7 @@ type Call struct {
 	Datasets []string
 }
 
-// Fake implements bq.Metadata.
+// Fake implements bq.Metadata, bq.Tables and bq.Jobs.
 type Fake struct {
 	mu       sync.Mutex
 	Projects map[string]*Project
@@ -73,6 +73,13 @@ type Fake struct {
 	// the bq.Tables port. Tables without an entry report a schema derived
 	// from their top-level columns and no rows.
 	TableData map[string]TableData
+	// OnQuery scripts the bq.Jobs port per SQL text; nil answers every query
+	// with a three-row SELECT.
+	OnQuery func(sql string) QueryScript
+
+	queries []QueryCall
+	jobs    map[string]*fakeJob
+	jobSeq  int
 }
 
 // TableData is the live side of a fake table.

@@ -15,6 +15,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
+	"github.com/davidsevcik/bigquery-tui/internal/runs"
 	"github.com/davidsevcik/bigquery-tui/internal/search"
 	"github.com/davidsevcik/bigquery-tui/internal/store"
 	catsync "github.com/davidsevcik/bigquery-tui/internal/sync"
@@ -39,6 +40,10 @@ type Options struct {
 	Meta func(ctx context.Context) (bq.Metadata, error)
 	// Tables builds the live table reader (stats and preview) lazily.
 	Tables func(ctx context.Context) (bq.Tables, error)
+	// Jobs builds the query client lazily.
+	Jobs func(ctx context.Context) (bq.Jobs, error)
+	// Source names the frontend on History entries and job labels (tui, cli, mcp).
+	Source string
 	Now    func() time.Time
 	Log    *slog.Logger
 
@@ -58,6 +63,7 @@ type Engine struct {
 
 	cfgMu  gosync.RWMutex
 	search *search.Searcher
+	runs   *runs.Manager
 
 	mu       gosync.Mutex
 	history  *store.History
@@ -82,6 +88,7 @@ func Open(ctx context.Context, o Options) (*Engine, error) {
 	e := &Engine{o: o, cfg: o.Config, paths: store.PathsFor(o.Config.DataDir), stats: map[string]statsEntry{}, infos: map[string]bq.TableInfo{}}
 	e.search = search.New(nil)
 	e.search.Now, e.search.TTL, e.search.Recent = o.Now, o.Config.SyncTTL, e.recent
+	e.runs = runs.New(runs.Options{Jobs: e.jobs, Config: e.Config, Now: o.Now, Source: o.Source, Record: e.recordRun, Log: o.Log})
 	if o.ReadOnly {
 		cat, err := store.OpenCatalogReadOnly(e.paths.Catalog)
 		if err != nil && !errors.Is(err, store.ErrNoCatalog) {
@@ -148,6 +155,7 @@ func (e *Engine) History() (*store.History, error) {
 
 // Close releases every resource.
 func (e *Engine) Close() error {
+	e.runs.Close()
 	// Operations still running (a late TouchRecent, a client being built) set
 	// these fields under e.mu, so Close takes it too.
 	e.mu.Lock()
@@ -179,6 +187,13 @@ func (e *Engine) meta(ctx context.Context) (bq.Metadata, error) {
 func (e *Engine) tables(ctx context.Context) (bq.Tables, error) {
 	if e.o.Tables != nil {
 		return e.o.Tables(ctx)
+	}
+	return e.realClient(ctx)
+}
+
+func (e *Engine) jobs(ctx context.Context) (bq.Jobs, error) {
+	if e.o.Jobs != nil {
+		return e.o.Jobs(ctx)
 	}
 	return e.realClient(ctx)
 }

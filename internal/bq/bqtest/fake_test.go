@@ -94,3 +94,9 @@ func TestDelayRespectsCancellation(t *testing.T) {
 		t.Fatal("expected cancellation")
 	}
 }
+
+func TestFakeJobsContract(t *testing.T) {
+	f := New()
+	ContractScripts(f)
+	RunJobsContract(t, f, JobsContractOptions{})
+}

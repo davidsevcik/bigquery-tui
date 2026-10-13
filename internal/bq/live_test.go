@@ -30,3 +30,17 @@ func TestLiveMetadataContract(t *testing.T) {
 	defer c.Close()
 	bqtest.RunMetadataContract(t, c, bqtest.ContractOptions{Project: proj, MaxDatasets: 40, MaxLocations: 2, FallbackSamples: 3})
 }
+
+// TestLiveJobsContract runs a handful of queries that read no tables.
+func TestLiveJobsContract(t *testing.T) {
+	exec := os.Getenv("BQT_LIVE_EXECUTION_PROJECT")
+	if exec == "" {
+		t.Skip("set BQT_LIVE_EXECUTION_PROJECT")
+	}
+	c, err := bq.NewClient(context.Background(), exec, bq.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	bqtest.RunJobsContract(t, c, bqtest.JobsContractOptions{Location: os.Getenv("BQT_LIVE_LOCATION")})
+}

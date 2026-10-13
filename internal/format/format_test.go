@@ -114,3 +114,32 @@ func TestHumanNumbers(t *testing.T) {
 		}
 	}
 }
+
+func TestArraySummaryAndNewlines(t *testing.T) {
+	arr := bq.Field{Name: "tags", Type: "STRING", Mode: "REPEATED"}
+	v := []any{map[string]any{"v": "a"}, map[string]any{"v": nil}, map[string]any{"v": "c"}}
+	if c := Cell(arr, v, Options{ArraySummary: true}); c.Text != "[3] a, NULL, c" {
+		t.Fatalf("%q", c.Text)
+	}
+	if c := Cell(arr, []any{}, Options{ArraySummary: true}); c.Text != "[0]" {
+		t.Fatalf("%q", c.Text)
+	}
+	recs := bq.Field{Name: "items", Type: "RECORD", Mode: "REPEATED", Fields: []bq.Field{{Name: "sku", Type: "STRING"}}}
+	rv := []any{map[string]any{"v": map[string]any{"f": []any{map[string]any{"v": "s1"}}}}}
+	if c := Cell(recs, rv, Options{ArraySummary: true}); c.Text != `[1] {"sku":"s1"}` {
+		t.Fatalf("%q", c.Text)
+	}
+	str := bq.Field{Name: "s", Type: "STRING"}
+	if c := Cell(str, "a\nb\x1b[31m", Options{KeepNewlines: true}); c.Text != "a\nb�[31m" {
+		t.Fatalf("%q", c.Text)
+	}
+	if c := Cell(str, "a\nb", Options{}); c.Text != "a⏎b" {
+		t.Fatalf("%q", c.Text)
+	}
+	if s, null := Text(str, "a\tb\n"); s != "a\tb\n" || null {
+		t.Fatalf("export text is not sanitized: %q", s)
+	}
+	if _, null := Text(str, nil); !null {
+		t.Fatal("nil is NULL")
+	}
+}

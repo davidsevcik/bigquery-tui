@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
 // historyMigrations are the embedded, forward-only migrations. Index i takes
@@ -237,4 +240,59 @@ func (h *History) Recent(ctx context.Context, limit int) ([]string, error) {
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// InsertRun records one real Run. A job seen before (the same project,
+// location and job id) is updated, so recording is idempotent.
+func (h *History) InsertRun(ctx context.Context, r api.RunInfo) error {
+	if r.Job == nil {
+		return errors.New("history: a run without a job is not recorded")
+	}
+	params := ""
+	if len(r.Params) > 0 {
+		b, err := json.Marshal(r.Params)
+		if err != nil {
+			return err
+		}
+		params = string(b)
+	}
+	var errMsg string
+	if r.Error != nil {
+		errMsg = r.Error.Message
+	}
+	st := r.Stats
+	if st == nil {
+		st = &api.RunStats{}
+	}
+	stmt := st.StatementType
+	if stmt == "" && r.Estimate != nil {
+		stmt = r.Estimate.StatementType
+	}
+	var started, ended, dur any
+	if r.Started != nil {
+		started = r.Started.Unix()
+	}
+	if r.Ended != nil {
+		ended = r.Ended.Unix()
+		if r.Started != nil {
+			dur = r.Ended.Sub(*r.Started).Milliseconds()
+		}
+	}
+	_, err := h.db.ExecContext(ctx, `INSERT INTO history(project,location,job_id,execution_project,sql,statement_type,destination_table,state,error_message,
+total_bytes_processed,total_bytes_billed,cache_hit,created_at,started_at,ended_at,duration_ms,total_slot_ms,reservation_id,edition,source,params)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(project,location,job_id) DO UPDATE SET state=excluded.state,error_message=excluded.error_message,
+total_bytes_processed=excluded.total_bytes_processed,total_bytes_billed=excluded.total_bytes_billed,cache_hit=excluded.cache_hit,
+ended_at=excluded.ended_at,duration_ms=excluded.duration_ms,total_slot_ms=excluded.total_slot_ms,
+reservation_id=excluded.reservation_id,edition=excluded.edition,destination_table=excluded.destination_table`,
+		r.Job.Project, r.Job.Location, r.Job.ID, r.ExecutionProject, r.SQL, stmt, st.Destination, string(r.State), errMsg,
+		st.BytesProcessed, st.BytesBilled, b2i(st.CacheHit), r.Created.Unix(), started, ended, dur, st.SlotMs, st.ReservationID, st.Edition, r.Source, params)
+	return err
+}
+
+// RunCount returns the number of recorded Runs.
+func (h *History) RunCount(ctx context.Context) (int, error) {
+	var n int
+	err := h.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM history").Scan(&n)
+	return n, err
 }
