@@ -156,6 +156,7 @@ type (
 		ordinal    int
 		partition  bool
 		clustering int
+		required   bool
 	}
 	fieldRow struct {
 		key            tkey
@@ -206,6 +207,8 @@ func (c *Client) snapshot(ctx context.Context, sc scope, location string, params
 		if r[5] != nil {
 			cr.clustering = int(num(r[5]))
 		}
+		// REPEATED columns are also reported as not nullable
+		cr.required = str(r[6]) == "NO" && !strings.HasPrefix(str(r[7]), "ARRAY<")
 		cols = append(cols, cr)
 	})
 	run("COLUMN_FIELD_PATHS", sc.fieldPathsSQL(), func(r []bqapi.Value) {
@@ -276,6 +279,7 @@ func mergeSnapshot(dsOpts []dsOptRow, tables []tableRow, opts []optRow, views []
 		ordinal      int
 		partitioning bool
 		clustering   int
+		required     bool
 	}
 	top := map[tkey]map[string]colInfo{}
 	for _, r := range cols {
@@ -284,7 +288,7 @@ func mergeSnapshot(dsOpts []dsOptRow, tables []tableRow, opts []optRow, views []
 			m = map[string]colInfo{}
 			top[r.key] = m
 		}
-		m[r.col] = colInfo{r.ordinal, r.partition, r.clustering}
+		m[r.col] = colInfo{r.ordinal, r.partition, r.clustering, r.required}
 	}
 	nested := map[tkey]map[string]int{}
 	for _, r := range fields {
@@ -295,7 +299,7 @@ func mergeSnapshot(dsOpts []dsOptRow, tables []tableRow, opts []optRow, views []
 		cm := api.ColumnMeta{FieldPath: r.path, DataType: r.typ, Description: r.desc}
 		if cm.TopLevel() {
 			ci := top[r.key][r.col]
-			cm.Ordinal, cm.Partitioning, cm.ClusteringOrdinal = ci.ordinal, ci.partitioning, ci.clustering
+			cm.Ordinal, cm.Partitioning, cm.ClusteringOrdinal, cm.Required = ci.ordinal, ci.partitioning, ci.clustering, ci.required
 		} else {
 			n := nested[r.key]
 			if n == nil {

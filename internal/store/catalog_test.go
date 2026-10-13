@@ -145,6 +145,7 @@ func TestApplyUnitRoundTrip(t *testing.T) {
 	tb.ExpiresAt = &exp
 	tb.Columns[0].Partitioning = true
 	tb.Columns[1].ClusteringOrdinal = 2
+	tb.Columns[0].Required = true
 	view := api.TableMeta{Dataset: "d1", Name: "v", Type: api.TypeView, ViewSQL: "SELECT 1", CreatedAt: t0}
 	st := apply(t, c, unit("p", "EU"), t0, dsApply("d1", "EU", tb, view))
 	if st.TablesAdded != 2 || st.DatasetsAdded != 1 {
@@ -162,7 +163,7 @@ func TestApplyUnitRoundTrip(t *testing.T) {
 		t.Fatalf("%+v", tabs[1])
 	}
 	cols, _ := c.Columns(ctx, "p", "d1", "orders")
-	if len(cols) != 5 || cols[0].FieldPath != "id" || !cols[0].Partitioning || cols[1].ClusteringOrdinal != 2 {
+	if len(cols) != 5 || cols[0].FieldPath != "id" || !cols[0].Partitioning || cols[1].ClusteringOrdinal != 2 || !cols[0].Required || cols[1].Required {
 		t.Fatalf("%+v", cols)
 	}
 	// parent links resolved

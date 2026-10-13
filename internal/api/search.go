@@ -170,6 +170,10 @@ type TableStats struct {
 	Rows         int64      `json:"rows"`
 	Bytes        int64      `json:"bytes"`
 	LastModified *time.Time `json:"last_modified,omitempty"`
+	// Required lists the field paths whose mode is REQUIRED (nested fields
+	// included). The catalog does not store modes, so this comes from the live
+	// table.
+	Required []string `json:"required,omitempty"`
 }
 
 // Cell is one formatted value. Text never contains control characters or ANSI.

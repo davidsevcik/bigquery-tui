@@ -1,7 +1,10 @@
 package tui
 
 import (
+	"context"
+	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +12,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
+	"github.com/davidsevcik/bigquery-tui/internal/bq"
+	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 )
 
@@ -443,13 +448,169 @@ func TestPreviewScrollsIndependentlyOfTheSchema(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		r.press("ctrl+e")
 	}
-	if r.m.prevOff == 0 {
-		t.Fatal("ctrl+e must scroll the preview after p focused it")
-	}
 	if r.screen() == first {
 		t.Fatal("the preview did not move")
 	}
+	if r.m.prevRow != 30 || r.m.prevOff == 0 {
+		t.Fatalf("ctrl+e must move the preview cursor after p focused it, and the pane follows: row=%d off=%d", r.m.prevRow, r.m.prevOff)
+	}
 	if r.m.detOff != 0 {
 		t.Fatal("the schema keeps its own offset")
+	}
+}
+
+// wideRefunds gives finance.refunds rows with a long text and a nested value.
+func wideRefunds(r *rig) {
+	rows := [][]any{}
+	for i := 0; i < 3; i++ {
+		rows = append(rows, []any{
+			strconv.Itoa(i + 1),
+			strings.Repeat("long text ", 40) + "THE-END",
+			map[string]any{"f": []any{map[string]any{"v": "Brno"}, map[string]any{"v": []any{map[string]any{"v": "a"}, map[string]any{"v": "b"}}}}},
+		})
+	}
+	r.fake.TableData["acme-prod.finance.refunds"] = bqtest.TableData{
+		Info: bq.TableInfo{Type: api.TypeTable, Schema: []bq.Field{
+			{Name: "id", Type: "INTEGER"}, {Name: "note", Type: "STRING"},
+			{Name: "address", Type: "RECORD", Fields: []bq.Field{{Name: "city", Type: "STRING"}, {Name: "tags", Type: "STRING", Mode: "REPEATED"}}},
+		}},
+		Rows: rows,
+	}
+}
+
+func TestRecordPopupShowsTheFullRow(t *testing.T) {
+	r := newRig(t, 120, 40)
+	wideRefunds(r)
+	r.press("l", "j", "l", "j")
+	if s := r.m.sel(); s.path.Table != "refunds" {
+		t.Fatalf("precondition: %+v", s)
+	}
+	r.press("J")
+	r.contains("load a preview first")
+	if r.m.ov != ovNone {
+		t.Fatal("no popup without a preview")
+	}
+	r.press("p")
+	r.lacks("THE-END") // the preview clips long values
+	r.press("J")
+	// the clipped value was read again in full, the nested value is indented
+	r.contains("Record 1 of 3 · refunds", "THE-END", `"city": "Brno"`, `"tags": [`)
+	r.press("n")
+	r.contains("Record 2 of 3")
+	r.press("n", "n")
+	r.contains("Record 3 of 3", "last loaded row")
+	r.press("N")
+	r.contains("Record 2 of 3")
+	r.press("esc")
+	if r.m.ov != ovNone || r.m.prevRow != 1 {
+		t.Fatalf("esc closes and the preview cursor follows the popup: ov=%v row=%d", r.m.ov, r.m.prevRow)
+	}
+}
+
+func TestZoomMovementKeysStayInTheDetailPane(t *testing.T) {
+	r := newRig(t, 80, 14)
+	r.press("l", "j", "j", "l", "j", "j")
+	sel := r.m.sel()
+	if sel.path.Table != "orders" {
+		t.Fatalf("precondition: %+v", sel)
+	}
+	r.press("z", "j", "j", "down")
+	if !r.m.zoom || r.m.sel().path != sel.path || r.m.detOff != 3 {
+		t.Fatalf("down scrolls the zoomed schema: zoom=%v sel=%+v off=%d", r.m.zoom, r.m.sel(), r.m.detOff)
+	}
+	r.press("right", "l")
+	if !r.m.zoom || r.m.sel().path != sel.path {
+		t.Fatal("right does nothing in the zoom")
+	}
+	r.press("left")
+	if r.m.zoom || r.m.sel().path != sel.path {
+		t.Fatalf("left leaves the zoom and keeps the table selected: zoom=%v sel=%+v", r.m.zoom, r.m.sel())
+	}
+	// zoomed preview: the keys move the row cursor, enter shows the record
+	r.press("z", "p", "j", "j", "enter")
+	r.contains("Record 3 of 20 · orders")
+	r.press("esc", "G", "j")
+	r.contains("40 of 45 rows") // moving past the last loaded row loads the next page
+	r.press("esc")
+	if r.m.zoom || r.m.sel().path != sel.path {
+		t.Fatal("esc leaves the zoom")
+	}
+}
+
+func TestSchemaFlagsRequiredColumns(t *testing.T) {
+	r := newRig(t, 120, 30)
+	wideRefunds(r)
+	td := r.fake.TableData["acme-prod.finance.refunds"]
+	td.Info.Schema = []bq.Field{{Name: "id", Type: "STRING", Mode: "REQUIRED"}, {Name: "amount", Type: "STRING"}}
+	r.fake.TableData["acme-prod.finance.refunds"] = td
+	r.press("l", "j", "l", "j")
+	var id, amount string
+	for _, l := range strings.Split(r.screen(), "\n") {
+		if i := strings.Index(l, "── schema"); i >= 0 {
+			id, amount = "", ""
+		}
+		if strings.Contains(l, " id ") && strings.Contains(l, "STRING") {
+			id = l
+		}
+		if strings.Contains(l, " amount ") && strings.Contains(l, "STRING") {
+			amount = l
+		}
+	}
+	if !strings.Contains(id, "STRING") || !strings.Contains(id, "required") || strings.Contains(amount, "required") || amount == "" {
+		t.Fatalf("only the REQUIRED field is flagged:\n%s", r.screen())
+	}
+}
+
+func TestSchemaFlagsColumnsStoredAsRequiredWithoutTheLiveTable(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.fake.Projects["acme-prod"].Datasets[2].Tables[1].Columns[0].Required = true
+	hd, err := r.eng.StartSync(context.Background(), api.SyncScope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hd.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	r.fake.Fail(bqtest.Failure{Method: "GetTable", Err: errors.New("offline")})
+	r.m.reloadBrowse()
+	r.press("l", "j", "l")
+	s := r.m.sel()
+	r.contains("required")
+	if d := r.m.details[s.detailKey()]; d == nil || d.stats != nil {
+		t.Fatalf("precondition: the flag must come from the catalog, not the live table: %+v %+v", s, d)
+	}
+}
+
+func TestZoomSplitSwitchesBetweenSideBySideAndStacked(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.press("l", "j", "j", "l", "j", "j", "z")
+	line := func(sub string) int {
+		for i, l := range strings.Split(r.screen(), "\n") {
+			if strings.Contains(l, sub) {
+				return i
+			}
+		}
+		return -1
+	}
+	if line(" Schema ") != line(" Preview ") {
+		t.Fatalf("side by side first:\n%s", r.screen())
+	}
+	place := r.m.place
+	r.press("P")
+	if s, p := line(" Schema "), line(" Preview "); s < 0 || p <= s {
+		t.Fatalf("P stacks the schema above the preview:\n%s", r.screen())
+	}
+	if r.m.place != place || !r.m.zoom {
+		t.Fatal("P in the zoom leaves the normal pane placement alone")
+	}
+	// remembered across restarts
+	m2 := New(r.m.be, Options{NoBackground: true, StableOutput: true, Now: func() time.Time { return r.now }})
+	defer m2.Close()
+	if !m2.zoomStacked {
+		t.Fatal("the zoom split is saved in the state file")
+	}
+	r.press("P")
+	if line(" Schema ") != line(" Preview ") {
+		t.Fatal("P again puts them side by side")
 	}
 }

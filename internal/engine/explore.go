@@ -152,7 +152,7 @@ func (e *Engine) tableInfo(ctx context.Context, ref search.TableRef) (bq.TableIn
 	if err != nil {
 		return bq.TableInfo{}, err
 	}
-	st := api.TableStats{Rows: info.Rows, Bytes: info.Bytes}
+	st := api.TableStats{Rows: info.Rows, Bytes: info.Bytes, Required: requiredPaths(nil, "", info.Schema)}
 	if !info.LastModified.IsZero() {
 		lm := info.LastModified
 		st.LastModified = &lm
@@ -164,7 +164,18 @@ func (e *Engine) tableInfo(ctx context.Context, ref search.TableRef) (bq.TableIn
 	return info, nil
 }
 
-// TableStats fetches the live row and byte counts (cached for a few minutes).
+func requiredPaths(out []string, prefix string, fields []bq.Field) []string {
+	for _, f := range fields {
+		if f.Mode == "REQUIRED" {
+			out = append(out, prefix+f.Name)
+		}
+		out = requiredPaths(out, prefix+f.Name+".", f.Fields)
+	}
+	return out
+}
+
+// TableStats fetches the live row and byte counts and the required fields
+// (cached for a few minutes).
 // It needs credentials and one API call, so frontends call it off the UI thread
 // and treat a failure as "unknown".
 func (e *Engine) TableStats(ctx context.Context, p api.ObjectPath) (api.TableStats, error) {

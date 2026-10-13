@@ -141,11 +141,9 @@ func (m *Model) searchKey(st *searchState, msg tea.KeyPressMsg, name string) tea
 			st.move(-half)
 			return nil
 		case "detaildown":
-			m.scrollDetail(1)
-			return nil
+			return m.scrollDetail(1)
 		case "detailup":
-			m.scrollDetail(-1)
-			return nil
+			return m.scrollDetail(-1)
 		case "back":
 			if st == m.flat {
 				st.typing = false

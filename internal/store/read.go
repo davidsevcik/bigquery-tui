@@ -144,7 +144,7 @@ func (c *Catalog) EachColumn(ctx context.Context, fn func(tableID int64, pathLC,
 
 // ColumnsByTableID lists a table's field paths in display order.
 func (c *Catalog) ColumnsByTableID(ctx context.Context, tableID int64) ([]api.ColumnMeta, error) {
-	rows, err := c.db.QueryContext(ctx, `SELECT field_path, ordinal, data_type, description, partitioning, clustering_ordinal
+	rows, err := c.db.QueryContext(ctx, `SELECT field_path, ordinal, data_type, description, partitioning, clustering_ordinal, required
 FROM columns WHERE table_id = ? ORDER BY id`, tableID)
 	if err != nil {
 		return nil, err
@@ -153,11 +153,11 @@ FROM columns WHERE table_id = ? ORDER BY id`, tableID)
 	var out []api.ColumnMeta
 	for rows.Next() {
 		var cm api.ColumnMeta
-		var part int
-		if err := rows.Scan(&cm.FieldPath, &cm.Ordinal, &cm.DataType, &cm.Description, &part, &cm.ClusteringOrdinal); err != nil {
+		var part, req int
+		if err := rows.Scan(&cm.FieldPath, &cm.Ordinal, &cm.DataType, &cm.Description, &part, &cm.ClusteringOrdinal, &req); err != nil {
 			return nil, err
 		}
-		cm.Partitioning = part != 0
+		cm.Partitioning, cm.Required = part != 0, req != 0
 		out = append(out, cm)
 	}
 	return out, rows.Err()
@@ -239,7 +239,7 @@ FROM tables t JOIN datasets d ON d.id = t.dataset_id WHERE t.id = ?`, id).
 	if sc > 0 {
 		t.Shard = &api.ShardFamily{Prefix: sp, First: sf, Last: sl, Count: sc}
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT field_path, ordinal, data_type, description, partitioning, clustering_ordinal
+	rows, err := tx.QueryContext(ctx, `SELECT field_path, ordinal, data_type, description, partitioning, clustering_ordinal, required
 FROM columns WHERE table_id = ? ORDER BY id`, id)
 	if err != nil {
 		return t, err
@@ -247,11 +247,11 @@ FROM columns WHERE table_id = ? ORDER BY id`, id)
 	defer rows.Close()
 	for rows.Next() {
 		var cm api.ColumnMeta
-		var part int
-		if err := rows.Scan(&cm.FieldPath, &cm.Ordinal, &cm.DataType, &cm.Description, &part, &cm.ClusteringOrdinal); err != nil {
+		var part, req int
+		if err := rows.Scan(&cm.FieldPath, &cm.Ordinal, &cm.DataType, &cm.Description, &part, &cm.ClusteringOrdinal, &req); err != nil {
 			return t, err
 		}
-		cm.Partitioning = part != 0
+		cm.Partitioning, cm.Required = part != 0, req != 0
 		t.Columns = append(t.Columns, cm)
 	}
 	return t, rows.Err()

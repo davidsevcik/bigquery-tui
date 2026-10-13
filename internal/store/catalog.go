@@ -15,7 +15,7 @@ import (
 
 // CatalogSchemaVersion is the catalog.db schema version. The catalog has no
 // migrations: a mismatch deletes and recreates the file (ticket 06).
-const CatalogSchemaVersion = 2
+const CatalogSchemaVersion = 3
 
 const catalogSchema = `
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -68,7 +68,8 @@ CREATE TABLE columns (
   data_type          TEXT NOT NULL DEFAULT '',
   description        TEXT NOT NULL DEFAULT '',
   partitioning       INTEGER NOT NULL DEFAULT 0,
-  clustering_ordinal INTEGER NOT NULL DEFAULT 0
+  clustering_ordinal INTEGER NOT NULL DEFAULT 0,
+  required           INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX columns_table ON columns(table_id, parent_id, ordinal);
 -- Required: the self-referencing parent_id foreign key makes SQLite look up
@@ -412,7 +413,7 @@ func applyTables(ctx context.Context, tx *sql.Tx, datasetID int64, tables []api.
 		return st, err
 	}
 	defer updShard.Close()
-	insCol, err := tx.PrepareContext(ctx, `INSERT INTO columns(table_id,parent_id,field_path,field_path_lc,top_level,ordinal,data_type,description,partitioning,clustering_ordinal) VALUES(?,?,?,?,?,?,?,?,?,?)`)
+	insCol, err := tx.PrepareContext(ctx, `INSERT INTO columns(table_id,parent_id,field_path,field_path_lc,top_level,ordinal,data_type,description,partitioning,clustering_ordinal,required) VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return st, err
 	}
@@ -489,7 +490,7 @@ func insertColumns(ctx context.Context, ins *sql.Stmt, tableID int64, cols []api
 				parent = pid
 			}
 		}
-		res, err := ins.ExecContext(ctx, tableID, parent, c.FieldPath, strings.ToLower(c.FieldPath), b2i(c.TopLevel()), c.Ordinal, c.DataType, c.Description, b2i(c.Partitioning), c.ClusteringOrdinal)
+		res, err := ins.ExecContext(ctx, tableID, parent, c.FieldPath, strings.ToLower(c.FieldPath), b2i(c.TopLevel()), c.Ordinal, c.DataType, c.Description, b2i(c.Partitioning), c.ClusteringOrdinal, b2i(c.Required))
 		if err != nil {
 			return err
 		}
@@ -667,7 +668,7 @@ WHERE p.name = ? AND d.name = ? ORDER BY t.name_lc`, project, dataset)
 
 // Columns lists a table's field paths in order.
 func (c *Catalog) Columns(ctx context.Context, project, dataset, table string) ([]api.ColumnMeta, error) {
-	rows, err := c.db.QueryContext(ctx, `SELECT c.field_path,c.ordinal,c.data_type,c.description,c.partitioning,c.clustering_ordinal
+	rows, err := c.db.QueryContext(ctx, `SELECT c.field_path,c.ordinal,c.data_type,c.description,c.partitioning,c.clustering_ordinal,c.required
 FROM columns c JOIN tables t ON t.id=c.table_id JOIN datasets d ON d.id=t.dataset_id JOIN projects p ON p.id=d.project_id
 WHERE p.name=? AND d.name=? AND t.name=? ORDER BY c.top_level DESC, c.ordinal, c.id`, project, dataset, table)
 	if err != nil {
@@ -677,11 +678,11 @@ WHERE p.name=? AND d.name=? AND t.name=? ORDER BY c.top_level DESC, c.ordinal, c
 	var out []api.ColumnMeta
 	for rows.Next() {
 		var cm api.ColumnMeta
-		var part int
-		if err := rows.Scan(&cm.FieldPath, &cm.Ordinal, &cm.DataType, &cm.Description, &part, &cm.ClusteringOrdinal); err != nil {
+		var part, req int
+		if err := rows.Scan(&cm.FieldPath, &cm.Ordinal, &cm.DataType, &cm.Description, &part, &cm.ClusteringOrdinal, &req); err != nil {
 			return nil, err
 		}
-		cm.Partitioning = part != 0
+		cm.Partitioning, cm.Required = part != 0, req != 0
 		out = append(out, cm)
 	}
 	return out, rows.Err()

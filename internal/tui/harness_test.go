@@ -64,7 +64,7 @@ func fixtureFake() *bqtest.Fake {
 	b.Datasets = []bqtest.Dataset{bqtest.DS("sales", "EU", bqtest.Table("orders", "id"))}
 	f.TableData = map[string]bqtest.TableData{
 		"acme-prod.sales.orders": {
-			Info: bq.TableInfo{Type: api.TypeTable, Bytes: 5 << 20, Schema: []bq.Field{{Name: "id", Type: "INTEGER"}, {Name: "customer_id", Type: "STRING"}, {Name: "amount", Type: "NUMERIC"}}},
+			Info: bq.TableInfo{Type: api.TypeTable, Bytes: 5 << 20, Schema: []bq.Field{{Name: "id", Type: "INTEGER", Mode: "REQUIRED"}, {Name: "customer_id", Type: "STRING"}, {Name: "amount", Type: "NUMERIC"}}},
 		},
 	}
 	var rows [][]any

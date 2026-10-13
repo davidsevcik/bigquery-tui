@@ -1,5 +1,5 @@
  Datasets 3/4                │ Tables 1/4
-eve╭─ Help  (1-14/61) ──────────────────────────────────╮
+eve╭─ Help  (1-14/64) ──────────────────────────────────╮
 fin│ Global                                             │
 sal│ ctrl+q          quit                               │
 us_│ ctrl+p          command palette                    │

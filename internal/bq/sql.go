@@ -72,7 +72,7 @@ WHERE %s`, s.view("VIEWS"), s.filter("table_schema"))
 }
 
 func (s scope) columnsSQL() string {
-	return fmt.Sprintf(`SELECT table_schema, table_name, column_name, ordinal_position, is_partitioning_column, clustering_ordinal_position
+	return fmt.Sprintf(`SELECT table_schema, table_name, column_name, ordinal_position, is_partitioning_column, clustering_ordinal_position, is_nullable, data_type
 FROM %s
 WHERE %s`, s.view("COLUMNS"), s.filter("table_schema"))
 }

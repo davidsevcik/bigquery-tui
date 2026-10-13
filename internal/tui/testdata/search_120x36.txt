@@ -9,7 +9,7 @@
                                                                      │ All customer orders, one row per order
                                                                      │
                                                                      │ ── schema · 8 fields ──
-                                                                     │ id          INT64          Order id
+                                                                     │ id          INT64          required Order id
                                                                      │ customer_id STRING
                                                                      │ amount      STRING
                                                                      │ address     STRUCT<…>

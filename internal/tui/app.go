@@ -50,6 +50,7 @@ const (
 	ovHelp
 	ovProblems
 	ovSync
+	ovRecord
 )
 
 const (
@@ -94,13 +95,16 @@ type Model struct {
 	palCmds []command
 	ovOff   int
 
-	details map[string]*detailData
-	lastSel string
-	detOff  int // schema pane scroll
-	prevOff int // preview pane scroll
-	tab     int
-	zoom    bool
-	statSeq int
+	details     map[string]*detailData
+	lastSel     string
+	detOff      int // schema pane scroll
+	prevOff     int // preview pane scroll
+	prevRow     int // preview row cursor (the row J shows)
+	rec         *recordData
+	tab         int
+	zoom        bool
+	zoomStacked bool // zoom shows schema above preview instead of side by side
+	statSeq     int
 
 	pendingKey string
 	toast      string
@@ -142,6 +146,8 @@ func (m *Model) Close() { m.cancel() }
 type uiState struct {
 	Layout string `json:"layout"`
 	Panes  string `json:"panes"`
+	// ZoomStacked: the zoomed detail shows schema above preview.
+	ZoomStacked bool `json:"zoom_stacked,omitempty"`
 }
 
 func (m *Model) loadState() {
@@ -163,6 +169,7 @@ func (m *Model) loadState() {
 			m.place = placement(i)
 		}
 	}
+	m.zoomStacked = st.ZoomStacked
 }
 
 func (m *Model) saveState() {
@@ -170,7 +177,7 @@ func (m *Model) saveState() {
 	if os.MkdirAll(filepath.Dir(p), 0o700) != nil {
 		return
 	}
-	b, _ := json.Marshal(uiState{Layout: layoutNames[m.layout], Panes: placementNames[m.place]})
+	b, _ := json.Marshal(uiState{Layout: layoutNames[m.layout], Panes: placementNames[m.place], ZoomStacked: m.zoomStacked})
 	_ = os.WriteFile(p, b, 0o600)
 }
 
@@ -350,6 +357,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case previewMsg:
 		m.onPreview(msg)
+	case recordMsg:
+		m.onRecord(msg)
 	case syncStartedMsg:
 		if msg.err != nil {
 			m.toast = "sync: " + msg.err.Error()
@@ -549,6 +558,13 @@ func (m *Model) overlayAction(act string) tea.Cmd {
 	switch act {
 	case "back", "open":
 		m.ov = ovNone
+	case "next", "prev":
+		if m.ov == ovRecord {
+			if act == "prev" {
+				return m.recordStep(-1)
+			}
+			return m.recordStep(1)
+		}
 	case "down":
 		m.ovOff++
 	case "up":
@@ -568,6 +584,11 @@ func (m *Model) overlayAction(act string) tea.Cmd {
 func (m *Model) explorerAction(act string) tea.Cmd {
 	if cmd, ok := m.globalAction(act); ok {
 		return cmd
+	}
+	if m.zoom {
+		if cmd, ok := m.zoomAction(act); ok {
+			return cmd
+		}
 	}
 	page := max(1, m.listHeight()/2)
 	switch act {
@@ -613,11 +634,13 @@ func (m *Model) explorerAction(act string) tea.Cmd {
 	case "zoom":
 		m.zoom = !m.zoom
 	case "detaildown":
-		m.scrollDetail(1)
+		return m.scrollDetail(1)
 	case "detailup":
-		m.scrollDetail(-1)
+		return m.scrollDetail(-1)
 	case "preview":
 		return m.previewMore()
+	case "record":
+		return m.openRecord()
 	case "scope":
 		if m.layout == layoutFlat {
 			m.cycleScope()
@@ -658,14 +681,59 @@ func (m *Model) openConfig() tea.Cmd {
 	return tea.ExecProcess(exec.Command(argv[0], argv[1:]...), func(err error) tea.Msg { return editorDoneMsg{err} })
 }
 
-// scrollDetail scrolls the pane that tab last selected: the schema, or the
-// preview once rows are loaded (p switches to it).
-func (m *Model) scrollDetail(d int) {
-	if m.tab == 1 {
-		m.prevOff = max(0, m.prevOff+d)
-		return
+// zoomAction makes the movement keys act on the zoomed detail pane instead of
+// the hidden list: they scroll it, and left leaves the zoom.
+func (m *Model) zoomAction(act string) (tea.Cmd, bool) {
+	half := max(1, (m.h-4)/2)
+	switch act {
+	case "down":
+		return m.scrollDetail(1), true
+	case "up":
+		return m.scrollDetail(-1), true
+	case "halfdown":
+		return m.scrollDetail(half), true
+	case "halfup":
+		return m.scrollDetail(-half), true
+	case "top":
+		return m.scrollDetail(-1 << 30), true
+	case "bottom":
+		return m.scrollDetail(1 << 30), true
+	case "left":
+		m.zoom = false
+		return nil, true
+	case "right":
+		return nil, true
+	case "panes":
+		m.zoomStacked = !m.zoomStacked
+		m.saveState()
+		m.toast = "zoom: schema and preview side by side"
+		if m.zoomStacked {
+			m.toast = "zoom: schema above preview"
+		}
+		return nil, true
+	case "open":
+		if _, p := m.previewRows(); p != nil && m.tab == 1 {
+			return m.openRecord(), true
+		}
+		return nil, true
 	}
-	m.detOff = max(0, m.detOff+d)
+	return nil, false
+}
+
+// scrollDetail moves within the pane that tab last selected: it scrolls the
+// schema, or moves the row cursor of the preview once rows are loaded (p
+// switches to it). Moving down from the last loaded row loads the next page.
+func (m *Model) scrollDetail(d int) tea.Cmd {
+	if _, p := m.previewRows(); p != nil && m.tab == 1 {
+		last := len(p.Rows) - 1
+		if d > 0 && m.prevRow >= last {
+			return m.previewMore()
+		}
+		m.prevRow = clamp(m.prevRow+d, 0, last)
+		return nil
+	}
+	m.detOff = clamp(m.detOff+d, 0, 1<<30)
+	return nil
 }
 
 func (m *Model) moreIfFlat() tea.Cmd {
@@ -771,7 +839,7 @@ func (m *Model) afterSelect() tea.Cmd {
 	if key == m.lastSel {
 		return nil
 	}
-	m.lastSel, m.detOff, m.prevOff = key, 0, 0
+	m.lastSel, m.detOff, m.prevOff, m.prevRow = key, 0, 0, 0
 	if key == "" {
 		return nil
 	}

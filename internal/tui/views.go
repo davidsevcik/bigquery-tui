@@ -111,7 +111,7 @@ func (m *Model) render() []string {
 		bw := clamp(w-12, 30, 70)
 		bh := clamp(bodyH-4, 6, 18)
 		body = overlay(body, m.paletteBox(bw, bh), (w-bw)/2, max(0, (bodyH-bh)/3), w)
-	case ovHelp, ovProblems, ovSync:
+	case ovHelp, ovProblems, ovSync, ovRecord:
 		bw := clamp(w-6, 30, 96)
 		box := m.infoBox(bw, bodyH-2)
 		body = overlay(body, box, (w-bw)/2, max(0, (bodyH-len(box))/2), w)
@@ -164,8 +164,12 @@ func (m *Model) footerLine(w int) string {
 	switch {
 	case m.ov == ovSearch || m.ov == ovJump:
 		hint = "type to search · ↑↓ select · " + footerHints(ZoneSearch)
+	case m.ov == ovRecord:
+		hint = "n/N next/previous row · j/k scroll · " + footerHints(ZoneOverlay)
 	case m.ov != ovNone:
 		hint = footerHints(ZoneOverlay)
+	case m.zoom:
+		hint = "↑↓/jk scroll · tab schema/preview · P split · p rows · J record · ←/esc back"
 	case m.layout == layoutFlat && m.flat.typing:
 		hint = "type to filter · enter/esc back to the list"
 	default:
@@ -470,12 +474,15 @@ func (m *Model) detailBlock(w, h int, s selection, mode string) []string {
 		both = w >= 90
 	case "zoom":
 		both = w >= 100
+		if m.zoomStacked {
+			both = h >= 20
+		}
 	}
 	if s.detailKey() == "" {
 		both = false
 	}
 	if both {
-		if mode == "right" {
+		if mode == "right" || (mode == "zoom" && m.zoomStacked) {
 			sh := h * 58 / 100
 			return append(m.schemaPane(s, w, sh, false), m.previewPane(s, w, h-sh, false)...)
 		}
@@ -659,6 +666,13 @@ func (m *Model) schemaLines(s selection, w int) []string {
 	add(sFaint.Render(fmt.Sprintf("── schema · %d fields ──", len(t.Columns))))
 	type row struct {
 		name, typ, desc string
+		required        bool
+	}
+	required := map[string]bool{}
+	if d.stats != nil {
+		for _, p := range d.stats.Required {
+			required[p] = true
+		}
 	}
 	rows := make([]row, 0, len(t.Columns))
 	nameW := 8
@@ -667,7 +681,7 @@ func (m *Model) schemaLines(s selection, w int) []string {
 		leaf := c.FieldPath[strings.LastIndex(c.FieldPath, ".")+1:]
 		nm := strings.Repeat("  ", depth) + leaf
 		nameW = max(nameW, wid(nm))
-		rows = append(rows, row{nm, c.DataType, c.Description})
+		rows = append(rows, row{nm, c.DataType, c.Description, required[c.FieldPath] || c.Required})
 	}
 	nameW = min(nameW, max(10, (w-2)*45/100))
 	typeW := 14
@@ -678,6 +692,9 @@ func (m *Model) schemaLines(s selection, w int) []string {
 			typ = typ[:i] + "<…>"
 		}
 		b.add(" ", sBase).add(fit(r.name, nameW), sBase).add(" ", sBase).add(fit(typ, typeW), dataTypeStyle(r.typ))
+		if r.required {
+			b.add(" required", sWarn)
+		}
 		if r.desc != "" {
 			b.add(" "+r.desc, sFaint)
 		}
@@ -769,12 +786,12 @@ func (m *Model) previewPane(s selection, w, h int, tabs bool) []string {
 			hb.WriteString(sBold.Render(fit(p.Columns[i].Name, widths[i])) + " ")
 		}
 		add(hb.String())
-		body := h - 3
-		m.prevOff = clamp(m.prevOff, 0, max(0, len(p.Rows)-body))
-		start := m.prevOff
-		for ri := start; ri < len(p.Rows) && len(out) < h-1; ri++ {
-			var sb strings.Builder
-			sb.WriteString(" ")
+		m.prevRow = clamp(m.prevRow, 0, len(p.Rows)-1)
+		start, end := window(m.prevRow, &m.prevOff, len(p.Rows), h-3)
+		for ri := start; ri < end; ri++ {
+			// the cursor row (the one J shows) is marked while the preview is the active pane
+			b := newRB(ri == m.prevRow && m.tab == 1)
+			b.add(" ", sBase)
 			for i := 0; i < shown; i++ {
 				st := sBase
 				if i < len(p.Rows[ri]) && p.Rows[ri][i].Null {
@@ -784,9 +801,9 @@ func (m *Model) previewPane(s selection, w, h int, tabs bool) []string {
 				if i < len(p.Rows[ri]) {
 					c = p.Rows[ri][i]
 				}
-				sb.WriteString(st.Render(fit(cellText(c), widths[i])) + " ")
+				b.add(fit(cellText(c), widths[i])+" ", st)
 			}
-			add(sb.String())
+			add(b.line(w))
 		}
 		foot := fmt.Sprintf(" %s of %s rows", format.Count(int64(len(p.Rows))), format.Count(p.TotalRows))
 		if shown < len(p.Columns) {
@@ -797,6 +814,9 @@ func (m *Model) previewPane(s selection, w, h int, tabs bool) []string {
 			foot += " · loading…"
 		case !d.prevEnd:
 			foot += " · p loads more"
+		}
+		if m.tab == 1 {
+			foot += " · J record"
 		}
 		out = fillTo(out, w, h-1)
 		out = append(out, sFaint.Render(fit(foot, w)))
@@ -858,6 +878,8 @@ func (m *Model) infoBox(bw, maxH int) []string {
 		ttl, lines = "Sync problems", m.problemLines(bw-4)
 	case ovSync:
 		ttl, lines = "Sync progress", m.syncLines()
+	case ovRecord:
+		ttl, lines = m.recordLines(bw - 2)
 	}
 	body := max(1, maxH-2)
 	m.ovOff = clamp(m.ovOff, 0, max(0, len(lines)-body))

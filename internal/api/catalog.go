@@ -76,6 +76,9 @@ type ColumnMeta struct {
 	Description       string `json:"description,omitempty"`
 	Partitioning      bool   `json:"partitioning,omitempty"`
 	ClusteringOrdinal int    `json:"clustering_ordinal,omitempty"`
+	// Required is the REQUIRED mode. The metadata views report it for
+	// top-level columns only, so nested fields are always false here.
+	Required bool `json:"required,omitempty"`
 }
 
 // TopLevel reports whether the field is a top-level column.

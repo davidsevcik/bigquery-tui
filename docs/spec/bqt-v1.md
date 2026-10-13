@@ -208,7 +208,7 @@ Both SQLite files use `modernc.org/sqlite`, WAL, `busy_timeout`, `synchronous=NO
 
 Three layouts: Miller columns (project | dataset | table; the default), tree, and flat list with a scoped filter. `L` cycles them and selection carries across. The last layout is remembered in `state/tui.json`. All lists are virtualized.
 
-Detail panes (schema and preview): to the right at 100 columns or more, at the bottom from 70 to 99 columns, collapsed below 70 (where `Enter` zooms the detail and `esc` returns). The bottom pane defaults to hidden below 30 rows. The list keeps focus; `ctrl+e` and `ctrl+y` scroll the detail pane. `esc` always backs out exactly one level (zoom, then results, then filter). Search results are one line each, and the selected result expands to show its description and column hits. Footer hints must be readable (`↑↓←→/hjkl move`).
+Detail panes (schema and preview): to the right at 100 columns or more, at the bottom from 70 to 99 columns, collapsed below 70 (where `Enter` zooms the detail and `esc` returns). The bottom pane defaults to hidden below 30 rows. The list keeps focus; `ctrl+e` and `ctrl+y` scroll the detail pane. `esc` always backs out exactly one level (zoom, then results, then filter). `z` zooms the detail to the full screen. While zoomed, the movement keys act on the detail (scroll the schema, move the preview row cursor), left or `esc` leaves the zoom, and `P` switches schema and preview between side by side and stacked (remembered in the state file). Search results are one line each, and the selected result expands to show its description and column hits. Footer hints must be readable (`↑↓←→/hjkl move`).
 
 ### 8.2 Search syntax and ranking (core)
 
@@ -232,7 +232,8 @@ Two or more tables in one dataset sharing a prefix and an 8-digit date suffix (`
 ### 8.4 Schema pane and preview
 
 - Schema pane fields. Table: qualified name, kind, location, rows and bytes (fetched live with `tables.get` when a table is selected, cached for five minutes, omitted silently on failure, since the catalog does not store them), partition and clustering, view SQL, labels, expiry, description, freshness and status with error text, field list (path, depth, type, description), "names only" notice. Dataset: location, table count, status, description. Project: dataset count, status and error, Execution project note.
-- Preview is an explicit fetch (`p`). The first press loads 20 rows through `tabledata.list` (free); each further press appends the next 20, up to 1,000, after which the pane says to run a query. Views and external tables show "needs a query". Cells use the results formatting (section 10.4); `J` opens the record view.
+- The schema pane flags `REQUIRED` fields. The catalog stores the mode of top-level columns (`COLUMNS.is_nullable`, excluding `ARRAY` columns, which the view also reports as not nullable), so they are flagged at once and offline. The metadata views carry no mode for nested fields (checked live); those are flagged from the same lazy `tables.get` as the row and byte counts.
+- Preview is an explicit fetch (`p`). The first press loads 20 rows through `tabledata.list` (free); each further press appends the next 20, up to 1,000, after which the pane says to run a query. Views and external tables show "needs a query". Cells use the results formatting (section 10.4); The preview has a row cursor (`ctrl+e` / `ctrl+y`, or the movement keys while zoomed; moving past the last loaded row loads the next page). `J` (or `Enter` on a zoomed preview) opens the record popup for that row: one field per line, nested and JSON values indented, long text wrapped, `n` / `N` for the next and previous loaded row. A row with clipped cells is read again without truncation.
 
 ### 8.5 Navigation
 
@@ -388,6 +389,7 @@ Zones: Explorer, Editor, Results, overlays. Zone switching: `F6` / `shift+F6` cy
 | Explorer | `ctrl+e`, `ctrl+y` | Scroll detail pane |
 | Explorer | `r`, `R`, `gp` | Refresh project, refresh all, sync problems |
 | Explorer | `Enter` | Expand shard family; zoom detail if collapsed |
+| Explorer | `z` | Zoom the detail; zoomed: movement keys scroll it, left/`esc` leave, `P` side by side or stacked, `Enter` record |
 | Explorer | `esc` | Back out one level |
 | Editor | printable keys | Type |
 | Editor | `ctrl+r` | Run selection, or the whole buffer |
