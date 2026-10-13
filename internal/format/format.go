@@ -303,3 +303,40 @@ func Count(n int64) string {
 	}
 	return b.String()
 }
+
+// RowJSON renders formatted cells as one JSON object, columns in schema
+// order. Nested and JSON values, numbers and booleans keep their JSON form;
+// everything else is a string. Pass untruncated cells.
+func RowJSON(cols []api.PreviewColumn, cells []api.Cell) string {
+	var b strings.Builder
+	b.WriteByte('{')
+	for i, c := range cols {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		k, _ := json.Marshal(c.Name)
+		b.Write(k)
+		b.WriteByte(':')
+		var cell api.Cell
+		if i < len(cells) {
+			cell = cells[i]
+		} else {
+			cell.Null = true
+		}
+		switch {
+		case cell.Null:
+			b.WriteString("null")
+		case (c.Mode == "REPEATED" || c.Type == "RECORD" || c.Type == "STRUCT" || c.Type == "JSON") && json.Valid([]byte(cell.Text)):
+			b.WriteString(cell.Text)
+		case (c.Type == "INTEGER" || c.Type == "INT64" || c.Type == "FLOAT" || c.Type == "FLOAT64" || c.Type == "NUMERIC" || c.Type == "BIGNUMERIC") && json.Valid([]byte(cell.Text)):
+			b.WriteString(cell.Text)
+		case (c.Type == "BOOLEAN" || c.Type == "BOOL") && (cell.Text == "true" || cell.Text == "false"):
+			b.WriteString(cell.Text)
+		default:
+			v, _ := json.Marshal(cell.Text)
+			b.Write(v)
+		}
+	}
+	b.WriteByte('}')
+	return b.String()
+}

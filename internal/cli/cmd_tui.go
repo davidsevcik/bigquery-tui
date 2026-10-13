@@ -15,8 +15,17 @@ import (
 // cmdTUI starts the interactive explorer. Logs go to the log file only: the
 // terminal belongs to the UI.
 func cmdTUI(ctx context.Context, o *out, g *globals, args []string) error {
-	if err := parse(commandFlags("tui", g), args); err != nil {
+	fs := commandFlags("tui", g)
+	if err := parse(fs, args); err != nil {
 		return err
+	}
+	file := ""
+	switch fs.NArg() {
+	case 0:
+	case 1:
+		file = fs.Arg(0)
+	default:
+		return usageErr("the UI opens at most one file")
 	}
 	env := o.env
 	if !env.IsTTY(env.Stdout) || !env.IsTTY(env.Stdin) {
@@ -35,13 +44,13 @@ func cmdTUI(ctx context.Context, o *out, g *globals, args []string) error {
 		return usageErr("%v", err)
 	}
 	defer closeLog()
-	eng, err := engine.Open(ctx, engine.Options{Config: cfg, Meta: env.Meta, Now: env.Now, Log: log})
+	eng, err := engine.Open(ctx, engine.Options{Config: cfg, Meta: env.Meta, Now: env.Now, Log: log, Source: "tui"})
 	if err != nil {
 		return err
 	}
 	defer eng.Close()
 
-	m := tui.New(tui.EngineBackend{Engine: eng, Load: g.loadOptions(env)}, tui.Options{Getenv: env.Getenv, Now: env.Now})
+	m := tui.New(tui.EngineBackend{Engine: eng, Load: g.loadOptions(env)}, tui.Options{Getenv: env.Getenv, Now: env.Now, File: file})
 	defer m.Close()
 	if _, err := tea.NewProgram(m, tea.WithContext(ctx)).Run(); err != nil && ctx.Err() == nil {
 		return fmt.Errorf("ui: %w", err)

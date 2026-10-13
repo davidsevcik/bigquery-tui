@@ -91,6 +91,8 @@ func (m *Model) render() []string {
 	bodyH := h - 2
 	var body []string
 	switch {
+	case m.zone != ZoneExplorer && m.ov != ovSearch:
+		body = m.queryBody(w, bodyH)
 	case m.ov == ovSearch:
 		body = m.searchBody(m.search, w, bodyH, " search ▸ ")
 	case m.layout == layoutFlat:
@@ -111,8 +113,19 @@ func (m *Model) render() []string {
 		bw := clamp(w-12, 30, 70)
 		bh := clamp(bodyH-4, 6, 18)
 		body = overlay(body, m.paletteBox(bw, bh), (w-bw)/2, max(0, (bodyH-bh)/3), w)
-	case ovHelp, ovProblems, ovSync, ovRecord:
+	case ovPrompt:
+		bw := clamp(w-8, 30, 90)
+		box := m.promptBox(bw)
+		body = overlay(body, box, (w-bw)/2, max(0, (bodyH-len(box))/3), w)
+	case ovConfirm:
+		bw := clamp(w-8, 30, 80)
+		box := m.confirmBox(bw)
+		body = overlay(body, box, (w-bw)/2, max(0, (bodyH-len(box))/3), w)
+	case ovHelp, ovProblems, ovSync, ovRecord, ovRuns, ovBuffers:
 		bw := clamp(w-6, 30, 96)
+		if m.ov == ovRuns || m.ov == ovBuffers {
+			bw = clamp(w-4, 30, 140)
+		}
 		box := m.infoBox(bw, bodyH-2)
 		body = overlay(body, box, (w-bw)/2, max(0, (bodyH-len(box))/2), w)
 	}
@@ -122,7 +135,19 @@ func (m *Model) render() []string {
 func (m *Model) statusLine(w int) string {
 	cfg := m.be.Config()
 	b := &rb{bg: lipgloss.Color("236")}
-	b.add(" bqt ", sBold).add("exec ", sDim).add(cfg.ExecutionProject, sAcc).add("  "+layoutNames[m.layout], sDim)
+	b.add(" bqt ", sBold).add("exec ", sDim).add(cfg.ExecutionProject, sAcc)
+	if m.zone == ZoneExplorer {
+		b.add("  "+layoutNames[m.layout], sDim)
+	}
+	if pt := pricingText(m.pricing); pt != "" {
+		b.add("  "+pt, sDim)
+	}
+	if act := m.activeRuns(); len(act) > 0 {
+		b.add(fmt.Sprintf("  ▶ %d run(s)", len(act)), sWarn)
+	}
+	if m.exp != nil {
+		b.add(fmt.Sprintf("  export %s/%s rows (ctrl+c cancels)", format.Count(m.expEv.Rows), format.Count(m.expEv.Total)), sWarn)
+	}
 	switch {
 	case m.cfgErr != "":
 		b.add("  config error (using the last good config): "+m.cfgErr, sErr)
@@ -165,7 +190,20 @@ func (m *Model) footerLine(w int) string {
 	case m.ov == ovSearch || m.ov == ovJump:
 		hint = "type to search · ↑↓ select · " + footerHints(ZoneSearch)
 	case m.ov == ovRecord:
-		hint = "n/N next/previous row · j/k scroll · " + footerHints(ZoneOverlay)
+		hint = "n/N next/previous row · j/k scroll · y copy as JSON · " + footerHints(ZoneOverlay)
+	case m.ov == ovRuns:
+		hint = "↑↓ select · enter show the result · c cancel the run · esc close"
+	case m.ov == ovBuffers:
+		hint = "↑↓ select · enter open or restore · esc close"
+	case m.ov == ovPrompt || m.ov == ovConfirm:
+		hint = ""
+	case m.ov == ovNone && m.zone == ZoneEditor:
+		hint = footerHints(ZoneEditor) + " · ctrl+x l runs · " + footerHints(ZoneGlobal)
+		if m.comp.open {
+			hint = "tab accept · ↑↓ select · esc dismiss · enter is a new line"
+		}
+	case m.ov == ovNone && m.zone == ZoneResults:
+		hint = footerHints(ZoneResults) + " · " + footerHints(ZoneGlobal)
 	case m.ov != ovNone:
 		hint = footerHints(ZoneOverlay)
 	case m.zoom:
@@ -880,8 +918,22 @@ func (m *Model) infoBox(bw, maxH int) []string {
 		ttl, lines = "Sync progress", m.syncLines()
 	case ovRecord:
 		ttl, lines = m.recordLines(bw - 2)
+	case ovRuns:
+		ttl, lines = "Runs", m.runsLines(bw-2)
+	case ovBuffers:
+		ttl, lines = "Buffers", m.buffersLines(bw-2)
 	}
 	body := max(1, maxH-2)
+	switch m.ov {
+	case ovRuns:
+		window(m.ovSel, &m.ovOff, len(lines), body)
+	case ovBuffers:
+		at := m.ovSel
+		if at >= len(m.bufs) {
+			at += 2 // the "Restore drafts" heading
+		}
+		window(at, &m.ovOff, len(lines), body)
+	}
 	m.ovOff = clamp(m.ovOff, 0, max(0, len(lines)-body))
 	end := min(len(lines), m.ovOff+body)
 	vis := lines[m.ovOff:end]

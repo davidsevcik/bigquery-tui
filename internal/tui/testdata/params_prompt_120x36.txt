@@ -1,0 +1,36 @@
+ SQL · query 1   4:28
+ 1  -- orders by customer
+ 2  SELECT o.customer_id, SUM(o.amount) AS total
+ 3  FROM `acme-prod.sales.orders` AS o
+ 4  WHERE o.created_at > @since
+~
+~
+~
+~
+~              ╭─ Query parameters ─────────────────────────────────────────────────────────────────────╮
+~              │ @since                                                                          STRING │
+~              │                                                                                        │
+~              │ the type is guessed from the value; force it with a prefix such as STRING:42 · enter   │
+~              │ runs · esc cancels                                                                     │
+~              ╰────────────────────────────────────────────────────────────────────────────────────────╯
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+ Results
+ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimates it
+
+
+ bqt exec acme-exec                                                                              5 datasets · 13 tables
+

@@ -33,4 +33,4 @@
                                                                      │
                                                                      │
  bqt exec acme-exec  flat                                                                        5 datasets · 13 tables
- ↑↓←→/hjkl move · / search · L layout · P panes · ? help · ctrl+p cmds · ctrl+t jump
+ ↑↓←→/hjkl move · / search · L layout · P panes · ? help · F6 zone · ctrl+p cmds · ctrl+t jump

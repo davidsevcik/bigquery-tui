@@ -355,3 +355,46 @@ func TestLearnPricingNeedsALocation(t *testing.T) {
 		t.Fatalf("%+v", c)
 	}
 }
+
+func TestAwaitFollowsARunToItsEnd(t *testing.T) {
+	r := newRig(t)
+	block := make(chan struct{})
+	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.Block = block; return s }
+	run := r.m.Start(context.Background(), Request{SQL: "slow"})
+	var states []api.RunState
+	var v int64
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			var info api.RunInfo
+			info, v = run.Await(context.Background(), v)
+			states = append(states, info.State)
+			if info.State.Finished() {
+				return
+			}
+		}
+	}()
+	until(t, run, api.RunRunning)
+	close(block)
+	<-done
+	if states[len(states)-1] != api.RunDone {
+		t.Fatalf("%v", states)
+	}
+	// after the end it returns at once, and a cancelled context unblocks a waiter
+	if info, _ := run.Await(context.Background(), v); info.State != api.RunDone {
+		t.Fatal("await after the end must not block")
+	}
+	block2 := make(chan struct{})
+	defer close(block2)
+	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.Block = block2; return s }
+	run = r.m.Start(context.Background(), Request{SQL: "slow"})
+	info := until(t, run, api.RunRunning)
+	_ = info
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, cur := run.Await(context.Background(), 0)
+	if got, _ := run.Await(ctx, cur); got.State != api.RunRunning {
+		t.Fatalf("%+v", got)
+	}
+}

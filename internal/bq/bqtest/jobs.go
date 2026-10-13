@@ -2,7 +2,6 @@ package bqtest
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -42,9 +41,14 @@ type fakeJob struct {
 	created   time.Time
 }
 
+// message is an error worded the way BigQuery words it (capitals and all).
+type message string
+
+func (m message) Error() string { return string(m) }
+
 // QueryError builds a query failure the way BigQuery words it, for example
 // QueryError("Syntax error: Unexpected keyword FROM at [1:8]").
-func QueryError(msg string) error { return &bq.Error{Kind: bq.KindOther, Err: errors.New(msg)} }
+func QueryError(msg string) error { return &bq.Error{Kind: bq.KindOther, Err: message(msg)} }
 
 // Numbers is a script whose result has n rows with the columns n and label.
 func Numbers(n int) QueryScript {
@@ -109,7 +113,7 @@ func (f *Fake) StartQuery(ctx context.Context, req bq.QueryRequest) (api.JobRef,
 	defer f.mu.Unlock()
 	f.queries = append(f.queries, QueryCall{req, false})
 	if req.MaxBytesBilled > 0 && s.Bytes > req.MaxBytesBilled {
-		return api.JobRef{}, &bq.Error{Kind: bq.KindOverLimit, Err: fmt.Errorf("Query exceeded limit for bytes billed: %d. %d or higher required.", req.MaxBytesBilled, s.Bytes)}
+		return api.JobRef{}, &bq.Error{Kind: bq.KindOverLimit, Err: message(fmt.Sprintf("Query exceeded limit for bytes billed: %d. %d or higher required.", req.MaxBytesBilled, s.Bytes))}
 	}
 	if f.jobs == nil {
 		f.jobs = map[string]*fakeJob{}
@@ -129,7 +133,7 @@ func (f *Fake) fakeJob(ref api.JobRef) (*fakeJob, error) {
 	defer f.mu.Unlock()
 	j := f.jobs[ref.ID]
 	if j == nil {
-		return nil, &bq.Error{Kind: bq.KindNotFound, Err: errors.New("Not found: Job " + ref.ID)}
+		return nil, &bq.Error{Kind: bq.KindNotFound, Err: message("Not found: Job " + ref.ID)}
 	}
 	return j, nil
 }
@@ -156,7 +160,7 @@ func (f *Fake) WaitJob(ctx context.Context, ref api.JobRef) (bq.JobResult, error
 	}
 	select {
 	case <-j.cancelled:
-		res.Err = &bq.Error{Kind: bq.KindCancelled, Err: errors.New("Job execution was cancelled: User requested cancellation")}
+		res.Err = &bq.Error{Kind: bq.KindCancelled, Err: message("Job execution was cancelled: User requested cancellation")}
 		return res, nil
 	default:
 	}

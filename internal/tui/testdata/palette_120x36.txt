@@ -5,10 +5,10 @@ sales                           4 │T orders                          │ ✓ s
 us_archive                      1 │V v_orders                        │
                          ╭─ Commands ─────────────────────────────────────────────────────────╮
                          │ > sync                                                             │
-                         │ Cancel sync                                                 ctrl+c │
                          │ Show sync problems                                             g p │
                          │ Show sync progress                                             g s │
                          ╰────────────────────────────────────────────────────────────────────╯
+                                  │                                  │
                                   │                                  │
                                   │                                  │
                                   │                                  │

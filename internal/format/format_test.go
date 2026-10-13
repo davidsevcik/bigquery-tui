@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 )
 
@@ -141,5 +142,16 @@ func TestArraySummaryAndNewlines(t *testing.T) {
 	}
 	if _, null := Text(str, nil); !null {
 		t.Fatal("nil is NULL")
+	}
+}
+
+func TestRowJSON(t *testing.T) {
+	cols := []api.PreviewColumn{{Name: "id", Type: "INTEGER"}, {Name: "s", Type: "STRING"}, {Name: "ok", Type: "BOOLEAN"},
+		{Name: "a", Type: "RECORD"}, {Name: "tags", Type: "STRING", Mode: "REPEATED"}, {Name: "n", Type: "NUMERIC"}, {Name: "gone", Type: "STRING"}}
+	cells := []api.Cell{{Text: "9007199254740993"}, {Text: `say "hi"`}, {Text: "true"}, {Text: `{"city":"Brno"}`}, {Text: `["x"]`}, {Null: true}}
+	got := RowJSON(cols, cells)
+	want := `{"id":9007199254740993,"s":"say \"hi\"","ok":true,"a":{"city":"Brno"},"tags":["x"],"n":null,"gone":null}`
+	if got != want {
+		t.Fatalf("\n got %s\nwant %s", got, want)
 	}
 }

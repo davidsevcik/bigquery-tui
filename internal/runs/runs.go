@@ -249,10 +249,11 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 	m.mu.Lock()
 	m.seq++
 	r := &Run{m: m, id: m.seq, ctx: rctx, stop: cancel, confirm: make(chan struct{}), done: make(chan struct{}),
-		pages: map[int64]*bq.ResultPage{}}
+		changed: make(chan struct{}), pages: map[int64]*bq.ResultPage{}}
 	r.info = api.RunInfo{ID: r.id, Tag: req.Tag, SQL: req.SQL, Params: append([]api.QueryParam(nil), req.Params...),
 		State: api.RunEstimating, DryRunOnly: req.DryRunOnly, Source: m.o.Source,
 		ExecutionProject: cfg.ExecutionProject, Location: cfg.Location, Created: m.o.Now()}
+	r.version = 1
 	closed := m.closed
 	m.runs = append(m.runs, r)
 	m.mu.Unlock()
@@ -276,6 +277,9 @@ type Run struct {
 
 	mu        sync.Mutex
 	info      api.RunInfo
+	version   int64
+	changed   chan struct{} // closed and replaced on every change
+	final     bool          // the end state is published (and recorded)
 	confirmed bool
 	jobs      bq.Jobs
 	schema    []bq.Field
@@ -302,25 +306,60 @@ func (r *Run) Wait() api.RunInfo {
 // Done is closed when the Run has finished.
 func (r *Run) Done() <-chan struct{} { return r.done }
 
+// bump marks a change; the caller holds r.mu.
+func (r *Run) bump() {
+	r.version++
+	close(r.changed)
+	r.changed = make(chan struct{})
+}
+
+// Await blocks until the Run has changed since version after (0 returns the
+// current state at once), and returns the snapshot with its version. It also
+// returns when ctx ends. Calling it in a loop follows the Run without missing
+// its final state.
+func (r *Run) Await(ctx context.Context, after int64) (api.RunInfo, int64) {
+	for {
+		r.mu.Lock()
+		info, v, ch, final := r.info, r.version, r.changed, r.final
+		r.mu.Unlock()
+		if v > after || final {
+			return info, v
+		}
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return info, v
+		}
+	}
+}
+
 func (r *Run) set(fn func(*api.RunInfo)) {
 	r.mu.Lock()
 	fn(&r.info)
+	r.bump()
 	info := r.info
 	r.mu.Unlock()
 	r.m.publish(info)
 }
 
+// finish publishes the end state. The History entry is written first, so
+// whoever sees a finished Run can rely on the entry being there.
 func (r *Run) finish(fn func(*api.RunInfo)) {
 	now := r.m.o.Now()
 	r.mu.Lock()
-	fn(&r.info)
-	r.info.Ended = &now
-	r.info.Confirmation = nil
 	info := r.info
+	fn(&info)
+	info.Ended = &now
+	info.Confirmation = nil
 	r.mu.Unlock()
 	if info.Job != nil && r.m.o.Record != nil {
 		r.m.o.Record(info)
 	}
+	r.mu.Lock()
+	r.info = info
+	r.final = true
+	r.bump()
+	r.mu.Unlock()
 	r.stop()
 	r.m.publish(info)
 	close(r.done)
@@ -348,6 +387,9 @@ func (r *Run) Cancel() {
 	if state == api.RunRunning && job != nil && jobs != nil {
 		already := r.info.CancelRequested
 		r.info.CancelRequested = true
+		if !already {
+			r.bump()
+		}
 		info := r.info
 		r.mu.Unlock()
 		if already {

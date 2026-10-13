@@ -1,0 +1,20 @@
+ SQL · query 1   4:11
+ 1  -- orders by customer
+ 2  SELECT o.customer_id, SUM(o.amount) AS total
+ 3  FROM `acme-prod.sales.orders` AS o
+ 4  WHERE o.cr
+~            c created_at TIMESTAMP
+~
+~
+~
+~
+~
+~
+~
+~
+ Results
+ no run yet: ctrl+r runs the buffer (or the selection), ctr…
+
+
+ bqt exec acme-exec                  5 datasets · 13 tables
+ tab accept · ↑↓ select · esc dismiss · enter is a new line
