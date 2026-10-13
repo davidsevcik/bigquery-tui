@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 
 	"modernc.org/sqlite"
 	_ "modernc.org/sqlite" // registers the "sqlite" driver
@@ -28,7 +29,13 @@ func dsn(path string, readOnly bool) string {
 	if readOnly {
 		q.Set("mode", "ro")
 	}
-	return "file:" + path + "?" + q.Encode()
+	// The path must be escaped: SQLite parses the DSN as a URI, so a raw '#',
+	// '?' or '%' in data_dir would silently change which file is opened.
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	u := url.URL{Scheme: "file", Path: path, RawQuery: q.Encode()}
+	return u.String()
 }
 
 func openDB(path string, readOnly bool) (*sql.DB, error) {

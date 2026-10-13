@@ -118,6 +118,9 @@ type SearchOptions struct {
 	// AllWhenEmpty lists the whole (scoped) catalog for an empty query
 	// instead of the recently opened tables.
 	AllWhenEmpty bool `json:"all_when_empty,omitempty"`
+	// ExpandShards lists shard-family members individually instead of
+	// collapsing them into one family result.
+	ExpandShards bool `json:"expand_shards,omitempty"`
 }
 
 // SearchResponse is a page of results.

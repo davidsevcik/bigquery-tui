@@ -208,13 +208,20 @@ func (w *Watcher) Changed(ctx context.Context) (bool, error) {
 // Close releases the pinned connection.
 func (w *Watcher) Close() error { return w.conn.Close() }
 
-// TableByID returns the full stored metadata of a table, with its columns.
+// TableByID returns the full stored metadata of a table with its columns,
+// read in one transaction so a sync committing in between cannot mix an old
+// row with new columns.
 func (c *Catalog) TableByID(ctx context.Context, id int64) (api.TableMeta, error) {
 	var t api.TableMeta
+	tx, err := c.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return t, err
+	}
+	defer tx.Rollback()
 	var typ, labels, sp, sf, sl string
 	var created, expires int64
 	var names, sc int
-	err := c.db.QueryRowContext(ctx, `SELECT d.name, t.name, t.type, t.created_at, t.description, t.labels, t.expires_at, t.view_sql, t.names_only,
+	err = tx.QueryRowContext(ctx, `SELECT d.name, t.name, t.type, t.created_at, t.description, t.labels, t.expires_at, t.view_sql, t.names_only,
  t.shard_prefix, t.shard_first, t.shard_last, t.shard_count
 FROM tables t JOIN datasets d ON d.id = t.dataset_id WHERE t.id = ?`, id).
 		Scan(&t.Dataset, &t.Name, &typ, &created, &t.Description, &labels, &expires, &t.ViewSQL, &names, &sp, &sf, &sl, &sc)
@@ -232,6 +239,20 @@ FROM tables t JOIN datasets d ON d.id = t.dataset_id WHERE t.id = ?`, id).
 	if sc > 0 {
 		t.Shard = &api.ShardFamily{Prefix: sp, First: sf, Last: sl, Count: sc}
 	}
-	t.Columns, err = c.ColumnsByTableID(ctx, id)
-	return t, err
+	rows, err := tx.QueryContext(ctx, `SELECT field_path, ordinal, data_type, description, partitioning, clustering_ordinal
+FROM columns WHERE table_id = ? ORDER BY id`, id)
+	if err != nil {
+		return t, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cm api.ColumnMeta
+		var part int
+		if err := rows.Scan(&cm.FieldPath, &cm.Ordinal, &cm.DataType, &cm.Description, &part, &cm.ClusteringOrdinal); err != nil {
+			return t, err
+		}
+		cm.Partitioning = part != 0
+		t.Columns = append(t.Columns, cm)
+	}
+	return t, rows.Err()
 }

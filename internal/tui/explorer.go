@@ -305,8 +305,12 @@ func (m *Model) right() tea.Cmd {
 			m.treeBuild()
 			return nil
 		}
-		if expandable && t.cur+1 < len(t.rows) && t.rows[t.cur+1].depth > t.rows[t.cur].depth {
-			t.cur++
+		if expandable {
+			// already open: step into the first child, if there is one (an empty
+			// project or dataset has none, and must not recurse through open)
+			if t.cur+1 < len(t.rows) && t.rows[t.cur+1].depth > t.rows[t.cur].depth {
+				t.cur++
+			}
 			return nil
 		}
 		return m.open()
@@ -322,10 +326,18 @@ func (m *Model) open() tea.Cmd {
 	s := m.sel()
 	switch s.kind {
 	case api.KindProject, api.KindDataset:
-		if m.layout == layoutFlat {
+		switch m.layout {
+		case layoutFlat:
 			return m.reveal(s.path, s.kind)
+		case layoutTree:
+			m.tree.open[openKey(s.node)] = !m.tree.open[openKey(s.node)]
+			m.treeBuild()
+			return nil
 		}
-		return m.right()
+		if m.mil.col < 2 && len(m.mil.cols[m.mil.col+1]) > 0 {
+			m.mil.col++
+		}
+		return nil
 	case api.KindShards:
 		switch m.layout {
 		case layoutMiller:
@@ -343,7 +355,8 @@ func (m *Model) open() tea.Cmd {
 			m.treeBuild()
 		case layoutFlat:
 			m.flat.in.set("d:" + s.path.Dataset + " p:" + s.path.Project + " " + strings.TrimSuffix(s.path.Table, "YYYYMMDD"))
-			m.flat.expand = true
+			m.flat.expand, m.flat.expandShards = true, true
+			m.flat.cur, m.flat.off = 0, 0
 			return m.runSearch(m.flat)
 		}
 	case api.KindTable:

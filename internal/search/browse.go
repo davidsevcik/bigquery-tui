@@ -184,10 +184,10 @@ type TableRef struct {
 // it returns the newest member.
 func (s *Searcher) Lookup(p api.ObjectPath) (TableRef, bool) {
 	x := s.Index()
-	ti, ok := x.byPath[strings.ToLower(p.String())]
+	ti, ok := x.byPath[p.String()]
 	if !ok && strings.HasSuffix(p.Table, "YYYYMMDD") {
 		if m := s.ShardMembers(p.Project, p.Dataset, strings.TrimSuffix(p.Table, "YYYYMMDD")); len(m) > 0 {
-			ti, ok = x.byPath[strings.ToLower(m[0].Path.String())]
+			ti, ok = x.byPath[m[0].Path.String()]
 		}
 	}
 	if !ok {

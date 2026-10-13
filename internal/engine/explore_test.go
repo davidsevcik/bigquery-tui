@@ -235,3 +235,75 @@ func TestSetConfigChangesTTL(t *testing.T) {
 		t.Fatal("stale once the TTL drops to 1h")
 	}
 }
+
+func TestAutoRefreshNeverSyncsNewlyAddedProjects(t *testing.T) {
+	e := newEnv(t, `["proj-a"]`)
+	eng := e.openWithTables(false)
+	h, _ := eng.AutoRefresh(ctx)
+	h.Wait()
+	// the user adds a project; the catalog goes stale as well
+	cfg, _ := config.Parse([]byte("execution_project = \"exec-proj\"\ndata_dir = \""+e.dir+"\"\nprojects = [\"proj-a\", \"proj-b\"]\n"), "t.toml", config.LoadOptions{})
+	eng.SetConfig(cfg)
+	if _, _, err := eng.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	e.fake.Calls = nil
+	if h, err := eng.AutoRefresh(ctx); err != nil || h != nil {
+		t.Fatalf("a config change alone must not sync: %v %v", h, err)
+	}
+	e.now = e.now.Add(25 * time.Hour)
+	h, err := eng.AutoRefresh(ctx)
+	if err != nil || h == nil {
+		t.Fatalf("%v %v", h, err)
+	}
+	h.Wait()
+	for _, c := range e.fake.CallsTo("ListDatasets") {
+		if c.Project == "proj-b" {
+			t.Fatal("the added project must wait for an explicit sync")
+		}
+	}
+	if st, _ := eng.Status(ctx); !st.SyncNeeded {
+		t.Fatal("the banner must stay until the user syncs")
+	}
+}
+
+func TestUnreadSyncEventsDoNotLeakThePump(t *testing.T) {
+	e := newEnv(t, `["proj-a", "proj-b"]`)
+	eng := e.openWithTables(false)
+	h, _ := eng.StartSync(ctx, api.SyncScope{})
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case _, ok := <-h.Events():
+		if ok {
+			// a queued event may still be handed over; the channel must then close
+			for range h.Events() {
+			}
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the event channel must close once Wait has returned")
+	}
+}
+
+func TestOperationsAfterCloseFailCleanly(t *testing.T) {
+	e := newEnv(t, `["proj-a"]`)
+	eng := e.openWithTables(false)
+	eng.Close()
+	if err := eng.TouchRecent(ctx, api.ObjectPath{Project: "p", Dataset: "d", Table: "t"}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestDetailRejectsAStaleIndexEntry(t *testing.T) {
+	e, eng := synced(t, `["proj-a"]`)
+	// the table disappears from BigQuery and the catalog, but this engine's
+	// index is deliberately left stale
+	e.fake.Projects["proj-a"].Datasets[1].Tables = nil
+	other := e.openWithTables(false)
+	h, _ := other.StartSync(ctx, api.SyncScope{})
+	h.Wait()
+	if _, err := eng.TableDetail(ctx, api.ObjectPath{Project: "proj-a", Dataset: "us_data", Table: "u1"}); !errors.Is(err, ErrUnknownTable) {
+		t.Fatalf("%v", err)
+	}
+}

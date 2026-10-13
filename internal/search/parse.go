@@ -40,7 +40,8 @@ func Parse(raw string) api.ParsedQuery {
 	}
 	// A single pasted `project.dataset.table` is an exact path lookup.
 	if len(q.Terms) == 1 && len(q.Filters) == 0 {
-		if p, ok := SplitPath(q.Terms[0].Text); ok {
+		// from the raw text: the path keeps its case (identity is case-sensitive)
+		if p, ok := SplitPath(strings.Trim(raw[q.Terms[0].Span.Start:q.Terms[0].Span.End], `"`)); ok {
 			q.Path = &p
 		}
 	}

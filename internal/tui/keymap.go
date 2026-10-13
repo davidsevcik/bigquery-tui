@@ -52,7 +52,7 @@ var Keymap = []Binding{
 	{ZoneExplorer, []string{":"}, "palette", "command palette", "", ""},
 	{ZoneExplorer, []string{"L"}, "layout", "cycle layout: Miller columns, tree, flat list", "Cycle layout", "L layout"},
 	{ZoneExplorer, []string{"P"}, "panes", "detail pane: auto, right, bottom, hidden", "Cycle detail pane placement", "P panes"},
-	{ZoneExplorer, []string{"tab"}, "tab", "switch schema / preview when only one fits", "", ""},
+	{ZoneExplorer, []string{"tab"}, "tab", "switch between schema and preview (the pane that ctrl+e / ctrl+y scroll)", "", ""},
 	{ZoneExplorer, []string{"z"}, "zoom", "zoom the detail pane", "Zoom detail pane", ""},
 	{ZoneExplorer, []string{"ctrl+e"}, "detaildown", "scroll the detail pane down", "", ""},
 	{ZoneExplorer, []string{"ctrl+y"}, "detailup", "scroll the detail pane up", "", ""},

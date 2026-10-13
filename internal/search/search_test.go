@@ -390,3 +390,36 @@ func TestBrowse(t *testing.T) {
 		t.Fatal("unknown dataset")
 	}
 }
+
+func TestCaseSensitiveIdentity(t *testing.T) {
+	f := newFixture()
+	f.dataset("p", "d", "EU", "")
+	upper := f.table("p", "d", "Orders", api.TypeTable, "upper", "a")
+	lower := f.table("p", "d", "orders", api.TypeTable, "lower", "b")
+	s := f.searcher()
+	u, ok := s.Lookup(api.ObjectPath{Project: "p", Dataset: "d", Table: "Orders"})
+	l, ok2 := s.Lookup(api.ObjectPath{Project: "p", Dataset: "d", Table: "orders"})
+	if !ok || !ok2 || u.ID != upper.ID || l.ID != lower.ID {
+		t.Fatalf("names differing only in case are different tables: %+v %+v", u, l)
+	}
+	// an exact pasted path picks exactly that table
+	r, _ := s.Search(ctx, "p.d.Orders", api.SearchOptions{})
+	if len(r.Results) != 1 || r.Results[0].Path.Table != "Orders" {
+		t.Fatalf("%+v", r.Results)
+	}
+	// a wrongly cased path is ambiguous here, so it falls back to a term search
+	r, _ = s.Search(ctx, "p.d.ORDERS", api.SearchOptions{})
+	for _, x := range r.Results {
+		if x.Tier == "exact" && x.MatchedField == "name" && len(r.Results) == 1 {
+			t.Fatalf("ambiguous case-insensitive path must not pick one silently: %+v", r.Results)
+		}
+	}
+}
+
+func TestExpandShardsOption(t *testing.T) {
+	s := standard().searcher()
+	r, _ := s.Search(ctx, "d:events events_", api.SearchOptions{TablesOnly: true, ExpandShards: true})
+	if len(r.Results) != 3 || r.Results[0].Kind != api.KindTable {
+		t.Fatalf("%+v", r.Results)
+	}
+}

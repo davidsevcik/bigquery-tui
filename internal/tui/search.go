@@ -25,8 +25,11 @@ type searchState struct {
 	all        bool // list everything for an empty query (flat layout)
 	scope      *api.ObjectPath
 	expand     bool // next result set replaces a shard family: keep the cursor at the top
-	wantEnd    bool
-	pending    *api.ObjectPath // select this path once results arrive
+	// expandShards lists shard members individually. It is set when a family
+	// is opened in the flat layout and cleared as soon as the filter is edited.
+	expandShards bool
+	wantEnd      bool
+	pending      *api.ObjectPath // select this path once results arrive
 
 	seq    int
 	cancel context.CancelFunc
@@ -46,7 +49,7 @@ func (st *searchState) move(d int) {
 }
 
 func (st *searchState) options(limit, offset int) api.SearchOptions {
-	return api.SearchOptions{Limit: limit, Offset: offset, TablesOnly: st.tablesOnly, AllWhenEmpty: st.all, Scope: st.scope}
+	return api.SearchOptions{Limit: limit, Offset: offset, TablesOnly: st.tablesOnly, AllWhenEmpty: st.all, Scope: st.scope, ExpandShards: st.expandShards}
 }
 
 // runSearch starts an asynchronous search for the state's current input,
@@ -138,10 +141,10 @@ func (m *Model) searchKey(st *searchState, msg tea.KeyPressMsg, name string) tea
 			st.move(-half)
 			return nil
 		case "detaildown":
-			m.detOff++
+			m.scrollDetail(1)
 			return nil
 		case "detailup":
-			m.detOff = max(0, m.detOff-1)
+			m.scrollDetail(-1)
 			return nil
 		case "back":
 			if st == m.flat {
@@ -168,6 +171,7 @@ func (m *Model) searchKey(st *searchState, msg tea.KeyPressMsg, name string) tea
 	}
 	if st.in.handle(msg) {
 		st.cur, st.off = 0, 0
+		st.expandShards = false
 		return m.runSearch(st)
 	}
 	return nil

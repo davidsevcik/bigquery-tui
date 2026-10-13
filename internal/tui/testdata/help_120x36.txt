@@ -22,7 +22,7 @@ us_archive  │ ctrl+p          command palette                                 
             │ :               command palette                                                              │
             │ L               cycle layout: Miller columns, tree, flat list                                │
             │ P               detail pane: auto, right, bottom, hidden                                     │
-            │ tab             switch schema / preview when only one fits                                   │
+            │ tab             switch between schema and preview (the pane that ctrl+e / ctrl+y scroll)     │
             │ z               zoom the detail pane                                                         │
             │ ctrl+e          scroll the detail pane down                                                  │
             │ ctrl+y          scroll the detail pane up                                                    │

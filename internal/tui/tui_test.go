@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -366,4 +367,89 @@ func TestQuitAndCancelKeys(t *testing.T) {
 func TestTinyTerminal(t *testing.T) {
 	r := newRig(t, 10, 3)
 	r.contains("larger terminal")
+}
+
+func TestEnterOnEmptyContainersInTreeDoesNotRecurse(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.fake.AddProject("acme-empty")
+	src := "execution_project = \"acme-exec\"\ndata_dir = \"" + r.dir + "/data\"\nprojects = [\"acme-empty\", \"acme-prod\", \"acme-staging\"]\n"
+	os.WriteFile(r.cfg, []byte(src), 0o600)
+	cfg, err := config.Load(config.LoadOptions{Path: r.cfg, Getenv: func(string) string { return "" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := make(chan config.Event)
+	close(closed)
+	r.send(configWait{ev: config.Event{Config: cfg, Changed: []string{"projects"}}, ch: closed})
+	r.press("L") // tree
+	r.press("g", "g")
+	if r.m.sel().path.Project != "acme-empty" {
+		t.Fatalf("precondition: %+v", r.m.sel().path)
+	}
+	r.press("enter", "enter", "l", "l", "enter") // used to overflow the stack
+	r.press("L", "g", "g", "enter", "l")         // Miller: an empty project has no next column
+	if r.m.mil.col != 0 {
+		t.Fatalf("col %d", r.m.mil.col)
+	}
+}
+
+func TestFlatLayoutExpandsShardFamilies(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.press("L", "L", "/", "events_", "enter")
+	if s := r.m.sel(); s.kind != api.KindShards {
+		t.Fatalf("precondition: %+v", s)
+	}
+	r.press("enter")
+	if s := r.m.sel(); s.kind != api.KindTable || !strings.HasPrefix(s.path.Table, "events_2024") {
+		t.Fatalf("enter lists the shards: %+v", s)
+	}
+	r.contains("1/4")
+	r.press("esc") // back to the unfiltered, collapsed list
+	r.contains("events_YYYYMMDD", "1/10")
+}
+
+func TestFlatLayoutRestoredAtStartupIsNotEmpty(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.press("L", "L") // saves "flat"
+	m2 := New(r.m.be, Options{NoBackground: true, StableOutput: true, Now: func() time.Time { return r.now }})
+	defer m2.Close()
+	r2 := &rig{t: t, m: m2, fake: r.fake, now: r.now}
+	r2.send(tea.WindowSizeMsg{Width: 120, Height: 30})
+	r2.run(m2.Init())
+	r2.contains("filter ▸", "1/10", "customers")
+}
+
+func TestPreviewContinuesAfterAShortPage(t *testing.T) {
+	r := newRig(t, 120, 40)
+	r.press("l", "j", "j", "l", "j", "j")
+	key := r.m.sel().detailKey()
+	// BigQuery returned only 7 of the 20 requested rows (wide rows), 45 exist
+	page := api.PreviewPage{Columns: []api.PreviewColumn{{Name: "id"}}, TotalRows: 45}
+	for i := 0; i < 7; i++ {
+		page.Rows = append(page.Rows, []api.Cell{{Text: "x"}})
+	}
+	r.send(previewMsg{key: key, page: page})
+	if r.m.details[key].prevEnd {
+		t.Fatal("a short page is not the end while the total says more rows exist")
+	}
+	r.contains("7 of 45 rows", "p loads more")
+}
+
+func TestPreviewScrollsIndependentlyOfTheSchema(t *testing.T) {
+	r := newRig(t, 120, 30) // schema and preview both visible, preview is short
+	r.press("l", "j", "j", "l", "j", "j", "p", "p", "p")
+	r.contains("45 of 45 rows")
+	first := r.screen()
+	for i := 0; i < 30; i++ {
+		r.press("ctrl+e")
+	}
+	if r.m.prevOff == 0 {
+		t.Fatal("ctrl+e must scroll the preview after p focused it")
+	}
+	if r.screen() == first {
+		t.Fatal("the preview did not move")
+	}
+	if r.m.detOff != 0 {
+		t.Fatal("the schema keeps its own offset")
+	}
 }

@@ -104,6 +104,14 @@ type Catalog struct {
 // OpenCatalog opens (creating if needed) the catalog for writing. A schema
 // version mismatch or a corrupt file recreates it; Recreated reports why.
 func OpenCatalog(path string) (*Catalog, error) {
+	// Creating or recreating the file must not interleave with another
+	// process doing the same (two first launches at once), so the whole
+	// check-and-create sequence runs under a blocking init lock.
+	unlock, err := lockBlocking(path + ".init.lock")
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	reason := ""
 	if fileExists(path) {
 		db, err := openDB(path, false)
@@ -712,7 +720,10 @@ func (c *Catalog) Prune(ctx context.Context, allowed map[string]bool, ignored fu
 	}
 	rows.Close()
 	for _, p := range projects {
-		if !allowed[p.name] || ignored(p.name, "", "") {
+		// Only the allowlist removes a whole project. An ignored project can
+		// still hold re-included datasets ("p", "!p.keep"), so ignore rules are
+		// applied per dataset and per table, exactly as sync applies them.
+		if !allowed[p.name] {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", p.id); err != nil {
 				return st, err
 			}

@@ -557,3 +557,23 @@ func TestShardAssign(t *testing.T) {
 		t.Fatal("tables and views do not share a family")
 	}
 }
+
+func TestUnreachableLocationKeepsItsData(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a"]`)
+	twoProjectFake(h.fake)
+	h.run(api.SyncScope{})
+	before := h.counts()
+	// BigQuery cannot reach the US location: datasets.list omits it and says so
+	p := h.fake.Projects["proj-a"]
+	p.Datasets = p.Datasets[:2]
+	p.Unreachable = []string{"us"}
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	if h.counts() != before {
+		t.Fatalf("a skipped location must keep its cached data: %+v -> %+v", before, h.counts())
+	}
+	locs, _ := h.cat.Locations(ctx, "proj-a")
+	if len(locs) != 2 {
+		t.Fatalf("%v", locs)
+	}
+}

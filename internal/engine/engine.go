@@ -23,6 +23,9 @@ import (
 // ErrSyncRunning is returned when another process holds the sync lock.
 var ErrSyncRunning = errors.New("a sync is already running (in another bqt process)")
 
+// ErrClosed is returned by operations that outlive Close.
+var ErrClosed = errors.New("engine is closed")
+
 // ErrReadOnly is returned when a write operation is attempted on a read-only engine.
 var ErrReadOnly = errors.New("engine was opened read-only")
 
@@ -63,6 +66,7 @@ type Engine struct {
 	stats    map[string]statsEntry
 	infos    map[string]bq.TableInfo
 	closers  []func() error
+	closed   bool
 }
 
 // Open prepares the engine. In read-write mode it creates the data directory
@@ -125,6 +129,9 @@ func (e *Engine) Catalog() *store.Catalog { return e.catalog }
 func (e *Engine) History() (*store.History, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.closed {
+		return nil, ErrClosed
+	}
 	if e.history != nil {
 		return e.history, nil
 	}
@@ -141,6 +148,10 @@ func (e *Engine) History() (*store.History, error) {
 
 // Close releases every resource.
 func (e *Engine) Close() error {
+	// Operations still running (a late TouchRecent, a client being built) set
+	// these fields under e.mu, so Close takes it too.
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	var errs []error
 	if e.catalog != nil {
 		errs = append(errs, e.catalog.Close())
@@ -154,6 +165,7 @@ func (e *Engine) Close() error {
 	if e.client != nil {
 		errs = append(errs, e.client.Close())
 	}
+	e.history, e.client, e.closers, e.closed = nil, nil, nil, true
 	return errors.Join(errs...)
 }
 
@@ -177,6 +189,9 @@ func (e *Engine) realClient(ctx context.Context) (*bq.Client, error) {
 	exec := e.Config().ExecutionProject
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.closed {
+		return nil, ErrClosed
+	}
 	if e.client != nil && e.clientOf == exec {
 		return e.client, nil
 	}
@@ -296,17 +311,21 @@ type SyncHandle struct {
 	out    chan api.SyncEvent
 	done   chan struct{}
 
-	mu    gosync.Mutex
-	queue []api.SyncEvent
-	wake  chan struct{}
-	end   bool
+	mu      gosync.Mutex
+	queue   []api.SyncEvent
+	wake    chan struct{}
+	end     bool
+	abandon chan struct{} // closed by Wait: nobody will read further events
+	once    gosync.Once
 
 	result api.SyncResult
 	err    error
 }
 
 // Events streams the sync's events. The channel is closed after the last event.
-// Reading it is optional: events queue internally.
+// Reading it is optional: events queue internally, and events still unread
+// when Wait returns are dropped (read Events to the end first if you want them
+// all).
 func (h *SyncHandle) Events() <-chan api.SyncEvent { return h.out }
 
 // Cancel requests cancellation. Committed units stay; in-flight units roll back.
@@ -315,6 +334,7 @@ func (h *SyncHandle) Cancel() { h.cancel() }
 // Wait blocks until the sync has finished and returns its result.
 func (h *SyncHandle) Wait() (api.SyncResult, error) {
 	<-h.done
+	h.once.Do(func() { close(h.abandon) }) // release the pump if nobody reads
 	return h.result, h.err
 }
 
@@ -341,13 +361,21 @@ func (h *SyncHandle) pump() {
 		ended := h.end
 		h.mu.Unlock()
 		if next != nil {
-			h.out <- *next
+			select {
+			case h.out <- *next:
+			case <-h.abandon:
+				return
+			}
 			continue
 		}
 		if ended {
 			return
 		}
-		<-h.wake
+		select {
+		case <-h.wake:
+		case <-h.abandon:
+			return
+		}
 	}
 }
 
@@ -386,7 +414,7 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 		return nil, err
 	}
 	rctx, cancel := context.WithCancel(ctx)
-	h := &SyncHandle{cancel: cancel, out: make(chan api.SyncEvent), done: make(chan struct{}), wake: make(chan struct{}, 1)}
+	h := &SyncHandle{cancel: cancel, out: make(chan api.SyncEvent), done: make(chan struct{}), wake: make(chan struct{}, 1), abandon: make(chan struct{})}
 	go h.pump()
 	s := catsync.New(catsync.Options{
 		Config: cfg, Meta: md, Catalog: e.catalog, Now: e.o.Now, Log: e.o.Log,

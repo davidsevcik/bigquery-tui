@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"sort"
@@ -115,8 +116,16 @@ func (e *Engine) TableDetail(ctx context.Context, p api.ObjectPath) (api.TableDe
 		return api.TableDetail{}, ErrUnknownTable
 	}
 	t, err := e.catalog.TableByID(ctx, ref.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return api.TableDetail{}, ErrUnknownTable
+	}
 	if err != nil {
 		return api.TableDetail{}, err
+	}
+	// The index can be a moment older than the catalog; a deleted table's row
+	// id may already belong to another table.
+	if t.Name != ref.Path.Table || t.Dataset != ref.Path.Dataset {
+		return api.TableDetail{}, ErrUnknownTable
 	}
 	d := api.TableDetail{Path: ref.Path, Table: t, Location: ref.Location, NamesOnly: ref.NamesOnly, Shard: t.Shard, Stale: true}
 	if u, ok := e.search.Unit(ref.Path.Project, ref.Location); ok {
@@ -253,6 +262,14 @@ func (e *Engine) WatchCatalog(ctx context.Context, interval time.Duration) <-cha
 					continue
 				}
 				w = nw
+				// Anything committed between Open loading the index and this
+				// baseline would otherwise go unnoticed: reload once now.
+				if err := e.ReloadIndex(ctx); err == nil {
+					select {
+					case out <- struct{}{}:
+					default:
+					}
+				}
 				continue
 			}
 			changed, err := w.Changed(ctx)
@@ -312,15 +329,18 @@ func (e *Engine) AutoRefresh(ctx context.Context) (*SyncHandle, error) {
 	var scope api.SyncScope
 	if st.Tables+st.Datasets > 0 || len(st.Projects) == 0 {
 		for _, p := range st.Projects {
-			if p.Stale {
+			// A project with no sync state at all was added to the config
+			// after the catalog was built. That is a config change, which is
+			// never synced automatically: the user sees "sync needed".
+			if p.Stale && len(p.Units) > 0 {
 				scope.Projects = append(scope.Projects, p.Project)
 			}
 		}
 		if len(scope.Projects) == 0 {
 			return nil, nil
 		}
-		if len(scope.Projects) == len(st.Projects) {
-			scope.Projects = nil // everything: a full sync also clears "sync needed"
+		if len(scope.Projects) == len(st.Projects) && !st.SyncNeeded {
+			scope.Projects = nil // everything: a full sync
 		}
 	}
 	h, err := e.StartSync(ctx, scope)

@@ -293,8 +293,10 @@ func (s *Syncer) discover(ctx context.Context, project string, r *run) discovery
 	}
 
 	// Locations the catalog knows but BigQuery no longer lists for this project.
+	// When BigQuery reports unreachable locations the listing is incomplete:
+	// a missing location may only be skipped, so nothing is removed.
 	known, err := s.o.Catalog.Locations(ctx, project)
-	if err == nil {
+	if err == nil && len(list.Unreachable) == 0 {
 		for _, l := range known {
 			if _, ok := byLoc[l]; !ok {
 				if err := s.o.Catalog.RemoveUnit(ctx, api.UnitRef{Project: project, Location: l}); err != nil {

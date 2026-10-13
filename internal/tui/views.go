@@ -500,7 +500,8 @@ func (m *Model) paneTitle(w, which int, tabs bool, name string) string {
 		if which == 1 {
 			lbl = " Preview "
 		}
-		return title(lbl+"· "+name, w, m.zoom)
+		// the highlighted title is the pane ctrl+e / ctrl+y scroll
+		return title(lbl+"· "+name, w, which == m.tab)
 	}
 	act := lipgloss.NewStyle().Background(lipgloss.Color("60")).Foreground(lipgloss.Color("255")).Bold(true)
 	a, b := " Schema ", " Preview "
@@ -769,7 +770,8 @@ func (m *Model) previewPane(s selection, w, h int, tabs bool) []string {
 		}
 		add(hb.String())
 		body := h - 3
-		start := clamp(m.detOff, 0, max(0, len(p.Rows)-body))
+		m.prevOff = clamp(m.prevOff, 0, max(0, len(p.Rows)-body))
+		start := m.prevOff
 		for ri := start; ri < len(p.Rows) && len(out) < h-1; ri++ {
 			var sb strings.Builder
 			sb.WriteString(" ")

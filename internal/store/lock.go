@@ -45,3 +45,20 @@ func (l *Lock) Unlock() error {
 	l.f = nil
 	return err
 }
+
+// lockBlocking takes an exclusive advisory lock, waiting for it, and returns
+// the function that releases it.
+func lockBlocking(path string) (func(), error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open lockfile: %w", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("flock: %w", err)
+	}
+	return func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}, nil
+}

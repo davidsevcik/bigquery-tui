@@ -42,7 +42,8 @@ type Index struct {
 	datasets []dsEntry
 	tables   []tableEntry
 	units    map[api.UnitRef]api.UnitState
-	byPath   map[string]int // lower-case project.dataset.table -> table index
+	byPath   map[string]int // exact project.dataset.table -> table index
+	byPathLC map[string]int // lower-case path -> table index, -1 when ambiguous
 	byID     map[int64]int
 }
 
@@ -54,7 +55,7 @@ func (x *Index) Size() (datasets, tables int) { return len(x.datasets), len(x.ta
 
 // BuildIndex turns a catalog snapshot into an Index.
 func BuildIndex(snap *store.IndexSnapshot) *Index {
-	x := &Index{units: map[api.UnitRef]api.UnitState{}, byPath: map[string]int{}, byID: map[int64]int{}}
+	x := &Index{units: map[api.UnitRef]api.UnitState{}, byPath: map[string]int{}, byPathLC: map[string]int{}, byID: map[int64]int{}}
 	pi := map[string]int{}
 	for _, p := range snap.Projects {
 		pi[p] = len(x.projects)
@@ -87,12 +88,32 @@ func BuildIndex(snap *store.IndexSnapshot) *Index {
 		x.tables = append(x.tables, e)
 		x.byID[t.ID] = idx
 		de := &x.datasets[d]
-		x.byPath[x.projects[de.proj].lname+"."+de.lname+"."+e.lname] = idx
+		// Identity is case-sensitive (BigQuery allows `Orders` next to `orders`);
+		// the lower-case map only serves typed or pasted paths.
+		x.byPath[x.projects[de.proj].name+"."+de.name+"."+e.name] = idx
+		lc := x.projects[de.proj].lname + "." + de.lname + "." + e.lname
+		if _, dup := x.byPathLC[lc]; dup {
+			x.byPathLC[lc] = -1
+		} else {
+			x.byPathLC[lc] = idx
+		}
 	}
 	for _, u := range snap.Units {
 		x.units[u.UnitRef] = u
 	}
 	return x
+}
+
+// resolve finds a table by path: exactly, or case-insensitively when that is
+// unambiguous.
+func (x *Index) resolve(path string) (int, bool) {
+	if i, ok := x.byPath[path]; ok {
+		return i, true
+	}
+	if i, ok := x.byPathLC[strings.ToLower(path)]; ok && i >= 0 {
+		return i, true
+	}
+	return 0, false
 }
 
 func (x *Index) tablePath(i int) api.ObjectPath {

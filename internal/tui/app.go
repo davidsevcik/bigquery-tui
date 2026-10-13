@@ -96,7 +96,8 @@ type Model struct {
 
 	details map[string]*detailData
 	lastSel string
-	detOff  int
+	detOff  int // schema pane scroll
+	prevOff int // preview pane scroll
 	tab     int
 	zoom    bool
 	statSeq int
@@ -231,9 +232,9 @@ type (
 // Init starts the background work.
 func (m *Model) Init() tea.Cmd {
 	if m.o.NoBackground {
-		return m.statusCmd()
+		return tea.Batch(m.statusCmd(), m.runSearchIfFlat())
 	}
-	return tea.Batch(m.reconcileCmd(true), m.statusCmd(), m.waitCatalog(m.be.WatchCatalog(m.ctx)),
+	return tea.Batch(m.runSearchIfFlat(), m.reconcileCmd(true), m.statusCmd(), m.waitCatalog(m.be.WatchCatalog(m.ctx)),
 		m.waitConfig(m.be.WatchConfig(m.ctx, m.kick)), func() tea.Msg { _ = m.be.WarmSearch(m.ctx); return nil })
 }
 
@@ -373,7 +374,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toast = fmt.Sprintf("sync finished: %d ok, %d degraded, %d failed", msg.res.UnitsOK, msg.res.UnitsDegraded, msg.res.UnitsFailed)
 		}
 		m.reloadBrowse()
-		return m, tea.Batch(m.statusCmd(), m.afterSelect())
+		// The config may have changed while the sync held the lock (the
+		// reconcile was skipped then), so apply it now. It is a no-op otherwise.
+		return m, tea.Batch(m.reconcileCmd(false), m.rerunSearches(), m.afterSelect())
 	case catalogWait:
 		m.reloadBrowse()
 		m.details = map[string]*detailData{}
@@ -607,13 +610,12 @@ func (m *Model) explorerAction(act string) tea.Cmd {
 		m.toast = "detail pane: " + placementNames[m.place]
 	case "tab":
 		m.tab = 1 - m.tab
-		m.detOff = 0
 	case "zoom":
 		m.zoom = !m.zoom
 	case "detaildown":
-		m.detOff++
+		m.scrollDetail(1)
 	case "detailup":
-		m.detOff = max(0, m.detOff-1)
+		m.scrollDetail(-1)
 	case "preview":
 		return m.previewMore()
 	case "scope":
@@ -656,6 +658,16 @@ func (m *Model) openConfig() tea.Cmd {
 	return tea.ExecProcess(exec.Command(argv[0], argv[1:]...), func(err error) tea.Msg { return editorDoneMsg{err} })
 }
 
+// scrollDetail scrolls the pane that tab last selected: the schema, or the
+// preview once rows are loaded (p switches to it).
+func (m *Model) scrollDetail(d int) {
+	if m.tab == 1 {
+		m.prevOff = max(0, m.prevOff+d)
+		return
+	}
+	m.detOff = max(0, m.detOff+d)
+}
+
 func (m *Model) moreIfFlat() tea.Cmd {
 	if m.layout == layoutFlat {
 		return m.maybeMore(m.flat)
@@ -671,6 +683,7 @@ func (m *Model) back() tea.Cmd {
 	case m.layout == layoutFlat && m.flat.in.value() != "":
 		m.flat.in.set("")
 		m.flat.cur, m.flat.off = 0, 0
+		m.flat.expandShards = false
 		return m.runSearch(m.flat)
 	case m.layout == layoutMiller && m.mil.family != nil:
 		m.milCollapseFamily()
@@ -758,7 +771,7 @@ func (m *Model) afterSelect() tea.Cmd {
 	if key == m.lastSel {
 		return nil
 	}
-	m.lastSel, m.detOff = key, 0
+	m.lastSel, m.detOff, m.prevOff = key, 0, 0
 	if key == "" {
 		return nil
 	}
@@ -841,7 +854,9 @@ func (m *Model) onPreview(msg previewMsg) {
 		d.prev.Rows = append(d.prev.Rows, msg.page.Rows...)
 		d.prev.TotalRows = msg.page.TotalRows
 	}
-	if len(msg.page.Rows) < previewPage || int64(len(d.prev.Rows)) >= d.prev.TotalRows {
+	// A page can be shorter than requested when rows are wide (response size
+	// limit), so only an empty page or the reported total ends the preview.
+	if len(msg.page.Rows) == 0 || int64(len(d.prev.Rows)) >= d.prev.TotalRows {
 		d.prevEnd = true
 	}
 }

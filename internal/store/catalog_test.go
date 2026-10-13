@@ -412,3 +412,77 @@ func TestContentHashIgnoresShardAndColumnOrder(t *testing.T) {
 		t.Fatal("hash must see content changes")
 	}
 }
+
+func TestPathsWithURICharactersStayInsideTheDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data#frag?q=1 %41 dir")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p := PathsFor(dir)
+	c, err := OpenCatalog(p.Catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	apply(t, c, unit("p", "EU"), t0, dsApply("d", "EU", table("d", "t", "c")))
+	h, err := OpenHistory(p.History)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	for _, f := range []string{p.Catalog, p.History} {
+		if fi, err := os.Stat(f); err != nil || fi.Size() == 0 {
+			t.Fatalf("%s must exist at the configured path: %v", f, err)
+		}
+	}
+	// the two databases are different files with different schemas
+	if _, err := h.DB().Exec("SELECT 1 FROM tables"); err == nil {
+		t.Fatal("history and catalog resolved to the same file")
+	}
+	ro, err := OpenCatalogReadOnly(p.Catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ro.Close()
+	if n, _ := ro.Counts(ctx); n.Tables != 1 {
+		t.Fatalf("%+v", n)
+	}
+}
+
+func TestConcurrentFirstOpens(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	errs := make(chan error, 12)
+	for i := 0; i < 12; i++ {
+		go func() {
+			c, err := OpenCatalog(path)
+			if err == nil {
+				_, err = c.Counts(ctx)
+				c.Close()
+			}
+			errs <- err
+		}()
+	}
+	for i := 0; i < 12; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("simultaneous first launches must all succeed: %v", err)
+		}
+	}
+}
+
+func TestPruneKeepsReincludedDatasetOfIgnoredProject(t *testing.T) {
+	c := openTemp(t)
+	c.ApplyUnit(ctx, ApplyRequest{Unit: unit("p", "EU"), State: okState(t0), Datasets: []DatasetApply{
+		{Meta: api.DatasetMeta{Project: "p", Name: "keep", Location: "EU"}, Tables: []api.TableMeta{table("keep", "t", "c")}},
+		{Meta: api.DatasetMeta{Project: "p", Name: "other", Location: "EU"}, Tables: []api.TableMeta{table("other", "t", "c")}},
+	}})
+	// ignore = ["p", "!p.keep"]
+	ignored := func(p, d, tb string) bool { return d != "keep" }
+	st, err := c.Prune(ctx, map[string]bool{"p": true}, ignored)
+	if err != nil || st.Projects != 0 || st.Datasets != 1 {
+		t.Fatalf("%+v %v", st, err)
+	}
+	ds, _ := c.Datasets(ctx, "p")
+	if len(ds) != 1 || ds[0].Name != "keep" || ds[0].Tables != 1 {
+		t.Fatalf("%+v", ds)
+	}
+}

@@ -154,16 +154,17 @@ func tryOpenHistory(path string, migrations []string) (*History, error) {
 func backupName(path string, v int) string { return fmt.Sprintf("%s.bak-v%d", path, v) }
 
 func backupHistory(db *sql.DB, path string, v int) error {
-	// Fold the WAL into the main file so a plain file copy is complete.
-	if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-		return err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
+	// VACUUM INTO writes a transactionally consistent copy even while other
+	// connections hold the WAL open (a plain file copy after a checkpoint can
+	// miss committed pages).
 	dst := backupName(path, v)
-	if err := os.WriteFile(dst, data, 0o600); err != nil {
+	if err := os.Remove(dst); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if _, err := db.Exec("VACUUM INTO '" + strings.ReplaceAll(dst, "'", "''") + "'"); err != nil {
+		return err
+	}
+	if err := os.Chmod(dst, 0o600); err != nil {
 		return err
 	}
 	// Keep only the newest backup.

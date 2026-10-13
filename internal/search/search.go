@@ -190,8 +190,7 @@ func (s *Searcher) Search(ctx context.Context, raw string, o api.SearchOptions) 
 	var hits []hit
 	switch {
 	case q.Path != nil:
-		key := strings.ToLower(q.Path.String())
-		if i, ok := x.byPath[key]; ok {
+		if i, ok := x.resolve(q.Path.String()); ok {
 			hits = []hit{x.tableHit(i, tExact*10, 0)}
 		} else {
 			// not a known path: treat the text as an ordinary term
@@ -206,7 +205,7 @@ func (s *Searcher) Search(ctx context.Context, raw string, o api.SearchOptions) 
 				return resp, err
 			}
 			for _, p := range paths {
-				if i, ok := x.byPath[strings.ToLower(p)]; ok && inScope(x, i, o.Scope) {
+				if i, ok := x.resolve(p); ok && inScope(x, i, o.Scope) {
 					hits = append(hits, x.tableHit(i, 0, 0))
 				}
 			}
@@ -327,7 +326,9 @@ func (s *Searcher) rank(ctx context.Context, x *Index, c *compiled, o api.Search
 	for _, p := range parts {
 		out = append(out, p...)
 	}
-	out = x.collapseShards(out)
+	if !o.ExpandShards {
+		out = x.collapseShards(out)
+	}
 
 	if !o.TablesOnly && len(terms) > 0 && onlyScopeFilters(c.filters) {
 		for pi := range x.projects {
