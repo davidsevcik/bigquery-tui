@@ -26,6 +26,8 @@ const (
 	// PageRows is the size of a result page; PageCache is how many are kept.
 	PageRows  = 500
 	PageCache = 10
+	// PagedRuns is how many Runs keep their pages in memory.
+	PagedRuns = 12
 )
 
 // Options configures a Manager.
@@ -219,6 +221,25 @@ func (m *Manager) Close() {
 	m.CancelAll()
 }
 
+// trimPages drops the cached result pages of all but the newest
+// PagedRuns Runs. Their rows stay readable: a page is fetched again on demand.
+func (m *Manager) trimPages() {
+	m.mu.Lock()
+	runs := append([]*Run(nil), m.runs...)
+	m.mu.Unlock()
+	kept := 0
+	for i := len(runs) - 1; i >= 0; i-- {
+		r := runs[i]
+		r.mu.Lock()
+		if len(r.pages) > 0 {
+			if kept++; kept > PagedRuns {
+				r.pages, r.pageUse = map[int64]*bq.ResultPage{}, nil
+			}
+		}
+		r.mu.Unlock()
+	}
+}
+
 // acquire waits for a free slot (max_concurrent_queries, read live).
 func (m *Manager) acquire(ctx context.Context) bool {
 	for {
@@ -380,6 +401,7 @@ func (r *Run) finish(fn func(*api.RunInfo)) {
 	r.bump()
 	r.mu.Unlock()
 	r.stop()
+	r.m.trimPages()
 	r.m.publish(info)
 	close(r.done)
 }

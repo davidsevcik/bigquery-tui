@@ -410,3 +410,26 @@ func TestAwaitFollowsARunToItsEnd(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestOldRunsGiveUpTheirPagesButStayReadable(t *testing.T) {
+	r := newRig(t)
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(3) }
+	var first *Run
+	for i := 0; i < PagedRuns+3; i++ {
+		run := r.m.Start(context.Background(), Request{SQL: "select"})
+		run.Wait()
+		if first == nil {
+			first = run
+		}
+	}
+	first.mu.Lock()
+	n := len(first.pages)
+	first.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("the oldest run still holds %d pages", n)
+	}
+	page, err := first.Rows(context.Background(), 0, 10, format.Options{})
+	if err != nil || len(page.Rows) != 3 {
+		t.Fatalf("an old run is read again on demand: %v %+v", err, page)
+	}
+}

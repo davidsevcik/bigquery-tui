@@ -309,6 +309,17 @@ func (m *Model) requestRun(dry bool) tea.Cmd {
 
 func (m *Model) startRun(b *buffer, sql string, params []api.QueryParam, dry bool, line0, col0 int) tea.Cmd {
 	id := m.be.StartRun(m.ctx, sql, params, b.id, dry)
+	if !dry {
+		// the result this buffer showed is replaced: free its loaded pages
+		old := b.viewID
+		shared := false
+		for _, o := range m.bufs {
+			shared = shared || (o != b && o.viewID == old)
+		}
+		if !shared {
+			delete(m.grids, old)
+		}
+	}
 	b.runID = id
 	m.runPos[id] = [2]int{line0, col0}
 	m.runs[id] = api.RunInfo{ID: id, Tag: b.id, SQL: sql, State: api.RunEstimating, DryRunOnly: dry}
