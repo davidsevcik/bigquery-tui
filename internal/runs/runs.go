@@ -548,7 +548,9 @@ func (r *Run) run(cfg *config.Config) {
 	started := m.o.Now()
 	if r.ctx.Err() != nil {
 		m.cancelJob(jobs, ref)
-		r.finish(func(i *api.RunInfo) { i.State, i.Job, i.Started, i.Location = api.RunCancelled, &ref, &started, ref.Location })
+		r.finish(func(i *api.RunInfo) {
+			i.State, i.Job, i.Started, i.Location = api.RunCancelled, &ref, &started, ref.Location
+		})
 		return
 	}
 	r.set(func(i *api.RunInfo) {
