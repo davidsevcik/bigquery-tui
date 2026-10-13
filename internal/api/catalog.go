@@ -102,12 +102,15 @@ type TableMeta struct {
 	ViewSQL     string            `json:"view_sql,omitempty"`
 	NamesOnly   bool              `json:"names_only,omitempty"`
 	Columns     []ColumnMeta      `json:"columns,omitempty"`
+	// Shard is set by sync when the table belongs to a shard family.
+	Shard *ShardFamily `json:"shard,omitempty"`
 }
 
 // ContentHash is a stable hash of everything in the table except the shard
 // family, used for the local diff.
 func (t TableMeta) ContentHash() string {
 	cp := t
+	cp.Shard = nil
 	cols := append([]ColumnMeta(nil), t.Columns...)
 	sort.Slice(cols, func(i, j int) bool { return cols[i].FieldPath < cols[j].FieldPath })
 	cp.Columns = cols
