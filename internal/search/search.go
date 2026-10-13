@@ -49,6 +49,32 @@ func (s *Searcher) SetIndex(idx *Index) {
 	s.mu.Unlock()
 }
 
+// Swap replaces the catalog together with its column source.
+func (s *Searcher) Swap(idx *Index, cols ColumnSource) {
+	s.mu.Lock()
+	s.idx, s.cols, s.Columns = idx, nil, cols
+	s.mu.Unlock()
+}
+
+// SetTTL changes the freshness window.
+func (s *Searcher) SetTTL(ttl time.Duration) {
+	s.mu.Lock()
+	s.TTL = ttl
+	s.mu.Unlock()
+}
+
+func (s *Searcher) source() ColumnSource {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Columns
+}
+
+func (s *Searcher) ttl() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.TTL
+}
+
 // Index returns the current index.
 func (s *Searcher) Index() *Index {
 	s.mu.RLock()
@@ -65,9 +91,9 @@ func (s *Searcher) WarmColumns(ctx context.Context) error {
 // columns returns the column blob for the current index, building it once.
 func (s *Searcher) columns(ctx context.Context) (*Index, *colBlob, error) {
 	s.mu.RLock()
-	idx, cb := s.idx, s.cols
+	idx, cb, src := s.idx, s.cols, s.Columns
 	s.mu.RUnlock()
-	if cb != nil || s.Columns == nil {
+	if cb != nil || src == nil {
 		return idx, cb, nil
 	}
 	s.colMu.Lock()
@@ -78,7 +104,7 @@ func (s *Searcher) columns(ctx context.Context) (*Index, *colBlob, error) {
 	if cb != nil {
 		return idx, cb, nil
 	}
-	cb, err := buildColBlob(ctx, idx, s.Columns)
+	cb, err := buildColBlob(ctx, idx, src)
 	if err != nil {
 		return idx, nil, err
 	}
@@ -521,7 +547,7 @@ func (s *Searcher) freshness(x *Index, project, location string) (*time.Time, bo
 		return nil, true
 	}
 	t := *u.LastSuccess
-	return &t, s.Now().Sub(t) > s.TTL
+	return &t, s.Now().Sub(t) > s.ttl()
 }
 
 func (c *compiled) filterValues(key string) []string {
@@ -627,8 +653,8 @@ func (s *Searcher) materialize(ctx context.Context, x *Index, c *compiled, h hit
 		r.Tier = tierName(h.max)
 	}
 
-	if len(c.colVals) > 0 && s.Columns != nil {
-		cols, err := s.Columns.ColumnsByTableID(ctx, t.id)
+	if src := s.source(); len(c.colVals) > 0 && src != nil {
+		cols, err := src.ColumnsByTableID(ctx, t.id)
 		if err != nil {
 			return r, err
 		}

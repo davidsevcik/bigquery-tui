@@ -207,3 +207,31 @@ func (w *Watcher) Changed(ctx context.Context) (bool, error) {
 
 // Close releases the pinned connection.
 func (w *Watcher) Close() error { return w.conn.Close() }
+
+// TableByID returns the full stored metadata of a table, with its columns.
+func (c *Catalog) TableByID(ctx context.Context, id int64) (api.TableMeta, error) {
+	var t api.TableMeta
+	var typ, labels, sp, sf, sl string
+	var created, expires int64
+	var names, sc int
+	err := c.db.QueryRowContext(ctx, `SELECT d.name, t.name, t.type, t.created_at, t.description, t.labels, t.expires_at, t.view_sql, t.names_only,
+ t.shard_prefix, t.shard_first, t.shard_last, t.shard_count
+FROM tables t JOIN datasets d ON d.id = t.dataset_id WHERE t.id = ?`, id).
+		Scan(&t.Dataset, &t.Name, &typ, &created, &t.Description, &labels, &expires, &t.ViewSQL, &names, &sp, &sf, &sl, &sc)
+	if err != nil {
+		return t, err
+	}
+	t.Type, t.Labels, t.NamesOnly = api.TableType(typ), decodeLabels(labels), names != 0
+	if created > 0 {
+		t.CreatedAt = time.Unix(created, 0).UTC()
+	}
+	if expires > 0 {
+		e := time.Unix(expires, 0).UTC()
+		t.ExpiresAt = &e
+	}
+	if sc > 0 {
+		t.Shard = &api.ShardFamily{Prefix: sp, First: sf, Last: sl, Count: sc}
+	}
+	t.Columns, err = c.ColumnsByTableID(ctx, id)
+	return t, err
+}

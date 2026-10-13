@@ -154,6 +154,10 @@ func (o *out) result(data any, text func(w io.Writer)) {
 	text(o.env.Stdout)
 }
 
+func (o *out) envelope(e api.Envelope) error {
+	return json.NewEncoder(o.env.Stdout).Encode(e)
+}
+
 // fail prints err in the active format and returns its exit code.
 func (o *out) fail(err error) int {
 	ce := classify(err)
@@ -217,6 +221,7 @@ Commands:
   config edit    Open the config file in $VISUAL / $EDITOR and validate it
   sync           Refresh the local metadata catalog from BigQuery
   status         Show catalog freshness and sync problems
+  search QUERY   Search the catalog (p: d: type: col: label: desc: filters)
   doctor         Print diagnostics (paths, versions, auth, catalog age)
   version        Print the version
   help           Show this help
@@ -272,6 +277,8 @@ func Run(ctx context.Context, args []string, env Env) int {
 		}
 	case "status":
 		cerr = cmdStatus(ctx, o, g, cargs)
+	case "search":
+		cerr = cmdSearch(ctx, o, g, cargs)
 	case "doctor":
 		cerr = cmdDoctor(ctx, o, g, cargs)
 	default:

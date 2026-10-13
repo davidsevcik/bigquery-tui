@@ -405,3 +405,44 @@ func TestHelpMentionsEveryCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchCommand(t *testing.T) {
+	s := newSandbox(t)
+	s.writeConfig("projects = [\"proj-a\"]\n")
+	code, _, errOut := s.run("search", "orders")
+	if code == 0 || errBody(t, errOut).Code != "no_catalog" {
+		t.Fatalf("%d %s", code, errOut)
+	}
+	s.run("sync")
+	code, out, _ := s.run("search", "ord", "p:proj")
+	if code != 0 {
+		t.Fatal(code)
+	}
+	env := decode(t, out)
+	data := env.Data.(map[string]any)
+	results := data["results"].([]any)
+	if len(results) != 1 || results[0].(map[string]any)["name"] != "orders" {
+		t.Fatalf("%v", results)
+	}
+	if q := data["query"].(map[string]any); len(q["filters"].([]any)) != 1 {
+		t.Fatalf("the parsed query is part of the contract: %v", q)
+	}
+	// paging
+	code, out, _ = s.run("search", "--limit", "1", "--tables-only", "type:table")
+	env = decode(t, out)
+	if code != 0 || !env.Truncated || env.NextCursor != "1" {
+		t.Fatalf("%d %+v", code, env)
+	}
+	_, out, _ = s.run("search", "--limit", "1", "--cursor", "1", "--tables-only", "type:table")
+	if env = decode(t, out); env.Truncated || env.NextCursor != "" {
+		t.Fatalf("%+v", env)
+	}
+	if code, _, _ := s.run("search", "--cursor", "x", "a"); code != api.ExitUsage {
+		t.Fatal(code)
+	}
+	s.tty = true
+	_, out, _ = s.run("search", "col:amount")
+	if !strings.Contains(out, "proj-a.sales.orders") || !strings.Contains(out, "· amount") {
+		t.Fatalf("%q", out)
+	}
+}

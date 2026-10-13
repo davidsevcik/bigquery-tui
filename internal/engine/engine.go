@@ -15,6 +15,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
+	"github.com/davidsevcik/bigquery-tui/internal/search"
 	"github.com/davidsevcik/bigquery-tui/internal/store"
 	catsync "github.com/davidsevcik/bigquery-tui/internal/sync"
 )
@@ -33,8 +34,10 @@ type Options struct {
 	// Meta builds the BigQuery metadata client lazily, so commands that never
 	// sync (status) need no credentials. nil uses the real client.
 	Meta func(ctx context.Context) (bq.Metadata, error)
-	Now  func() time.Time
-	Log  *slog.Logger
+	// Tables builds the live table reader (stats and preview) lazily.
+	Tables func(ctx context.Context) (bq.Tables, error)
+	Now    func() time.Time
+	Log    *slog.Logger
 
 	// Test overrides for the sync engine.
 	Parallelism int
@@ -50,9 +53,16 @@ type Engine struct {
 	catalog *store.Catalog
 	notice  string
 
-	mu      gosync.Mutex
-	history *store.History
-	closers []func() error
+	cfgMu  gosync.RWMutex
+	search *search.Searcher
+
+	mu       gosync.Mutex
+	history  *store.History
+	client   *bq.Client
+	clientOf string
+	stats    map[string]statsEntry
+	infos    map[string]bq.TableInfo
+	closers  []func() error
 }
 
 // Open prepares the engine. In read-write mode it creates the data directory
@@ -65,13 +75,18 @@ func Open(ctx context.Context, o Options) (*Engine, error) {
 	if o.Log == nil {
 		o.Log = slog.New(slog.DiscardHandler)
 	}
-	e := &Engine{o: o, cfg: o.Config, paths: store.PathsFor(o.Config.DataDir)}
+	e := &Engine{o: o, cfg: o.Config, paths: store.PathsFor(o.Config.DataDir), stats: map[string]statsEntry{}, infos: map[string]bq.TableInfo{}}
+	e.search = search.New(nil)
+	e.search.Now, e.search.TTL, e.search.Recent = o.Now, o.Config.SyncTTL, e.recent
 	if o.ReadOnly {
 		cat, err := store.OpenCatalogReadOnly(e.paths.Catalog)
 		if err != nil && !errors.Is(err, store.ErrNoCatalog) {
 			return nil, err
 		}
 		e.catalog = cat
+		if err := e.ReloadIndex(ctx); err != nil {
+			return nil, err
+		}
 		return e, nil
 	}
 	if err := e.paths.Ensure(); err != nil {
@@ -83,11 +98,18 @@ func Open(ctx context.Context, o Options) (*Engine, error) {
 	}
 	e.catalog = cat
 	e.notice = cat.Recreated()
+	if err := e.ReloadIndex(ctx); err != nil {
+		return nil, err
+	}
 	return e, nil
 }
 
 // Config returns the configuration the engine was opened with.
-func (e *Engine) Config() *config.Config { return e.cfg }
+func (e *Engine) Config() *config.Config {
+	e.cfgMu.RLock()
+	defer e.cfgMu.RUnlock()
+	return e.cfg
+}
 
 // Paths returns the data directory layout.
 func (e *Engine) Paths() store.Paths { return e.paths }
@@ -129,6 +151,9 @@ func (e *Engine) Close() error {
 	for _, c := range e.closers {
 		errs = append(errs, c())
 	}
+	if e.client != nil {
+		errs = append(errs, e.client.Close())
+	}
 	return errors.Join(errs...)
 }
 
@@ -136,20 +161,42 @@ func (e *Engine) meta(ctx context.Context) (bq.Metadata, error) {
 	if e.o.Meta != nil {
 		return e.o.Meta(ctx)
 	}
-	c, err := bq.NewClient(ctx, e.cfg.ExecutionProject, bq.Options{Log: e.o.Log})
+	return e.realClient(ctx)
+}
+
+func (e *Engine) tables(ctx context.Context) (bq.Tables, error) {
+	if e.o.Tables != nil {
+		return e.o.Tables(ctx)
+	}
+	return e.realClient(ctx)
+}
+
+// realClient returns the shared BigQuery client for the current Execution
+// project, rebuilding it when the project changed.
+func (e *Engine) realClient(ctx context.Context) (*bq.Client, error) {
+	exec := e.Config().ExecutionProject
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.client != nil && e.clientOf == exec {
+		return e.client, nil
+	}
+	c, err := bq.NewClient(ctx, exec, bq.Options{Log: e.o.Log})
 	if err != nil {
 		return nil, err
 	}
-	e.mu.Lock()
-	e.closers = append(e.closers, c.Close)
-	e.mu.Unlock()
+	if e.client != nil {
+		old := e.client
+		go old.Close() // let in-flight calls on the old project finish
+	}
+	e.client, e.clientOf = c, exec
 	return c, nil
 }
 
 // Status reports catalog freshness and sync health from the local catalog.
 func (e *Engine) Status(ctx context.Context) (api.CatalogStatus, error) {
 	now := e.o.Now()
-	st := api.CatalogStatus{Now: now, SyncTTL: e.cfg.SyncTTL.String(), Projects: []api.ProjectStatus{}}
+	cfg := e.Config()
+	st := api.CatalogStatus{Now: now, SyncTTL: cfg.SyncTTL.String(), Projects: []api.ProjectStatus{}}
 	st.SyncRunning = e.syncRunning()
 
 	var units []api.UnitState
@@ -163,7 +210,7 @@ func (e *Engine) Status(ctx context.Context) (api.CatalogStatus, error) {
 			return st, err
 		}
 		st.Datasets, st.Tables, st.Columns = n.Datasets, n.Tables, n.Columns
-		pending, reason, err := catsync.PendingConfigChange(ctx, e.catalog, e.cfg)
+		pending, reason, err := catsync.PendingConfigChange(ctx, e.catalog, cfg)
 		if err != nil {
 			return st, err
 		}
@@ -174,10 +221,10 @@ func (e *Engine) Status(ctx context.Context) (api.CatalogStatus, error) {
 
 	byProject := map[string][]api.UnitState{}
 	for _, u := range units {
-		u.Stale = isStale(u, now, e.cfg.SyncTTL)
+		u.Stale = isStale(u, now, cfg.SyncTTL)
 		byProject[u.Project] = append(byProject[u.Project], u)
 	}
-	projects := append([]string(nil), e.cfg.Projects...)
+	projects := append([]string(nil), cfg.Projects...)
 	sort.Strings(projects)
 	for _, p := range projects {
 		ps := api.ProjectStatus{Project: p, Units: byProject[p]}
@@ -211,7 +258,7 @@ func (e *Engine) Status(ctx context.Context) (api.CatalogStatus, error) {
 		}
 		st.Projects = append(st.Projects, ps)
 	}
-	if len(e.cfg.Projects) == 0 && !st.SyncNeeded {
+	if len(cfg.Projects) == 0 && !st.SyncNeeded {
 		st.SyncNeeded, st.SyncReason = true, "no projects configured"
 	}
 	if !st.SyncNeeded {
@@ -322,7 +369,8 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 	if e.o.ReadOnly {
 		return nil, ErrReadOnly
 	}
-	if len(e.cfg.Projects) == 0 {
+	cfg := e.Config()
+	if len(cfg.Projects) == 0 {
 		return nil, catsync.ErrNoProjects
 	}
 	lock, err := store.TryLock(e.paths.Lock)
@@ -341,7 +389,7 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 	h := &SyncHandle{cancel: cancel, out: make(chan api.SyncEvent), done: make(chan struct{}), wake: make(chan struct{}, 1)}
 	go h.pump()
 	s := catsync.New(catsync.Options{
-		Config: e.cfg, Meta: md, Catalog: e.catalog, Now: e.o.Now, Log: e.o.Log,
+		Config: cfg, Meta: md, Catalog: e.catalog, Now: e.o.Now, Log: e.o.Log,
 		Parallelism: e.o.Parallelism, Retries: e.o.Retries, Backoff: e.o.Backoff,
 	})
 	go func() {

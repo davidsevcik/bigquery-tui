@@ -69,6 +69,16 @@ type Fake struct {
 	Delay time.Duration
 	// OnCall runs at the start of every call, outside the lock.
 	OnCall func(Call)
+	// TableData holds live table info and rows by "project.dataset.table" for
+	// the bq.Tables port. Tables without an entry report a schema derived
+	// from their top-level columns and no rows.
+	TableData map[string]TableData
+}
+
+// TableData is the live side of a fake table.
+type TableData struct {
+	Info bq.TableInfo
+	Rows [][]any
 }
 
 // New returns an empty fake.
@@ -310,4 +320,65 @@ func Table(name string, cols ...string) api.TableMeta {
 // DS builds a fake dataset.
 func DS(name, location string, tables ...api.TableMeta) Dataset {
 	return Dataset{Meta: api.DatasetMeta{Name: name, Location: location, Description: "dataset " + name}, Tables: tables}
+}
+
+// GetTable implements bq.Tables.
+func (f *Fake) GetTable(ctx context.Context, ref bq.TableRef) (bq.TableInfo, error) {
+	if err := f.begin(ctx, Call{Method: "GetTable", Project: ref.Project, Dataset: ref.Dataset}); err != nil {
+		return bq.TableInfo{}, err
+	}
+	f.mu.Lock()
+	td, ok := f.TableData[ref.String()]
+	f.mu.Unlock()
+	if ok {
+		info := td.Info
+		if info.Rows == 0 {
+			info.Rows = int64(len(td.Rows))
+		}
+		return info, nil
+	}
+	p, err := f.project(ref.Project)
+	if err != nil {
+		return bq.TableInfo{}, err
+	}
+	for _, d := range p.Datasets {
+		if d.Meta.Name != ref.Dataset {
+			continue
+		}
+		for _, t := range d.Tables {
+			if t.Name != ref.Table {
+				continue
+			}
+			info := bq.TableInfo{Type: t.Type}
+			for _, c := range t.Columns {
+				if c.TopLevel() {
+					info.Schema = append(info.Schema, bq.Field{Name: c.FieldPath, Type: c.DataType})
+				}
+			}
+			return info, nil
+		}
+	}
+	return bq.TableInfo{}, &bq.Error{Kind: bq.KindNotFound, Op: "fake", Err: fmt.Errorf("table %s not found", ref)}
+}
+
+// ListRows implements bq.Tables.
+func (f *Fake) ListRows(ctx context.Context, ref bq.TableRef, startIndex int64, maxRows int) (bq.RawPage, error) {
+	if err := f.begin(ctx, Call{Method: "ListRows", Project: ref.Project, Dataset: ref.Dataset}); err != nil {
+		return bq.RawPage{}, err
+	}
+	info, err := f.GetTable(ctx, ref)
+	if err != nil {
+		return bq.RawPage{}, err
+	}
+	if info.Type == api.TypeView || info.Type == api.TypeExternal {
+		return bq.RawPage{}, &bq.Error{Kind: bq.KindOther, Op: "fake", Err: fmt.Errorf("cannot list a table of type %s", info.Type)}
+	}
+	f.mu.Lock()
+	rows := f.TableData[ref.String()].Rows
+	f.mu.Unlock()
+	page := bq.RawPage{TotalRows: int64(len(rows))}
+	lo := min(int(startIndex), len(rows))
+	hi := min(lo+maxRows, len(rows))
+	page.Rows = append(page.Rows, rows[lo:hi]...)
+	return page, nil
 }

@@ -66,7 +66,7 @@ func (s *Searcher) projectHealth(x *Index, project string, n *api.BrowseNode) {
 		return
 	}
 	n.SyncedAt = oldest
-	if oldest != nil && s.Now().Sub(*oldest) > s.TTL {
+	if oldest != nil && s.Now().Sub(*oldest) > s.ttl() {
 		n.Stale = true
 	}
 }

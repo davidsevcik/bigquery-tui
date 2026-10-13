@@ -1,0 +1,237 @@
+package engine
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/davidsevcik/bigquery-tui/internal/api"
+	"github.com/davidsevcik/bigquery-tui/internal/bq"
+	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/internal/config"
+)
+
+func (e *env) openWithTables(readOnly bool) *Engine {
+	e.t.Helper()
+	eng, err := Open(ctx, Options{
+		Config: e.cfg, ReadOnly: readOnly,
+		Meta:    func(context.Context) (bq.Metadata, error) { return e.fake, nil },
+		Tables:  func(context.Context) (bq.Tables, error) { return e.fake, nil },
+		Now:     func() time.Time { return e.now },
+		Backoff: func(int) time.Duration { return 0 },
+	})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	e.t.Cleanup(func() { eng.Close() })
+	return eng
+}
+
+func synced(t *testing.T, projects string) (*env, *Engine) {
+	t.Helper()
+	e := newEnv(t, projects)
+	view := bqtest.Table("v_orders")
+	view.Type, view.ViewSQL = api.TypeView, "SELECT * FROM orders"
+	e.fake.Projects["proj-a"].Datasets[0].Tables = append(e.fake.Projects["proj-a"].Datasets[0].Tables, view,
+		bqtest.Table("events_20240101", "u"), bqtest.Table("events_20240102", "u"))
+	e.fake.TableData = map[string]bqtest.TableData{
+		"proj-a.sales.orders": {
+			Info: bq.TableInfo{Type: api.TypeTable, Bytes: 4096, Schema: []bq.Field{{Name: "id", Type: "INTEGER"}, {Name: "amount", Type: "STRING"}}},
+			Rows: [][]any{{"1", "ten"}, {"2", nil}, {"3", "a very long value indeed"}},
+		},
+	}
+	eng := e.openWithTables(false)
+	h, err := eng.StartSync(ctx, api.SyncScope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.ReloadIndex(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return e, eng
+}
+
+func TestSearchAndBrowseAfterSync(t *testing.T) {
+	_, eng := synced(t, `["proj-a", "proj-b", "proj-never"]`)
+	e2 := eng
+	r, err := e2.Search(ctx, "orders", api.SearchOptions{TablesOnly: true})
+	if err != nil || len(r.Results) != 2 || r.Results[0].Path.String() != "proj-a.sales.orders" {
+		t.Fatalf("%+v %v", r.Results, err)
+	}
+	r, _ = e2.Search(ctx, "col:amount", api.SearchOptions{})
+	if len(r.Results) != 1 || r.Results[0].ColumnHits[0].FieldPath != "amount" {
+		t.Fatalf("%+v", r.Results)
+	}
+	ps := e2.Projects()
+	if len(ps) != 3 || ps[2].Name != "proj-never" {
+		t.Fatalf("%+v", ps)
+	}
+	// proj-never does not exist in the fake: discovery failed and says so
+	if ps[2].UnitStatus != api.UnitInaccessible || ps[2].Error == "" || !ps[2].Stale {
+		t.Fatalf("unsynced project carries its discovery error: %+v", ps[2])
+	}
+	if ds := e2.Datasets("proj-a"); len(ds) != 2 || ds[0].Name != "sales" || ds[0].Children != 4 {
+		t.Fatalf("%+v", ds)
+	}
+	ts := e2.Tables("proj-a", "sales")
+	if len(ts) != 3 || ts[0].Kind != api.KindShards || ts[0].Children != 2 {
+		t.Fatalf("shards collapse in browse: %+v", ts)
+	}
+	if m := e2.ShardMembers("proj-a", "sales", "events_"); len(m) != 2 {
+		t.Fatalf("%+v", m)
+	}
+}
+
+func TestTableDetailStatsAndPreview(t *testing.T) {
+	e, eng := synced(t, `["proj-a"]`)
+	p := api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "orders"}
+	d, err := eng.TableDetail(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Location != "EU" || len(d.Table.Columns) != 2 || d.Status != api.UnitOK || d.Stale || d.SyncedAt == nil {
+		t.Fatalf("%+v", d)
+	}
+	v, _ := eng.TableDetail(ctx, api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "v_orders"})
+	if v.Table.ViewSQL != "SELECT * FROM orders" || v.Table.Type != api.TypeView {
+		t.Fatalf("%+v", v.Table)
+	}
+	if _, err := eng.TableDetail(ctx, api.ObjectPath{Project: "x", Dataset: "y", Table: "z"}); !errors.Is(err, ErrUnknownTable) {
+		t.Fatalf("%v", err)
+	}
+
+	st, err := eng.TableStats(ctx, p)
+	if err != nil || st.Rows != 3 || st.Bytes != 4096 {
+		t.Fatalf("%+v %v", st, err)
+	}
+	eng.TableStats(ctx, p)
+	if n := len(e.fake.CallsTo("GetTable")); n != 1 {
+		t.Fatalf("stats are cached, got %d calls", n)
+	}
+
+	page, err := eng.Preview(ctx, p, 0, 2, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.TotalRows != 3 || len(page.Rows) != 2 || page.Columns[0].Name != "id" || page.Rows[0][0].Text != "1" || !page.Rows[1][1].Null {
+		t.Fatalf("%+v", page)
+	}
+	page, _ = eng.Preview(ctx, p, 2, 20, 10)
+	if len(page.Rows) != 1 || page.StartIndex != 2 || !page.Rows[0][1].Truncated || page.Rows[0][1].Text != "a very lon" {
+		t.Fatalf("paging and truncation: %+v", page)
+	}
+	if _, err := eng.Preview(ctx, api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "v_orders"}, 0, 5, 0); !errors.Is(err, bq.ErrNeedsQuery) {
+		t.Fatalf("views need a query: %v", err)
+	}
+}
+
+func TestRecentsFeedTheEmptyQuery(t *testing.T) {
+	_, eng := synced(t, `["proj-a"]`)
+	r, _ := eng.Search(ctx, "", api.SearchOptions{})
+	if !r.Recent || len(r.Results) != 0 {
+		t.Fatalf("%+v", r)
+	}
+	if err := eng.TouchRecent(ctx, api.ObjectPath{Project: "proj-a", Dataset: "us_data", Table: "u1"}); err != nil {
+		t.Fatal(err)
+	}
+	r, _ = eng.Search(ctx, "", api.SearchOptions{})
+	if len(r.Results) != 1 || r.Results[0].Path.Table != "u1" {
+		t.Fatalf("%+v", r.Results)
+	}
+}
+
+func TestWatchCatalogReloadsAfterAnotherProcessSyncs(t *testing.T) {
+	e := newEnv(t, `["proj-a"]`)
+	reader := e.openWithTables(false)
+	wctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	changed := reader.WatchCatalog(wctx, 10*time.Millisecond)
+	time.Sleep(40 * time.Millisecond) // let the watcher take its baseline
+
+	writer := e.openWithTables(false) // "another process"
+	h, _ := writer.StartSync(ctx, api.SyncScope{})
+	h.Wait()
+
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case <-changed:
+		case <-deadline:
+			t.Fatal("the reader never saw the sync")
+		}
+		if r, _ := reader.Search(ctx, "orders", api.SearchOptions{TablesOnly: true}); len(r.Results) == 1 {
+			return
+		}
+	}
+}
+
+func TestReconcilePrunesWithoutBigQuery(t *testing.T) {
+	e, eng := synced(t, `["proj-a", "proj-b"]`)
+	calls := len(e.fake.Calls)
+	cfg, _ := config.Parse([]byte("execution_project = \"exec-proj\"\ndata_dir = \""+e.dir+"\"\nprojects = [\"proj-a\"]\nignore = [\"proj-a.us_data\"]\n"), "t.toml", config.LoadOptions{})
+	eng.SetConfig(cfg)
+	rec, skipped, err := eng.Reconcile(ctx)
+	if err != nil || skipped || !rec.Changed || rec.Pruned.Projects != 1 || rec.Pruned.Datasets != 1 {
+		t.Fatalf("%+v skipped=%v err=%v", rec, skipped, err)
+	}
+	if len(e.fake.Calls) != calls {
+		t.Fatal("pruning must not call BigQuery")
+	}
+	if ps := eng.Projects(); len(ps) != 1 {
+		t.Fatalf("index must follow the prune: %+v", ps)
+	}
+	if ds := eng.Datasets("proj-a"); len(ds) != 1 {
+		t.Fatalf("%+v", ds)
+	}
+}
+
+func TestAutoRefresh(t *testing.T) {
+	e := newEnv(t, `["proj-a", "proj-b"]`)
+	eng := e.openWithTables(false)
+	// empty catalog: full sync
+	h, err := eng.AutoRefresh(ctx)
+	if err != nil || h == nil {
+		t.Fatalf("%v %v", h, err)
+	}
+	res, _ := h.Wait()
+	if res.UnitsOK != 3 {
+		t.Fatalf("%+v", res)
+	}
+	// fresh: nothing to do
+	if h, err := eng.AutoRefresh(ctx); err != nil || h != nil {
+		t.Fatalf("fresh catalog must not sync: %v %v", h, err)
+	}
+	// one project goes stale
+	e.fake.Calls = nil
+	e.now = e.now.Add(25 * time.Hour)
+	h2, _ := eng.StartSync(ctx, api.SyncScope{Projects: []string{"proj-b"}})
+	h2.Wait()
+	e.fake.Calls = nil
+	h, err = eng.AutoRefresh(ctx)
+	if err != nil || h == nil {
+		t.Fatalf("%v %v", h, err)
+	}
+	h.Wait()
+	for _, c := range e.fake.CallsTo("ListDatasets") {
+		if c.Project != "proj-a" {
+			t.Fatalf("only the stale project is refreshed: %+v", c)
+		}
+	}
+}
+
+func TestSetConfigChangesTTL(t *testing.T) {
+	e, eng := synced(t, `["proj-a"]`)
+	e.now = e.now.Add(2 * time.Hour)
+	if eng.Projects()[0].Stale {
+		t.Fatal("fresh at a 24h TTL")
+	}
+	cfg, _ := config.Parse([]byte("execution_project = \"exec-proj\"\ndata_dir = \""+e.dir+"\"\nprojects = [\"proj-a\"]\nsync_ttl = \"1h\"\n"), "t.toml", config.LoadOptions{})
+	eng.SetConfig(cfg)
+	if !eng.Projects()[0].Stale {
+		t.Fatal("stale once the TTL drops to 1h")
+	}
+}
