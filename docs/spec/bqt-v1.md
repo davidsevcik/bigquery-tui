@@ -84,7 +84,7 @@ One TOML file at `$XDG_CONFIG_HOME/bqt/config.toml`, falling back to `~/.config/
 | `favorites_dir` | Where Favorite files live; can point into a git repo. | `<data_dir>/favorites` |
 | `sync_ttl` | Age after which a unit is refreshed in the background. | `24h` |
 | `confirm_bytes` | Soft threshold for a confirmation. | `10GiB` on-demand; off on capacity |
-| `max_bytes_billed` | Hard cap set as `MaximumBytesBilled` on every job. | `1TiB` on-demand; unset on capacity |
+| `max_bytes_billed` | Hard cap set as `MaximumBytesBilled` on every job, under both pricing models. `off` disables it. | `1TiB` |
 | `max_concurrent_queries` | Parallel Runs per TUI session. | `4` |
 | `history_retention_days` | Delete History entries older than this. | off |
 | `agent_max_bytes` | Byte limit for CLI and MCP queries (section 14.3). | `1GiB` |
@@ -192,7 +192,7 @@ Both SQLite files use `modernc.org/sqlite`, WAL, `busy_timeout`, `synchronous=NO
 - Filter region results to the `datasets.list` set (deleted-in-time-travel and temp datasets can leak into region views). Apply `ignore` to tables locally.
 - Corrections to the seed: `TABLES` has no last-modified time, `COLUMNS` has no descriptions (use `COLUMN_FIELD_PATHS` and `TABLE_OPTIONS`), regions must be found through REST, and there is no cheap delta signal. The baseline is a full re-snapshot per unit plus a local diff, deleting by absence.
 - Compute shard families after each unit's table snapshot.
-- Cost: `INFORMATION_SCHEMA` queries are uncached with a 10 MB on-demand minimum each, so a full sync is negligible against the free tier. The core sets `MaximumBytesBilled` (10 GiB) on every sync query as a safety net, applied on capacity projects only if section 17 check 1 shows it is enforced.
+- Cost: `INFORMATION_SCHEMA` queries are uncached with a 10 MB on-demand minimum each, so a full sync is negligible against the free tier. The core sets `MaximumBytesBilled` (10 GiB) on every sync query as a safety net (enforced on reservation-backed projects too, section 17 check 1).
 
 ### 7.2 Behaviour
 
@@ -213,7 +213,7 @@ Detail panes (schema and preview): to the right at 100 columns or more, at the b
 ### 8.2 Search syntax and ranking (core)
 
 - Free terms AND together and match project, dataset and table names, and (lowest tier) table and dataset descriptions. They never match column names.
-- Filters are `key:value`: `p:` project, `d:` dataset, `type:` (`table`, `view`, `mview`, `external`, `snapshot`), `col:`, `label:`, `desc:`.
+- Filters are `key:value`: `p:` project, `d:` dataset, `type:` (`table`, `view`, `mview`, `external`, `snapshot`, `clone`), `col:`, `label:`, `desc:`.
 - `col:` matches the field path and the column description, and only `col:` results carry `column_hits` (up to 3 per table plus a count). `desc:` matches table and dataset descriptions only.
 - `-d:tmp` negates. Commas inside a filter mean OR (`type:view,mview`). A quoted value may contain spaces. A pasted `proj.dataset.table` or `` `proj.dataset.table` `` is an exact path lookup. Values are prefix or substring matches, not regex. An unknown key stays a free term.
 - The parser returns a structured query with per-filter status (complete, pending, invalid), so a frontend can show chips.
@@ -240,7 +240,7 @@ Vim keys (`hjkl`, `gg`/`G`, `ctrl+d`/`ctrl+u`, `/`), the command palette (`ctrl+
 
 ### 8.6 MVP acceptance criteria (phases 1 and 2)
 
-1. On a catalog of 5 projects, 50 to 200 datasets each, a first sync completes with per-unit progress, can be cancelled, and leaves a usable partial catalog.
+1. On a catalog of 5 projects with 50 to 200 datasets each, and on a single project with 1,300 datasets and 9,400 tables, a first sync completes with per-unit progress, can be cancelled, and leaves a usable partial catalog.
 2. A permission failure on one dataset or project degrades that unit only, with its error visible, and never aborts the run.
 3. After the first sync, `bqt` opens to a usable explorer without waiting for the network; a stale unit refreshes in the background.
 4. Search at 50k tables and 1.25M columns meets the 30 ms p95 budget on the author's machine; the smoke guard in CI passes.
@@ -286,14 +286,16 @@ Triggered after 2 typed characters in an identifier position, and immediately af
 ### 10.2 Dry-run, confirmation, caps
 
 - Every Run does a dry-run first; the estimate (bytes, approximate dollars, flagged if `LOWER_BOUND` or `UNKNOWN`) shows in the status line. `ctrl+d` runs the dry-run alone. Federated tables and row-level security can show 0, so accuracy matters.
-- On-demand: above `confirm_bytes` the core returns `NeedsConfirmation{estimate}` and the frontend asks; `max_bytes_billed` is set as `MaximumBytesBilled` on the job for every frontend. Cancel shows "cancel requested, may still be billed".
-- Capacity: the dry-run still runs for validation, bytes and `statementType`, but the status shows "scanned (not billed)" with no dollar estimate. `confirm_bytes` is off by default; `max_bytes_billed` applies only if set. After the Run, `total_slot_ms` is recorded. The "may still be billed" warning is shown for on-demand only.
+- **Both models:** `max_bytes_billed` (default 1 TiB) is set as `MaximumBytesBilled` on every job for every frontend. BigQuery enforces it up front against the dry-run upper bound, including on reservation-backed projects (section 17), so a query can be refused even if its real scan would have been smaller. The core treats `bytesBilledLimitExceeded` as a normal refusal, shows the required bytes, and offers no override from the CLI or MCP.
+- **On-demand:** above `confirm_bytes` (default 10 GiB) the core returns `NeedsConfirmation{estimate}` and the frontend asks. The status line shows an approximate dollar estimate. Cancel shows "cancel requested, may still be billed".
+- **Capacity:** the dry-run still runs for validation, bytes and `statementType`, but the status shows "scanned (not billed)" with no dollar estimate. `confirm_bytes` is off by default, because bytes are not charged there (set it explicitly to confirm large scans). After the Run, `total_slot_ms` is recorded, and the `totalBytesBilled` BigQuery still reports is not shown as a charge. The "may still be billed" warning is not shown.
+- The cap is set by one code path for both models; the only pricing-specific behaviour is presentation (dollar estimate, billed-bytes display, warnings) and the `confirm_bytes` default.
 - Statements other than `SELECT` (by the dry-run's `statementType`) ask for confirmation in the TUI, naming the type. Multi-statement scripts run and the viewer shows the last statement's result.
 - A per-job reservation override is out of v1.
 
 ### 10.3 Errors
 
-The core parses BigQuery's `[line:col]` into `{message, line, col}`; the editor jumps to and marks the position. `invalid_grant` and `invalid_rapt` show the `gcloud auth application-default login` hint; a missing ADC file shows the same hint. A cancelled Run is "cancel requested" until the job state confirms.
+The core parses BigQuery's `[line:col]` into `{message, line?, col?}` (position is optional: some errors, such as a missing table, carry none); when present the editor jumps to and marks it. `invalid_grant` and `invalid_rapt` show the `gcloud auth application-default login` hint; a missing ADC file shows the same hint. A cancelled Run is "cancel requested" until the job state confirms.
 
 ### 10.4 Results
 
@@ -355,7 +357,7 @@ See section 15 for the table. Principles: three zones (Explorer, Editor, Results
 The CLI is as reachable by an agent as MCP (Claude Code calls it through Bash), and bqt cannot tell an agent from the user at the command line. One policy therefore covers every non-TUI entry point: `bqt query`, `bqt favorites run` and `bqt mcp`.
 
 - **Read-only classification:** the dry-run is the classifier. BigQuery returns its own `statementType` and the agent profile allows only `SELECT`. It fails closed: an unknown type, `SCRIPT`, `EXPORT DATA`, `CALL` or a failed dry-run is refused. Not blocked: a `SELECT` calling a remote function or UDF with side effects. Read-only IAM on the Execution project is the real backstop; the docs recommend it but bqt cannot enforce it.
-- **Limits:** `agent_max_bytes` (default 1 GiB) is checked on the dry-run bytes, for both pricing models; over the limit the query is refused with the estimate and the limit. `UNKNOWN` accuracy is refused. `LOWER_BOUND` is checked against the lower bound; on-demand also sets `MaximumBytesBilled` as a backstop, and on capacity projects `LOWER_BOUND` is refused. `agent_timeout` (default 60 s) per query, plus the row and cell caps above.
+- **Limits:** `agent_max_bytes` (default 1 GiB) is checked on the dry-run bytes, for both pricing models; over the limit the query is refused with the estimate and the limit. `UNKNOWN` accuracy is refused. `LOWER_BOUND` is checked against the lower bound, with `max_bytes_billed` as the server-side backstop, under both pricing models. `agent_timeout` (default 60 s) per query, plus the row and cell caps above.
 - **Who can change limits:** flags and tool arguments can only lower a limit; raising one needs the config file. An over-limit query is a refusal, not a prompt: run it in the TUI or raise the config.
 - **Writes:** DML, DDL and scripts run only in the TUI (with confirmation), or from the CLI if `cli_allow_writes = true`. There is no flag override, and no `--yes`.
 - **Audit:** `source` on the History entry plus the `bqt=1` and `bqt_source` job labels.
@@ -404,24 +406,33 @@ Zones: Explorer, Editor, Results, overlays. Zone switching: `F6` / `shift+F6` cy
 ## 16. Testing and CI [16]
 
 - **Fakes first:** hand-written fakes behind the `bq` ports model region grouping, per-project and per-dataset permission failures, transient errors, dry-run results (`statementType`, accuracy flags), paging, cancellation, job errors with `line:col`, and both pricing models. The BigQuery emulator is not used in CI (beta; region-qualified `INFORMATION_SCHEMA`, jobs paging and dry-run unconfirmed).
-- **Live suite:** `//go:build live`, run manually against a scratch project, selected by an env var. It covers the open checks in section 17.
+- **Live suite:** `//go:build live`, run manually against a scratch project, selected by an env var. It covers the checks in section 17 and re-runs the verified ones.
 - **Contract suites:** each port's behaviour tests are written once and run against the fake in every build and against the real implementation under `live`, so a fake that drifts fails the live run.
 - **TUI:** golden-file snapshots of `View()` at 120x36, 80x24 and 60x20, ANSI-stripped, with a deterministic fake engine and clock and an `-update` flag; key-sequence tests without a PTY; one PTY smoke test. Colours and OSC 52 are checked by hand.
 - **Store and performance:** real SQLite in temp directories; a generator for 50k tables and 1.25M columns; manual benchmarks of search (budget p95 ≤ 30 ms), completion lookups and sync commit time; one CI smoke guard at about 5x the budget.
 - **Pure logic:** table tests for the filter parser and ranker, completion with cursor markers, the Favorite header and parameter schema, the safety policy over every statement type and accuracy flag, cell formatting and record trees; fuzz tests for the tokenizer (never panics, spans cover the text) and filter parser; MCP over the SDK's in-memory transport; CLI golden JSON; the import test; the keymap duplicate test.
 - **CI:** GitHub Actions on push: `go vet`, `staticcheck`, `go test -race ./...` on Go 1.26. No coverage gate, no live tests.
 
-## 17. Open checks before build is final
+## 17. Live checks
 
-1. Whether `MaximumBytesBilled` is enforced on reservation-backed (capacity) projects. Google's cost page scopes the setting to on-demand. Until verified, nothing relies on it for capacity.
-2. Whether dry-run job statistics reliably expose `statementType`. The agent read-only classifier depends on it; if some statement kinds lack it, the fail-closed rule refuses them.
-3. Region-view behaviour and error text with dataset-only grants.
-4. Whether dataset or table `lastModifiedTime` moves on metadata-only edits (only matters if a delta signal is wanted later).
-5. Real bytes processed through dry-run for `INFORMATION_SCHEMA` queries.
-6. Whether `tabledata.list` works on materialized views (the prototype treats views as "needs a query").
-7. OSC 52 clipboard and colours in the author's real terminal and tmux.
-8. Whether the `query` column in `JOBS_BY_USER` truncates long statements (only for the deferred History import).
-9. Optional spike: run `memefish` or `go-googlesql` over the author's Favorites and History to measure parse success, if CTE column accuracy matters.
+Run on 2026-10-13 against a real EU dev project (about 1,280 datasets and 9,400 tables, jobs running on a Standard edition reservation), using dry-runs and one tiny test table that was dropped afterwards. They are the seed for the `live` suite (section 16).
+
+Verified:
+
+1. **`MaximumBytesBilled` is enforced on a reservation-backed project.** A job on a Standard edition reservation with a 1 MB cap was rejected up front (`reason: bytesBilledLimitExceeded`, "Query exceeded limit for bytes billed: 1000000. 336592896 or higher required.") with no slots used. The check compares the cap against the dry-run upper bound, not the final processed bytes. Seen on one edition only (Standard); re-check on Enterprise if it matters. This is what lets the capacity and on-demand models share one cap code path (10.2, 14.3). **On-demand enforcement was not tested directly**: the test project's default configuration does not allow overriding the reservation (`reservation_override_mode` unset), so no job could be forced on-demand. On-demand behaviour rests on BigQuery's documented guidance for the setting; the `live` suite must run the same cap test once against a project without a reservation. Finished jobs on the reservation still report non-zero `totalBytesBilled` (111 MB for 110 MB processed) alongside `totalSlotMs` and `statistics.reservation_id`, so the UI must not present those bytes as a charge under `pricing = capacity`.
+2. **Dry-run exposes `statementType`** for every kind tried: `SELECT` (also for `WITH … SELECT` and `INFORMATION_SCHEMA` queries), `CREATE_TABLE_AS_SELECT`, `DROP_TABLE`, `DROP_SCHEMA`, `EXPORT_DATA` and `SCRIPT`. Accuracy was `PRECISE` for all. The read-only classifier in 14.3 stands. `CALL` was not tried (no procedure available); the fail-closed rule covers it.
+3. **Dry-run bytes for `INFORMATION_SCHEMA`:** every region-scope view tried (`TABLES`, `COLUMNS`, `COLUMN_FIELD_PATHS`) and the dataset-scope `TABLES` reports 10,485,760 bytes, the 10 MiB minimum, as the research expected.
+4. **`lastModifiedTime` moves on a metadata-only edit.** Changing a table's description changed the table's `lastModifiedTime`; the dataset's did not move. A per-table delta signal therefore exists through `tables.get` or the legacy `__TABLES__` view, but `INFORMATION_SCHEMA.TABLES` does not expose it, so the full re-snapshot baseline in section 7 stands. Whether `__TABLES__` is a cheaper signal at scale was not measured.
+5. **Error positions are not always present.** A syntax error carries `at [1:1]`; a "table not found" error did not carry a position. The `{message, line, col}` parse in 10.3 must treat position as optional.
+6. **Scale.** One project here has about 1,280 datasets, well above the 50 to 200 assumed, and `datasets.list` pages correctly at `maxResults=1000`. All tables sit in one region (EU). Table types seen: `BASE TABLE`, `VIEW`, `SNAPSHOT` and `CLONE`; `CLONE` is added to the `type:` filter (8.2).
+
+Not verified. Items 7 and 8 are not needed for the author's own use and are **blockers before any public release**; resolve them if the tool is ever released:
+
+7. `tabledata.list` on a materialized view: the test project is on a Standard edition reservation, which does not allow materialized views ("Materialized views cannot be created in a project with Standard edition reservation"). `tabledata.list` on an ordinary table works. Needs a project with an MV.
+8. Region-view behaviour and error text with dataset-only grants (needs a restricted identity).
+9. OSC 52 clipboard and colours in the author's real terminal and tmux.
+10. Whether the `query` column in `JOBS_BY_USER` truncates long statements (only for the deferred History import).
+11. Optional spike: run `memefish` or `go-googlesql` over the author's Favorites and History to measure parse success, if CTE column accuracy matters.
 
 ## 18. GUI-readiness check
 
