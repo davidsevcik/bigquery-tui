@@ -71,6 +71,10 @@ CREATE TABLE columns (
   clustering_ordinal INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX columns_table ON columns(table_id, parent_id, ordinal);
+-- Required: the self-referencing parent_id foreign key makes SQLite look up
+-- children by parent_id on every column delete. Without this index a changed
+-- table costs a full scan of columns per deleted row (quadratic at scale).
+CREATE INDEX columns_parent ON columns(parent_id);
 CREATE TABLE sync_units (
   project       TEXT NOT NULL,
   location      TEXT NOT NULL,
@@ -363,9 +367,8 @@ func upsertDataset(ctx context.Context, tx *sql.Tx, projectID int64, m api.Datas
 }
 
 type tableRow struct {
-	id        int64
-	hash      string
-	namesOnly bool
+	id   int64
+	hash string
 }
 
 func applyTables(ctx context.Context, tx *sql.Tx, datasetID int64, tables []api.TableMeta, namesOnly bool) (ApplyStats, error) {

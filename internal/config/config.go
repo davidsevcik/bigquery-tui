@@ -382,9 +382,7 @@ func (b *builder) build(c *Config, v map[string]layered, errs *Errors) {
 		case []string:
 			list = x
 		case string:
-			for _, p := range strings.FieldsFunc(x, func(r rune) bool { return r == ',' || r == '\n' || r == ' ' }) {
-				list = append(list, p)
-			}
+			list = append(list, strings.FieldsFunc(x, func(r rune) bool { return r == ',' || r == '\n' || r == ' ' })...)
 		}
 		seen := map[string]bool{}
 		for _, p := range list {

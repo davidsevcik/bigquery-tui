@@ -161,7 +161,7 @@ func (f *Fake) project(name string) (*Project, error) {
 
 // PermissionError is a ready-made injected permission failure.
 func PermissionError(what string) error {
-	return &bq.Error{Kind: bq.KindPermission, Err: fmt.Errorf("Access Denied: %s", what)}
+	return &bq.Error{Kind: bq.KindPermission, Err: fmt.Errorf("access denied: %s", what)}
 }
 
 // TransientError is a ready-made injected transient failure.

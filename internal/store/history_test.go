@@ -71,6 +71,7 @@ func TestHistoryMigrationBacksUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer h.Close()
 	if _, err := os.Stat(path + ".bak-v2"); err != nil {
 		t.Fatal("bak-v2 expected")
 	}
