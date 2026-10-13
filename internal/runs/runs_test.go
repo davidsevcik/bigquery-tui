@@ -501,3 +501,77 @@ func TestCancelWhileSubmittingStillCancelsTheJob(t *testing.T) {
 		t.Fatalf("a submitted job is History even when cancelled: %+v", rec)
 	}
 }
+
+func TestCloseWaitsForASubmissionInFlight(t *testing.T) {
+	r := newRig(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	r.fake.OnCall = func(c bqtest.Call) {
+		if c.Method == "StartQuery" {
+			close(entered)
+			<-release // BigQuery has the request; the reply is on its way
+		}
+	}
+	run := r.m.Start(context.Background(), Request{SQL: "select"})
+	<-entered
+	closed := make(chan struct{})
+	go func() { r.m.Close(); close(closed) }()
+	select {
+	case <-closed:
+		t.Fatal("Close returned while a job was being submitted")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	<-closed
+	if n := len(r.fake.CallsTo("CancelJob")); n != 1 {
+		t.Fatalf("the submitted job was not cancelled before Close returned (%d cancel calls)", n)
+	}
+	if info := run.Wait(); info.State != api.RunCancelled || info.Job == nil {
+		t.Fatalf("%+v", info)
+	}
+}
+
+func TestLostJobStatusIsRetriedThenTheJobIsCancelled(t *testing.T) {
+	r := newRig(t)
+	r.m.o.RetryDelay = time.Millisecond
+	transient := &bq.Error{Kind: bq.KindTransient, Err: strErr("backend error")}
+	// two failed polls, then the status arrives: the Run finishes normally
+	r.fake.Fail(bqtest.Failure{Method: "WaitJob", Err: transient, Times: 2})
+	if info := r.m.Start(context.Background(), Request{SQL: "select"}).Wait(); info.State != api.RunDone {
+		t.Fatalf("a transient poll failure must be retried: %+v %+v", info, info.Error)
+	}
+	// the status never arrives: the job is cancelled, not abandoned
+	r.fake.Fail(bqtest.Failure{Method: "WaitJob", Err: transient})
+	info := r.m.Start(context.Background(), Request{SQL: "select"}).Wait()
+	if info.State != api.RunFailed || !strings.Contains(info.Error.Message, "lost track of the job") {
+		t.Fatalf("%+v %+v", info, info.Error)
+	}
+	r.m.Close()
+	if n := len(r.fake.CallsTo("CancelJob")); n != 1 {
+		t.Fatalf("a job whose outcome is unknown must be cancelled (%d cancel calls)", n)
+	}
+}
+
+func TestFailedCancelCanBeAskedAgain(t *testing.T) {
+	r := newRig(t)
+	r.m.o.RetryDelay = time.Millisecond
+	block := make(chan struct{})
+	defer close(block)
+	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.Block = block; return s }
+	run := r.m.Start(context.Background(), Request{SQL: "slow"})
+	until(t, run, api.RunRunning)
+	// transient failures are retried by the request itself
+	r.fake.Fail(bqtest.Failure{Method: "CancelJob", Err: &bq.Error{Kind: bq.KindTransient, Err: strErr("503")}, Times: 3})
+	run.Cancel()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && !run.Info().CancelFailed {
+		time.Sleep(time.Millisecond)
+	}
+	info := run.Info()
+	if !info.CancelFailed || info.CancelRequested || info.State != api.RunRunning {
+		t.Fatalf("an undelivered cancel must be visible and repeatable: %+v", info)
+	}
+	run.Cancel() // the failure injection is used up: this one arrives
+	if got := run.Wait(); got.State != api.RunCancelled {
+		t.Fatalf("%+v", got)
+	}
+}

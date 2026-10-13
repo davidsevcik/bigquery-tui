@@ -145,20 +145,6 @@ func classOf(r rune, big bool) charClass {
 	return 2
 }
 
-// next and prev step one position through the text, crossing line ends.
-func (e *editor) next(r, c int) (int, int, bool) {
-	if c < e.lineLen(r) {
-		c++
-		if c < e.lineLen(r) || r == len(e.lines)-1 {
-			return r, c, c < e.lineLen(r)
-		}
-	}
-	if r < len(e.lines)-1 {
-		return r + 1, 0, true
-	}
-	return r, e.lineLen(r), false
-}
-
 func (e *editor) charAt(r, c int) (rune, bool) {
 	if r < 0 || r >= len(e.lines) || c < 0 || c >= len(e.lines[r]) {
 		return 0, false
@@ -180,8 +166,6 @@ func (e *editor) wordForward(r, c int, big bool) (int, int) {
 				return r, e.lineLen(r)
 			}
 			r, c = r+1, 0
-			ch, ok = e.charAt(r, c)
-			start = 0
 			if e.lineLen(r) == 0 {
 				return r, 0 // an empty line is a word
 			}

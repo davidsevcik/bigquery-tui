@@ -291,8 +291,7 @@ func (m *Model) editorAction(act string) tea.Cmd {
 			if b.path != "" {
 				what = "close " + b.title() + " without saving the changes?"
 			}
-			m.confirm = confirmState{kind: "closebuf", lines: []string{what}}
-			m.ov = ovConfirm
+			m.askConfirm(confirmState{kind: "closebuf", lines: []string{what}})
 			return nil
 		}
 		m.closeBuffer()
@@ -415,8 +414,7 @@ func (m *Model) onRun(msg runMsg) tea.Cmd {
 	here := b != nil && bi == m.cur && m.zone != ZoneExplorer
 	switch info.State {
 	case api.RunNeedsOK:
-		m.confirm = confirmState{kind: "run", runID: info.ID, lines: confirmLines(info)}
-		m.ov = ovConfirm
+		m.askConfirm(confirmState{kind: "run", runID: info.ID, lines: confirmLines(info)})
 	case api.RunEstimated:
 		m.toast = "dry-run: " + estimateText(info.Estimate)
 	case api.RunFailed:
@@ -444,6 +442,7 @@ func (m *Model) onRun(msg runMsg) tea.Cmd {
 		if info.HasResult {
 			g := newGrid(info)
 			m.grids[info.ID] = g
+			m.trimGrids()
 			cmds = append(cmds, m.fetchPage(g, 0))
 		}
 		if !here {
@@ -639,6 +638,10 @@ func (m *Model) promptSubmit() tea.Cmd {
 			p.note = sWarn.Render("the file exists: press enter again to overwrite it")
 			return nil
 		}
+		if m.exp != nil {
+			p.note = sWarn.Render("an export is already running")
+			return nil
+		}
 		ex, err := m.be.StartExport(m.ctx, g.run, path, p.format)
 		if err != nil {
 			p.note = sErr.Render(err.Error())
@@ -691,6 +694,30 @@ func (m *Model) onExport(msg exportMsg) tea.Cmd {
 }
 
 // --- confirmations
+
+// askConfirm shows a question now, or after the popup that is open.
+func (m *Model) askConfirm(c confirmState) {
+	if m.ov != ovNone {
+		m.confirmQ = append(m.confirmQ, c)
+		return
+	}
+	m.confirm, m.ov = c, ovConfirm
+}
+
+// nextConfirm shows a waiting question once nothing else is open. A Run's
+// question is dropped if the Run no longer waits for an answer.
+func (m *Model) nextConfirm() {
+	for m.ov == ovNone && len(m.confirmQ) > 0 {
+		c := m.confirmQ[0]
+		m.confirmQ = m.confirmQ[1:]
+		if c.kind == "run" {
+			if r, ok := m.runs[c.runID]; !ok || r.State != api.RunNeedsOK {
+				continue
+			}
+		}
+		m.confirm, m.ov = c, ovConfirm
+	}
+}
 
 func (m *Model) confirmKey(name string) tea.Cmd {
 	c := m.confirm
@@ -752,8 +779,16 @@ func (m *Model) cancelFocused() bool {
 	}
 	target := int64(0)
 	if len(m.bufs) > 0 {
-		if r, ok := m.runs[m.buf().runID]; ok && !r.State.Finished() {
-			target = r.ID
+		// the focused Run: the one shown in Results, the buffer's latest in the editor
+		ids := []int64{m.buf().runID, m.buf().viewID}
+		if m.zone == ZoneResults {
+			ids = []int64{m.buf().viewID, m.buf().runID}
+		}
+		for _, id := range ids {
+			if r, ok := m.runs[id]; ok && !r.State.Finished() {
+				target = r.ID
+				break
+			}
 		}
 	}
 	if target == 0 {
@@ -892,11 +927,12 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 		return m.findNext(-1)
 	case "copy":
 		if cells := g.cells(g.row); cells != nil && g.col < len(cells) {
+			col := g.col // the cursor may move while the row is read
 			return m.copyRow(g, func(cols []api.PreviewColumn, full []api.Cell) (string, string) {
-				if g.col >= len(full) || full[g.col].Null {
+				if col >= len(full) || full[col].Null {
 					return "", "copied NULL as an empty string"
 				}
-				return full[g.col].Text, "copied the cell"
+				return full[col].Text, "copied the cell"
 			})
 		}
 	case "copyrow":
@@ -927,6 +963,10 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 		m.toast = fmt.Sprintf("copied %d rows as TSV", len(rows))
 		return tea.SetClipboard(export.TSV(g.cols, rows))
 	case "export":
+		if m.exp != nil {
+			m.toast = "an export is already running (ctrl+c cancels it)"
+			return nil
+		}
 		path := m.be.DefaultExportPath(export.CSV)
 		m.openPrompt(promptState{kind: "export", title: fmt.Sprintf("Export %s rows", format.Count(g.total)), labels: []string{"file"}, format: export.CSV,
 			note: "tab changes the format (csv, json, ndjson) · enter exports · esc cancels"}, path)
@@ -980,6 +1020,10 @@ func (m *Model) runsOverlayAction(act string, name string) tea.Cmd {
 		if m.ovSel < len(list) {
 			r := list[m.ovSel]
 			m.runs[r.ID] = r
+			if r.State == api.RunNeedsOK {
+				m.askConfirm(confirmState{kind: "run", runID: r.ID, lines: confirmLines(r)})
+				return nil
+			}
 			if _, i := m.bufferOf(r.Tag); i >= 0 {
 				m.cur = i
 			}

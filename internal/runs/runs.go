@@ -41,6 +41,9 @@ type Options struct {
 	// Record stores a finished real Run (History). It may be nil.
 	Record func(api.RunInfo)
 	Log    *slog.Logger
+	// RetryDelay is the base delay between retries of a cancel request or a
+	// status poll (default 1s; tests shorten it).
+	RetryDelay time.Duration
 }
 
 // Request starts a Run.
@@ -67,10 +70,10 @@ type Manager struct {
 	// which is built so that it needs slots).
 	forceLearn bool
 	events     chan api.RunEvent
-	// cancels counts the cancel requests on their way to BigQuery, so Close
-	// can wait for them before the process exits.
-	cancels sync.WaitGroup
-	closed  bool
+	// busy counts job submissions and cancel requests in flight, so Close can
+	// wait for them before the process exits.
+	busy   int
+	closed bool
 }
 
 // New returns a Manager.
@@ -83,6 +86,9 @@ func New(o Options) *Manager {
 	}
 	if o.Source == "" {
 		o.Source = "tui"
+	}
+	if o.RetryDelay <= 0 {
+		o.RetryDelay = time.Second
 	}
 	return &Manager{o: o, events: make(chan api.RunEvent, 256)}
 }
@@ -224,24 +230,53 @@ func (m *Manager) Close() {
 	m.CancelAll()
 	// A cancel that never reaches BigQuery leaves the job running (and
 	// billing) after bqt has gone: give the requests a moment to be sent.
-	sent := make(chan struct{})
-	go func() { m.cancels.Wait(); close(sent) }()
-	select {
-	case <-sent:
-	case <-time.After(10 * time.Second):
-		m.o.Log.Warn("gave up waiting for job cancellations to be sent")
+	// The same goes for a job being submitted right now: wait for its ID and
+	// for the cancel that follows.
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		m.mu.Lock()
+		busy := m.busy
+		m.mu.Unlock()
+		if busy == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			m.o.Log.Warn("gave up waiting for job submissions and cancellations", "in_flight", busy)
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
-// cancelJob asks BigQuery to cancel a job, in the background.
-func (m *Manager) cancelJob(jobs bq.Jobs, ref api.JobRef) {
-	m.cancels.Add(1)
+func (m *Manager) busyAdd(d int) {
+	m.mu.Lock()
+	m.busy += d
+	m.mu.Unlock()
+}
+
+// cancelJob asks BigQuery to cancel a job, in the background, retrying
+// transient failures. onFail runs if the request could not be delivered.
+func (m *Manager) cancelJob(jobs bq.Jobs, ref api.JobRef, onFail func(error)) {
+	m.busyAdd(1)
 	go func() {
-		defer m.cancels.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := jobs.CancelJob(ctx, ref); err != nil {
+		defer m.busyAdd(-1)
+		var err error
+		for attempt := 0; attempt < 3; attempt++ {
+			if attempt > 0 {
+				time.Sleep(m.o.RetryDelay * time.Duration(attempt))
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			err = jobs.CancelJob(ctx, ref)
+			cancel()
+			if err == nil || !bq.Retryable(err) {
+				break
+			}
+		}
+		if err != nil {
 			m.o.Log.Warn("cancel job", "job", ref.ID, "err", err)
+			if onFail != nil {
+				onFail(err)
+			}
 		}
 	}()
 }
@@ -462,7 +497,20 @@ func (r *Run) Cancel() {
 			return
 		}
 		r.m.publish(info)
-		r.m.cancelJob(jobs, *job)
+		r.m.cancelJob(jobs, *job, func(error) {
+			// the request never arrived: let the user (or Close) ask again
+			r.mu.Lock()
+			if r.final {
+				r.mu.Unlock()
+				return
+			}
+			r.info.CancelRequested = false
+			r.info.CancelFailed = true
+			r.bump()
+			info := r.info
+			r.mu.Unlock()
+			r.m.publish(info)
+		})
 		return
 	}
 	r.mu.Unlock()
@@ -540,14 +588,18 @@ func (r *Run) run(cfg *config.Config) {
 	// Submitting is not cancellable: a request cut off half way can leave a
 	// job running that nobody knows the ID of. A cancel that arrives meanwhile
 	// is honoured right after, with the job ID in hand.
+	// (Close waits for submissions in flight, so quitting cannot strand one.)
+	m.busyAdd(1)
 	ref, err := jobs.StartQuery(context.WithoutCancel(r.ctx), req)
 	if err != nil {
+		m.busyAdd(-1)
 		r.fail(err)
 		return
 	}
 	started := m.o.Now()
 	if r.ctx.Err() != nil {
-		m.cancelJob(jobs, ref)
+		m.cancelJob(jobs, ref, nil)
+		m.busyAdd(-1)
 		r.finish(func(i *api.RunInfo) {
 			i.State, i.Job, i.Started, i.Location = api.RunCancelled, &ref, &started, ref.Location
 		})
@@ -556,12 +608,31 @@ func (r *Run) run(cfg *config.Config) {
 	r.set(func(i *api.RunInfo) {
 		i.State, i.Job, i.Started, i.Location = api.RunRunning, &ref, &started, ref.Location
 	})
+	m.busyAdd(-1)
 
 	// The job outlives a cancelled context: ask BigQuery to stop it.
-	res, err := jobs.WaitJob(r.ctx, ref)
-	if err != nil {
-		if r.ctx.Err() != nil {
-			m.cancelJob(jobs, ref)
+	var res bq.JobResult
+	for attempt := 0; ; attempt++ {
+		res, err = jobs.WaitJob(r.ctx, ref)
+		if err == nil {
+			break
+		}
+		if r.ctx.Err() == nil && bq.Retryable(err) && attempt < 3 {
+			// the status could not be read; the job itself is still running
+			select {
+			case <-time.After(m.o.RetryDelay * time.Duration(attempt+1)):
+				continue
+			case <-r.ctx.Done():
+			}
+		}
+		// The outcome is unknown, so the job may still be running: stop it
+		// rather than leave it billing with nobody watching.
+		m.cancelJob(jobs, ref, nil)
+		if r.ctx.Err() == nil {
+			qe := bq.QueryErrorOf(err)
+			qe.Message = "lost track of the job (a cancel was requested): " + qe.Message
+			r.finish(func(i *api.RunInfo) { i.State, i.Error = api.RunFailed, qe })
+			return
 		}
 		r.fail(err)
 		return

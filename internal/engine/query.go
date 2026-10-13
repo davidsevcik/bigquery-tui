@@ -103,10 +103,31 @@ func (c completionCatalog) Columns(project, dataset, table string) []api.ColumnM
 			break
 		}
 	}
-	d, err := c.e.TableDetail(context.Background(), api.ObjectPath{Project: project, Dataset: dataset, Table: table})
+	// Completion runs on the frontend's input path, so a table's columns are
+	// read from the catalog once and then served from memory (the cache is
+	// dropped whenever the index reloads), and the read itself is bounded.
+	key := project + "\x00" + dataset + "\x00" + table
+	c.e.colMu.Lock()
+	cols, ok := c.e.colCache[key]
+	c.e.colMu.Unlock()
+	if ok {
+		return cols
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	d, err := c.e.TableDetail(ctx, api.ObjectPath{Project: project, Dataset: dataset, Table: table})
 	if err != nil {
 		return nil
 	}
+	c.e.colMu.Lock()
+	if len(c.e.colCache) > 512 {
+		c.e.colCache = map[string][]api.ColumnMeta{}
+	}
+	if c.e.colCache == nil {
+		c.e.colCache = map[string][]api.ColumnMeta{}
+	}
+	c.e.colCache[key] = d.Table.Columns
+	c.e.colMu.Unlock()
 	return d.Table.Columns
 }
 
@@ -187,7 +208,8 @@ func (e *Engine) StartExport(ctx context.Context, runID int64, path string, f ex
 		defer close(h.done)
 		defer close(h.events)
 		defer cancel()
-		schema, _, _ := r.RawRows(ectx, 0)
+		// the schema the Run kept, so no fetch can fail (or be skipped) here
+		schema := r.Schema()
 		next := func(c context.Context, start int64) ([][]any, error) {
 			if start >= info.TotalRows {
 				return nil, nil

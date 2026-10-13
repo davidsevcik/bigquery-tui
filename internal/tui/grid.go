@@ -204,14 +204,20 @@ func (g *grid) need(h int) []int64 {
 	if g.total == 0 {
 		return nil
 	}
+	// Scroll first: after a jump (G) the window is where the cursor is, not
+	// where it was, and only that window is fetched: at most three pages,
+	// never the pages in between.
+	g.scroll(h)
 	last := min(g.top+int64(max(h, 1))-1, g.total-1)
-	for p := pageOf(g.top); p <= pageOf(max(last, g.row)); p += gridPage {
-		if _, ok := g.pages[p]; !ok && !g.loading[p] {
-			out = append(out, p)
+	for _, p := range []int64{pageOf(g.top), pageOf(last), pageOf(g.row)} {
+		if _, ok := g.pages[p]; ok || g.loading[p] {
+			continue
 		}
-	}
-	if p := pageOf(g.row); len(out) == 0 {
-		if _, ok := g.pages[p]; !ok && !g.loading[p] {
+		dup := false
+		for _, o := range out {
+			dup = dup || o == p
+		}
+		if !dup {
 			out = append(out, p)
 		}
 	}
@@ -439,6 +445,30 @@ func (m *Model) onPage(msg pageMsg) {
 	g.err = ""
 	g.total = msg.page.TotalRows
 	g.store(msg.start, msg.page.Rows)
+}
+
+// maxGrids bounds the result grids kept in memory. A grid that was dropped is
+// rebuilt from the Run when its result is opened again.
+const maxGrids = 8
+
+// trimGrids drops the grids no buffer shows, oldest Run first, down to maxGrids.
+func (m *Model) trimGrids() {
+	shown := map[int64]bool{}
+	for _, b := range m.bufs {
+		shown[b.viewID] = true
+	}
+	for len(m.grids) > maxGrids {
+		var victim int64 = -1
+		for id := range m.grids {
+			if !shown[id] && (victim < 0 || id < victim) {
+				victim = id
+			}
+		}
+		if victim < 0 {
+			return
+		}
+		delete(m.grids, victim)
+	}
 }
 
 func (m *Model) gridStatus(g *grid) string {

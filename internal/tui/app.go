@@ -130,6 +130,8 @@ type Model struct {
 	grids      map[int64]*grid
 	prompt     promptState
 	confirm    confirmState
+	confirmQ   []confirmState // questions waiting for the open popup to close
+	draftErr   string         // the last draft write failed with this (retried every tick)
 	ovSel      int
 	exp        Export
 	expEv      api.ExportEvent
@@ -399,7 +401,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.runSearch(st)
 		}
 		if m.zone == ZoneEditor && m.ov == ovNone {
-			m.buf().ed.insert(strings.ReplaceAll(msg.Content, "\t", "  "))
+			m.buf().ed.insert(msg.Content) // verbatim: a tab inside a string literal matters
 			return m, m.afterEdit(false)
 		}
 	case runMsg:
@@ -431,6 +433,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.onExtEdit(msg)
 	case tea.KeyPressMsg:
 		cmd := m.key(msg)
+		m.nextConfirm()
 		return m, tea.Batch(cmd, m.afterSelect())
 	case searchMsg:
 		m.onSearch(msg)
@@ -649,9 +652,22 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 	switch act {
 	case "quit":
+		var why []string
 		if n := len(m.activeRuns()); n > 0 {
-			m.confirm = confirmState{kind: "quit", lines: []string{fmt.Sprintf("%d run(s) are still in flight. Quit and cancel them?", n)}}
-			m.ov = ovConfirm
+			why = append(why, fmt.Sprintf("%d run(s) are still in flight and will be cancelled.", n))
+		}
+		var unsaved []string
+		for _, b := range m.bufs {
+			if b.modified() {
+				unsaved = append(unsaved, b.title())
+			}
+		}
+		if len(unsaved) > 0 {
+			why = append(why, "Unsaved changes will be lost in: "+strings.Join(unsaved, ", ")+" (ctrl+s in the editor saves).")
+		}
+		if len(why) > 0 {
+			m.ov = ovNone
+			m.askConfirm(confirmState{kind: "quit", lines: append(why, "Quit anyway?")})
 			return nil, true
 		}
 		return m.quit(), true

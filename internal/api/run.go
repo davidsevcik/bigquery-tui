@@ -108,6 +108,9 @@ type RunInfo struct {
 	// CancelRequested is set between the cancel request and the job's
 	// confirmation; the Run may still be billed.
 	CancelRequested bool `json:"cancel_requested,omitempty"`
+	// CancelFailed is set when a cancel request could not be delivered; the
+	// job is still running and the cancel can be asked for again.
+	CancelFailed bool `json:"cancel_failed,omitempty"`
 
 	// HasResult is set when rows can be paged; TotalRows and Columns describe them.
 	HasResult bool  `json:"has_result,omitempty"`

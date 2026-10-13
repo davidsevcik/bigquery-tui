@@ -121,16 +121,29 @@ func (m *Model) saveDraft(b *buffer) {
 	if b.path != "" || b.lock == nil || b.draftVersion == b.ed.version {
 		return
 	}
-	b.draftVersion = b.ed.version
+	// The version counts as saved only once the file is really there, so a
+	// failed write (a full disk) is tried again on the next tick.
+	version := b.ed.version
 	p := m.draftPath(b.id)
 	if b.ed.empty() {
-		os.Remove(p)
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			m.draftErr = err.Error()
+			return
+		}
+		b.draftVersion, m.draftErr = version, ""
 		return
 	}
 	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, []byte(b.ed.text()), 0o600); err == nil {
-		os.Rename(tmp, p)
+	err := os.WriteFile(tmp, []byte(b.ed.text()), 0o600)
+	if err == nil {
+		err = os.Rename(tmp, p)
 	}
+	if err != nil {
+		os.Remove(tmp)
+		m.draftErr = err.Error() // shown in the status line until a write succeeds
+		return
+	}
+	b.draftVersion, m.draftErr = version, ""
 }
 
 func (m *Model) saveDrafts() {
@@ -165,6 +178,7 @@ func (m *Model) closeBuffer() {
 		os.Remove(m.draftPath(b.id))
 	}
 	m.bufs = append(m.bufs[:m.cur], m.bufs[m.cur+1:]...)
+	m.trimGrids()
 	if len(m.bufs) == 0 {
 		m.addBuffer("", "", "")
 	}

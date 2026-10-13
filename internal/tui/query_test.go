@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
@@ -592,4 +594,153 @@ func TestEditorHandOffNeedsATerminalEditor(t *testing.T) {
 	r := editorRig(t, 120, 30)
 	r.press("ctrl+x", "e")
 	r.contains("set $EDITOR")
+}
+
+func TestCtrlCCancelsTheRunShownInResults(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	blockA, blockB := make(chan struct{}), make(chan struct{})
+	defer close(blockA)
+	defer close(blockB)
+	r.fake.OnQuery = func(sql string) bqtest.QueryScript {
+		s := bqtest.Numbers(1)
+		s.Block = blockA
+		if strings.Contains(sql, "bbb") {
+			s.Block = blockB
+		}
+		return s
+	}
+	r.typeText("select aaa")
+	r.press("ctrl+r") // run #1
+	r.press("ctrl+u")
+	r.typeText("select bbb")
+	r.press("ctrl+r") // run #2, the buffer's latest
+	// show run #1 through the run list, then cancel from the Results zone
+	r.press("ctrl+x", "l", "down", "enter")
+	if r.m.zone != ZoneResults || r.m.buf().viewID != 1 {
+		t.Fatalf("zone %s view %d", r.m.zone, r.m.buf().viewID)
+	}
+	r.press("ctrl+c")
+	r.contains("cancel requested for run #1")
+	// in the editor the buffer's latest run is the focused one
+	r.press("esc", "ctrl+c")
+	r.contains("cancel requested for run #2")
+}
+
+func TestConfirmationsQueueInsteadOfReplacingEachOther(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	r.fake.OnQuery = func(sql string) bqtest.QueryScript { return bqtest.QueryScript{StatementType: "DELETE"} }
+	r.typeText("delete from a where true")
+	r.press("ctrl+r")
+	if r.m.ov != ovConfirm || r.m.confirm.runID != 1 {
+		t.Fatal("the first statement asks")
+	}
+	// a second statement reaches its confirmation while the first is open
+	id := r.m.be.StartRun(t.Context(), "delete from b where true", nil, r.m.buf().id, false)
+	info, ver := r.m.be.AwaitRun(t.Context(), id, 1)
+	r.send(runMsg{info, ver})
+	if r.m.confirm.runID != 1 || len(r.m.confirmQ) != 1 {
+		t.Fatalf("the open question must stay: showing #%d, %d queued", r.m.confirm.runID, len(r.m.confirmQ))
+	}
+	r.press("n") // decline the first: the second question appears
+	if r.m.ov != ovConfirm || r.m.confirm.runID != id {
+		t.Fatalf("the queued question was lost: ov %v run #%d", r.m.ov, r.m.confirm.runID)
+	}
+	r.press("y")
+	r.settle()
+	if len(r.fake.CallsTo("StartQuery")) != 1 {
+		t.Fatalf("exactly the confirmed statement runs: %d", len(r.fake.CallsTo("StartQuery")))
+	}
+	// a waiting confirmation can be reopened from the run list
+	r.press("ctrl+r", "esc") // run #3 asks; esc declines it
+	id4 := r.m.be.StartRun(t.Context(), "delete from c where true", nil, r.m.buf().id, false)
+	r.m.be.AwaitRun(t.Context(), id4, 1)
+	r.press("ctrl+x", "l", "enter") // the newest run is first
+	if r.m.ov != ovConfirm || r.m.confirm.runID != id4 {
+		t.Fatalf("enter on a waiting run reopens its question: ov %v #%d", r.m.ov, r.m.confirm.runID)
+	}
+	r.press("n")
+}
+
+func TestQuitAsksAboutUnsavedFileChanges(t *testing.T) {
+	r := newRig(t, 120, 30)
+	path := filepath.Join(r.dir, "q.sql")
+	os.WriteFile(path, []byte("select 1\n"), 0o644)
+	m := New(r.m.be, Options{NoBackground: true, StableOutput: true, Now: func() time.Time { return r.now }, File: path})
+	defer m.Close()
+	rf := &rig{t: t, m: m, fake: r.fake, eng: r.eng, now: r.now}
+	rf.send(teaSize(120, 30))
+	rf.typeText("-- edit\n")
+	rf.press("ctrl+q")
+	if m.ov != ovConfirm {
+		t.Fatal("quitting with unsaved file changes asks")
+	}
+	rf.contains("Unsaved changes will be lost in: q.sql")
+	rf.press("n", "ctrl+s", "ctrl+q")
+	if m.ov == ovConfirm {
+		t.Fatal("a saved buffer does not ask")
+	}
+}
+
+func TestDraftWriteFailureIsRetried(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	b := r.m.buf()
+	dir := r.m.be.DraftDir()
+	// make the draft path unwritable: a directory sits where the temp file goes
+	os.MkdirAll(filepath.Join(r.m.draftPath(b.id)+".tmp", "keep"), 0o700)
+	r.typeText("select 1")
+	if b.draftVersion == b.ed.version {
+		t.Fatal("a failed write must not count as saved")
+	}
+	r.contains("draft not saved (retrying)")
+	os.RemoveAll(r.m.draftPath(b.id) + ".tmp")
+	r.m.saveDrafts()
+	if got, _ := os.ReadFile(filepath.Join(dir, b.id+".sql")); string(got) != "select 1" || b.draftVersion != b.ed.version {
+		t.Fatalf("the next attempt saves it: %q", got)
+	}
+}
+
+func TestPasteIsVerbatim(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	r.send(tea.PasteMsg{Content: "select 'a\tb'\nfrom t"})
+	if r.text() != "select 'a\tb'\nfrom t" {
+		t.Fatalf("a pasted tab inside a string literal must survive: %q", r.text())
+	}
+	r.golden("paste_tab_120x30") // tabs still render two cells wide, lines stay 120 wide
+}
+
+func TestJumpToTheLastRowFetchesOnlyThatWindow(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(20 * gridPage) }
+	r.typeText("select many")
+	r.press("ctrl+r", "f6")
+	before := len(r.fake.CallsTo("QueryRows"))
+	r.press("G")
+	r.contains("row 10,000 of 10,000", "row 9999")
+	if n := len(r.fake.CallsTo("QueryRows")) - before; n != 1 {
+		t.Fatalf("G fetched %d pages, want only the last one", n)
+	}
+	if g := r.m.grid(); len(g.pages) != 2 {
+		t.Fatalf("%d pages in memory", len(g.pages))
+	}
+}
+
+func TestGridsAreBounded(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(3) }
+	for i := 0; i < maxGrids+6; i++ {
+		r.press("ctrl+x", "n")
+		r.typeText("select 1")
+		r.press("ctrl+r")
+		r.press("ctrl+x", "w", "y")
+	}
+	if n := len(r.m.grids); n > maxGrids {
+		t.Fatalf("%d grids kept after their buffers were closed", n)
+	}
+	// a dropped grid comes back when its run is opened again
+	r.press("ctrl+x", "l")
+	for i := 0; i < maxGrids+5; i++ {
+		r.press("down")
+	}
+	r.press("enter")
+	r.contains("#1 done", "row 1 of 3", "row 0")
 }

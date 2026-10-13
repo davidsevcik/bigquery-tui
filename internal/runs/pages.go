@@ -110,6 +110,13 @@ func (r *Run) Rows(ctx context.Context, startIndex int64, n int, o format.Option
 	return out, nil
 }
 
+// Schema returns the result's schema (nil without a result).
+func (r *Run) Schema() []bq.Field {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.schema
+}
+
 // RawRows returns unformatted rows with their schema (export).
 func (r *Run) RawRows(ctx context.Context, startIndex int64) ([]bq.Field, [][]any, error) {
 	base := startIndex - startIndex%PageRows

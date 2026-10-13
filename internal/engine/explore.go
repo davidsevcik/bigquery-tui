@@ -29,6 +29,9 @@ const statsTTL = 5 * time.Minute
 
 // ReloadIndex rebuilds the in-memory search index from the catalog.
 func (e *Engine) ReloadIndex(ctx context.Context) error {
+	e.colMu.Lock()
+	e.colCache = nil
+	e.colMu.Unlock()
 	if e.catalog == nil {
 		e.search.Swap(search.BuildIndex(&store.IndexSnapshot{}), nil)
 		return nil

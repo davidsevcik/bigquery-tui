@@ -65,6 +65,9 @@ type Engine struct {
 	search *search.Searcher
 	runs   *runs.Manager
 
+	colMu    gosync.Mutex
+	colCache map[string][]api.ColumnMeta // completion's columns, per table
+
 	mu       gosync.Mutex
 	history  *store.History
 	client   *bq.Client

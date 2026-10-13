@@ -226,6 +226,8 @@ func (m *Model) resultsPane(w, h int) []string {
 			line = "cancel requested: waiting for BigQuery to confirm"
 		case r.State == api.RunQueued:
 			line = "queued: waiting for a free slot (max_concurrent_queries)"
+		case r.State == api.RunRunning && r.CancelFailed:
+			line = "still running: the cancel request did not reach BigQuery. ctrl+c tries again"
 		case r.State == api.RunRunning:
 			line = "running… ctrl+c cancels"
 		}
