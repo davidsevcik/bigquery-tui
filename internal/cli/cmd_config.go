@@ -61,20 +61,6 @@ func cmdInit(ctx context.Context, o *out, g *globals, args []string) error {
 	return nil
 }
 
-// ResolveEditor picks the editor command: $VISUAL, then $EDITOR, then the OS
-// opener (open -t on macOS, xdg-open elsewhere).
-func ResolveEditor(getenv func(string) string, goos string) []string {
-	for _, k := range []string{"VISUAL", "EDITOR"} {
-		if v := strings.TrimSpace(getenv(k)); v != "" {
-			return strings.Fields(v)
-		}
-	}
-	if goos == "darwin" {
-		return []string{"open", "-t"}
-	}
-	return []string{"xdg-open"}
-}
-
 func cmdConfig(ctx context.Context, o *out, g *globals, args []string) error {
 	if len(args) == 0 {
 		return usageErr("config needs a subcommand: path or edit")
@@ -100,7 +86,7 @@ func cmdConfig(ctx context.Context, o *out, g *globals, args []string) error {
 			}
 			fmt.Fprintf(env.Stderr, "created %s from the template\n", path)
 		}
-		argv := append(ResolveEditor(env.Getenv, runtime.GOOS), path)
+		argv := append(config.ResolveEditor(env.Getenv, runtime.GOOS), path)
 		run := env.RunEditor
 		if run == nil {
 			return fmt.Errorf("no editor runner available")
