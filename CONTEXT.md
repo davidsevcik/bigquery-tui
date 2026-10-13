@@ -12,6 +12,10 @@ _Avoid_: Saved query, bookmark, snippet
 An automatic record of one query run: its SQL, project, bytes billed, duration and status. A History entry can be promoted to a Favorite.
 _Avoid_: Past query, log line
 
-**Billing project**:
-The GCP project that query jobs are billed to, set once in the config file and rarely changed. It can differ from the project whose data is being read.
-_Avoid_: Default project, quota project
+**Run**:
+One execution of a SQL snapshot, with its own state, dry-run estimate and result pager. Several Runs can be in flight at once. A finished Run produces a History entry.
+_Avoid_: Job (that is the BigQuery object behind a Run), query tab
+
+**Execution project**:
+The GCP project that query jobs run in, set once in the config file and rarely changed. Under on-demand pricing it is billed for the bytes processed; under capacity pricing it is assigned to a reservation, and slots are billed to the reservation's administration project. It can differ from the project whose data is being read.
+_Avoid_: Billing project, default project, quota project
