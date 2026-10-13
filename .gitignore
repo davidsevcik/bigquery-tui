@@ -1,1 +1,4 @@
 .scratch/
+bin/
+*.test
+*.out
