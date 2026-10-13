@@ -9,8 +9,8 @@ import (
 	"time"
 
 	bqapi "cloud.google.com/go/bigquery"
-	bqv2 "google.golang.org/api/bigquery/v2"
 	"golang.org/x/sync/errgroup"
+	bqv2 "google.golang.org/api/bigquery/v2"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
