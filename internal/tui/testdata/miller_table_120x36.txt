@@ -1,0 +1,36 @@
+ Datasets 3/4                     │ Tables 1/4                       │ Schema · acme-prod.sales.customers
+events                          5 │T customers                       │ acme-prod.sales.customers
+finance                         2 │T order_items                     │ table · EU · 0 rows · 0 B
+sales                           4 │T orders                          │ ✓ synced 3h ago
+us_archive                      1 │V v_orders                        │
+                                  │                                  │ ── schema · 2 fields ──
+                                  │                                  │ id       STRING
+                                  │                                  │ email    STRING
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │ Preview · acme-prod.sales.customers
+                                  │                                  │ p loads the first 20 rows
+                                  │                                  │ (read directly: free, no query job)
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+ bqt exec acme-exec  miller                                                                      5 datasets · 13 tables
+ ↑↓←→/hjkl move · / search · L layout · P panes · ? help · ctrl+p cmds · ctrl+t jump

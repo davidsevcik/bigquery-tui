@@ -216,6 +216,7 @@ Usage:
   bqt [global flags] <command> [flags]
 
 Commands:
+  (none), tui    Open the interactive explorer (needs a terminal)
   init           Create a commented config file (never overwrites)
   config path    Print the config file path
   config edit    Open the config file in $VISUAL / $EDITOR and validate it
@@ -249,8 +250,11 @@ func Run(ctx context.Context, args []string, env Env) int {
 	}
 	rest := fs.Args()
 	if len(rest) == 0 {
-		fmt.Fprint(env.Stderr, usage)
-		return api.ExitUsage
+		if !env.IsTTY(env.Stdout) || !env.IsTTY(env.Stdin) {
+			fmt.Fprint(env.Stderr, usage)
+			return api.ExitUsage
+		}
+		rest = []string{"tui"} // bare `bqt` on a terminal opens the explorer
 	}
 	cmd, cargs := rest[0], rest[1:]
 	if cmd == "help" || cmd == "--help" || cmd == "-h" {
@@ -279,6 +283,8 @@ func Run(ctx context.Context, args []string, env Env) int {
 		cerr = cmdStatus(ctx, o, g, cargs)
 	case "search":
 		cerr = cmdSearch(ctx, o, g, cargs)
+	case "tui":
+		cerr = cmdTUI(ctx, o, g, cargs)
 	case "doctor":
 		cerr = cmdDoctor(ctx, o, g, cargs)
 	default:

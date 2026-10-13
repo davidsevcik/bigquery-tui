@@ -437,6 +437,11 @@ func TestSearchCommand(t *testing.T) {
 	if env = decode(t, out); env.Truncated || env.NextCursor != "" {
 		t.Fatalf("%+v", env)
 	}
+	// a query may begin with a negated filter
+	code, out, _ = s.run("search", "--tables-only", "-d:us_data", "type:table")
+	if code != 0 || len(decode(t, out).Data.(map[string]any)["results"].([]any)) != 1 {
+		t.Fatalf("%d %s", code, out)
+	}
 	if code, _, _ := s.run("search", "--cursor", "x", "a"); code != api.ExitUsage {
 		t.Fatal(code)
 	}

@@ -1,0 +1,36 @@
+ Datasets 3/4                     │ Tables 1/4                       │ Schema · acme-prod.events.events_YYYYMMDD
+events                          5 │T customers                       │ acme-prod.events.events_YYYYMMDD
+finance                         2 │T order_items                     │ shard family ×4  20240101 → 20240104
+sales       ╭─ Jump to table ──────────────────────────────────────────────────────────────────────────────╮sts the sha…
+us_archive  │ ⌕ ev                                                                             1/2 · 0.0ms │
+            │ “ev”                                                                                         │
+            │▌T events_YYYYMMDD ×4  acme-prod.events                                             prefix 3h │
+            │ T clicks  acme-prod.events                                                 dataset·prefix 3h │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │YMMDD
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            │                                                                                              │
+            ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+                                  │                                  │
+ bqt exec acme-exec  miller                                                                      5 datasets · 13 tables
+ type to search · ↑↓ select · enter open · esc close

@@ -396,6 +396,11 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 		defer cancel()
 		res, err := s.Run(rctx, scope, h.push)
 		lock.Unlock()
+		// Make the result searchable before anyone is told the sync is done
+		// (the catalog watcher covers progressive updates and other processes).
+		if rerr := e.ReloadIndex(context.WithoutCancel(ctx)); rerr != nil {
+			e.o.Log.Warn("reload search index after sync", "err", rerr)
+		}
 		h.finish(res, err)
 	}()
 	return h, nil

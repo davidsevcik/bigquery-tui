@@ -1,0 +1,36 @@
+ Explorer  5/10                                                      │ Schema · acme-prod.sales.customers
+▾ acme-prod                                                     ✓ 3h │ acme-prod.sales.customers
+  ▸ events                                                         5 │ table · EU · 0 rows · 0 B
+  ▸ finance                                                        2 │ ✓ synced 3h ago
+  ▾ sales                                                          4 │
+      T customers                                                    │ ── schema · 2 fields ──
+      T order_items                                                  │ id       STRING
+      T orders                                                       │ email    STRING
+      V v_orders                                                     │
+  ▸ us_archive                                                     1 │
+▸ acme-staging                                                  ✓ 3h │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │ Preview · acme-prod.sales.customers
+                                                                     │ the table is empty
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+ bqt exec acme-exec  tree                                                                        5 datasets · 13 tables
+ ↑↓←→/hjkl move · / search · L layout · P panes · ? help · ctrl+p cmds · ctrl+t jump

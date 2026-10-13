@@ -1,0 +1,20 @@
+ Datasets 3/4                │ Tables 1/4
+events╭─ Commands ───────────────────────────────────╮
+financ│ > sync                                       │
+sales │ Cancel sync                           ctrl+c │
+us_arc│ Show sync problems                       g p │
+      │ Show sync progress                       g s │
+      ╰──────────────────────────────────────────────╯
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+ bqt exec acme-exec  miller          5 datasets · 13 tables
+ esc close

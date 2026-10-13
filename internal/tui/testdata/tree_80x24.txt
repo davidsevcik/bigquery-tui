@@ -1,0 +1,24 @@
+ Explorer  5/10
+▾ acme-prod                                                                ✓ 3h
+  ▸ events                                                                    5
+  ▸ finance                                                                   2
+  ▾ sales                                                                     4
+      T customers
+      T order_items
+      T orders
+      V v_orders
+  ▸ us_archive                                                                1
+▸ acme-staging                                                             ✓ 3h
+
+
+
+
+
+
+
+
+
+
+
+ bqt exec acme-exec  tree                                5 datasets · 13 tables
+ ↑↓←→/hjkl move · / search · L layout · P panes · ? help · ctrl+p cmds · ctrl+t…

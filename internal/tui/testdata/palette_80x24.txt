@@ -1,0 +1,24 @@
+ Projects 1/2     │ Datasets 3/4                 │ Tables 1/4
+acme-p╭─ Commands ───────────────────────────────────────────────────────╮
+acme-s│ > sync                                                           │
+      │ Cancel sync                                               ctrl+c │
+      │ Show sync problems                                           g p │
+      │ Show sync progress                                           g s │
+      ╰──────────────────────────────────────────────────────────────────╯
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+ bqt exec acme-exec  miller                              5 datasets · 13 tables
+ esc close

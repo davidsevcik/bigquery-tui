@@ -15,6 +15,7 @@ const module = "github.com/davidsevcik/bigquery-tui"
 var corePackages = []string{
 	"internal/api", "internal/config", "internal/store", "internal/sync",
 	"internal/bq", "internal/bq/bqtest", "internal/engine", "internal/logging", "internal/version",
+	"internal/search", "internal/format",
 }
 
 var forbiddenPrefixes = []string{

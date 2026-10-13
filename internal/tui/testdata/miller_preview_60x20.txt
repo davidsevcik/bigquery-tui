@@ -1,0 +1,20 @@
+ Datasets 3/4                │ Tables 1/4
+events                     5 │T customers
+finance                    2 │T order_items
+sales                      4 │T orders
+us_archive                 1 │V v_orders
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+ bqt exec acme-exec  miller          5 datasets · 13 tables
+ ↑↓←→/hjkl move · / search · L layout · P panes · ? help · …

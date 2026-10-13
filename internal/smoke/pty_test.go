@@ -1,0 +1,103 @@
+// Package smoke starts the real binary in a pseudo-terminal: the one test
+// that exercises terminal setup, the alternate screen, key input and a clean
+// exit together (ticket 16).
+package smoke
+
+import (
+	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/creack/pty"
+)
+
+type capture struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (c *capture) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.Write(p)
+}
+
+func (c *capture) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.String()
+}
+
+func waitFor(t *testing.T, c *capture, want string, d time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if strings.Contains(c.String(), want) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("never saw %q in the terminal output (%d bytes)", want, len(c.String()))
+}
+
+func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs the binary")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bqt")
+	if out, err := exec.Command("go", "build", "-o", bin, "../../cmd/bqt").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	cfg := filepath.Join(dir, "config.toml")
+	// No projects: the UI must come up without credentials or network.
+	if err := os.WriteFile(cfg, []byte("execution_project = \"smoke-exec\"\ndata_dir = \""+filepath.Join(dir, "data")+"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "--config", cfg)
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "HOME="+dir)
+	f, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 90})
+	if err != nil {
+		t.Skipf("no pty available: %v", err)
+	}
+	defer f.Close()
+	out := &capture{}
+	go func() {
+		buf := make([]byte, 32<<10)
+		for {
+			n, err := f.Read(buf)
+			out.Write(buf[:n])
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	waitFor(t, out, "smoke-exec", 10*time.Second)
+	waitFor(t, out, "hjkl move", 5*time.Second)
+	f.Write([]byte("?"))
+	waitFor(t, out, "command palette", 5*time.Second)
+	f.Write([]byte("\x1b")) // esc closes the help
+	time.Sleep(150 * time.Millisecond)
+	f.Write([]byte("q"))
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("exit: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		cmd.Process.Kill()
+		t.Fatal("the UI did not quit on q")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "data", "catalog.db")); err != nil {
+		t.Fatalf("the UI creates its catalog: %v", err)
+	}
+}

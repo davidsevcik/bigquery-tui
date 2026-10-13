@@ -1,0 +1,36 @@
+ Datasets 3/4                     │ Tables 1/4                       │ Schema · acme-prod.sales.customers
+events      ╭─ Help  (1-30/61) ────────────────────────────────────────────────────────────────────────────╮
+finance     │ Global                                                                                       │
+sales       │ ctrl+q          quit                                                                         │
+us_archive  │ ctrl+p          command palette                                                              │
+            │ ctrl+t          jump to table (recently opened when empty)                                   │
+            │ f1              this help                                                                    │
+            │ ctrl+c          cancel the running sync                                                      │
+            │                                                                                              │
+            │ Explorer                                                                                     │
+            │ j  down         move down                                                                    │
+            │ k  up           move up                                                                      │
+            │ h  left         parent column / collapse                                                     │
+            │ l  right        child column / expand                                                        │
+            │ g g  home       first row                                                                    │
+            │ G  end          last row                                                                     │
+            │ ctrl+d  pgdown  half page down                                                               │
+            │ ctrl+u  pgup    half page up                                                                 │
+            │ enter           expand a shard family, open a table, zoom the detail when it is collapsed    │
+            │ esc             back out one level                                                           │
+            │ /               search the catalog                                                           │
+            │ :               command palette                                                              │
+            │ L               cycle layout: Miller columns, tree, flat list                                │
+            │ P               detail pane: auto, right, bottom, hidden                                     │
+            │ tab             switch schema / preview when only one fits                                   │
+            │ z               zoom the detail pane                                                         │
+            │ ctrl+e          scroll the detail pane down                                                  │
+            │ ctrl+y          scroll the detail pane up                                                    │
+            │ p               load 20 (more) preview rows of the table                                     │
+            │ S               flat list: cycle scope all, project, dataset                                 │
+            │ y               copy the qualified name                                                      │
+            │ Y               copy the name in backticks                                                   │
+            ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+                                  │                                  │
+ bqt exec acme-exec  miller                                                                      5 datasets · 13 tables
+ esc close

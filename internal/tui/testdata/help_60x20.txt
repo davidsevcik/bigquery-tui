@@ -1,0 +1,20 @@
+ Datasets 3/4                │ Tables 1/4
+eve╭─ Help  (1-14/61) ──────────────────────────────────╮
+fin│ Global                                             │
+sal│ ctrl+q          quit                               │
+us_│ ctrl+p          command palette                    │
+   │ ctrl+t          jump to table (recently opened whe…│
+   │ f1              this help                          │
+   │ ctrl+c          cancel the running sync            │
+   │                                                    │
+   │ Explorer                                           │
+   │ j  down         move down                          │
+   │ k  up           move up                            │
+   │ h  left         parent column / collapse           │
+   │ l  right        child column / expand              │
+   │ g g  home       first row                          │
+   │ G  end          last row                           │
+   ╰────────────────────────────────────────────────────╯
+                             │
+ bqt exec acme-exec  miller          5 datasets · 13 tables
+ esc close

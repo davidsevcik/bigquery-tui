@@ -1,0 +1,36 @@
+ filter ▸ type a name, or p:prod d:events type:view col:user.id                                            5/10 · 0.0ms
+ p: d: type: col: label: desc:  -neg  a,b=OR  "quoted"  proj.ds.table
+ T clicks  acme-prod.events                                       3h │ Schema · acme-prod.sales.customers
+ T events_YYYYMMDD ×4  acme-prod.events                           3h │ acme-prod.sales.customers
+ T invoices  acme-prod.finance                                    3h │ table · EU · 0 rows · 0 B
+ T refunds  acme-prod.finance                                     3h │ ✓ synced 3h ago
+▌T customers  acme-prod.sales                                     3h │
+ T order_items  acme-prod.sales                                   3h │ ── schema · 2 fields ──
+ T orders  acme-prod.sales                                        3h │ id       STRING
+ V v_orders  acme-prod.sales                                      3h │ email    STRING
+ T orders_2019  acme-prod.us_archive                              3h │
+ T orders  acme-staging.sales                                     3h │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │ Preview · acme-prod.sales.customers
+                                                                     │ the table is empty
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+ bqt exec acme-exec  flat                                                                        5 datasets · 13 tables
+ ↑↓←→/hjkl move · / search · L layout · P panes · ? help · ctrl+p cmds · ctrl+t jump
