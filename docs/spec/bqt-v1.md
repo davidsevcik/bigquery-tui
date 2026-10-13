@@ -26,7 +26,7 @@ The core idea: keep a local, searchable index of metadata (projects, datasets, t
 
 - **Language:** Go. The toolchain is pinned to the version the Bubble Tea v2 stack needs (Go 1.26 or newer).
 - **TUI:** Bubble Tea v2 (`charm.land/bubbletea/v2`), Bubbles v2, Lip Gloss v2. Third-party editors on the v1 line are not usable.
-- **Store:** SQLite with FTS5 through `modernc.org/sqlite` (pure Go, no cgo).
+- **Store:** SQLite through `modernc.org/sqlite` (pure Go, no cgo). FTS5 is used for History; catalog search runs on an in-memory index (section 8.2).
 - **BigQuery:** `cloud.google.com/go/bigquery` for jobs, plus the generated REST service for `datasets.list` and `getQueryResults` paging.
 - **MCP:** the official `github.com/modelcontextprotocol/go-sdk` over stdio.
 - **Auth:** Application Default Credentials only (`gcloud auth application-default login`). `gcloud` is never read for anything but an optional init suggestion (section 4.4).
@@ -47,9 +47,9 @@ One Go module. All packages live under `internal/` for v1; a future GUI would be
 
 | Group | Packages |
 |---|---|
-| Core (no UI imports) | `api` (plain data types with JSON tags, the shared contract), `config`, `store` (catalog and history), `sync`, `bq` (BigQuery ports and the real implementation; `bq/bqtest` holds the fake, the contract suite and the synthetic catalog generator), `engine` (the facade below), `logging`, `version`, `search`, `sqlx` (tokenizer, completion, parameters), `runs`, `policy`, `favorites`, `export` |
+| Core (no UI imports) | `api` (plain data types with JSON tags, the shared contract), `config`, `store` (catalog and history), `sync`, `bq` (BigQuery ports and the real implementation; `bq/bqtest` holds the fake, the contract suite and the synthetic catalog generator), `engine` (the facade below), `logging`, `version`, `search` (query parser, ranking, in-memory index, browse lists), `format` (cell formatting), `sqlx` (tokenizer, completion, parameters), `runs`, `policy`, `favorites`, `export` |
 | Frontends | `tui`, `cli`, `mcp`, `cmd/bqt` |
-| Tests | `archtest` (the import-boundary test) |
+| Tests | `archtest` (the import-boundary test), `smoke` (starts the real binary in a pseudo-terminal) |
 
 Rules:
 
@@ -159,7 +159,7 @@ Both SQLite files use `modernc.org/sqlite`, WAL, `busy_timeout`, `synchronous=NO
 - Surrogate integer keys with unique constraints on `(project)`, `(project, dataset)` and `(dataset_id, table_name)`. Identifiers are stored exactly as returned plus a lowercase `name_lc` column for lookups and range scans. The hot path is `columns(table_id)`.
 - Per-`(project, region)` sync state: last attempt, last success, status (`ok`, `degraded`, `inaccessible`), error text.
 - A `meta` table: config hash, schema version, and a `last synced as` value if cheap. The catalog is not identity-aware; switching ADC accounts means deleting `catalog.db`.
-- FTS5: one row per table with dataset and project names denormalized in, plus rows for datasets. A `trigram` index covers names (substring match, sub-millisecond in the research benchmark). Descriptions and column names use `unicode61` over text that bqt pre-splits (`order_items` is indexed as `order_items order items`) with prefix indexes. A column hit resolves to its table, then to the matching columns by a scoped lookup.
+- No full-text index in the catalog. Search loads projects, datasets and tables (not columns) into memory and ranks them there; the `col:` filter scans an in-memory blob of column paths and descriptions built on first use (section 8.2). A trigram FTS5 index over columns was built and measured: it made the first apply of 1.3M columns ten times slower (14 s to 146 s), so it was dropped. `columns(parent_id)` must stay indexed (section 17 item 13).
 - Never design a lookup that needs a global distinct-column scan per keystroke (390 ms measured) or a sorted unscoped `LIKE` (18 ms).
 - Versioning: no migrations. A version mismatch deletes and recreates the file and shows "sync needed". A corrupt file is recreated silently.
 
@@ -217,12 +217,12 @@ Detail panes (schema and preview): to the right at 100 columns or more, at the b
 - `col:` matches the field path and the column description, and only `col:` results carry `column_hits` (up to 3 per table plus a count). `desc:` matches table and dataset descriptions only.
 - `-d:tmp` negates. Commas inside a filter mean OR (`type:view,mview`). A quoted value may contain spaces. A pasted `proj.dataset.table` or `` `proj.dataset.table` `` is an exact path lookup. Values are prefix or substring matches, not regex. An unknown key stays a free term.
 - The parser returns a structured query with per-filter status (complete, pending, invalid), so a frontend can show chips.
-- Ranking tiers, best first: exact name, name prefix, word-boundary (`oi` matches `order_items`), substring, fuzzy subsequence, description-only. A name hit always outranks a description hit. Ties: shorter name, then alphabetical. With no free term, results order by path (project, dataset, table). No usage boost in v1.
+- Ranking tiers, best first: exact name, name prefix, word-boundary (`oi` matches `order_items`), substring, fuzzy subsequence, description-only. A hit on the table's own name always outranks a hit that comes only from its labels, dataset name or project name (otherwise an exact dataset name would lift every table in that dataset above real name matches), and any of those outranks a description-only hit. Ties: shorter name, then path. With no free term, results order by path (project, dataset, table). No usage boost in v1.
 - An empty query shows recently opened tables from `recent_objects`; this is also what `ctrl+t` shows before typing.
-- Candidates come from trigram FTS on names and prose FTS on descriptions and columns, then are scored in Go. Spans and column hits are computed only for visible rows.
+- Implementation: an in-memory index of every project, dataset and table (names, descriptions, labels, shard family) is scored in Go in parallel chunks; dataset- and project-level scores are computed once per term and dataset. The index is rebuilt when the catalog changes (a `PRAGMA data_version` poll on a pinned connection, which also sees other processes) and at the end of the process's own sync. The `col:` filter scans one in-memory string of all lower-cased `path\0description` records. Spans and column hits are computed only for the returned page.
 - Result shape: `{kind, path, matched_field, tier, spans[], column_hits[≤3], more, freshness, stale, names_only, shard_family?}`. Spans are offsets for several fields at once (table, dataset, project, each column hit, description), never highlighted strings.
 - Actions in the core: open schema, copy the qualified name, copy as backticked, fetch a preview, insert into the editor (the frontend decides how). Project and dataset results offer select only.
-- Latency: p95 ≤ 30 ms per keystroke at 50k tables and 1.25M columns. Search runs off the UI thread and a new keystroke cancels the stale query. (The prototype's plain scan took 1 to 20 ms at 13k tables and extrapolates to 50 to 100 ms at target size, so the FTS prefilter is required.)
+- Latency: p95 ≤ 30 ms per keystroke at 50k tables and 1.25M columns. Search runs off the UI thread and a new keystroke cancels the stale query. Measured on the synthetic 50k-table catalog: name and filter queries p50 6 ms, p95 23 ms; `col:` queries p50 20 ms, p95 66 ms once the column data is in memory (about 1 s and 23 MB to build for 1.3M field paths). On the real 9,500-table catalog queries take 1 to 4 ms. A CI smoke guard fails above 150 ms.
 - Sync ignore patterns play no part in search.
 
 ### 8.3 Shard families (core)
@@ -231,7 +231,7 @@ Two or more tables in one dataset sharing a prefix and an 8-digit date suffix (`
 
 ### 8.4 Schema pane and preview
 
-- Schema pane fields. Table: qualified name, kind, rows, bytes, partition and clustering, view SQL or external URI, labels, description, freshness and status with error text, field list (path, depth, type, description), "names only" notice. Dataset: location, table count by type, labels, description, status. Project: dataset and table counts, status and error, names-only count, Execution project note.
+- Schema pane fields. Table: qualified name, kind, location, rows and bytes (fetched live with `tables.get` when a table is selected, cached for five minutes, omitted silently on failure, since the catalog does not store them), partition and clustering, view SQL, labels, expiry, description, freshness and status with error text, field list (path, depth, type, description), "names only" notice. Dataset: location, table count, status, description. Project: dataset count, status and error, Execution project note.
 - Preview is an explicit fetch (`p`). The first press loads 20 rows through `tabledata.list` (free); each further press appends the next 20, up to 1,000, after which the pane says to run a query. Views and external tables show "needs a query". Cells use the results formatting (section 10.4); `J` opens the record view.
 
 ### 8.5 Navigation
