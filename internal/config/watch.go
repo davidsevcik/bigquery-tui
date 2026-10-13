@@ -51,10 +51,11 @@ func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 	}
 	out := make(chan Event, 1)
 	path := ResolvePath(o.Load)
+	// Hash synchronously so a write racing with the goroutine start is seen.
+	seen := hashFile(path)
 	go func() {
 		defer close(out)
 		good := current
-		seen := hashFile(path)
 		pending, pendingSince := seen, time.Time{}
 		tick := time.NewTicker(o.Interval)
 		defer tick.Stop()
