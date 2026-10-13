@@ -37,6 +37,7 @@ type SyncEventKind string
 
 const (
 	EventRunStarted  SyncEventKind = "run_started"
+	EventDiscovered  SyncEventKind = "discovered"
 	EventUnitStarted SyncEventKind = "unit_started"
 	EventUnitCounted SyncEventKind = "unit_counted"
 	EventUnitDone    SyncEventKind = "unit_done"
