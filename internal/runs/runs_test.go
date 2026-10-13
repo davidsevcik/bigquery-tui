@@ -354,6 +354,18 @@ func TestLearnPricingNeedsALocation(t *testing.T) {
 	if c := r.fake.QueryCalls(); len(c) != 1 || !c[0].Dry || c[0].Req.Location != "EU" {
 		t.Fatalf("%+v", c)
 	}
+	// a query that scans nothing and names no reservation teaches nothing
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.QueryScript{Bytes: 0, Schema: bqtest.Numbers(0).Schema} }
+	r.m.Start(context.Background(), Request{SQL: "select 1"}).Wait()
+	if !r.m.Pricing().Capacity {
+		t.Fatal("SELECT 1 must not flip the model to on-demand")
+	}
+	// one that scans bytes without a reservation is on-demand
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(5) }
+	r.m.Start(context.Background(), Request{SQL: "select"}).Wait()
+	if p := r.m.Pricing(); !p.Known || p.Capacity {
+		t.Fatalf("%+v", p)
+	}
 }
 
 func TestAwaitFollowsARunToItsEnd(t *testing.T) {

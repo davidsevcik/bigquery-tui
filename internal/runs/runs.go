@@ -61,7 +61,10 @@ type Manager struct {
 	running int
 	waiting []chan struct{}
 	pricing api.PricingModel
-	events  chan api.RunEvent
+	// forceLearn makes learn accept a zero-byte dry-run (LearnPricing's probe,
+	// which is built so that it needs slots).
+	forceLearn bool
+	events     chan api.RunEvent
 	closed  bool
 }
 
@@ -105,9 +108,15 @@ func (m *Manager) Pricing() api.PricingModel {
 	return m.pricing
 }
 
+// learn records the pricing model a dry-run revealed. A query that scans
+// nothing and names no reservation (SELECT 1) says nothing either way:
+// BigQuery reports no reservation for it even on a reservation-backed project.
 func (m *Manager) learn(dr bq.DryRunResult) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if dr.ReservationID == "" && dr.BytesProcessed == 0 && !m.forceLearn {
+		return
+	}
 	m.pricing = api.PricingModel{Known: true, Capacity: dr.ReservationID != "", ReservationID: dr.ReservationID, Edition: dr.Edition}
 }
 
@@ -118,8 +127,12 @@ func (m *Manager) ForgetPricing() {
 	m.pricing = api.PricingModel{}
 }
 
-// LearnPricing runs a free `SELECT 1` dry-run in the configured location so
-// the first Run is presented correctly. Without a location it does nothing:
+// pricingProbe is a free query that still needs slots, so its dry-run names
+// the reservation when there is one (a bare SELECT 1 does not).
+const pricingProbe = "SELECT x FROM UNNEST(GENERATE_ARRAY(1, 2)) AS x ORDER BY x"
+
+// LearnPricing runs a free dry-run in the configured location so the first
+// Run is presented correctly. Without a location it does nothing:
 // the model depends on where the job runs.
 func (m *Manager) LearnPricing(ctx context.Context) error {
 	cfg := m.o.Config()
@@ -130,11 +143,17 @@ func (m *Manager) LearnPricing(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	dr, err := jobs.DryRun(ctx, bq.QueryRequest{SQL: "SELECT 1", Location: cfg.Location, Labels: m.labels()})
+	dr, err := jobs.DryRun(ctx, bq.QueryRequest{SQL: pricingProbe, Location: cfg.Location, Labels: m.labels()})
 	if err != nil {
 		return err
 	}
+	m.mu.Lock()
+	m.forceLearn = true
+	m.mu.Unlock()
 	m.learn(dr)
+	m.mu.Lock()
+	m.forceLearn = false
+	m.mu.Unlock()
 	return nil
 }
 

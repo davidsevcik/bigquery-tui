@@ -84,7 +84,14 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 	waitFor(t, out, "command palette", 5*time.Second)
 	f.Write([]byte("\x1b")) // esc closes the help
 	time.Sleep(150 * time.Millisecond)
-	f.Write([]byte("q"))
+	// F6 goes to the editor; printable keys type there (q must not quit)
+	f.Write([]byte("\x1b[17~"))
+	waitFor(t, out, "ctrl+r runs", 5*time.Second)
+	f.Write([]byte("select q"))
+	// the renderer only sends changed cells, so there is no stable text to
+	// wait for: the draft file checked below proves the keys arrived
+	time.Sleep(500 * time.Millisecond)
+	f.Write([]byte("\x11")) // ctrl+q quits from anywhere
 
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -95,9 +102,17 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		cmd.Process.Kill()
-		t.Fatal("the UI did not quit on q")
+		t.Fatal("the UI did not quit on ctrl+q")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "data", "catalog.db")); err != nil {
 		t.Fatalf("the UI creates its catalog: %v", err)
+	}
+	// the buffer was autosaved as a draft for the next start
+	drafts, _ := filepath.Glob(filepath.Join(dir, "data", "drafts", "tui", "*.sql"))
+	if len(drafts) != 1 {
+		t.Fatalf("drafts: %v", drafts)
+	}
+	if b, _ := os.ReadFile(drafts[0]); string(b) != "select q" {
+		t.Fatalf("draft = %q", b)
 	}
 }
