@@ -90,7 +90,7 @@ One TOML file at `$XDG_CONFIG_HOME/bqt/config.toml`, falling back to `~/.config/
 | `agent_max_bytes` | Byte limit for CLI and MCP queries (section 14.3). | `1GiB` |
 | `agent_timeout` | Timeout per CLI or MCP query. | `60s` |
 | `cli_allow_writes` | Allow non-SELECT statements from the CLI. | `false` |
-| `[tui]` | TUI-only settings. A GUI would add `[gui]`. | |
+| `[tui]` | TUI-only settings. A GUI would add `[gui]`. Keys: `editing` = `"vim"` or `"plain"` (the query editor's editing style). Unknown keys are errors. | `editing = "vim"` |
 
 `~` and `$VARS` expand in path values.
 
@@ -254,7 +254,20 @@ Vim keys (`hjkl`, `gg`/`G`, `ctrl+d`/`ctrl+u`, `/`), the command palette (`ctrl+
 
 ### 9.1 Editing (TUI-only)
 
-- A small editor widget written for bqt (`internal/tui/editor.go`): cursor, shift-selection, word motions, snapshot undo and redo, auto-indent, horizontal scrolling, and a per-token highlight hook fed by the core tokenizer. Modeless, no vim modes. The plan was to fork the Bubbles v2 `textarea`; the fork was dropped because the textarea has no selection (needed for "run selection") and its rendering model fights per-token colours, and the replacement is about 600 lines. No soft wrap: long lines scroll.
+- A small editor widget written for bqt (`internal/tui/editor.go`): cursor, shift-selection, word motions, snapshot undo and redo, auto-indent, horizontal scrolling, and a per-token highlight hook fed by the core tokenizer. The plan was to fork the Bubbles v2 `textarea`; the fork was dropped because the textarea has no selection (needed for "run selection") and its rendering model fights per-token colours, and the replacement is about 600 lines. No soft wrap: long lines scroll.
+- **Vim-style editing is the default** (`[tui] editing = "vim"`; `"plain"` gives the modeless editor, and the key is live-reloaded). This reverses the earlier "modeless, no vim modes" decision. It is a layer over the same widget (`internal/tui/vim.go`), a deliberate subset of vim:
+  - Modes: Normal (where a buffer starts), Insert, Visual (`v`) and Visual-line (`V`). The pane title shows the mode and the pending count or operator; the Insert cursor is drawn differently.
+  - Counts, and the motions `h j k l`, `w b e W B E`, `0 ^ $`, `gg G` (with a count: go to that line), `{ }`, `%`, `f F t T ; ,`, `ctrl+d ctrl+u ctrl+f ctrl+b`.
+  - Operators `d c y > <` with any motion or text object, doubled for whole lines (`dd cc yy >> <<`), plus `D C Y x X s S r J ~ p P`. `cw` behaves like `ce`, and `dw` on the last word of a line keeps the line break, as in vim.
+  - Text objects: `iw aw iW aW`, quotes `i" a" i' a'` and backticks, brackets `i( a( ib`, `i[ a[`, `i{ a{ iB`, `i< a<` (brackets across lines).
+  - Insert entry `i a I A o O`; `esc` returns to Normal and closes the completion popup in the same press.
+  - One unnamed register. A yank or delete also goes to the system clipboard (OSC 52); there are no named registers, and pasting from the system clipboard is the terminal's paste.
+  - `u` undoes and `ctrl+r` redoes. One command is one undo step, including everything typed in the Insert session it started. `.` repeats the last change by replaying its keys (a completion accepted with Tab is not replayable, so such a change is not recorded).
+  - `/` finds text in the buffer (lower case ignores case), `n` / `N` repeat, `*` finds the word under the cursor. There is no `?` backward search (`?` is help) and no regular expressions.
+  - Visual mode: motions and text objects extend the selection; `d x c s y > < ~ u U J p`, `o` swaps the ends.
+  - **Key conflicts, resolved in vim's favour in Normal and Visual mode:** `ctrl+r` is redo and `ctrl+d` scrolls, so a query can never start from a redo reflex. Running is `enter` (the buffer, or the Visual selection) or `space r`; the dry-run is `space d`. The `space` leader also has `l` run list, `b` buffers, `n` new, `w` close, `[` `]` switch, `s` save, `e` `$EDITOR`. In Insert mode `ctrl+r` runs and `ctrl+d` dry-runs, as in plain editing; `ctrl+n` forces completion. `:` opens the command palette; there is no ex command line.
+  - Kept from bqt in every mode: the `ctrl+x` chords, `ctrl+w h/j/k/l` zone moves (so `ctrl+w` does not delete a word in Insert mode), `ctrl+s`, `ctrl+c`, `ctrl+p`, `ctrl+t`, `ctrl+q`, `F6`.
+  - Not built: macros, marks, named registers, `:` commands, block-visual mode, `ip`/`ap`, `gU`/`gu`/`g~` operators, regex search, counts on insert commands (`3ix`).
 - **Several buffers per TUI session.** `ctrl+x n` opens a new buffer, `ctrl+x b` opens the buffer list (open buffers, then the drafts that can be restored), `ctrl+x w` closes one, `ctrl+x [` and `ctrl+x ]` move between them. This is TUI-only; the core is unchanged because a Run snapshots its SQL.
 - A Run belongs to the buffer that started it, and the buffer shows a status badge for its latest Run (running, done, failed). Switching buffers while Runs are in flight is fine; the run list stays global. Closing a buffer asks only if it has changes not saved to a file or a Favorite (autosaved drafts do not count).
 - **Drafts:** each buffer autosaves to `<data_dir>/drafts/tui/<buffer-id>.sql` (random ID), held under an advisory lock by the owning instance, so several `bqt` instances (for example in tmux panes) never overwrite each other. On startup an instance restores only unlocked drafts (orphans from a crash or a closed pane), listed as "restore drafts" in the buffer list rather than all opened. Orphaned drafts older than 30 days are deleted at startup.
@@ -394,7 +407,9 @@ Zones: Explorer, Editor, Results, overlays. Zone switching: `F6` / `shift+F6` cy
 | Explorer | `z` | Zoom the detail; zoomed: movement keys scroll it, left/`esc` leave, `P` side by side or stacked, `Enter` record |
 | Explorer | `i`, `gr` | Insert the table's name into the editor; run list |
 | Explorer | `esc` | Back out one level |
-| Editor | printable keys | Type |
+| Editor | printable keys | Type (plain editing, and vim's Insert mode) |
+| Editor (vim Normal) | `enter`, `space r`, `space d` | Run, run, dry-run; `ctrl+r` is redo and `ctrl+d` scrolls here |
+| Editor (vim) | see 9.1 | Motions, operators, text objects, Visual mode, `/`, `.` |
 | Editor | `ctrl+r` | Run selection, or the whole buffer |
 | Editor | `ctrl+d` | Dry-run |
 | Editor | `ctrl+space` | Force completion |

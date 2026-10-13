@@ -199,6 +199,16 @@ func (m *Model) footerLine(w int) string {
 		hint = ""
 	case m.ov == ovNone && m.zone == ZoneEditor:
 		hint = footerHints(ZoneEditor) + " · ctrl+x l runs · " + footerHints(ZoneGlobal)
+		if m.vimOn() {
+			switch m.buf().vim.mode {
+			case vimInsert:
+				hint = "esc normal mode · ctrl+r run · ctrl+d dry-run · tab complete · ctrl+n force completion"
+			case vimNormal:
+				hint = "i insert · enter run · space d dry-run · v select · / find · u undo · : commands · ? help · F6 zone"
+			default:
+				hint = "enter run the selection · d delete · y yank · c change · > < indent · esc normal mode"
+			}
+		}
 		if m.comp.open {
 			hint = "tab accept · ↑↓ select · esc dismiss · enter is a new line"
 		}

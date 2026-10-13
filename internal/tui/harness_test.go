@@ -81,12 +81,17 @@ func fixtureFake() *bqtest.Fake {
 	return f
 }
 
+// rigEditing is the [tui] editing style the next rig is built with. Most
+// tests type straight into the editor, so the default here is "plain"; the vim
+// tests set "vim".
+var rigEditing = "plain"
+
 func newRig(t *testing.T, w, h int) *rig {
 	t.Helper()
 	dir := t.TempDir()
 	r := &rig{t: t, fake: fixtureFake(), dir: dir, now: testNow}
 	r.cfg = filepath.Join(dir, "config.toml")
-	src := "execution_project = \"acme-exec\"\ndata_dir = \"" + filepath.Join(dir, "data") + "\"\nprojects = [\"acme-prod\", \"acme-staging\"]\n"
+	src := "execution_project = \"acme-exec\"\ndata_dir = \"" + filepath.Join(dir, "data") + "\"\nprojects = [\"acme-prod\", \"acme-staging\"]\n[tui]\nediting = \"" + rigEditing + "\"\n"
 	if err := os.WriteFile(r.cfg, []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -86,8 +86,8 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 	// F6 goes to the editor; printable keys type there (q must not quit)
 	f.Write([]byte("\x1b[17~"))
-	waitFor(t, out, "ctrl+r runs", 5*time.Second)
-	f.Write([]byte("select q"))
+	waitFor(t, out, "i inserts", 5*time.Second)
+	f.Write([]byte("iselect q")) // i: the editor starts in vim's Normal mode
 	// the renderer only sends changed cells, so there is no stable text to
 	// wait for: the draft file checked below proves the keys arrived
 	time.Sleep(500 * time.Millisecond)

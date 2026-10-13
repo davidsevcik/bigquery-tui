@@ -119,6 +119,40 @@ func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 		m.pendingKey = name
 		return nil
 	}
+	vimOn := m.vimOn()
+	v := &b.vim
+	if vimOn && v.mode != vimInsert {
+		// Normal and Visual mode: the registry keeps its ctrl and function
+		// keys, except the few vim claims (ctrl+r is redo, ctrl+d scrolls).
+		if !vimClaims(name) {
+			if act := keys.action(ZoneEditor, name); act != "" {
+				return m.editorAction(act)
+			}
+		}
+		if v.idle() && (name == "u" || name == "ctrl+r" || name == ".") {
+			defer func() { v.tainted = true }()
+		}
+		return m.vimKey(msg, name)
+	}
+	if vimOn {
+		if !v.replay {
+			v.rec = append(v.rec, msg)
+		}
+		switch {
+		case name == "esc":
+			m.vimLeaveInsert(b)
+			m.vimSettle(b)
+			if m.o.NoBackground {
+				m.saveDraft(b)
+			}
+			return nil
+		case name == "tab" && m.comp.open:
+			v.tainted = true // a completion cannot be replayed by "."
+		case name == "ctrl+n" && !m.comp.open:
+			m.updateCompletion(true)
+			return nil
+		}
+	}
 	if m.comp.open {
 		switch name {
 		case "tab":
@@ -569,6 +603,14 @@ func (m *Model) promptSubmit() tea.Cmd {
 		os.Remove(m.lockPath(b.id))
 		m.ov = ovNone
 		m.toast = "saved " + path
+	case "edfind":
+		m.ov = ovNone
+		b.vim.search = p.fields[0].value()
+		if r, c, ok := b.ed.searchFrom(b.vim.search, 1); ok {
+			b.ed.row, b.ed.col, b.ed.want = r, c, c
+		} else if b.vim.search != "" {
+			m.toast = "“" + b.vim.search + "” is not in the buffer"
+		}
 	case "find":
 		m.ov = ovNone
 		g := m.grid()

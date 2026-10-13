@@ -72,7 +72,7 @@ agent_timeout = "30s"
 cli_allow_writes = true
 
 [tui]
-layout = "miller"
+editing = "plain"
 `
 	home, _ := os.UserHomeDir()
 	c := mustParse(t, src, LoadOptions{Getenv: env(map[string]string{"HOME": home})})
@@ -91,7 +91,7 @@ layout = "miller"
 	if c.MaxConcurrentQueries != 8 || c.HistoryRetentionDays != 90 || c.AgentMaxBytes != 500_000_000 || c.AgentTimeout != 30*time.Second || !c.CLIAllowWrites {
 		t.Fatalf("%+v", c)
 	}
-	if c.TUI["layout"] != "miller" {
+	if c.TUI["editing"] != "plain" {
 		t.Fatalf("tui: %v", c.TUI)
 	}
 }
@@ -260,5 +260,30 @@ func TestParseDuration(t *testing.T) {
 	}
 	if _, err := ParseDuration("soon"); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestTUIEditingKey(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) string {
+		p := filepath.Join(dir, "c.toml")
+		os.WriteFile(p, []byte("execution_project = \"x\"\n"+body), 0o600)
+		return p
+	}
+	load := func(body string) (*Config, error) {
+		return Load(LoadOptions{Path: write(body), Getenv: func(string) string { return "" }})
+	}
+	c, err := load("")
+	if err != nil || c.Editing() != EditingVim {
+		t.Fatalf("vim is the default: %v %v", c, err)
+	}
+	if c, err = load("[tui]\nediting = \"plain\"\n"); err != nil || c.Editing() != EditingPlain {
+		t.Fatalf("%v", err)
+	}
+	if _, err = load("[tui]\nediting = \"emacs\"\n"); err == nil || !strings.Contains(err.Error(), "tui.editing") {
+		t.Fatalf("an unknown style is an error: %v", err)
+	}
+	if _, err = load("[tui]\neditng = \"vim\"\n"); err == nil || !strings.Contains(err.Error(), "tui.editng") {
+		t.Fatalf("an unknown [tui] key is an error: %v", err)
 	}
 }

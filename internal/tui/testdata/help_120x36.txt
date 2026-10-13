@@ -1,5 +1,5 @@
  Datasets 3/4                     │ Tables 1/4                       │ Schema · acme-prod.sales.customers
-events      ╭─ Help  (1-30/125) ───────────────────────────────────────────────────────────────────────────╮
+events      ╭─ Help  (1-30/144) ───────────────────────────────────────────────────────────────────────────╮
 finance     │ Global                                                                                       │
 sales       │ ctrl+q          quit (asks if Runs are in flight)                                            │
 us_archive  │ f6              next zone: Explorer, Editor, Results                                         │

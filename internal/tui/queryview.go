@@ -124,6 +124,36 @@ func (m *Model) queryBody(w, h int) []string {
 		name += " ●"
 	}
 	ttl := fmt.Sprintf(" SQL · %s", name)
+	vimOn := m.vimOn()
+	placeholder := "type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes"
+	b.ed.insertCursor = false
+	if vimOn {
+		mode := b.vim.mode.String()
+		pending := ""
+		if b.vim.hasCount {
+			pending += itoa(b.vim.count)
+		}
+		if b.vim.opCount > 0 {
+			pending += itoa(b.vim.opCount)
+		}
+		pending += b.vim.op
+		if b.vim.wait != "" && b.vim.wait != "leader" {
+			pending += b.vim.wait
+		} else if b.vim.wait == "leader" {
+			pending += "␣"
+		}
+		ttl = fmt.Sprintf(" %s · %s", mode, name)
+		if pending != "" {
+			ttl += "  " + pending
+		}
+		placeholder = "i inserts · enter runs · space d dry-runs · : commands · ? help"
+		b.ed.insertCursor = b.vim.mode == vimInsert
+		if b.vim.mode != vimVisual && b.vim.mode != vimVisualLine {
+			b.ed.vis = nil
+		}
+	} else {
+		b.ed.vis = nil
+	}
 	if len(m.bufs) > 1 {
 		ttl += fmt.Sprintf("  [%d/%d]", m.cur+1, len(m.bufs))
 	}
@@ -132,7 +162,7 @@ func (m *Model) queryBody(w, h int) []string {
 	}
 	ttl += fmt.Sprintf("   %d:%d", b.ed.row+1, b.ed.col+1)
 	out := []string{title(ttl, w, m.zone == ZoneEditor)}
-	lines, cx, cy := b.ed.view(w, edH-1, m.zone == ZoneEditor && m.ov == ovNone, m.be.Tokenize, "type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes")
+	lines, cx, cy := b.ed.view(w, edH-1, m.zone == ZoneEditor && m.ov == ovNone, m.be.Tokenize, placeholder)
 	m.edX, m.edY = cx, cy+1
 	out = append(out, lines...)
 	out = append(out, m.resultsPane(w, resH)...)
@@ -154,7 +184,11 @@ func (m *Model) resultsPane(w, h int) []string {
 	r, ok := m.shownRun()
 	if !ok {
 		out := []string{title(" Results", w, focused)}
-		out = append(out, fit(" "+sDim.Render("no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimates it"), w))
+		hint := "no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimates it"
+		if m.vimOn() {
+			hint = "no run yet: enter in Normal mode runs the buffer (or the Visual selection), space d only estimates it"
+		}
+		out = append(out, fit(" "+sDim.Render(hint), w))
 		return fillTo(out, w, h)
 	}
 	g := m.grids[r.ID]

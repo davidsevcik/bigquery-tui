@@ -20,12 +20,20 @@ type editor struct {
 
 	selOn          bool
 	selRow, selCol int // selection anchor
+	// vis, when set, is the selection (r1, c1, r2, c2; end exclusive) of the
+	// vim layer's Visual mode and overrides the anchor.
+	vis *[4]int
+	// insertCursor draws the cursor as the vim layer's Insert-mode cursor.
+	insertCursor bool
 
 	top, left int // scroll: first visible line, first visible cell
 
 	undo, redo []edSnap
 	typing     bool // the last change was plain typing (coalesced into one undo step)
-	version    int
+	// inGroup makes every change until endGroup one undo step (a vim command,
+	// including the whole Insert session it starts).
+	inGroup, grouped bool
+	version          int
 
 	// the error BigQuery pointed at (1-based line and column; 0 = none)
 	errLine, errCol int
@@ -141,6 +149,12 @@ func (e *editor) push(typing bool) {
 	if e.lines == nil {
 		return
 	}
+	if e.inGroup {
+		if e.grouped {
+			return
+		}
+		e.grouped, typing = true, false
+	}
 	if typing && e.typing {
 		return
 	}
@@ -151,6 +165,9 @@ func (e *editor) push(typing bool) {
 	}
 	e.redo = nil
 }
+
+func (e *editor) beginGroup() { e.inGroup, e.grouped = true, false }
+func (e *editor) endGroup()   { e.inGroup, e.grouped = false, false }
 
 func (e *editor) restore(s edSnap) {
 	e.lines, e.row, e.col = s.lines, s.row, s.col
@@ -184,6 +201,9 @@ func (e *editor) doRedo() bool {
 
 // selRange returns the selection as ordered positions; ok is false without one.
 func (e *editor) selRange() (r1, c1, r2, c2 int, ok bool) {
+	if v := e.vis; v != nil {
+		return v[0], v[1], v[2], v[3], !(v[0] == v[2] && v[1] == v[3])
+	}
 	if !e.selOn || (e.selRow == e.row && e.selCol == e.col) {
 		return 0, 0, 0, 0, false
 	}
@@ -723,7 +743,10 @@ func (e *editor) view(w, h int, focused bool, tokenize func(string) []api.Token,
 			if inSel(r, c) {
 				st = st.Background(lipgloss.Color("60")).Foreground(lipgloss.Color("255"))
 			}
-			if isCursor {
+			if isCursor && e.insertCursor {
+				st = lipgloss.NewStyle().Background(lipgloss.Color("114")).Foreground(lipgloss.Color("16"))
+				curX, curY = gw+used, y
+			} else if isCursor {
 				st = st.Reverse(true)
 				curX, curY = gw+used, y
 			}

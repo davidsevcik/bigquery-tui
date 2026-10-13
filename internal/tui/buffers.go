@@ -27,6 +27,8 @@ type buffer struct {
 	draftVersion int // editor version in the draft file
 	savedVersion int // editor version in the file (file buffers)
 
+	vim vim // state of the vim layer ([tui] editing = "vim")
+
 	runID  int64 // latest Run started from this buffer
 	viewID int64 // Run shown in the results pane
 	params map[string]string

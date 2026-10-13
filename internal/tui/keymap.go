@@ -242,6 +242,10 @@ func helpLines() []string {
 			for _, l := range editingHelp {
 				out = append(out, " "+sKey.Render(pad(l[0], 16))+l[1])
 			}
+			out = append(out, "", " "+sBold.Render("Editor, vim editing")+sDim.Render(`  ([tui] editing = "vim", the default; "plain" turns it off)`))
+			for _, l := range vimHelp {
+				out = append(out, " "+sKey.Render(pad(l[0], 16))+l[1])
+			}
 		}
 		out = append(out, "")
 	}
@@ -264,4 +268,25 @@ var editingHelp = [][2]string{
 	{"alt+backspace", "delete the word before the cursor (alt+d: after)"},
 	{"ctrl+k  ctrl+u", "delete to the line end / line start"},
 	{"ctrl+z  ctrl+y", "undo and redo"},
+}
+
+// vimHelp lists the vim layer's keys (spec 9.1).
+var vimHelp = [][2]string{
+	{"i a I A o O", "insert before / after the cursor, at line start / end, on a new line below / above"},
+	{"esc", "back to Normal mode"},
+	{"h j k l", "move; also w b e W B E, 0 ^ $, gg G, { }, %, f F t T ; ,"},
+	{"ctrl+d ctrl+u", "half a page down / up (ctrl+f ctrl+b: a page)"},
+	{"d c y > <", "delete, change, yank, indent: with a motion or text object (dw, ci(, yap is not built)"},
+	{"dd cc yy >> <<", "the same on whole lines; D C Y work to the line end / on the line"},
+	{"iw aw i\" i( i[ i{", "text objects: inner / a word, quotes (also ' and `), brackets (also a…)"},
+	{"x X s S r J ~", "delete char, substitute, replace, join lines, toggle case"},
+	{"p P", "paste after / before; yanks also go to the system clipboard"},
+	{"u  ctrl+r", "undo, redo"},
+	{".", "repeat the last change"},
+	{"v V", "Visual and Visual-line mode: then d c y > < ~ u U, or enter to run the selection"},
+	{"/ n N *", "find in the buffer, next, previous, the word under the cursor"},
+	{"enter", "run the buffer (in Visual mode: the selection)"},
+	{"space r / d", "run / dry-run; space l runs, space b buffers, space n new, space w close, space [ ] switch, space s save, space e $EDITOR"},
+	{":  ?", "command palette, this help"},
+	{"Insert mode", "ctrl+r runs, ctrl+d dry-runs, tab accepts a completion, ctrl+n forces one"},
 }
