@@ -69,9 +69,14 @@ func measure(t *testing.T, s *Searcher, queries []string, rounds int) (p50, p95,
 // TestSearchLatencySmoke is the CI guard: at the target catalog size a
 // keystroke must stay well under 5x the 30 ms budget. It catches
 // order-of-magnitude regressions without being flaky on slow runners.
+// The race detector slows the search path several times over, so CI runs
+// this in its own step without -race.
 func TestSearchLatencySmoke(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds a 50k-table catalog")
+	}
+	if raceEnabled {
+		t.Skip("wall-clock guard is meaningless under the race detector")
 	}
 	s, _ := synthetic(500)
 	_, p95, worst, slowest := measure(t, s, benchQueries, 3)
