@@ -204,6 +204,12 @@ func (f *Fake) QueryRows(ctx context.Context, ref api.JobRef, startIndex int64, 
 	rows := j.script.Rows
 	page := bq.ResultPage{Schema: j.script.Schema, TotalRows: int64(len(rows))}
 	lo := int(min(startIndex, int64(len(rows))))
+	f.mu.Lock()
+	limit := f.PageLimit
+	f.mu.Unlock()
+	if limit > 0 && maxRows > limit {
+		maxRows = limit
+	}
 	hi := min(lo+maxRows, len(rows))
 	page.Rows = append(page.Rows, rows[lo:hi]...)
 	return page, nil

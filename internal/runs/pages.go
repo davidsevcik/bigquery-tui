@@ -26,9 +26,9 @@ func (r *Run) page(ctx context.Context, start int64) (*bq.ResultPage, error) {
 		r.mu.Unlock()
 		return p, nil
 	}
-	ref, jobs := *r.info.Job, r.jobs
+	ref, jobs, total := *r.info.Job, r.jobs, r.info.TotalRows
 	r.mu.Unlock()
-	p, err := jobs.QueryRows(ctx, ref, start, PageRows)
+	p, err := fullPage(ctx, jobs, ref, start, total)
 	if err != nil {
 		return nil, err
 	}
@@ -41,6 +41,35 @@ func (r *Run) page(ctx context.Context, start int64) (*bq.ResultPage, error) {
 		r.pageUse = r.pageUse[1:]
 	}
 	return &p, nil
+}
+
+// fullPage reads PageRows rows from start. BigQuery cuts a response short
+// when the rows are wide (a size limit, not the end of the result), so it
+// keeps asking until the page is full or the result ends. Without this a
+// short response would look like missing rows, and an export would stop early.
+func fullPage(ctx context.Context, jobs bq.Jobs, ref api.JobRef, start, total int64) (bq.ResultPage, error) {
+	var page bq.ResultPage
+	for len(page.Rows) < PageRows {
+		at := start + int64(len(page.Rows))
+		if total > 0 && at >= total {
+			break
+		}
+		p, err := jobs.QueryRows(ctx, ref, at, PageRows-len(page.Rows))
+		if err != nil {
+			return bq.ResultPage{}, err
+		}
+		if page.Schema == nil {
+			page.Schema, page.TotalRows = p.Schema, p.TotalRows
+		}
+		if len(p.Rows) == 0 {
+			break
+		}
+		page.Rows = append(page.Rows, p.Rows...)
+		if total == 0 {
+			total = p.TotalRows
+		}
+	}
+	return page, nil
 }
 
 func (r *Run) touch(start int64) {

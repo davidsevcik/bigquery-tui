@@ -558,3 +558,38 @@ func TestQueryGoldenScreens(t *testing.T) {
 		r.golden(name("runs"))
 	}
 }
+
+func TestFlatExplorerLayoutDoesNotStealEditorKeys(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.press("L", "L") // flat list
+	r.press("/")      // its filter is now taking keys
+	r.press("f6")
+	r.typeText("select 1")
+	if r.text() != "select 1" || r.m.flat.in.value() != "" {
+		t.Fatalf("editor %q, explorer filter %q", r.text(), r.m.flat.in.value())
+	}
+}
+
+func TestErrorMarkIsSkippedWhenTheTextChangedMeanwhile(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	block := make(chan struct{})
+	r.fake.OnQuery = func(string) bqtest.QueryScript {
+		return bqtest.QueryScript{Block: block, JobErr: bqtest.QueryError("Division by zero at [1:8]")}
+	}
+	r.typeText("select 1/0")
+	r.press("ctrl+r")
+	r.press("home", "home")
+	r.typeText("-- edited while running\n")
+	close(block)
+	r.settle()
+	if ed := r.m.buf().ed; ed.errLine != 0 || ed.row != 1 {
+		t.Fatalf("a position in the old text must not move the cursor: err %d cursor %d", ed.errLine, ed.row)
+	}
+	r.contains("Division by zero")
+}
+
+func TestEditorHandOffNeedsATerminalEditor(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	r.press("ctrl+x", "e")
+	r.contains("set $EDITOR")
+}

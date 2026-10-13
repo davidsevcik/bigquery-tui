@@ -76,6 +76,9 @@ type Fake struct {
 	// OnQuery scripts the bq.Jobs port per SQL text; nil answers every query
 	// with a three-row SELECT.
 	OnQuery func(sql string) QueryScript
+	// PageLimit caps the rows one QueryRows call returns, the way BigQuery
+	// cuts a response of wide rows short. 0 means no cap.
+	PageLimit int
 
 	queries []QueryCall
 	jobs    map[string]*fakeJob

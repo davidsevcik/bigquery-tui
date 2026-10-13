@@ -126,6 +126,7 @@ type Model struct {
 	runs       map[int64]api.RunInfo
 	runPos     map[int64][2]int // where a Run's SQL starts in its buffer (line, column)
 	runVer     map[int64]int64  // the newest version of each Run this model has seen
+	runEd      map[int64]int    // the editor version each Run was started from
 	grids      map[int64]*grid
 	prompt     promptState
 	confirm    confirmState
@@ -164,7 +165,7 @@ func New(be Backend, o Options) *Model {
 	m.tree.open = map[string]bool{}
 	m.zone = ZoneExplorer
 	m.runs, m.runPos, m.grids = map[int64]api.RunInfo{}, map[int64][2]int{}, map[int64]*grid{}
-	m.runVer = map[int64]int64{}
+	m.runVer, m.runEd = map[int64]int64{}, map[int64]int{}
 	m.loadState()
 	m.reloadBrowse()
 	if o.File != "" {
@@ -595,7 +596,7 @@ func (m *Model) typingState() *searchState {
 		return m.search
 	case m.ov == ovJump:
 		return m.jump
-	case m.ov == ovNone && m.layout == layoutFlat && m.flat.typing:
+	case m.ov == ovNone && m.zone == ZoneExplorer && m.layout == layoutFlat && m.flat.typing:
 		return m.flat
 	}
 	return nil

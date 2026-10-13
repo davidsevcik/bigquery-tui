@@ -433,3 +433,71 @@ func TestOldRunsGiveUpTheirPagesButStayReadable(t *testing.T) {
 		t.Fatalf("an old run is read again on demand: %v %+v", err, page)
 	}
 }
+
+func TestShortResponsesStillFillThePage(t *testing.T) {
+	r := newRig(t)
+	r.fake.PageLimit = 7 // BigQuery cuts responses of wide rows short
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1234) }
+	run := r.m.Start(context.Background(), Request{SQL: "select"})
+	if info := run.Wait(); info.TotalRows != 1234 || !info.HasResult {
+		t.Fatalf("%+v", info)
+	}
+	page, err := run.Rows(context.Background(), 490, 20, format.Options{})
+	if err != nil || len(page.Rows) != 20 || page.Rows[0][0].Text != "490" || page.Rows[19][0].Text != "509" {
+		t.Fatalf("%v %d rows", err, len(page.Rows))
+	}
+	// an export walks every row, not just the first response
+	var n int64
+	for {
+		_, rows, err := run.RawRows(context.Background(), n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) == 0 {
+			break
+		}
+		n += int64(len(rows))
+	}
+	if n != 1234 {
+		t.Fatalf("read %d of 1234 rows", n)
+	}
+}
+
+func TestCloseSendsTheCancellationsBeforeReturning(t *testing.T) {
+	r := newRig(t)
+	block := make(chan struct{})
+	defer close(block)
+	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.Block = block; return s }
+	r.fake.Delay = 0
+	run := r.m.Start(context.Background(), Request{SQL: "slow"})
+	until(t, run, api.RunRunning)
+	r.m.Close()
+	if n := len(r.fake.CallsTo("CancelJob")); n != 1 {
+		t.Fatalf("Close returned before the job was asked to stop (%d cancel calls)", n)
+	}
+}
+
+func TestCancelWhileSubmittingStillCancelsTheJob(t *testing.T) {
+	r := newRig(t)
+	var run *Run
+	started := make(chan struct{})
+	r.fake.OnCall = func(c bqtest.Call) {
+		if c.Method == "StartQuery" {
+			<-started
+			run.Cancel() // the user cancels while the request is on the wire
+		}
+	}
+	run = r.m.Start(context.Background(), Request{SQL: "select"})
+	close(started)
+	info := run.Wait()
+	if info.State != api.RunCancelled || info.Job == nil {
+		t.Fatalf("the submitted job must be known and cancelled: %+v", info)
+	}
+	r.m.Close()
+	if n := len(r.fake.CallsTo("CancelJob")); n != 1 {
+		t.Fatalf("%d cancel calls", n)
+	}
+	if rec := r.recorded(); len(rec) != 1 || rec[0].Job.ID != info.Job.ID {
+		t.Fatalf("a submitted job is History even when cancelled: %+v", rec)
+	}
+}

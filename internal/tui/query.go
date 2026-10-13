@@ -322,6 +322,7 @@ func (m *Model) startRun(b *buffer, sql string, params []api.QueryParam, dry boo
 	}
 	b.runID = id
 	m.runPos[id] = [2]int{line0, col0}
+	m.runEd[id] = b.ed.version
 	m.runs[id] = api.RunInfo{ID: id, Tag: b.id, SQL: sql, State: api.RunEstimating, DryRunOnly: dry}
 	if !dry {
 		b.viewID = id
@@ -389,7 +390,8 @@ func (m *Model) onRun(msg runMsg) tea.Cmd {
 			if info.DryRunOnly || b.viewID == 0 {
 				b.viewID = info.ID
 			}
-			if info.Error != nil && info.Error.Line > 0 && b.runID == info.ID {
+			// the position only means something in the text that was run
+			if info.Error != nil && info.Error.Line > 0 && b.runID == info.ID && b.ed.version == m.runEd[info.ID] {
 				pos := m.runPos[info.ID]
 				line, col := info.Error.Line+pos[0], info.Error.Col
 				if info.Error.Line == 1 {
@@ -732,6 +734,11 @@ func (m *Model) cancelFocused() bool {
 
 func (m *Model) externalEditor() tea.Cmd {
 	b := m.buf()
+	if m.o.Getenv("VISUAL") == "" && m.o.Getenv("EDITOR") == "" {
+		// the OS opener returns at once, so there would be nothing to read back
+		m.toast = "set $EDITOR (or $VISUAL) to a terminal editor to use the hand-off"
+		return nil
+	}
 	f, err := os.CreateTemp("", "bqt-*.sql")
 	if err != nil {
 		m.toast = "editor: " + err.Error()
@@ -844,7 +851,7 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 	case "copy":
 		if cells := g.cells(g.row); cells != nil && g.col < len(cells) {
 			return m.copyRow(g, func(cols []api.PreviewColumn, full []api.Cell) (string, string) {
-				if full[g.col].Null {
+				if g.col >= len(full) || full[g.col].Null {
 					return "", "copied NULL as an empty string"
 				}
 				return full[g.col].Text, "copied the cell"

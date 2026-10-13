@@ -67,6 +67,9 @@ type Manager struct {
 	// which is built so that it needs slots).
 	forceLearn bool
 	events     chan api.RunEvent
+	// cancels counts the cancel requests on their way to BigQuery, so Close
+	// can wait for them before the process exits.
+	cancels sync.WaitGroup
 	closed  bool
 }
 
@@ -219,6 +222,28 @@ func (m *Manager) Close() {
 	m.closed = true
 	m.mu.Unlock()
 	m.CancelAll()
+	// A cancel that never reaches BigQuery leaves the job running (and
+	// billing) after bqt has gone: give the requests a moment to be sent.
+	sent := make(chan struct{})
+	go func() { m.cancels.Wait(); close(sent) }()
+	select {
+	case <-sent:
+	case <-time.After(10 * time.Second):
+		m.o.Log.Warn("gave up waiting for job cancellations to be sent")
+	}
+}
+
+// cancelJob asks BigQuery to cancel a job, in the background.
+func (m *Manager) cancelJob(jobs bq.Jobs, ref api.JobRef) {
+	m.cancels.Add(1)
+	go func() {
+		defer m.cancels.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := jobs.CancelJob(ctx, ref); err != nil {
+			m.o.Log.Warn("cancel job", "job", ref.ID, "err", err)
+		}
+	}()
 }
 
 // trimPages drops the cached result pages of all but the newest
@@ -437,14 +462,7 @@ func (r *Run) Cancel() {
 			return
 		}
 		r.m.publish(info)
-		ref := *job
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := jobs.CancelJob(ctx, ref); err != nil {
-				r.m.o.Log.Warn("cancel job", "job", ref.ID, "err", err)
-			}
-		}()
+		r.m.cancelJob(jobs, *job)
 		return
 	}
 	r.mu.Unlock()
@@ -515,12 +533,24 @@ func (r *Run) run(cfg *config.Config) {
 		// run where the dry-run resolved the query, so results are read there
 		req.Location = dr.Location
 	}
-	ref, err := jobs.StartQuery(r.ctx, req)
+	if r.ctx.Err() != nil {
+		r.finish(func(i *api.RunInfo) { i.State = api.RunCancelled })
+		return
+	}
+	// Submitting is not cancellable: a request cut off half way can leave a
+	// job running that nobody knows the ID of. A cancel that arrives meanwhile
+	// is honoured right after, with the job ID in hand.
+	ref, err := jobs.StartQuery(context.WithoutCancel(r.ctx), req)
 	if err != nil {
 		r.fail(err)
 		return
 	}
 	started := m.o.Now()
+	if r.ctx.Err() != nil {
+		m.cancelJob(jobs, ref)
+		r.finish(func(i *api.RunInfo) { i.State, i.Job, i.Started, i.Location = api.RunCancelled, &ref, &started, ref.Location })
+		return
+	}
 	r.set(func(i *api.RunInfo) {
 		i.State, i.Job, i.Started, i.Location = api.RunRunning, &ref, &started, ref.Location
 	})
@@ -529,11 +559,7 @@ func (r *Run) run(cfg *config.Config) {
 	res, err := jobs.WaitJob(r.ctx, ref)
 	if err != nil {
 		if r.ctx.Err() != nil {
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				_ = jobs.CancelJob(ctx, ref)
-			}()
+			m.cancelJob(jobs, ref)
 		}
 		r.fail(err)
 		return
@@ -554,7 +580,7 @@ func (r *Run) run(cfg *config.Config) {
 	}
 
 	// The first page tells whether the statement produced rows at all.
-	page, perr := jobs.QueryRows(r.ctx, ref, 0, PageRows)
+	page, perr := fullPage(r.ctx, jobs, ref, 0, 0)
 	r.finish(func(i *api.RunInfo) {
 		i.State, i.Stats, i.CancelRequested = api.RunDone, stats, false
 		switch {
