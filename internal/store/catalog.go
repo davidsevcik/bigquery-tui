@@ -15,7 +15,7 @@ import (
 
 // CatalogSchemaVersion is the catalog.db schema version. The catalog has no
 // migrations: a mismatch deletes and recreates the file (ticket 06).
-const CatalogSchemaVersion = 1
+const CatalogSchemaVersion = 2
 
 const catalogSchema = `
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
