@@ -395,6 +395,14 @@ func (in *input) render(q api.ParsedQuery, cursor bool, placeholder string) stri
 
 // chips shows what the parser understood.
 func chips(q api.ParsedQuery, w int, scope string) string {
+	return chipsWith(q, w, scope, `p: d: type: col: label: desc:  -neg  a,b=OR  "quoted"  proj.ds.table`)
+}
+
+// historyHint lists the History search filters.
+const historyHint = `status:done|failed|cancelled  project:  source:tui|cli|mcp  since:7d|2026-10-01  -neg  a,b=OR`
+
+// chipsWith shows the parsed query, or hint when it is empty.
+func chipsWith(q api.ParsedQuery, w int, scope, hint string) string {
 	var parts []string
 	if scope != "" {
 		parts = append(parts, sDim.Render("⊂ "+scope))
@@ -426,7 +434,7 @@ func chips(q api.ParsedQuery, w int, scope string) string {
 		parts = append(parts, sTerm.Render(strings.Join(ts, " ")))
 	}
 	if len(parts) == 0 || (len(parts) == 1 && scope != "") {
-		parts = append(parts, sFaint.Render(`p: d: type: col: label: desc:  -neg  a,b=OR  "quoted"  proj.ds.table`))
+		parts = append(parts, sFaint.Render(hint))
 	}
 	return ansi.Truncate(strings.Join(parts, " "), w, "…")
 }

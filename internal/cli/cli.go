@@ -224,6 +224,7 @@ Commands:
   sync           Refresh the local metadata catalog from BigQuery
   status         Show catalog freshness and sync problems
   search QUERY   Search the catalog (p: d: type: col: label: desc: filters)
+  history prune  Delete History entries: --older-than 90d, --before 2026-01-31 or --all
   doctor         Print diagnostics (paths, versions, auth, catalog age)
   version        Print the version
   help           Show this help
@@ -292,6 +293,8 @@ func Run(ctx context.Context, args []string, env Env) int {
 		cerr = cmdTUI(ctx, o, g, cargs)
 	case "doctor":
 		cerr = cmdDoctor(ctx, o, g, cargs)
+	case "history":
+		cerr = cmdHistory(ctx, o, g, cargs)
 	default:
 		cerr = usageErr("unknown command %q", cmd)
 	}

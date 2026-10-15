@@ -105,6 +105,10 @@ func (m *Model) render() []string {
 	body = fillTo(body, w, bodyH)
 
 	switch m.ov {
+	case ovPicker:
+		bw := clamp(w-4, 40, 170)
+		bh := max(8, bodyH-2)
+		body = overlay(body, m.pickerBox(bw, bh), (w-bw)/2, 1, w)
 	case ovJump:
 		bw := clamp(w-8, 30, 96)
 		bh := clamp(bodyH-4, 8, 24)
@@ -203,6 +207,14 @@ func (m *Model) footerLine(w int) string {
 		hint = "↑↓ select · enter open or restore · esc close"
 	case m.ov == ovPrompt || m.ov == ovConfirm:
 		hint = ""
+	case m.ov == ovPicker:
+		hint = "type to search · ↑↓ select · enter open · tab favorites/history · "
+		if m.pk.scope == scopeFavorites {
+			hint += "ctrl+r rename · ctrl+d delete"
+		} else {
+			hint += "ctrl+r show result · ctrl+s save as favorite"
+		}
+		hint += " · ctrl+e/y scroll · esc close"
 	case m.ov == ovNone && m.zone == ZoneEditor:
 		hint = footerHints(ZoneEditor) + " · ctrl+x l runs · " + footerHints(ZoneGlobal)
 		if m.vimOn() {

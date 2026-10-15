@@ -54,6 +54,8 @@ type Request struct {
 	Tag string
 	// DryRunOnly stops after the estimate.
 	DryRunOnly bool
+	// Favorite is the ID of the Favorite the SQL came from (History).
+	Favorite string
 }
 
 // Manager owns the Runs of one process.
@@ -351,7 +353,7 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 	r := &Run{m: m, id: m.seq, ctx: rctx, stop: cancel, confirm: make(chan struct{}), done: make(chan struct{}),
 		changed: make(chan struct{}), pages: map[int64]*bq.ResultPage{}}
 	r.info = api.RunInfo{ID: r.id, Tag: req.Tag, SQL: req.SQL, Params: append([]api.QueryParam(nil), req.Params...),
-		State: api.RunEstimating, DryRunOnly: req.DryRunOnly, Source: m.o.Source,
+		State: api.RunEstimating, DryRunOnly: req.DryRunOnly, Source: m.o.Source, Favorite: req.Favorite,
 		ExecutionProject: cfg.ExecutionProject, Location: cfg.Location, Created: m.o.Now()}
 	r.version = 1
 	closed := m.closed

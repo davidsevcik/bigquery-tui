@@ -635,7 +635,7 @@ func TestConfirmationsQueueInsteadOfReplacingEachOther(t *testing.T) {
 		t.Fatal("the first statement asks")
 	}
 	// a second statement reaches its confirmation while the first is open
-	id := r.m.be.StartRun(t.Context(), "delete from b where true", nil, r.m.buf().id, false)
+	id := r.m.be.StartRun(t.Context(), "delete from b where true", nil, r.m.buf().id, false, "")
 	info, ver := r.m.be.AwaitRun(t.Context(), id, 1)
 	r.send(runMsg{info, ver})
 	if r.m.confirm.runID != 1 || len(r.m.confirmQ) != 1 {
@@ -652,7 +652,7 @@ func TestConfirmationsQueueInsteadOfReplacingEachOther(t *testing.T) {
 	}
 	// a waiting confirmation can be reopened from the run list
 	r.press("ctrl+r", "esc") // run #3 asks; esc declines it
-	id4 := r.m.be.StartRun(t.Context(), "delete from c where true", nil, r.m.buf().id, false)
+	id4 := r.m.be.StartRun(t.Context(), "delete from c where true", nil, r.m.buf().id, false, "")
 	r.m.be.AwaitRun(t.Context(), id4, 1)
 	r.press("ctrl+x", "l", "enter") // the newest run is first
 	if r.m.ov != ovConfirm || r.m.confirm.runID != id4 {

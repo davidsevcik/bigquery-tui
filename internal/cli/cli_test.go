@@ -13,6 +13,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/internal/store"
 )
 
 type sandbox struct {
@@ -449,5 +450,41 @@ func TestSearchCommand(t *testing.T) {
 	_, out, _ = s.run("search", "col:amount")
 	if !strings.Contains(out, "proj-a.sales.orders") || !strings.Contains(out, "· amount") {
 		t.Fatalf("%q", out)
+	}
+}
+
+func TestHistoryPrune(t *testing.T) {
+	s := newSandbox(t)
+	s.writeConfig("projects = [\"proj-a\"]\n")
+	os.MkdirAll(filepath.Join(s.dir, "data"), 0o700)
+	h, err := store.OpenHistory(filepath.Join(s.dir, "data", "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)
+	for i, age := range []time.Duration{100 * 24 * time.Hour, 10 * 24 * time.Hour, time.Hour} {
+		at := now.Add(-age)
+		r := api.RunInfo{SQL: "select 1", State: api.RunDone, Source: "tui", Created: at, Job: &api.JobRef{Project: "p", Location: "EU", ID: string(rune('a' + i))}}
+		if err := h.InsertRun(context.Background(), r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.Close()
+	for _, bad := range [][]string{{"history"}, {"history", "prune"}, {"history", "prune", "--all", "--older-than", "1d"}, {"history", "prune", "--older-than", "2026-01-01"}, {"history", "prune", "--before", "soon"}} {
+		if code, _, _ := s.run(bad...); code != api.ExitUsage {
+			t.Errorf("%v: exit %d", bad, code)
+		}
+	}
+	code, out, _ := s.run("history", "prune", "--older-than", "90d")
+	if code != 0 || decode(t, out).Data.(map[string]any)["deleted"] != float64(1) {
+		t.Fatalf("%d %s", code, out)
+	}
+	_, out, _ = s.run("--format", "text", "history", "prune", "--before", "2026-09-30")
+	if !strings.Contains(out, "deleted 1 History entries created before 2026-09-30") {
+		t.Fatalf("%q", out)
+	}
+	_, out, _ = s.run("history", "prune", "--all")
+	if decode(t, out).Data.(map[string]any)["deleted"] != float64(1) {
+		t.Fatal(out)
 	}
 }

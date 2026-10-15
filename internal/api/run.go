@@ -96,6 +96,11 @@ type RunInfo struct {
 	State      RunState     `json:"state"`
 	DryRunOnly bool         `json:"dry_run_only,omitempty"`
 	Source     string       `json:"source"`
+	// Favorite is the ID of the Favorite the SQL came from, if any.
+	Favorite string `json:"favorite,omitempty"`
+	// FromHistory is the History entry a reopened Run shows the result of;
+	// such a Run ran earlier and is not recorded again.
+	FromHistory int64 `json:"from_history,omitempty"`
 
 	ExecutionProject string `json:"execution_project"`
 	Location         string `json:"location,omitempty"`

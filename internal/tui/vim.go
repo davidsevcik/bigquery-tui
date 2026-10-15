@@ -892,7 +892,7 @@ func (v *vim) key(e *editor, key string, page int) vimOut {
 		case "leader":
 			v.reset()
 			out.action = map[string]string{"r": "run", "d": "dryrun", "e": "exteditor", "l": "runs", "n": "newbuf", "b": "buflist",
-				"w": "closebuf", "[": "prevbuf", "]": "nextbuf", "s": "save"}[key]
+				"w": "closebuf", "[": "prevbuf", "]": "nextbuf", "s": "save", "f": "favorites", "h": "history", "F": "savefav"}[key]
 			if out.action == "" {
 				out.toast = "space " + key + " is not bound (space r runs, space d dry-runs)"
 			}

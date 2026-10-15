@@ -66,6 +66,12 @@ CREATE TABLE recent_objects (
   open_count  INTEGER NOT NULL DEFAULT 1
 );
 `,
+	// 2: sql_key groups identical SQL (whitespace-normalised); filled in Go
+	// for older rows (fillKeys)
+	`
+ALTER TABLE history ADD COLUMN sql_key TEXT;
+CREATE INDEX history_key ON history(sql_key);
+`,
 }
 
 // HistorySchemaVersion is the newest history.db schema this binary knows.
@@ -94,6 +100,10 @@ func openHistory(path string, migrations []string, now func() time.Time) (*Histo
 		h, err := tryOpenHistory(path, migrations)
 		switch {
 		case err == nil:
+			if err := h.fillKeys(); err != nil {
+				h.Close()
+				return nil, err
+			}
 			return h, nil
 		case errors.Is(err, ErrHistoryTooNew):
 			return nil, err
@@ -115,6 +125,10 @@ func openHistory(path string, migrations []string, now func() time.Time) (*Histo
 	}
 	h := &History{db: db, path: path, Notice: notice}
 	if err := h.migrate(0, migrations); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := h.fillKeys(); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -279,14 +293,16 @@ func (h *History) InsertRun(ctx context.Context, r api.RunInfo) error {
 		}
 	}
 	_, err := h.db.ExecContext(ctx, `INSERT INTO history(project,location,job_id,execution_project,sql,statement_type,destination_table,state,error_message,
-total_bytes_processed,total_bytes_billed,cache_hit,created_at,started_at,ended_at,duration_ms,total_slot_ms,reservation_id,edition,source,params)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+total_bytes_processed,total_bytes_billed,cache_hit,created_at,started_at,ended_at,duration_ms,total_slot_ms,reservation_id,edition,source,params,
+favorite_path,sql_key)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(project,location,job_id) DO UPDATE SET state=excluded.state,error_message=excluded.error_message,
 total_bytes_processed=excluded.total_bytes_processed,total_bytes_billed=excluded.total_bytes_billed,cache_hit=excluded.cache_hit,
 ended_at=excluded.ended_at,duration_ms=excluded.duration_ms,total_slot_ms=excluded.total_slot_ms,
 reservation_id=excluded.reservation_id,edition=excluded.edition,destination_table=excluded.destination_table`,
 		r.Job.Project, r.Job.Location, r.Job.ID, r.ExecutionProject, r.SQL, stmt, st.Destination, string(r.State), errMsg,
-		st.BytesProcessed, st.BytesBilled, b2i(st.CacheHit), r.Created.Unix(), started, ended, dur, st.SlotMs, st.ReservationID, st.Edition, r.Source, params)
+		st.BytesProcessed, st.BytesBilled, b2i(st.CacheHit), r.Created.Unix(), started, ended, dur, st.SlotMs, st.ReservationID, st.Edition, r.Source, params,
+		r.Favorite, SQLKey(r.SQL))
 	return err
 }
 

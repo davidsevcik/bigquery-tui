@@ -117,6 +117,12 @@ func (m *Model) saveFile(b *buffer) error {
 
 // saveDraft writes a scratch buffer's draft if it changed. An empty buffer
 // has no draft.
+// removeDraft deletes a buffer's draft and lock files (it now lives in a file).
+func (m *Model) removeDraft(b *buffer) {
+	os.Remove(m.draftPath(b.id))
+	os.Remove(m.lockPath(b.id))
+}
+
 func (m *Model) saveDraft(b *buffer) {
 	if b.path != "" || b.lock == nil || b.draftVersion == b.ed.version {
 		return

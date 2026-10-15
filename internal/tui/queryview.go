@@ -313,8 +313,11 @@ func (m *Model) promptBox(bw int) []string {
 		b.add(" "+fit(label, labelW)+" ", sKey)
 		b.l.WriteString(p.fields[i].render(api.ParsedQuery{}, i == p.idx, ""))
 		if p.kind == "params" {
-			q := inferLabel(p.labels[i], p.fields[i].value())
-			b.addR(q+" ", sFaint)
+			if i < len(p.specs) && p.specs[i].Type != "" {
+				b.addR(p.specs[i].Type+" ", sAcc)
+			} else {
+				b.addR(inferLabel(p.labels[i], p.fields[i].value())+" ", sFaint)
+			}
 		}
 		if p.kind == "export" {
 			b.addR(string(p.format)+" ", sAcc)
