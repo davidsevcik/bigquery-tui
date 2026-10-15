@@ -243,3 +243,90 @@ func TestSearch(t *testing.T) {
 		t.Fatalf("%+v", sp)
 	}
 }
+
+// Codex review 4, finding 5: a default with a line break must not end the
+// comment line; every awkward default round-trips.
+func TestDefaultsRoundTrip(t *testing.T) {
+	for _, d := range []string{"first\nsecond", "a\r\nb", `say "hi"`, `back\slash`, "'single'", " edge ", "", "plain value", "null"} {
+		d := d
+		f := api.Favorite{Params: []api.ParamSpec{{Name: "p", Type: "STRING", Default: &d}}, SQL: "SELECT @p\n"}
+		text := Render(f)
+		if strings.Count(text, "\n") != 2 {
+			t.Errorf("%q: the header must stay one line: %q", d, text)
+		}
+		back := Parse(text)
+		if len(back.Params) != 1 || *back.Params[0].Default != d || back.SQL != "SELECT @p\n" {
+			t.Errorf("%q: %q -> %+v", d, text, back)
+		}
+	}
+	// hand-written quoted defaults keep working
+	if f := Parse("-- param: s STRING = \"a b\"\n-- param: t STRING = 'c d'\nSELECT @s, @t"); *f.Params[0].Default != "a b" || *f.Params[1].Default != "c d" {
+		t.Fatalf("%+v", f.Params)
+	}
+}
+
+// Codex review 4, finding 4: a remembered "TYPE:value" binds under the
+// declared type.
+func TestBindStripsTheDeclaredTypePrefix(t *testing.T) {
+	q, err := Bind(api.ParamSpec{Name: "n", Type: "INT64"}, "INT64:7")
+	if err != nil || q.Value != "7" {
+		t.Fatalf("%+v %v", q, err)
+	}
+	if q, _ := Bind(api.ParamSpec{Name: "s", Type: "STRING"}, "string:abc"); q.Value != "abc" {
+		t.Fatalf("%+v", q)
+	}
+	if q, _ := Bind(api.ParamSpec{Name: "s", Type: "STRING"}, "STRING:null"); !q.Null {
+		t.Fatal("null")
+	}
+	if q, _ := Bind(api.ParamSpec{Name: "s", Type: "STRING"}, "DATE:x"); q.Value != "DATE:x" {
+		t.Fatal("another type's prefix is part of a STRING")
+	}
+}
+
+// Codex review 4, finding 1: links never carry an operation out of the
+// favorites directory.
+func TestLinksCannotLeaveTheDirectory(t *testing.T) {
+	root := t.TempDir()
+	d := Dir(filepath.Join(root, "favs"))
+	outside := filepath.Join(root, "outside")
+	os.MkdirAll(outside, 0o755)
+	os.MkdirAll(string(d), 0o755)
+	os.WriteFile(filepath.Join(outside, "secret.sql"), []byte("select secret\n"), 0o644)
+	if err := os.Symlink(outside, filepath.Join(string(d), "out")); err != nil {
+		t.Skip(err)
+	}
+	os.Symlink(filepath.Join(outside, "secret.sql"), filepath.Join(string(d), "leaf.sql"))
+	inside := filepath.Join(string(d), "real")
+	os.MkdirAll(inside, 0o755)
+	os.Symlink(inside, filepath.Join(string(d), "alias"))
+
+	if _, err := d.Write("out/new", "x", false); !errors.Is(err, ErrBadID) {
+		t.Errorf("write through a linked folder: %v", err)
+	}
+	if _, err := d.Read("out/secret"); !errors.Is(err, ErrBadID) {
+		t.Errorf("read: %v", err)
+	}
+	if _, err := d.Read("leaf"); !errors.Is(err, ErrBadID) {
+		t.Errorf("read a linked file: %v", err)
+	}
+	if err := d.Delete("out/secret"); !errors.Is(err, ErrBadID) {
+		t.Errorf("delete: %v", err)
+	}
+	d.Write("mine", "select 1\n", false)
+	if _, err := d.Rename("mine", "out/mine"); !errors.Is(err, ErrBadID) {
+		t.Errorf("rename out: %v", err)
+	}
+	if _, err := d.Rename("out/secret", "stolen"); !errors.Is(err, ErrBadID) {
+		t.Errorf("rename in: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "secret.sql")); err != nil {
+		t.Fatal("the outside file is untouched")
+	}
+	if left, _ := os.ReadDir(outside); len(left) != 1 {
+		t.Fatalf("nothing was written outside: %v", left)
+	}
+	// a link that stays inside is fine
+	if _, err := d.Write("alias/ok", "select 2\n", false); err != nil {
+		t.Fatal(err)
+	}
+}

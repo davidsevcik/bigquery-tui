@@ -42,6 +42,11 @@ func Bind(p api.ParamSpec, value string) (api.QueryParam, error) {
 	if p.Type == "" {
 		return sqlx.InferParam(p.Name, v), nil
 	}
+	// a remembered value may carry the type as a prefix (History keeps
+	// "DATE:2024-01-01"); the declared type makes it redundant
+	if pre, rest, ok := strings.Cut(v, ":"); ok && strings.EqualFold(strings.TrimSpace(pre), p.Type) {
+		v = strings.TrimPrefix(rest, " ")
+	}
 	q := api.QueryParam{Name: p.Name, Type: p.Type, Value: v}
 	t := strings.TrimSpace(v)
 	if strings.EqualFold(t, "null") {

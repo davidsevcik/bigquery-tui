@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
@@ -139,11 +140,34 @@ func validName(s string) bool {
 	return true
 }
 
+// unquote reads a default: "double quoted" with Go escapes (\n, \", \\),
+// 'single quoted' as is, or bare.
 func unquote(s string) string {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		if u, err := strconv.Unquote(s); err == nil {
+			return u
+		}
+	}
 	if len(s) >= 2 && (s[0] == '\'' || s[0] == '"') && s[len(s)-1] == s[0] {
 		return s[1 : len(s)-1]
 	}
 	return s
+}
+
+// quoteDefault writes a default so unquote reads it back: bare when it is
+// plain, else double quoted with escapes (a line break must never end the
+// comment line).
+func quoteDefault(d string) string {
+	plain := d != "" && strings.TrimSpace(d) == d && d[0] != '\'' && d[0] != '"'
+	for _, r := range d {
+		if r < ' ' || r == 0x7f || r == '\\' || r == 0x2028 || r == 0x2029 {
+			plain = false
+		}
+	}
+	if plain {
+		return d
+	}
+	return strconv.Quote(d)
 }
 
 func contains(xs []string, s string) bool {
@@ -170,11 +194,7 @@ func Render(f api.Favorite) string {
 		}
 		b.WriteString("-- param: " + p.Name + " " + p.Type)
 		if p.Default != nil {
-			d := *p.Default
-			if d == "" || strings.TrimSpace(d) != d || strings.ContainsAny(d, `'"`) {
-				d = `"` + d + `"`
-			}
-			b.WriteString(" = " + d)
+			b.WriteString(" = " + quoteDefault(*p.Default))
 		}
 		b.WriteString("\n")
 	}
@@ -209,11 +229,50 @@ func CleanID(name string) (string, error) {
 type Dir string
 
 func (d Dir) file(id string) (string, error) {
-	id, err := CleanID(id)
+	clean, err := CleanID(id)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(string(d), filepath.FromSlash(id)), nil
+	p := filepath.Join(string(d), filepath.FromSlash(clean))
+	if err := d.contained(p); err != nil {
+		return "", err
+	}
+	return p, nil
+}
+
+// contained refuses a path that a symlink (a linked folder, or the file
+// itself) leads out of the favorites directory. The deepest part of the path
+// that exists is resolved and must stay under the resolved root.
+func (d Dir) contained(p string) error {
+	root, err := filepath.EvalSymlinks(string(d))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil // nothing exists yet, so nothing can link out
+	}
+	if err != nil {
+		return err
+	}
+	at := p
+	for {
+		if _, err := os.Lstat(at); err == nil {
+			break
+		}
+		parent := filepath.Dir(at)
+		if parent == at {
+			return nil
+		}
+		at = parent
+	}
+	real, err := filepath.EvalSymlinks(at)
+	if errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%w: %s is a broken link", ErrBadID, at)
+	}
+	if err != nil {
+		return err
+	}
+	if real != root && !strings.HasPrefix(real, root+string(filepath.Separator)) {
+		return fmt.Errorf("%w: %s leads out of the favorites directory through a link", ErrBadID, at)
+	}
+	return nil
 }
 
 // List reads every Favorite, sorted by ID. A missing directory is empty.
@@ -318,16 +377,15 @@ func (d Dir) Write(id, text string, overwrite bool) (string, error) {
 		return "", err
 	}
 	if !overwrite {
-		// a link refuses an existing target, unlike rename
-		if err := os.Link(tmp.Name(), p); err != nil {
+		// claim the name first (O_EXCL refuses an existing file); the rename
+		// below then replaces only our own empty placeholder
+		if err := claim(p); err != nil {
 			os.Remove(tmp.Name())
 			if errors.Is(err, fs.ErrExist) {
 				return "", fmt.Errorf("%w: %s", ErrExists, clean)
 			}
 			return "", err
 		}
-		os.Remove(tmp.Name())
-		return clean, nil
 	}
 	if err := os.Rename(tmp.Name(), p); err != nil {
 		os.Remove(tmp.Name())
@@ -356,18 +414,27 @@ func (d Dir) Rename(from, to string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return "", err
 	}
-	if err := os.Link(src, dst); err != nil {
+	if err := claim(dst); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return "", fmt.Errorf("%w: %s", ErrExists, clean)
 		}
 		return "", err
 	}
-	if err := os.Remove(src); err != nil {
+	if err := os.Rename(src, dst); err != nil {
 		os.Remove(dst)
 		return "", err
 	}
 	d.pruneDirs(filepath.Dir(src))
 	return clean, nil
+}
+
+// claim creates an empty file that must not exist yet.
+func claim(p string) error {
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 // Delete removes a Favorite (there is no trash; git is the safety net).

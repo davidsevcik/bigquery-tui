@@ -30,10 +30,65 @@ type HistoryCond struct {
 	Negated bool
 }
 
-// NormalizeSQL collapses whitespace and drops a trailing semicolon, so the
-// same query typed twice groups as one History entry.
+// NormalizeSQL collapses whitespace outside string literals, quoted
+// identifiers and comments, and drops a trailing semicolon, so the same
+// query typed twice groups as one History entry while 'a  b' and 'a b' stay
+// apart.
 func NormalizeSQL(s string) string {
-	return strings.TrimRight(strings.Join(strings.Fields(s), " "), "; ")
+	var b strings.Builder
+	space := false
+	var quote byte // ' " or ` while inside one
+	comment := ""  // "--" (to the line end) or "/*" while inside one
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case comment == "--":
+			b.WriteByte(c)
+			if c == '\n' {
+				comment = ""
+			}
+			continue
+		case comment == "/*":
+			b.WriteByte(c)
+			if c == '*' && i+1 < len(s) && s[i+1] == '/' {
+				b.WriteByte('/')
+				i++
+				comment = ""
+			}
+			continue
+		case quote != 0:
+			b.WriteByte(c)
+			if c == '\\' && quote != '`' && i+1 < len(s) {
+				b.WriteByte(s[i+1])
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v' {
+			space = true
+			continue
+		}
+		if space && b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		space = false
+		switch {
+		case c == '\'' || c == '"' || c == '`':
+			quote = c
+		case c == '#', c == '-' && i+1 < len(s) && s[i+1] == '-':
+			comment = "--"
+		case c == '/' && i+1 < len(s) && s[i+1] == '*':
+			comment = "/*"
+		}
+		b.WriteByte(c)
+	}
+	out := b.String()
+	if comment == "" && quote == 0 {
+		out = strings.TrimRight(out, "; ")
+	}
+	return out
 }
 
 // SQLKey is the grouping key of a SQL text.
@@ -212,11 +267,14 @@ func (h *History) SearchHistory(ctx context.Context, q HistoryQuery, limit, offs
 		filter = "WHERE " + strings.Join(where, " AND ")
 	}
 	query := `WITH m AS (SELECT h.* FROM history h ` + filter + `),
-g AS (SELECT COALESCE(sql_key, 'id:' || id) AS k, MAX(id) AS id, COUNT(*) AS n,
+k AS (SELECT m.*, COALESCE(sql_key, 'id:' || id) AS k,
+  ROW_NUMBER() OVER (PARTITION BY COALESCE(sql_key, 'id:' || id) ORDER BY created_at DESC, id DESC) AS rn FROM m),
+g AS (SELECT k, COUNT(*) AS n,
   SUM(CASE WHEN reservation_id = '' THEN COALESCE(total_bytes_billed, 0) ELSE 0 END) AS billed,
   SUM(CASE WHEN reservation_id != '' THEN COALESCE(total_slot_ms, 0) ELSE 0 END) AS slot
-  FROM m GROUP BY k)
-SELECT ` + entryCols + `, g.n, g.billed, g.slot FROM g JOIN history h ON h.id = g.id
+  FROM k GROUP BY k),
+r AS (SELECT id, k FROM k WHERE rn = 1)
+SELECT ` + entryCols + `, g.n, g.billed, g.slot, g.k FROM g JOIN r ON r.k = g.k JOIN history h ON h.id = r.id
 ORDER BY h.created_at DESC, h.id DESC LIMIT ? OFFSET ?`
 	args = append(args, limit+1, offset)
 	rows, err := h.db.QueryContext(ctx, query, args...)
@@ -227,7 +285,7 @@ ORDER BY h.created_at DESC, h.id DESC LIMIT ? OFFSET ?`
 	out := []api.HistoryGroup{}
 	for rows.Next() {
 		var g api.HistoryGroup
-		e, err := scanEntry(rows, &g.Runs, &g.BytesBilled, &g.SlotMs)
+		e, err := scanEntry(rows, &g.Runs, &g.BytesBilled, &g.SlotMs, &g.Key)
 		if err != nil {
 			return nil, false, err
 		}

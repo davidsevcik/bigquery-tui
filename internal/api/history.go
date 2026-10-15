@@ -41,6 +41,8 @@ type HistoryGroup struct {
 	SlotMs      int64 `json:"slot_ms"`
 	// Spans mark the matched free terms in Latest.SQL.
 	Spans []Span `json:"spans,omitempty"`
+	// Key identifies the group (the normalised SQL's hash).
+	Key string `json:"key"`
 }
 
 // HistoryPage is one page of History search results.

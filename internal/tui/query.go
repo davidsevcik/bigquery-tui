@@ -47,16 +47,18 @@ type promptState struct {
 
 	back    overlayKind // the overlay to return to (the picker)
 	favID   string      // favrename, savefav
+	favPath string      // favrename: the file shown when the prompt opened
 	entryID int64       // promote
 }
 
 // confirmState is a yes/no question.
 type confirmState struct {
-	kind  string // run | quit | closebuf | load | favdelete
-	runID int64
-	lines []string
-	favID string
-	back  overlayKind
+	kind    string // run | quit | closebuf | load | favdelete
+	runID   int64
+	lines   []string
+	favID   string
+	favPath string // the file the question was asked about (favorites_dir may change meanwhile)
+	back    overlayKind
 }
 
 type (
@@ -754,6 +756,10 @@ func (m *Model) confirmKey(name string) tea.Cmd {
 	switch c.kind {
 	case "load":
 		req := m.pendingLoad
+		if req == nil {
+			m.ov = ovNone
+			return nil
+		}
 		switch name {
 		case "y", "Y", "enter":
 			m.ov, m.pendingLoad = ovNone, nil
@@ -769,7 +775,9 @@ func (m *Model) confirmKey(name string) tea.Cmd {
 		switch name {
 		case "y", "Y", "enter":
 			m.ov = c.back
-			if err := m.be.DeleteFavorite(c.favID); err != nil {
+			if p, err := m.be.FavoritePath(c.favID); err != nil || p != c.favPath {
+				m.toast = "favorites_dir changed since the question: nothing was deleted"
+			} else if err := m.be.DeleteFavorite(c.favID); err != nil {
 				m.toast = "delete: " + err.Error()
 			} else {
 				m.toast = "deleted favorite " + c.favID

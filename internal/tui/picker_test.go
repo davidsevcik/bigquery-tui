@@ -270,3 +270,58 @@ func TestPickerOpensFromVimAndExplorer(t *testing.T) {
 	}
 	r.golden("picker_empty_100x30")
 }
+
+// Codex review 4, finding 3: a reload of favorites_dir while the delete
+// question is open does not delete a same-named file in the new directory.
+func TestFavoriteDeleteIsBoundToTheShownFile(t *testing.T) {
+	r := editorRig(t, 120, 36)
+	r.writeFav("q.sql", "select 1\n")
+	r.press("ctrl+x", "f", "ctrl+d")
+	other := filepath.Join(r.dir, "other")
+	os.MkdirAll(other, 0o755)
+	os.WriteFile(filepath.Join(other, "q.sql"), []byte("select 2\n"), 0o644)
+	old := r.m.be.Config().FavoritesDir
+	cfg := *r.m.be.Config()
+	cfg.FavoritesDir = other
+	r.m.be.SetConfig(&cfg)
+	r.press("y")
+	r.contains("nothing was deleted")
+	for _, p := range []string{filepath.Join(old, "q.sql"), filepath.Join(other, "q.sql")} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("%s must survive", p)
+		}
+	}
+}
+
+// Codex review 4, finding 4: a History entry of a Favorite (typed header)
+// loads and runs again with its values.
+func TestHistoryEntryWithTypedHeaderRunsAgain(t *testing.T) {
+	r := editorRig(t, 120, 36)
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
+	r.runSQL("-- param: n INT64\n-- param: s STRING\nselect @n, @s")
+	r.typeText("7")
+	r.press("down")
+	r.typeText("abc")
+	r.press("enter")
+	r.press("ctrl+x", "r", "enter", "y", "ctrl+r", "enter")
+	if r.m.ov == ovPrompt {
+		t.Fatalf("the remembered values bind: %s", r.m.prompt.note)
+	}
+	calls := r.fake.QueryCalls()
+	ps := calls[len(calls)-1].Req.Params
+	if len(ps) != 2 || ps[0].Value != "7" || ps[1].Value != "abc" {
+		t.Fatalf("%+v", ps)
+	}
+}
+
+// Codex review 4, finding 8: a later page skips groups already listed.
+func TestHistoryPagesSkipGroupsAlreadyShown(t *testing.T) {
+	r := editorRig(t, 100, 30)
+	r.press("ctrl+x", "r")
+	pk := r.m.pk
+	pk.hist = []api.HistoryGroup{{Key: "a"}, {Key: "b"}}
+	r.m.onHistory(histMsg{seq: pk.hseq, append: true, page: api.HistoryPage{Groups: []api.HistoryGroup{{Key: "b"}, {Key: "c"}}}})
+	if len(pk.hist) != 3 || pk.hist[2].Key != "c" {
+		t.Fatalf("%+v", pk.hist)
+	}
+}

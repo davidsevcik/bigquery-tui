@@ -117,7 +117,16 @@ func (m *Model) onHistory(msg histMsg) {
 	}
 	pk.herr = ""
 	if msg.append {
-		pk.hist = append(pk.hist, msg.page.Groups...)
+		// History may have changed between pages: skip groups already shown
+		seen := map[string]bool{}
+		for _, g := range pk.hist {
+			seen[g.Key] = true
+		}
+		for _, g := range msg.page.Groups {
+			if !seen[g.Key] {
+				pk.hist = append(pk.hist, g)
+			}
+		}
 	} else {
 		pk.hist = msg.page.Groups
 		pk.sel[scopeHistory], pk.off[scopeHistory] = 0, 0
@@ -196,7 +205,8 @@ func (m *Model) pickerKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	case "pickr":
 		if s == scopeFavorites {
 			if f, ok := m.pickedFavorite(); ok {
-				m.openPrompt(promptState{kind: "favrename", title: "Rename favorite", labels: []string{"new name"}, back: ovPicker, favID: f.ID,
+				fp, _ := m.be.FavoritePath(f.ID)
+				m.openPrompt(promptState{kind: "favrename", title: "Rename favorite", labels: []string{"new name"}, back: ovPicker, favID: f.ID, favPath: fp,
 					note: "a path under favorites_dir; subfolders are created · enter renames · esc cancels"}, strings.TrimSuffix(f.ID, ".sql"))
 			}
 			return nil
@@ -219,7 +229,8 @@ func (m *Model) pickerKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	case "delete":
 		if f, ok := m.pickedFavorite(); ok {
 			m.ov = ovNone
-			m.askConfirm(confirmState{kind: "favdelete", favID: f.ID, back: ovPicker,
+			fp, _ := m.be.FavoritePath(f.ID)
+			m.askConfirm(confirmState{kind: "favdelete", favID: f.ID, favPath: fp, back: ovPicker,
 				lines: []string{"Delete the favorite " + f.ID + "?", "The file is removed; there is no undo (keep favorites_dir in git as a safety net)."}})
 		}
 		return nil
@@ -345,7 +356,11 @@ func (m *Model) onReopen(msg reopenMsg) tea.Cmd {
 func (m *Model) promptFavorite(p *promptState) tea.Cmd {
 	switch p.kind {
 	case "favrename":
-		oldPath, _ := m.be.FavoritePath(p.favID)
+		oldPath, err := m.be.FavoritePath(p.favID)
+		if err != nil || oldPath != p.favPath {
+			p.note = sErr.Render("favorites_dir changed since this prompt opened: close it and pick the favorite again")
+			return nil
+		}
 		id, err := m.be.RenameFavorite(p.favID, p.fields[0].value())
 		if err != nil {
 			p.note = sErr.Render(err.Error())

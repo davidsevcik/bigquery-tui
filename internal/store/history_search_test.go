@@ -197,3 +197,50 @@ func TestHistoryKeysAreFilledAfterMigration(t *testing.T) {
 		t.Fatalf("%+v %v", gs, err)
 	}
 }
+
+// Codex review 4, finding 7: whitespace inside literals and comments is
+// part of the query.
+func TestNormalizeSQL(t *testing.T) {
+	same := [][2]string{
+		{"SELECT  1;\n", "SELECT 1"},
+		{"select\ta\nfrom t ;", "select a from t"},
+		{"select 'it''s'  ,  x", "select 'it''s' , x"},
+	}
+	for _, c := range same {
+		if SQLKey(c[0]) != SQLKey(c[1]) {
+			t.Errorf("%q and %q should group: %q %q", c[0], c[1], NormalizeSQL(c[0]), NormalizeSQL(c[1]))
+		}
+	}
+	differ := [][2]string{
+		{"SELECT 'a  b'", "SELECT 'a b'"},
+		{"SELECT \"a  b\"", "SELECT \"a b\""},
+		{"SELECT `a  b`", "SELECT `a b`"},
+		{"SELECT 'a\\'  b'", "SELECT 'a\\' b'"},
+		{"SELECT 1 -- a  b\n", "SELECT 1 -- a b\n"},
+		{"SELECT /* a  b */ 1", "SELECT /* a b */ 1"},
+	}
+	for _, c := range differ {
+		if SQLKey(c[0]) == SQLKey(c[1]) {
+			t.Errorf("%q and %q must not group (%q)", c[0], c[1], NormalizeSQL(c[0]))
+		}
+	}
+	if NormalizeSQL("SELECT 1 -- note;") != "SELECT 1 -- note;" {
+		t.Error("a trailing ; inside a comment stays")
+	}
+}
+
+// Codex review 4, finding 6: a group shows its newest Run even when an
+// older one finished (and was recorded) later.
+func TestHistoryGroupShowsTheNewestRun(t *testing.T) {
+	h := historyFixture(t)
+	addRun(t, h, "slow", "select z", api.RunFailed, "tui", hbase.Add(10*time.Hour), 0, "")
+	addRun(t, h, "fast", "select z", api.RunDone, "tui", hbase.Add(11*time.Hour), 0, "")
+	addRun(t, h, "older-but-later", "select z", api.RunCancelled, "tui", hbase.Add(9*time.Hour), 0, "")
+	gs, _, err := h.SearchHistory(ctx, HistoryQuery{}, 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gs[0].Latest.Job.ID != "fast" || gs[0].Runs != 3 || gs[0].Key == "" {
+		t.Fatalf("%+v", gs[0])
+	}
+}

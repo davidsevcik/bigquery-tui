@@ -65,3 +65,22 @@ func TestSinceTime(t *testing.T) {
 		}
 	}
 }
+
+// Codex review 4, findings 2 and 10.
+func TestSinceBoundsAndOr(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	for _, v := range []string{"200000d", "9999999w", "99999999999h"} {
+		if _, ok := SinceTime(v, now); ok {
+			t.Errorf("%s overflows and must be refused", v)
+		}
+	}
+	if _, ok := SinceTime("73000d", now); !ok {
+		t.Error("200 years is accepted")
+	}
+	for _, raw := range []string{"since:1d,7d", "since:7d,1d"} {
+		hq := HistoryQuery(ParseHistory(raw), now)
+		if len(hq.Conds) != 1 || !hq.Conds[0].Since.Equal(now.Add(-7*24*time.Hour)) {
+			t.Errorf("%s: %+v", raw, hq.Conds)
+		}
+	}
+}

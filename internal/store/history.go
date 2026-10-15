@@ -72,6 +72,10 @@ CREATE TABLE recent_objects (
 ALTER TABLE history ADD COLUMN sql_key TEXT;
 CREATE INDEX history_key ON history(sql_key);
 `,
+	// 3: the key keeps whitespace inside literals and comments; recompute it
+	`
+UPDATE history SET sql_key = NULL;
+`,
 }
 
 // HistorySchemaVersion is the newest history.db schema this binary knows.

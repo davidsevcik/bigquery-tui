@@ -71,11 +71,15 @@ func HistoryQuery(q api.ParsedQuery, now time.Time) store.HistoryQuery {
 		case "project":
 			c.Values = f.Values
 		case "since":
-			t, ok := SinceTime(f.Values[0], now)
-			if !ok {
+			// comma means OR: the earliest cutoff covers every value
+			for _, v := range f.Values {
+				if t, ok := SinceTime(v, now); ok && (c.Since.IsZero() || t.Before(c.Since)) {
+					c.Since = t
+				}
+			}
+			if c.Since.IsZero() {
 				continue
 			}
-			c.Since = t
 		default:
 			continue
 		}
@@ -95,8 +99,12 @@ func ExpandPrefix(names []string, v string) []string {
 	return out
 }
 
-// SinceTime reads a since: value: an age such as 30m, 12h, 7d or 2w, or a
-// date (2026-10-01) or date and time (2026-10-01T08:00) in local time.
+// maxAge bounds an age so the duration cannot overflow (into the future).
+const maxAge = 200 * 365 * 24 * time.Hour
+
+// SinceTime reads a since: value: an age such as 30m, 12h, 7d or 2w (up to
+// 200 years), or a date (2026-10-01) or date and time (2026-10-01T08:00) in
+// local time.
 func SinceTime(v string, now time.Time) (time.Time, bool) {
 	v = strings.TrimSpace(v)
 	if len(v) >= 2 {
@@ -113,6 +121,9 @@ func SinceTime(v string, now time.Time) (time.Time, bool) {
 			case 'w':
 				d = 7 * 24 * time.Hour
 			default:
+				return time.Time{}, false
+			}
+			if int64(n) > int64(maxAge/d) {
 				return time.Time{}, false
 			}
 			return now.Add(-time.Duration(n) * d), true

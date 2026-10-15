@@ -28,7 +28,7 @@ func (e *Engine) applyRetention(h *store.History) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	n, err := h.Prune(ctx, now.Add(-time.Duration(days)*24*time.Hour))
+	n, err := h.Prune(ctx, now.AddDate(0, 0, -days)) // AddDate cannot overflow into the future
 	if err != nil {
 		e.o.Log.Warn("apply history_retention_days", "err", err)
 		return
@@ -163,21 +163,34 @@ func (e *Engine) PromoteHistory(ctx context.Context, entryID int64, name, descri
 	if err != nil {
 		return "", err
 	}
-	f := api.Favorite{Description: description, Tags: tags, SQL: entry.SQL}
+	// a Run from a Favorite's buffer carries that header in its SQL: start
+	// from it, so the new header replaces it instead of stacking on it
+	f := favorites.Parse(entry.SQL)
+	f.Text, f.Problems = "", nil
+	if strings.TrimSpace(description) != "" || len(f.Description) == 0 {
+		f.Description = description
+	}
+	if len(tags) > 0 {
+		f.Tags = tags
+	}
+	declared := map[string]bool{}
+	for _, p := range f.Params {
+		declared[strings.ToLower(p.Name)] = true
+	}
 	used := map[string]bool{}
-	for _, n := range sqlx.Params(entry.SQL) {
+	for _, n := range sqlx.Params(f.SQL) {
 		used[strings.ToLower(n)] = true
 	}
 	for _, p := range entry.Params {
-		spec := api.ParamSpec{Name: p.Name, Type: p.Type}
-		if !used[strings.ToLower(p.Name)] || !validParamType(spec.Type) {
+		k := strings.ToLower(p.Name)
+		if !used[k] || declared[k] || !validParamType(p.Type) {
 			continue
 		}
-		if !p.Null {
-			v := p.Value
-			spec.Default = &v
+		v := p.Value
+		if p.Null {
+			v = "null" // Bind reads it back as NULL
 		}
-		f.Params = append(f.Params, spec)
+		f.Params = append(f.Params, api.ParamSpec{Name: p.Name, Type: p.Type, Default: &v})
 	}
 	id, err := e.FavoritesDir().Write(name, favorites.Render(f), overwrite)
 	if err != nil {

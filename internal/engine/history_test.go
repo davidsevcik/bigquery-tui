@@ -118,3 +118,33 @@ func TestRunCarriesItsFavorite(t *testing.T) {
 		t.Fatalf("%+v", page.Groups[0].Latest)
 	}
 }
+
+// Codex review 4, finding 9, and the stacked-header defect: promoting a
+// Run from a Favorite's buffer replaces its header; NULL stays NULL.
+func TestPromoteKeepsOneHeaderAndNull(t *testing.T) {
+	e, eng := synced(t, `["proj-a"]`)
+	e.cfg.FavoritesDir = filepath.Join(e.dir, "favs")
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
+	sql := "-- description: old\n-- tags: a\n-- param: d DATE = 2024-01-01\nselect @d, @p, @n"
+	eng.StartRun(ctx, runs.Request{SQL: sql, Params: []api.QueryParam{
+		{Name: "d", Type: "DATE", Value: "2025-05-05"}, {Name: "p", Type: "STRING", Null: true}, {Name: "n", Type: "INT64", Null: true}}}).Wait()
+	page, _ := eng.SearchHistory(ctx, "", 1, 0)
+	id, err := eng.PromoteHistory(ctx, page.Groups[0].Latest.ID, "x", "new", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, _ := eng.ReadFavorite(id)
+	if f.Description != "new" || len(f.Tags) != 1 || len(f.Problems) != 0 || len(f.Params) != 3 || strings.Contains(f.SQL, "--") {
+		t.Fatalf("one header: %+v\n%s", f, f.Text)
+	}
+	if *f.Params[0].Default != "2024-01-01" {
+		t.Fatal("the declared default is kept")
+	}
+	specs := eng.QueryParams(f.Text, f.SQL)
+	for _, s := range specs[1:] {
+		q, err := eng.BindParam(s, "")
+		if err != nil || !q.Null {
+			t.Fatalf("%s: NULL by default: %+v %v", s.Name, q, err)
+		}
+	}
+}
