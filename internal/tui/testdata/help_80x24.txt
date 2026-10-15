@@ -1,15 +1,16 @@
  Projects 1/2     │ Datasets 3/4                 │ Tables 1/4
-acm╭─ Help  (1-18/144) ─────────────────────────────────────────────────────╮
+acm╭─ Help  (1-18/145) ─────────────────────────────────────────────────────╮
 acm│ Global                                                                 │
    │ ctrl+q          quit (asks if Runs are in flight)                      │
-   │ f6              next zone: Explorer, Editor, Results                   │
-   │ shift+f6        previous zone                                          │
+   │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results                 │
+   │ ctrl+w W        previous zone                                          │
    │ ctrl+w h        go to the Explorer                                     │
-   │ ctrl+w l  ctrl+w kgo to the Editor                                     │
+   │ ctrl+w l  ctrl+w k  go to the Editor                                   │
    │ ctrl+w j        go to the Results                                      │
    │ ctrl+p          command palette                                        │
    │ ctrl+t          jump to table (recently opened when empty)             │
    │ f1              this help                                              │
+   │ ctrl+g          tutorial of the navigation (while it runs: ctrl+g then…│
    │ ctrl+c          cancel the export, the focused Run, or the sync        │
    │                                                                        │
    │ Explorer                                                               │
@@ -17,7 +18,6 @@ acm│ Global                                                                 �
    │ k  up           move up                                                │
    │ h  left         parent column / collapse                               │
    │ l  right        child column / expand                                  │
-   │ g g  home       first row                                              │
    ╰────────────────────────────────────────────────────────────────────────╯
                   │                              │
  bqt exec acme-exec  miller                              5 datasets · 13 tables

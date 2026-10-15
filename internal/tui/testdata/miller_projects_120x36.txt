@@ -33,4 +33,4 @@ acme-staging        ✓ 3h │finance                                  2 │ 4 d
                          │                                           │
                          │                                           │
  bqt exec acme-exec  miller                                                                      5 datasets · 13 tables
- ↑↓←→/hjkl move · / search · L layout · P panes · ? help · F6 zone · ctrl+p cmds · ctrl+t jump
+ ↑↓←→/hjkl move · / search · L layout · P panes · ? help · ctrl+o zone · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial

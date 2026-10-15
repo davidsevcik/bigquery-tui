@@ -79,13 +79,13 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 	}()
 
 	waitFor(t, out, "smoke-exec", 10*time.Second)
-	waitFor(t, out, "hjkl move", 5*time.Second)
+	waitFor(t, out, "ctrl+g starts a short tutorial", 5*time.Second) // first run
 	f.Write([]byte("?"))
 	waitFor(t, out, "command palette", 5*time.Second)
 	f.Write([]byte("\x1b")) // esc closes the help
 	time.Sleep(150 * time.Millisecond)
-	// F6 goes to the editor; printable keys type there (q must not quit)
-	f.Write([]byte("\x1b[17~"))
+	// ctrl+o goes to the editor; printable keys type there (q must not quit)
+	f.Write([]byte("\x0f"))
 	waitFor(t, out, "i inserts", 5*time.Second)
 	f.Write([]byte("iselect q")) // i: the editor starts in vim's Normal mode
 	// the renderer only sends changed cells, so there is no stable text to

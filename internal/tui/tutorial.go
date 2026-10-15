@@ -1,0 +1,277 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+)
+
+// The tutorial is a panel docked under the screen that teaches the
+// navigation one step at a time. The UI works as usual while it runs; each
+// step watches the model and opens the next step once its task is done.
+// ctrl+g starts it; while it runs, ctrl+g is a chord prefix for the
+// tutorial's own keys (n next, p back, q quit).
+
+// tutorialRows is the panel's fixed height, so the layout does not jump
+// between steps.
+const tutorialRows = 7
+
+type tutStep struct {
+	title string
+	// text is the instruction; `backticks` mark keys. It may depend on the
+	// editing mode.
+	text func(m *Model) string
+	// done reports that the task is complete; nil steps advance only with
+	// ctrl+g n.
+	done func(m *Model, t *tutorial) bool
+}
+
+type tutorial struct {
+	step    int
+	pending bool // ctrl+g was pressed: the next key is the tutorial's
+	praise  string
+
+	// observed since the step started
+	start   tutSnap
+	keys    map[string]bool // keys pressed in the zone the step starts in
+	seenOv  map[overlayKind]bool
+	zoomed  bool
+	inserts bool // vim Insert mode was entered
+	layouts bool
+}
+
+type tutSnap struct {
+	zone   Zone
+	sel    string
+	layout layoutKind
+	runs   int
+	text   string
+}
+
+func (m *Model) tutSnap() tutSnap {
+	return tutSnap{zone: m.zone, sel: m.sel().path.String() + "\x00" + string(m.sel().kind), layout: m.layout, runs: len(m.runs), text: m.buf().ed.text()}
+}
+
+func plain(s string) func(*Model) string { return func(*Model) string { return s } }
+
+func (t *tutorial) pressed(names ...string) bool {
+	for _, n := range names {
+		if t.keys[n] {
+			return true
+		}
+	}
+	return false
+}
+
+// closedAfter is true once overlay kind was opened during the step and no
+// overlay is open now.
+func closedAfter(kind overlayKind) func(m *Model, t *tutorial) bool {
+	return func(m *Model, t *tutorial) bool { return t.seenOv[kind] && m.ov == ovNone }
+}
+
+var tutSteps = []tutStep{
+	{"Welcome", plain("This panel teaches the navigation, one step at a time. Each step names a few keys: do what it says and the next step opens by itself. Everything works as usual meanwhile. `ctrl+g n` goes on now."), nil},
+	{"Move in the Explorer", plain("The Explorer lists projects, datasets and tables. Press `j` and `k` (or `↓` `↑`) to move the cursor. `g g` and `G` go to the first and last row."),
+		func(m *Model, t *tutorial) bool {
+			return m.zone == ZoneExplorer && m.tutSnap().sel != t.start.sel
+		}},
+	{"In and out", plain("`l` or `→` opens the selected project or dataset (in the tree layout: expands it); `h` or `←` goes back out. Go in once and back out once."),
+		func(m *Model, t *tutorial) bool {
+			return t.pressed("l", "right", "enter") && t.pressed("h", "left", "esc")
+		}},
+	{"Search the catalog", plain("`/` opens the search. Type part of a table name; `↑` `↓` pick a result, `enter` goes to it in the Explorer, `esc` closes without moving."),
+		closedAfter(ovSearch)},
+	{"Jump to a table", plain("`ctrl+t` jumps to a table from any zone: type, then `enter`. Empty, it lists the tables you opened lately. From the Editor it inserts the name instead. Try it, then close it."),
+		closedAfter(ovJump)},
+	{"Layouts", plain("`L` cycles the Explorer layout: Miller columns, tree, flat list. bqt remembers your choice, so press it until you are back at the one you like."),
+		func(m *Model, t *tutorial) bool { return t.layouts }},
+	{"The detail pane", plain("On a table, the detail pane shows the schema. `tab` switches to the preview (`p` loads rows), `P` moves the pane. `z` zooms it; `esc` or `←` leaves the zoom. Zoom in and out once."),
+		func(m *Model, t *tutorial) bool { return t.zoomed && !m.zoom }},
+	{"Command palette", plain("`ctrl+p` (or `:` in the Explorer) lists every command by name, with its key. Type to filter, `enter` runs one, `esc` closes. Open it and close it."),
+		closedAfter(ovPalette)},
+	{"Help", plain("`?` lists every key of every zone (`f1` too). `j` `k` scroll it, `esc` closes it. Open it and close it."),
+		closedAfter(ovHelp)},
+	{"Zones", plain("The screen has three zones: Explorer, Editor and Results. `ctrl+o` moves to the next zone (`ctrl+w w` too, `ctrl+w W` goes back). Go to the Editor now."),
+		func(m *Model, t *tutorial) bool { return m.zone == ZoneEditor }},
+	{"Write a query", func(m *Model) string {
+		if m.vimOn() {
+			return "The editor uses vim keys and starts in Normal mode. `i` enters Insert mode: type SELECT 1, then `esc` goes back to Normal mode."
+		}
+		return "Type SELECT 1. `shift+arrows` select, `ctrl+z` undoes, `tab` accepts a completion."
+	},
+		func(m *Model, t *tutorial) bool {
+			b := m.buf()
+			if strings.TrimSpace(b.ed.text()) == "" || b.ed.text() == t.start.text {
+				return false
+			}
+			return !m.vimOn() || (t.inserts && b.vim.mode == vimNormal)
+		}},
+	{"Run it", func(m *Model) string {
+		if m.vimOn() {
+			return "In Normal mode `enter` runs the buffer (in Visual mode, the selection); `space d` is a dry-run, which only checks and estimates. SELECT 1 reads no data. Run it."
+		}
+		return "`ctrl+r` runs the buffer (or the selection); `ctrl+d` is a dry-run, which only checks and estimates. SELECT 1 reads no data. Run it."
+	},
+		func(m *Model, t *tutorial) bool { return len(m.runs) > t.start.runs }},
+	{"Go to the Results", plain("`ctrl+w` then a direction goes straight to a zone: `ctrl+w j` the Results, `ctrl+w k` the Editor, `ctrl+w h` the Explorer. Go to the Results now."),
+		func(m *Model, t *tutorial) bool { return m.zone == ZoneResults }},
+	{"Read the Results", plain("`h` `j` `k` `l` move between cells, `enter` shows the row as a record (`n` `p` step rows), `esc` closes it. `y` copies a cell, `e` exports. Open a record and close it."),
+		closedAfter(ovRecord)},
+	{"Back to the Explorer", plain("`ctrl+w h` goes back to the Explorer. There, `i` inserts the selected table's name into the editor. `esc` in the Results also goes back to the Editor."),
+		func(m *Model, t *tutorial) bool { return m.zone == ZoneExplorer }},
+	{"Done", plain("That is the navigation. `?` lists every key, `ctrl+p` every command, `ctrl+g` starts this tutorial again. `ctrl+g n` closes it."), nil},
+}
+
+func (m *Model) startTutorial() {
+	m.ov, m.pendingKey = ovNone, ""
+	m.setZone(ZoneExplorer)
+	m.tut = &tutorial{}
+	m.tutGo(0)
+}
+
+func (m *Model) stopTutorial() {
+	m.tut = nil
+	m.fitHeight()
+}
+
+func (m *Model) tutGo(step int) {
+	t := m.tut
+	t.step = clamp(step, 0, len(tutSteps)-1)
+	t.keys, t.seenOv = map[string]bool{}, map[overlayKind]bool{}
+	t.zoomed, t.inserts, t.layouts = false, false, false
+	t.start = m.tutSnap()
+	m.fitHeight()
+}
+
+// fitHeight gives the tutorial panel its rows.
+func (m *Model) fitHeight() {
+	m.h = m.termH
+	if m.tut != nil {
+		m.h = max(6, m.termH-tutorialRows)
+	}
+}
+
+// tutorialKey handles ctrl+g and the key after it. It reports whether it
+// used the key.
+func (m *Model) tutorialKey(name string) bool {
+	if m.tut == nil {
+		if keys.action(ZoneGlobal, name) != "tutorial" {
+			return false
+		}
+		if m.ov == ovPrompt || m.ov == ovConfirm {
+			// closing these would drop the question unanswered
+			m.toast = "answer the popup first, then ctrl+g starts the tutorial"
+			return true
+		}
+		m.startTutorial()
+		return true
+	}
+	t := m.tut
+	if t.pending {
+		t.pending = false
+		switch name {
+		case "n", "enter", "right", "l":
+			if t.step == len(tutSteps)-1 {
+				m.stopTutorial()
+				m.toast = "tutorial finished (ctrl+g starts it again)"
+				return true
+			}
+			t.praise = ""
+			m.tutGo(t.step + 1)
+		case "p", "left", "h":
+			t.praise = ""
+			m.tutGo(t.step - 1)
+		case "q", "esc":
+			m.stopTutorial()
+			m.toast = "tutorial closed (ctrl+g starts it again)"
+		case "r":
+			m.startTutorial()
+		default:
+			m.toast = "ctrl+g " + name + " is not a tutorial key (n next · p back · r restart · q quit)"
+		}
+		return true
+	}
+	if name == "ctrl+g" {
+		t.pending = true
+		return true
+	}
+	if m.zone == t.start.zone {
+		t.keys[name] = true
+	}
+	return false
+}
+
+// tutorialObserve runs after every update: it records what happened and
+// moves on when the step's task is done.
+func (m *Model) tutorialObserve() {
+	t := m.tut
+	if t == nil {
+		return
+	}
+	if m.ov != ovNone {
+		t.seenOv[m.ov] = true
+	}
+	if m.zoom {
+		t.zoomed = true
+	}
+	if m.layout != t.start.layout {
+		t.layouts = true
+	}
+	if m.vimOn() && m.buf().vim.mode == vimInsert {
+		t.inserts = true
+	}
+	st := tutSteps[t.step]
+	if st.done != nil && st.done(m, t) {
+		t.praise = "✓ " + st.title
+		m.tutGo(t.step + 1)
+	}
+}
+
+// tutorialPanel draws the panel, tutorialRows lines high.
+func (m *Model) tutorialPanel(w int) []string {
+	t := m.tut
+	st := tutSteps[t.step]
+	inner := w - 2
+	head := fmt.Sprintf("Tutorial %d/%d · %s", t.step+1, len(tutSteps), st.title)
+	body := keyMarkup(wrap(st.text(m), max(10, inner-2)))
+	lines := make([]string, 0, tutorialRows-2)
+	for _, l := range body {
+		lines = append(lines, " "+l)
+	}
+	for len(lines) < tutorialRows-3 {
+		lines = append(lines, "")
+	}
+	foot := " "
+	if t.praise != "" {
+		foot += sOk.Render(t.praise+" done") + "  "
+	}
+	if t.pending {
+		foot += sWarn.Render("tutorial key: n next · p back · r restart · q quit")
+	} else {
+		foot += sFaint.Render("ctrl+g then: n next · p back · r restart · q quit")
+	}
+	lines = append(lines[:tutorialRows-3], foot)
+	return popup(head, lines, w)
+}
+
+// keyMarkup highlights the `backticked` keys of wrapped lines; a key may be
+// split across lines.
+func keyMarkup(lines []string) []string {
+	in := false
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		var sb strings.Builder
+		parts := strings.Split(l, "`")
+		for j, p := range parts {
+			if j > 0 {
+				in = !in
+			}
+			if in {
+				sb.WriteString(sKey.Render(p))
+			} else {
+				sb.WriteString(p)
+			}
+		}
+		out[i] = sb.String()
+	}
+	return out
+}

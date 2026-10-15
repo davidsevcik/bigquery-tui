@@ -168,7 +168,7 @@ var special = map[string]rune{
 	"left": tea.KeyLeft, "right": tea.KeyRight, "backspace": tea.KeyBackspace, "f1": tea.KeyF1, "pgdown": tea.KeyPgDown, "pgup": tea.KeyPgUp,
 }
 
-// press sends keys: a name such as "enter", "ctrl+p", "shift+left" or "f6",
+// press sends keys: a name such as "enter", "ctrl+p", "shift+left" or "f1",
 // or literal text (typed rune by rune).
 func (r *rig) press(keys ...string) {
 	r.t.Helper()
@@ -244,8 +244,8 @@ func (r *rig) golden(name string) {
 			r.t.Errorf("%s: line %d is %d cells wide, terminal is %d: %q", name, i, wd, r.m.w, ansi.Strip(l))
 		}
 	}
-	if n := len(r.m.render()); n != r.m.h {
-		r.t.Errorf("%s: %d lines for a %d-row terminal", name, n, r.m.h)
+	if n := len(r.m.render()); n != r.m.termH {
+		r.t.Errorf("%s: %d lines for a %d-row terminal", name, n, r.m.termH)
 	}
 	path := filepath.Join("testdata", name+".txt")
 	got := r.screen()

@@ -85,7 +85,8 @@ type Model struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	w, h int
+	w, h  int
+	termH int // the terminal's rows; h leaves out the tutorial panel
 
 	layout layoutKind
 	place  placement
@@ -112,6 +113,9 @@ type Model struct {
 	zoom        bool
 	zoomStacked bool // zoom shows schema above preview instead of side by side
 	statSeq     int
+
+	tut      *tutorial
+	firstRun bool // no UI state file yet
 
 	pendingKey string
 	toast      string
@@ -160,7 +164,7 @@ func New(be Backend, o Options) *Model {
 		o.Now = time.Now
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30}
+	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30, termH: 30}
 	m.search = &searchState{typing: true}
 	m.jump = &searchState{typing: true, tablesOnly: true}
 	m.flat = &searchState{all: true}
@@ -183,6 +187,10 @@ func New(be Backend, o Options) *Model {
 	m.scanOrphans()
 	if n := len(m.orphans); n > 0 && m.toast == "" {
 		m.toast = fmt.Sprintf("%d draft(s) from earlier sessions can be restored (ctrl+x b in the editor)", n)
+	}
+	if m.firstRun && m.toast == "" && !o.NoBackground {
+		m.toast = "new to bqt? ctrl+g starts a short tutorial of the navigation"
+		m.saveState() // the hint shows once
 	}
 	return m
 }
@@ -207,6 +215,7 @@ type uiState struct {
 func (m *Model) loadState() {
 	b, err := os.ReadFile(m.be.StatePath())
 	if err != nil {
+		m.firstRun = errors.Is(err, os.ErrNotExist)
 		return
 	}
 	var st uiState
@@ -383,9 +392,16 @@ func waitSync(run SyncRun) tea.Cmd {
 
 // Update handles one message.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	mod, cmd := m.update(msg)
+	m.tutorialObserve()
+	return mod, cmd
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.w, m.h = msg.Width, msg.Height
+		m.w, m.termH = msg.Width, msg.Height
+		m.fitHeight()
 	case tea.FocusMsg:
 		select {
 		case m.kick <- struct{}{}:
@@ -608,6 +624,9 @@ func (m *Model) typingState() *searchState {
 func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	name := keyName(msg)
 	m.toast = ""
+	if m.tutorialKey(name) {
+		return nil
+	}
 
 	switch m.ov {
 	case ovPrompt:
@@ -691,6 +710,9 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 		m.ov = ovNone
 		m.setZone(ZoneResults)
 		return m.gridEnsure(), true
+	case "tutorial":
+		m.startTutorial()
+		return nil, true
 	case "cancelall":
 		m.be.CancelAllRuns()
 		m.toast = "cancel requested for every run"

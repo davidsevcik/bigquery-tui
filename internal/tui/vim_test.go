@@ -250,7 +250,7 @@ func vimRig(t *testing.T, w, h int) *rig {
 	rigEditing = "vim"
 	defer func() { rigEditing = "plain" }()
 	r := newRig(t, w, h)
-	r.press("f6")
+	r.press("ctrl+o")
 	return r
 }
 

@@ -266,7 +266,7 @@ Vim keys (`hjkl`, `gg`/`G`, `ctrl+d`/`ctrl+u`, `/`), the command palette (`ctrl+
   - `/` finds text in the buffer (lower case ignores case), `n` / `N` repeat, `*` finds the word under the cursor. There is no `?` backward search (`?` is help) and no regular expressions.
   - Visual mode: motions and text objects extend the selection; `d x c s y > < ~ u U J p`, `o` swaps the ends.
   - **Key conflicts, resolved in vim's favour in Normal and Visual mode:** `ctrl+r` is redo and `ctrl+d` scrolls, so a query can never start from a redo reflex. Running is `enter` (the buffer, or the Visual selection) or `space r`; the dry-run is `space d`. The `space` leader also has `l` run list, `b` buffers, `n` new, `w` close, `[` `]` switch, `s` save, `e` `$EDITOR`. In Insert mode `ctrl+r` runs and `ctrl+d` dry-runs, as in plain editing; `ctrl+n` forces completion. `:` opens the command palette; there is no ex command line.
-  - Kept from bqt in every mode: the `ctrl+x` chords, `ctrl+w h/j/k/l` zone moves (so `ctrl+w` does not delete a word in Insert mode), `ctrl+s`, `ctrl+c`, `ctrl+p`, `ctrl+t`, `ctrl+q`, `F6`.
+  - Kept from bqt in every mode: the `ctrl+x` chords, `ctrl+w h/j/k/l` zone moves (so `ctrl+w` does not delete a word in Insert mode), `ctrl+s`, `ctrl+c`, `ctrl+p`, `ctrl+t`, `ctrl+q`, `ctrl+o`, `ctrl+g`.
   - Not built: macros, marks, named registers, `:` commands, block-visual mode, `ip`/`ap`, `gU`/`gu`/`g~` operators, regex search, counts on insert commands (`3ix`).
 - **Several buffers per TUI session.** `ctrl+x n` opens a new buffer, `ctrl+x b` opens the buffer list (open buffers, then the drafts that can be restored), `ctrl+x w` closes one, `ctrl+x [` and `ctrl+x ]` move between them. This is TUI-only; the core is unchanged because a Run snapshots its SQL.
 - A Run belongs to the buffer that started it, and the buffer shows a status badge for its latest Run (running, done, failed). Switching buffers while Runs are in flight is fine; the run list stays global. Closing a buffer asks only if it has changes not saved to a file or a Favorite (autosaved drafts do not count).
@@ -387,7 +387,9 @@ Palette commands (plus keys for the common ones): copy schema (a compact markdow
 
 ## 15. Keybindings [08, 10, 11, 15, 17]
 
-Zones: Explorer, Editor, Results, overlays. Zone switching: `F6` / `shift+F6` cycle zones; `ctrl+w` then `h`/`j`/`k`/`l` moves directionally. As built, the Explorer is one screen and the Editor above the Results is another (the focused pane gets the larger share); `ctrl+w h` goes to the Explorer, `ctrl+w l` or `k` to the Editor, `ctrl+w j` to the Results.
+Zones: Explorer, Editor, Results, overlays. Zone switching: `ctrl+o` (or vim's `ctrl+w w`) cycles to the next zone and `ctrl+w W` to the previous one; `ctrl+w` then `h`/`j`/`k`/`l` moves directionally. (F6 was dropped on the user's request, 2026-10-15: function keys are awkward on a laptop keyboard. `ctrl+o` is free in every zone and in vim's Insert mode, since vim's `ctrl+o` is not built.) As built, the Explorer is one screen and the Editor above the Results is another (the focused pane gets the larger share); `ctrl+w h` goes to the Explorer, `ctrl+w l` or `k` to the Editor, `ctrl+w j` to the Results.
+
+Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks a panel under the screen that teaches the navigation in 16 steps: Explorer movement, in and out, search, jump, layouts, the detail pane and zoom, the palette, help, zones, writing (vim or plain), running, Results, record view. The UI works as usual meanwhile; each step watches the model (a selection change, an overlay opened and closed, a zone reached, a Run started) and opens the next step when its task is done. While it runs, `ctrl+g` is a prefix for the tutorial's own keys in every zone and popup: `n` next (skip), `p` back, `r` restart, `q` quit. The panel's rows are taken from the app's height. The first start without a UI state file shows a one-time hint about `ctrl+g`.
 
 | Zone | Key | Action |
 |---|---|---|
@@ -396,6 +398,8 @@ Zones: Explorer, Editor, Results, overlays. Zone switching: `F6` / `shift+F6` cy
 | Global | `ctrl+t` | Jump to table |
 | Global | `ctrl+c` | Cancel focused Run; with nothing running, shows a "ctrl+q to quit" hint |
 | Global | `F1`, `?` (outside editor) | Help overlay |
+| Global | `ctrl+o`, `ctrl+w w`, `ctrl+w W` | Next zone, next zone, previous zone |
+| Global | `ctrl+g` | Tutorial of the navigation (see below) |
 | Explorer | `h` `j` `k` `l`, arrows | Move, collapse/expand, enter column |
 | Explorer | `gg`, `G`, `ctrl+d`, `ctrl+u` | Top, bottom, half page |
 | Explorer | `/` | Search; `:` opens the palette |

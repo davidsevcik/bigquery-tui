@@ -26,9 +26,9 @@ bin/bqt status                           # freshness and sync problems
 bin/bqt doctor                           # paths, versions, auth, catalog age
 ```
 
-In the explorer: `hjkl` or the arrows move, `/` searches, `ctrl+t` jumps to a table, `ctrl+p` opens the command palette, `L` cycles the layout (Miller columns, tree, flat list), `p` previews rows, `?` lists every key.
+In the explorer: `hjkl` or the arrows move, `/` searches, `ctrl+t` jumps to a table, `ctrl+p` opens the command palette, `L` cycles the layout (Miller columns, tree, flat list), `p` previews rows, `?` lists every key. `ctrl+g` starts an interactive tutorial of the navigation.
 
-**Writing and running queries.** `F6` cycles the three zones: Explorer, Editor, Results (`ctrl+w` then `h`/`l`/`j` goes straight to one).
+**Writing and running queries.** `ctrl+o` cycles the three zones: Explorer, Editor, Results (`ctrl+w` then `h`/`l`/`j` goes straight to one; `ctrl+w w` / `W` cycle as in vim).
 
 - Editor: vim-style editing by default (`i` to insert, `esc` back to Normal mode, the usual motions, operators, text objects, Visual mode, `/`, `.`; `?` lists what is built). In Normal mode `enter` runs and `space d` dry-runs; `ctrl+r` is redo there. Set `[tui] editing = "plain"` in the config for a modeless editor. The keys below are for Insert mode and plain editing.
 - Type SQL; the completion popup offers projects, datasets, tables, columns (through aliases, CTEs and `UNNEST`), functions and keywords. `tab` accepts, `ctrl+space` forces it. `ctrl+r` runs the selection or the whole buffer, `ctrl+d` only dry-runs it. `@name` parameters are asked for. `ctrl+x n` / `b` / `w` / `[` / `]` manage buffers; every buffer is autosaved as a draft and offered for restore after a crash or a closed terminal. `i` in the Explorer inserts the selected table's name.

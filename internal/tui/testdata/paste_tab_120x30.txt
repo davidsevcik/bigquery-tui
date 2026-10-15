@@ -27,4 +27,4 @@
 
 
  bqt exec acme-exec                                                                              5 datasets · 13 tables
- ctrl+r run · ctrl+d dry-run · tab complete · ctrl+x b buffers · ctrl+x l runs · F6 zone · ctrl+p cmds · ctrl+t jump
+ ctrl+r run · ctrl+d dry-run · tab complete · ctrl+x b buffers · ctrl+x l runs · ctrl+o zone · ctrl+p cmds · ctrl+t jum…

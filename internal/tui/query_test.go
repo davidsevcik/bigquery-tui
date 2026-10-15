@@ -18,9 +18,9 @@ import (
 func editorRig(t *testing.T, w, h int) *rig {
 	t.Helper()
 	r := newRig(t, w, h)
-	r.press("f6")
+	r.press("ctrl+o")
 	if r.m.zone != ZoneEditor {
-		t.Fatalf("F6 goes to the editor, got %s", r.m.zone)
+		t.Fatalf("ctrl+o goes to the editor, got %s", r.m.zone)
 	}
 	return r
 }
@@ -43,14 +43,14 @@ func historyCount(t *testing.T, r *rig) int {
 func TestZonesCycleAndChords(t *testing.T) {
 	r := newRig(t, 120, 30)
 	for _, want := range []Zone{ZoneEditor, ZoneResults, ZoneExplorer} {
-		r.press("f6")
+		r.press("ctrl+o")
 		if r.m.zone != want {
 			t.Fatalf("zone %s, want %s", r.m.zone, want)
 		}
 	}
-	r.press("shift+f6")
+	r.press("ctrl+w", "W")
 	if r.m.zone != ZoneResults {
-		t.Fatalf("shift+F6 goes back: %s", r.m.zone)
+		t.Fatalf("ctrl+w W goes back: %s", r.m.zone)
 	}
 	r.press("ctrl+w", "k")
 	if r.m.zone != ZoneEditor {
@@ -166,7 +166,7 @@ func TestRunWithParametersShowsResults(t *testing.T) {
 	r.press("esc")
 
 	// results: cursor, paging across the 500-row page, record view
-	r.press("f6", "G")
+	r.press("ctrl+o", "G")
 	r.contains("row 1,234 of 1,234", "row 1233")
 	r.press("g", "g", "l", "enter")
 	r.contains("Record 1 of 1,234", "label", "row 0")
@@ -309,7 +309,7 @@ func TestBuffersAndRunList(t *testing.T) {
 	r.contains("#1 done", "11 rows")
 
 	// closing a buffer with text asks; an empty one does not
-	r.press("f6", "f6", "ctrl+x", "w")
+	r.press("ctrl+o", "ctrl+o", "ctrl+x", "w")
 	if r.m.ov != ovConfirm {
 		t.Fatalf("zone %s ov %v", r.m.zone, r.m.ov)
 	}
@@ -354,7 +354,7 @@ func TestDraftsSurviveAndAreOfferedForRestore(t *testing.T) {
 	r3 := &rig{t: t, m: m3, fake: r.fake, eng: r.eng, now: r.now}
 	r3.send(teaSize(120, 30))
 	r3.contains("1 draft(s) from earlier sessions")
-	r3.press("f6", "ctrl+x", "b")
+	r3.press("ctrl+o", "ctrl+x", "b")
 	r3.contains("Restore drafts", "select 'kept'")
 	r3.press("down", "enter")
 	if len(m3.bufs) != 1 || m3.buf().ed.text() != "select 'kept'" {
@@ -437,7 +437,7 @@ func TestGridColumnsFreezeHideAndFind(t *testing.T) {
 	r := editorRig(t, 70, 24)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return wideScript() }
 	r.typeText("select wide")
-	r.press("ctrl+r", "f6")
+	r.press("ctrl+r", "ctrl+o")
 	g := r.m.grid()
 	if g == nil || len(g.widths) != 7 {
 		t.Fatalf("%+v", g)
@@ -490,7 +490,7 @@ func TestExportFromTheGrid(t *testing.T) {
 	r := editorRig(t, 120, 30)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1203) }
 	r.typeText("select many")
-	r.press("ctrl+r", "f6", "e")
+	r.press("ctrl+r", "ctrl+o", "e")
 	r.contains("Export 1,203 rows", "bqt-", ".csv")
 	target := filepath.Join(r.dir, "out.csv")
 	r.press("ctrl+u")
@@ -552,7 +552,7 @@ func TestQueryGoldenScreens(t *testing.T) {
 		r.typeText("2024-01-01")
 		r.press("enter")
 		r.golden(name("editor_with_result"))
-		r.press("f6", "j", "j", "l")
+		r.press("ctrl+o", "j", "j", "l")
 		r.golden(name("results"))
 		r.press("enter")
 		r.golden(name("result_record"))
@@ -565,7 +565,7 @@ func TestFlatExplorerLayoutDoesNotStealEditorKeys(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.press("L", "L") // flat list
 	r.press("/")      // its filter is now taking keys
-	r.press("f6")
+	r.press("ctrl+o")
 	r.typeText("select 1")
 	if r.text() != "select 1" || r.m.flat.in.value() != "" {
 		t.Fatalf("editor %q, explorer filter %q", r.text(), r.m.flat.in.value())
@@ -712,7 +712,7 @@ func TestJumpToTheLastRowFetchesOnlyThatWindow(t *testing.T) {
 	r := editorRig(t, 120, 30)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(20 * gridPage) }
 	r.typeText("select many")
-	r.press("ctrl+r", "f6")
+	r.press("ctrl+r", "ctrl+o")
 	before := len(r.fake.CallsTo("QueryRows"))
 	r.press("G")
 	r.contains("row 10,000 of 10,000", "row 9999")

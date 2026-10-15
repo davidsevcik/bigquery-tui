@@ -129,6 +129,9 @@ func (m *Model) render() []string {
 		box := m.infoBox(bw, bodyH-2)
 		body = overlay(body, box, (w-bw)/2, max(0, (bodyH-len(box))/2), w)
 	}
+	if m.tut != nil {
+		body = append(body, m.tutorialPanel(w)...)
+	}
 	return append(body, m.statusLine(w), m.footerLine(w))
 }
 
@@ -207,7 +210,7 @@ func (m *Model) footerLine(w int) string {
 			case vimInsert:
 				hint = "esc normal mode · ctrl+r run · ctrl+d dry-run · tab complete · ctrl+n force completion"
 			case vimNormal:
-				hint = "i insert · enter run · space d dry-run · v select · / find · u undo · : commands · ? help · F6 zone"
+				hint = "i insert · enter run · space d dry-run · v select · / find · u undo · : commands · ? help · ctrl+o zone"
 			default:
 				hint = "enter run the selection · d delete · y yank · c change · > < indent · esc normal mode"
 			}

@@ -35,14 +35,15 @@ type Binding struct {
 // Keymap is the registry (spec section 15).
 var Keymap = []Binding{
 	{ZoneGlobal, []string{"ctrl+q"}, "quit", "quit (asks if Runs are in flight)", "Quit", ""},
-	{ZoneGlobal, []string{"f6"}, "zonenext", "next zone: Explorer, Editor, Results", "Next zone", "F6 zone"},
-	{ZoneGlobal, []string{"shift+f6"}, "zoneprev", "previous zone", "", ""},
+	{ZoneGlobal, []string{"ctrl+o", "ctrl+w w"}, "zonenext", "next zone: Explorer, Editor, Results", "Next zone", "ctrl+o zone"},
+	{ZoneGlobal, []string{"ctrl+w W"}, "zoneprev", "previous zone", "Previous zone", ""},
 	{ZoneGlobal, []string{"ctrl+w h"}, "zoneexplorer", "go to the Explorer", "Go to the Explorer", ""},
 	{ZoneGlobal, []string{"ctrl+w l", "ctrl+w k"}, "zoneeditor", "go to the Editor", "Go to the Editor", ""},
 	{ZoneGlobal, []string{"ctrl+w j"}, "zoneresults", "go to the Results", "Go to the Results", ""},
 	{ZoneGlobal, []string{"ctrl+p"}, "palette", "command palette", "", "ctrl+p cmds"},
 	{ZoneGlobal, []string{"ctrl+t"}, "jump", "jump to table (recently opened when empty)", "Jump to table", "ctrl+t jump"},
 	{ZoneGlobal, []string{"f1"}, "help", "this help", "Help", ""},
+	{ZoneGlobal, []string{"ctrl+g"}, "tutorial", "tutorial of the navigation (while it runs: ctrl+g then n, p, r or q)", "Tutorial", "ctrl+g tutorial"},
 	{ZoneGlobal, []string{"ctrl+c"}, "cancel", "cancel the export, the focused Run, or the sync", "Cancel the focused Run", ""},
 	{ZoneGlobal, []string{}, "cancelall", "cancel every Run", "Cancel all Runs", ""},
 
@@ -236,7 +237,8 @@ func helpLines() []string {
 			if len(b.Keys) == 0 {
 				continue // palette only
 			}
-			out = append(out, " "+sKey.Render(pad(strings.Join(b.Keys, "  "), 16))+b.Help)
+			ks := strings.Join(b.Keys, "  ")
+			out = append(out, " "+sKey.Render(pad(ks, max(16, wid(ks)+2)))+b.Help)
 		}
 		if z == ZoneEditor {
 			for _, l := range editingHelp {
