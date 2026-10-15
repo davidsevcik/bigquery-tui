@@ -18,6 +18,12 @@ import (
 type Options struct {
 	// MaxChars truncates a cell's text (in characters). 0 means no limit.
 	MaxChars int
+	// ArraySummary shows a REPEATED value as "[3] first, second, third"
+	// instead of JSON (the results grid).
+	ArraySummary bool
+	// KeepNewlines leaves line breaks in the text (the record view wraps
+	// them); other control characters are still replaced.
+	KeepNewlines bool
 }
 
 // Row formats one wire row against its schema.
@@ -39,15 +45,60 @@ func Cell(f bq.Field, v any, o Options) api.Cell {
 	if v == nil {
 		return api.Cell{Null: true}
 	}
-	var text string
-	if f.Mode == "REPEATED" || isRecord(f) || f.Type == "JSON" {
-		var b strings.Builder
-		writeJSON(&b, f, v, f.Mode == "REPEATED")
-		text = b.String()
-	} else {
-		text = scalarText(f.Type, v)
+	text, _ := Text(f, v)
+	if o.ArraySummary && f.Mode == "REPEATED" {
+		text = arraySummary(f, v)
 	}
-	return clip(sanitize(text), o.MaxChars)
+	return clip(sanitize(text, o.KeepNewlines), o.MaxChars)
+}
+
+// Text is the full, unsanitized text of a wire value (export): scalars as
+// they are, RECORD, REPEATED and JSON values as compact JSON. null reports a
+// NULL value.
+func Text(f bq.Field, v any) (text string, null bool) {
+	if v == nil {
+		return "", true
+	}
+	if f.Mode == "REPEATED" || isRecord(f) || f.Type == "JSON" {
+		return JSONValue(f, v), false
+	}
+	return scalarText(f.Type, v), false
+}
+
+// JSONValue renders a wire value as compact JSON, keeping field order and
+// exact numeric text.
+func JSONValue(f bq.Field, v any) string {
+	var b strings.Builder
+	writeJSON(&b, f, v, f.Mode == "REPEATED")
+	return b.String()
+}
+
+func arraySummary(f bq.Field, v any) string {
+	items, _ := v.([]any)
+	var b strings.Builder
+	b.WriteString("[" + strconv.Itoa(len(items)) + "]")
+	elem := f
+	elem.Mode = ""
+	for i, it := range items {
+		if m, ok := it.(map[string]any); ok {
+			it = m["v"]
+		}
+		if i == 0 {
+			b.WriteByte(' ')
+		} else {
+			b.WriteString(", ")
+		}
+		if it == nil {
+			b.WriteString("NULL")
+			continue
+		}
+		t, _ := Text(elem, it)
+		b.WriteString(t)
+		if b.Len() > 4096 {
+			break // the cell is clipped anyway
+		}
+	}
+	return b.String()
 }
 
 func isRecord(f bq.Field) bool { return f.Type == "RECORD" || f.Type == "STRUCT" }
@@ -169,10 +220,10 @@ func looksNumeric(s string) bool {
 }
 
 // sanitize replaces control characters so a cell is always one safe line.
-func sanitize(s string) string {
+func sanitize(s string, keepNewlines bool) string {
 	clean := true
 	for i := 0; i < len(s); i++ {
-		if s[i] < 0x20 || s[i] == 0x7f {
+		if (s[i] < 0x20 && !(keepNewlines && s[i] == '\n')) || s[i] == 0x7f {
 			clean = false
 			break
 		}
@@ -183,6 +234,8 @@ func sanitize(s string) string {
 	var b strings.Builder
 	for _, r := range s {
 		switch {
+		case r == '\n' && keepNewlines:
+			b.WriteByte('\n')
 		case r == '\n':
 			b.WriteString("⏎")
 		case r == '\t':
@@ -248,5 +301,42 @@ func Count(n int64) string {
 	if neg {
 		return "-" + b.String()
 	}
+	return b.String()
+}
+
+// RowJSON renders formatted cells as one JSON object, columns in schema
+// order. Nested and JSON values, numbers and booleans keep their JSON form;
+// everything else is a string. Pass untruncated cells.
+func RowJSON(cols []api.PreviewColumn, cells []api.Cell) string {
+	var b strings.Builder
+	b.WriteByte('{')
+	for i, c := range cols {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		k, _ := json.Marshal(c.Name)
+		b.Write(k)
+		b.WriteByte(':')
+		var cell api.Cell
+		if i < len(cells) {
+			cell = cells[i]
+		} else {
+			cell.Null = true
+		}
+		switch {
+		case cell.Null:
+			b.WriteString("null")
+		case (c.Mode == "REPEATED" || c.Type == "RECORD" || c.Type == "STRUCT" || c.Type == "JSON") && json.Valid([]byte(cell.Text)):
+			b.WriteString(cell.Text)
+		case (c.Type == "INTEGER" || c.Type == "INT64" || c.Type == "FLOAT" || c.Type == "FLOAT64" || c.Type == "NUMERIC" || c.Type == "BIGNUMERIC") && json.Valid([]byte(cell.Text)):
+			b.WriteString(cell.Text)
+		case (c.Type == "BOOLEAN" || c.Type == "BOOL") && (cell.Text == "true" || cell.Text == "false"):
+			b.WriteString(cell.Text)
+		default:
+			v, _ := json.Marshal(cell.Text)
+			b.Write(v)
+		}
+	}
+	b.WriteByte('}')
 	return b.String()
 }

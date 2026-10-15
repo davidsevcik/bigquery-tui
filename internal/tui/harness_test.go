@@ -81,12 +81,17 @@ func fixtureFake() *bqtest.Fake {
 	return f
 }
 
+// rigEditing is the [tui] editing style the next rig is built with. Most
+// tests type straight into the editor, so the default here is "plain"; the vim
+// tests set "vim".
+var rigEditing = "plain"
+
 func newRig(t *testing.T, w, h int) *rig {
 	t.Helper()
 	dir := t.TempDir()
 	r := &rig{t: t, fake: fixtureFake(), dir: dir, now: testNow}
 	r.cfg = filepath.Join(dir, "config.toml")
-	src := "execution_project = \"acme-exec\"\ndata_dir = \"" + filepath.Join(dir, "data") + "\"\nprojects = [\"acme-prod\", \"acme-staging\"]\n"
+	src := "execution_project = \"acme-exec\"\ndata_dir = \"" + filepath.Join(dir, "data") + "\"\nprojects = [\"acme-prod\", \"acme-staging\"]\n[tui]\nediting = \"" + rigEditing + "\"\n"
 	if err := os.WriteFile(r.cfg, []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -99,6 +104,8 @@ func newRig(t *testing.T, w, h int) *rig {
 		Config:  cfg,
 		Meta:    func(context.Context) (bq.Metadata, error) { return r.fake, nil },
 		Tables:  func(context.Context) (bq.Tables, error) { return r.fake, nil },
+		Jobs:    func(context.Context) (bq.Jobs, error) { return r.fake, nil },
+		Source:  "tui",
 		Now:     func() time.Time { return r.now },
 		Backoff: func(int) time.Duration { return 0 },
 	})
@@ -161,21 +168,44 @@ var special = map[string]rune{
 	"left": tea.KeyLeft, "right": tea.KeyRight, "backspace": tea.KeyBackspace, "f1": tea.KeyF1, "pgdown": tea.KeyPgDown, "pgup": tea.KeyPgUp,
 }
 
-// press sends keys: a name such as "enter" or "ctrl+p", or literal text.
+// press sends keys: a name such as "enter", "ctrl+p", "shift+left" or "f1",
+// or literal text (typed rune by rune).
 func (r *rig) press(keys ...string) {
 	r.t.Helper()
 	for _, k := range keys {
 		switch {
-		case special[k] != 0:
-			r.send(tea.KeyPressMsg{Code: special[k]})
-		case strings.HasPrefix(k, "ctrl+") && len(k) == 6:
-			r.send(tea.KeyPressMsg{Code: rune(k[5]), Mod: tea.ModCtrl})
+		case special[k] != 0, k == "f6", k == "space", k == "delete", k == "home", k == "end":
+			r.send(edKey(k))
+		case strings.HasPrefix(k, "ctrl+") || strings.HasPrefix(k, "alt+") || strings.HasPrefix(k, "shift+"):
+			r.send(edKey(k))
 		default:
-			for _, ch := range k {
-				r.send(tea.KeyPressMsg{Code: ch, Text: string(ch)})
-			}
+			r.typeText(k)
 		}
 	}
+}
+
+// typeText types text literally; a line break is the enter key.
+func (r *rig) typeText(text string) {
+	r.t.Helper()
+	for _, ch := range text {
+		switch ch {
+		case '\n':
+			r.send(tea.KeyPressMsg{Code: tea.KeyEnter})
+		case ' ':
+			r.send(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+		default:
+			r.send(tea.KeyPressMsg{Code: ch, Text: string(ch)})
+		}
+	}
+}
+
+// settle waits for every Run to finish and lets the model see the outcome.
+func (r *rig) settle() {
+	r.t.Helper()
+	for _, info := range r.eng.Runs().List() {
+		r.eng.Runs().Get(info.ID).Wait()
+	}
+	r.send(runsPollMsg{})
 }
 
 func (r *rig) screen() string {
@@ -214,8 +244,8 @@ func (r *rig) golden(name string) {
 			r.t.Errorf("%s: line %d is %d cells wide, terminal is %d: %q", name, i, wd, r.m.w, ansi.Strip(l))
 		}
 	}
-	if n := len(r.m.render()); n != r.m.h {
-		r.t.Errorf("%s: %d lines for a %d-row terminal", name, n, r.m.h)
+	if n := len(r.m.render()); n != r.m.termH {
+		r.t.Errorf("%s: %d lines for a %d-row terminal", name, n, r.m.termH)
 	}
 	path := filepath.Join("testdata", name+".txt")
 	got := r.screen()
@@ -234,3 +264,5 @@ func (r *rig) golden(name string) {
 		r.t.Errorf("%s differs from the golden file (run with -update after checking):\n--- got\n%s\n--- want\n%s", name, got, want)
 	}
 }
+
+func teaSize(w, h int) tea.WindowSizeMsg { return tea.WindowSizeMsg{Width: w, Height: h} }

@@ -1,0 +1,36 @@
+ SQL · query 1  done   4:28
+ 1  -- orders by customer
+ 2  SELECT o.customer_id, SUM(o.amount) AS total
+ 3  FROM `acme-prod.sales.orders` AS o
+ 4  WHERE o.created_at > @since
+~
+~
+~
+~
+~
+~           ╭─ Record 3 of 40 · run #1 ────────────────────────────────────────────────────────────────────╮
+ Results · #│ id       2                                                                                   │
+    id INT c│ customer customer-2                                                                          │[]
+  1 0      c│ country  CZ                                                                                  │
+  2 1      c│ city     Brno                                                                                │
+  3 2      c│ amount   20                                                                                  │
+  4 3      c│ note     long note long note long note long note long note long note long note long note     │
+  5 4      c│          long note long note long note long note                                             │
+  6 5      c│ tags     [                                                                                   │
+  7 6      c│            "a",                                                                              │
+  8 7      c│            "b"                                                                               │
+  9 8      c│          ]                                                                                   │
+ 10 9      c╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+ 11 10     customer-10  CZ          Brno        100        NULL                                     [2] a, b
+ 12 11     customer-11  CZ          Brno        110        long note long note long note long note… [2] a, b
+ 13 12     customer-12  CZ          Brno        120        long note long note long note long note… [2] a, b
+ 14 13     customer-13  CZ          Brno        130        long note long note long note long note… [2] a, b
+ 15 14     customer-14  CZ          Brno        140        long note long note long note long note… [2] a, b
+ 16 15     customer-15  CZ          Brno        150        NULL                                     [2] a, b
+ 17 16     customer-16  CZ          Brno        160        long note long note long note long note… [2] a, b
+ 18 17     customer-17  CZ          Needle City 170        long note long note long note long note… [2] a, b
+ 19 18     customer-18  CZ          Brno        180        long note long note long note long note… [2] a, b
+ 20 19     customer-19  CZ          Brno        190        long note long note long note long note… [2] a, b
+ row 3 of 40 · customer STRING
+ bqt exec acme-exec  on-demand                                                                   5 datasets · 13 tables
+ n/N next/previous row · j/k scroll · y copy as JSON · esc close

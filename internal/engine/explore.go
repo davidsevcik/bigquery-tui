@@ -29,6 +29,9 @@ const statsTTL = 5 * time.Minute
 
 // ReloadIndex rebuilds the in-memory search index from the catalog.
 func (e *Engine) ReloadIndex(ctx context.Context) error {
+	e.colMu.Lock()
+	e.colCache = nil
+	e.colMu.Unlock()
 	if e.catalog == nil {
 		e.search.Swap(search.BuildIndex(&store.IndexSnapshot{}), nil)
 		return nil
@@ -367,8 +370,12 @@ func (e *Engine) AutoRefresh(ctx context.Context) (*SyncHandle, error) {
 // data_dir cannot change at run time; callers report it as restart-required.
 func (e *Engine) SetConfig(cfg *config.Config) {
 	e.cfgMu.Lock()
+	changed := e.cfg.ExecutionProject != cfg.ExecutionProject || e.cfg.Location != cfg.Location
 	e.cfg = cfg
 	e.cfgMu.Unlock()
+	if changed {
+		e.runs.ForgetPricing()
+	}
 	e.search.SetTTL(cfg.SyncTTL)
 	e.mu.Lock()
 	e.stats, e.infos = map[string]statsEntry{}, map[string]bq.TableInfo{}

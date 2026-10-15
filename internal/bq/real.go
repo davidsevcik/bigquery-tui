@@ -28,6 +28,7 @@ type Client struct {
 	svc         *bqv2.Service
 	execProject string
 	log         *slog.Logger
+	jobs        jobTable
 }
 
 // Options configures NewClient.

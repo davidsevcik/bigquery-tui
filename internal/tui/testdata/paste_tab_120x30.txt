@@ -1,0 +1,30 @@
+ SQL · query 1   2:7
+ 1  select 'a  b'
+ 2  from t
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+ Results
+ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimates it
+
+
+ bqt exec acme-exec                                                                              5 datasets · 13 tables
+ ctrl+r run · ctrl+d dry-run · tab complete · ctrl+x b buffers · ctrl+x l runs · ctrl+o zone · ctrl+p cmds · ctrl+t jum…

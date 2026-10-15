@@ -90,7 +90,7 @@ One TOML file at `$XDG_CONFIG_HOME/bqt/config.toml`, falling back to `~/.config/
 | `agent_max_bytes` | Byte limit for CLI and MCP queries (section 14.3). | `1GiB` |
 | `agent_timeout` | Timeout per CLI or MCP query. | `60s` |
 | `cli_allow_writes` | Allow non-SELECT statements from the CLI. | `false` |
-| `[tui]` | TUI-only settings. A GUI would add `[gui]`. | |
+| `[tui]` | TUI-only settings. A GUI would add `[gui]`. Keys: `editing` = `"vim"` or `"plain"` (the query editor's editing style). Unknown keys are errors. | `editing = "vim"` |
 
 `~` and `$VARS` expand in path values.
 
@@ -254,11 +254,25 @@ Vim keys (`hjkl`, `gg`/`G`, `ctrl+d`/`ctrl+u`, `/`), the command palette (`ctrl+
 
 ### 9.1 Editing (TUI-only)
 
-- Fork the Bubbles v2 `textarea` into the repo; add a per-line highlight hook and a snapshot undo stack. Modeless, no vim modes.
-- **Several buffers per TUI session.** `ctrl+x n` opens a new buffer, `ctrl+x b` opens a searchable buffer list, `ctrl+x w` closes one, `ctrl+x [` and `ctrl+x ]` move between them. This is TUI-only; the core is unchanged because a Run snapshots its SQL.
+- A small editor widget written for bqt (`internal/tui/editor.go`): cursor, shift-selection, word motions, snapshot undo and redo, auto-indent, horizontal scrolling, and a per-token highlight hook fed by the core tokenizer. The plan was to fork the Bubbles v2 `textarea`; the fork was dropped because the textarea has no selection (needed for "run selection") and its rendering model fights per-token colours, and the replacement is about 600 lines. No soft wrap: long lines scroll.
+- **Vim-style editing is the default** (`[tui] editing = "vim"`; `"plain"` gives the modeless editor, and the key is live-reloaded). This reverses the earlier "modeless, no vim modes" decision. It is a layer over the same widget (`internal/tui/vim.go`), a deliberate subset of vim:
+  - Modes: Normal (where a buffer starts), Insert, Visual (`v`) and Visual-line (`V`). The pane title shows the mode and the pending count or operator; the Insert cursor is drawn differently.
+  - Counts, and the motions `h j k l`, `w b e W B E`, `0 ^ $`, `gg G` (with a count: go to that line), `{ }`, `%`, `f F t T ; ,`, `ctrl+d ctrl+u ctrl+f ctrl+b`.
+  - Operators `d c y > <` with any motion or text object, doubled for whole lines (`dd cc yy >> <<`), plus `D C Y x X s S r J ~ p P`. `cw` behaves like `ce`, and `dw` on the last word of a line keeps the line break, as in vim.
+  - Text objects: `iw aw iW aW`, quotes `i" a" i' a'` and backticks, brackets `i( a( ib`, `i[ a[`, `i{ a{ iB`, `i< a<` (brackets across lines).
+  - Insert entry `i a I A o O`; `esc` returns to Normal and closes the completion popup in the same press.
+  - One unnamed register. A yank or delete also goes to the system clipboard (OSC 52); there are no named registers, and pasting from the system clipboard is the terminal's paste.
+  - `u` undoes and `ctrl+r` redoes. One command is one undo step, including everything typed in the Insert session it started. `.` repeats the last change by replaying its keys (a completion accepted with Tab is not replayable, so such a change is not recorded).
+  - `/` finds text in the buffer (lower case ignores case), `n` / `N` repeat, `*` finds the word under the cursor. There is no `?` backward search (`?` is help) and no regular expressions.
+  - Visual mode: motions and text objects extend the selection; `d x c s y > < ~ u U J p`, `o` swaps the ends.
+  - **Key conflicts, resolved in vim's favour in Normal and Visual mode:** `ctrl+r` is redo and `ctrl+d` scrolls, so a query can never start from a redo reflex. Running is `enter` (the buffer, or the Visual selection) or `space r`; the dry-run is `space d`. The `space` leader also has `l` run list, `b` buffers, `n` new, `w` close, `[` `]` switch, `s` save, `e` `$EDITOR`. In Insert mode `ctrl+r` runs and `ctrl+d` dry-runs, as in plain editing; `ctrl+n` forces completion. `:` opens the command palette; there is no ex command line.
+  - Kept from bqt in every mode: the `ctrl+x` chords, `ctrl+w h/j/k/l` zone moves (so `ctrl+w` does not delete a word in Insert mode), `ctrl+s`, `ctrl+c`, `ctrl+p`, `ctrl+t`, `ctrl+q`, `ctrl+o`, `ctrl+g`.
+  - Not built: macros, marks, named registers, `:` commands, block-visual mode, `ip`/`ap`, `gU`/`gu`/`g~` operators, regex search, counts on insert commands (`3ix`).
+- **Several buffers per TUI session.** `ctrl+x n` opens a new buffer, `ctrl+x b` opens the buffer list (open buffers, then the drafts that can be restored), `ctrl+x w` closes one, `ctrl+x [` and `ctrl+x ]` move between them. This is TUI-only; the core is unchanged because a Run snapshots its SQL.
 - A Run belongs to the buffer that started it, and the buffer shows a status badge for its latest Run (running, done, failed). Switching buffers while Runs are in flight is fine; the run list stays global. Closing a buffer asks only if it has changes not saved to a file or a Favorite (autosaved drafts do not count).
 - **Drafts:** each buffer autosaves to `<data_dir>/drafts/tui/<buffer-id>.sql` (random ID), held under an advisory lock by the owning instance, so several `bqt` instances (for example in tmux panes) never overwrite each other. On startup an instance restores only unlocked drafts (orphans from a crash or a closed pane), listed as "restore drafts" in the buffer list rather than all opened. Orphaned drafts older than 30 days are deleted at startup.
-- `bqt path/to/query.sql` opens that file as a buffer and saves back to it.
+- `bqt path/to/query.sql` opens that file as a buffer and saves back to it with `ctrl+s`. A file buffer has no draft. `ctrl+s` in a scratch buffer asks for a file name and turns it into a file buffer.
+- The Explorer's `i` inserts the selected table's backticked name at the editor cursor (a shard family as a wildcard table), and jump-to-table (`ctrl+t`) opened from the editor inserts instead of navigating.
 - The `$EDITOR` hand-off stays as an escape hatch on `ctrl+x e` (`tea.ExecProcess` and a temp `.sql` file).
 
 ### 9.2 Language intelligence (core, pure functions)
@@ -272,22 +286,23 @@ Vim keys (`hjkl`, `gg`/`G`, `ctrl+d`/`ctrl+u`, `/`), the command palette (`ctrl+
 
 ### 9.3 Popup (TUI-only)
 
-Triggered after 2 typed characters in an identifier position, and immediately after `.` or a backtick; `ctrl+space` forces it. Tab accepts, Enter inserts a newline and never accepts, `ctrl+n`/`ctrl+p` and the arrows navigate, Esc dismisses. Floated with the Lip Gloss v2 `Layer`/`Compositor`.
+Triggered after 2 typed characters in an identifier position, and immediately after `.` or a backtick; `ctrl+space` forces it. Tab accepts, Enter inserts a newline and never accepts, `ctrl+n`/`ctrl+p` and the arrows navigate, Esc dismisses. Accepting a project or dataset adds the dot and continues with the next segment; accepting a table closes an open backtick. A table name that needs quoting (a wildcard) replaces the whole unquoted path with a backticked one. Drawn with the TUI's own overlay helper, as the other popups are.
 
 ## 10. Query runs and results (phase 3) [02, 11, 15]
 
 ### 10.1 Runs
 
 - A **Run** snapshots SQL and parameters into an independent object with its own ID, state, dry-run estimate and result pager. Editing the buffer afterwards does not affect it.
-- Runs queue beyond `max_concurrent_queries` (default 4) and show as queued. A run list (`ctrl+x l`, or `gr` outside the editor) shows running, done, failed and cancelled. A finished background Run raises a status-bar notice. Cancel targets the focused Run; "cancel all" is a palette command. Quitting with Runs in flight asks, then cancels.
+- Runs queue beyond `max_concurrent_queries` (default 4) and show as queued. A run list (`ctrl+x l`, or `gr` outside the editor) shows running, done, failed and cancelled. A finished background Run raises a status-bar notice. Cancel targets the focused Run; "cancel all" is a palette command. Quitting with Runs in flight asks, then cancels; quitting also asks when a file buffer has unsaved changes. Shutdown waits (up to 15 s) for job submissions in flight and for the cancel requests to reach BigQuery, so a job is not left running after bqt exits. A cancel that arrives while a job is being submitted is applied as soon as the job ID is known. If a job's status cannot be read after retries, the job is cancelled and the Run fails with "lost track of the job". A cancel request that cannot be delivered is retried, then shown as failed so it can be asked for again. Confirmations of several Runs queue; `enter` on a waiting Run in the run list reopens its question. One export runs at a time.
 - Core API: `StartRun(ctx, sql, params) -> RunHandle` with an event channel. Every submitted job gets the `bqt=1` label.
 - Execution: `cloud.google.com/go/bigquery` jobs path (`Query.Run`, `Job.Wait`, `Job.Read`), the Execution project in `NewClient` (plus `option.WithQuotaProject`), `Location` from the `location` key or inferred. History fields come from `Job.Status` statistics, not `Query.Read`'s fast path. Do not use `DetectProjectID`.
-- Parameters: named `@param` placeholders. Table and column names cannot be parameters.
+- Parameters: named `@param` placeholders. Table and column names cannot be parameters. Until Favorites declare parameter types (phase 4), the TUI asks for each value and the core guesses the type from the text (`42` INT64, `1.5` FLOAT64, `true` BOOL, `2024-01-31` DATE, a date and time DATETIME or TIMESTAMP, `null`, anything else STRING); a `TYPE:` prefix forces it. Values are remembered per buffer.
+- A follower API (`Run.Await(ctx, afterVersion)`) lets a frontend wait for each change of a Run without missing its end state. The History entry is written before the end state is published.
 
 ### 10.2 Dry-run, confirmation, caps
 
 - Every Run does a dry-run first; the estimate (bytes, approximate dollars, flagged if `LOWER_BOUND` or `UNKNOWN`) shows in the status line. `ctrl+d` runs the dry-run alone. Federated tables and row-level security can show 0, so accuracy matters.
-- **Pricing model is detected, not configured.** The dry-run job statistics carry `reservation_id` and `edition` (Go client: `JobStatistics.ReservationID` and `Edition`). A set `reservation_id` means the Run executes on a reservation (capacity); an absent one means on-demand. It is read per Run, so it is correct per location and per job even when an Execution project is on a reservation in one region and on-demand in another. If the model cannot be determined (for example the dry-run failed), bqt treats it as on-demand, the safer mistake (it shows dollars and keeps the confirmation threshold). When `location` is set, a free `SELECT 1` dry-run in that location at startup, and again when `execution_project` changes, pre-learns the model so the first Run is presented correctly; until it is known the model is treated as on-demand. The status line shows what was detected, for example `capacity: <reservation> (Standard)` or `on-demand`.
+- **Pricing model is detected, not configured.** The dry-run job statistics carry `reservation_id` and `edition` (Go client: `JobStatistics.ReservationID` and `Edition`). A set `reservation_id` means the Run executes on a reservation (capacity); an absent one means on-demand. It is read per Run, so it is correct per location and per job even when an Execution project is on a reservation in one region and on-demand in another. If the model cannot be determined (for example the dry-run failed), bqt treats it as on-demand, the safer mistake (it shows dollars and keeps the confirmation threshold). When `location` is set, a free dry-run of a slot-using probe query in that location at startup, and again when `execution_project` changes, pre-learns the model so the first Run is presented correctly; until it is known the model is treated as on-demand. The status line shows what was detected, for example `capacity: <reservation> (Standard)` or `on-demand`. A dry-run that scans zero bytes and names no reservation does not change the shown model (seen live: with no `location` set, `SELECT 1` resolves to the US and reports no reservation on a project whose reservation is in the EU).
 - **Both models:** `max_bytes_billed` (default 1 TiB) is set as `MaximumBytesBilled` on every job for every frontend. BigQuery enforces it up front against the dry-run upper bound, including on reservation-backed projects (section 17), so a query can be refused even if its real scan would have been smaller. The core treats `bytesBilledLimitExceeded` as a normal refusal, shows the required bytes, and offers no override from the CLI or MCP.
 - **On-demand (no reservation in the statistics):** above `confirm_bytes` (default 10 GiB) the core returns `NeedsConfirmation{estimate}` and the frontend asks. The status line shows an approximate dollar estimate. Cancel shows "cancel requested, may still be billed".
 - **Capacity (reservation in the statistics):** the dry-run still runs for validation, bytes and `statementType`, but the status shows "scanned (not billed)" with no dollar estimate. `confirm_bytes` is off by default, because bytes are not charged there (set it explicitly to confirm large scans). After the Run, `total_slot_ms` is recorded, and the `totalBytesBilled` BigQuery still reports is not shown as a charge. The "may still be billed" warning is not shown.
@@ -301,10 +316,10 @@ The core parses BigQuery's `[line:col]` into `{message, line?, col?}` (position 
 
 ### 10.4 Results
 
-- Paging through REST `getQueryResults` in pages of 500 rows, an LRU of about 10 pages, jump-to-row through `StartIndex`, page tokens for back. No row cap in the viewer (paging is server-side). Do not enable the Storage Read client for the interactive table. Results stay re-openable from a History entry for about 24 hours via `JobFromIDLocation`.
+- Paging through REST `getQueryResults` in pages of 500 rows, an LRU of 10 pages, every page addressed by `StartIndex` (no page tokens are kept). No row cap in the viewer (paging is server-side). Do not enable the Storage Read client for the interactive table. Re-opening results from a History entry (about 24 hours, via the stored job) arrives with History in phase 4.
 - Cell values are formatted by the core: NULL, grid truncation at about 200 characters (a parameter the frontend passes), JSON and STRUCT as compact JSON.
 - Grid (TUI): column widths from the first page (min 4, max 40 characters), a cell cursor moved with `h`/`l` with whole-column scrolling, `f` freezes the first column, `H` hides the cursor's column for the session, headers with a type badge, NULL dim. Nested cells: STRUCT or JSON as compact one-line JSON with an ellipsis, ARRAY as `[3] first, second…`.
-- Single-record view: `Enter` or `v` opens a popup; `n`/`p` move between records across page boundaries. The core returns a structured, indented JSON tree for the record with no truncation, columns in schema order, types preserved (INT64 and NUMERIC as exact strings, BYTES as base64, JSON columns as parsed indented JSON). Long and multi-line strings wrap. A cell over 1 MiB shows a notice and expands only on demand. Scrolling, JSON colour and collapse (`space`) are TUI-only.
+- Single-record view: `Enter` or `v` opens a popup; `n`/`p` move between records across page boundaries. The core returns a structured, indented JSON tree for the record with no truncation, columns in schema order, types preserved (INT64 and NUMERIC as exact strings, BYTES as base64, JSON columns as parsed indented JSON). Long and multi-line strings wrap. A cell over 1 MiB shows a notice and expands only on demand. Scrolling and JSON colour are TUI-only. As built: the record popup reads the row again with cells clipped at 1 MiB and says when a value was clipped; expanding such a value on demand and collapsing nested values (`space`) are not built.
 - Cell actions: copy cell value, copy row as JSON, copy column values (current page), copy field path.
 - No client-side sort or filter in v1. `/` finds text within the loaded pages and states how many pages are loaded.
 - Export: CSV, JSON array and NDJSON. Clipboard copy is TSV for the visible page or selection. Export defaults to all rows, streams through paging to a file with progress, can be cancelled, and asks above 1M rows. Destination defaults to the working directory as `bqt-<timestamp>.<ext>` with an editable path prompt.
@@ -372,7 +387,9 @@ Palette commands (plus keys for the common ones): copy schema (a compact markdow
 
 ## 15. Keybindings [08, 10, 11, 15, 17]
 
-Zones: Explorer, Editor, Results, overlays. Zone switching: `F6` / `shift+F6` cycle zones; `ctrl+w` then `h`/`j`/`k`/`l` moves directionally.
+Zones: Explorer, Editor, Results, overlays. Zone switching: `ctrl+o` (or vim's `ctrl+w w`) cycles to the next zone and `ctrl+w W` to the previous one; `ctrl+w` then `h`/`j`/`k`/`l` moves directionally. (F6 was dropped on the user's request, 2026-10-15: function keys are awkward on a laptop keyboard. `ctrl+o` is free in every zone and in vim's Insert mode, since vim's `ctrl+o` is not built.) As built, the Explorer is one screen and the Editor above the Results is another (the focused pane gets the larger share); `ctrl+w h` goes to the Explorer, `ctrl+w l` or `k` to the Editor, `ctrl+w j` to the Results.
+
+Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks a panel under the screen that teaches the navigation in 16 steps: Explorer movement, in and out, search, jump, layouts, the detail pane and zoom, the palette, help, zones, writing (vim or plain), running, Results, record view. The UI works as usual meanwhile; each step watches the model (a selection change, an overlay opened and closed, a zone reached, a Run started) and opens the next step when its task is done. While it runs, `ctrl+g` is a prefix for the tutorial's own keys in every zone and popup: `n` next (skip), `p` back, `r` restart, `q` quit. The panel's rows are taken from the app's height. The first start without a UI state file shows a one-time hint about `ctrl+g`.
 
 | Zone | Key | Action |
 |---|---|---|
@@ -381,6 +398,8 @@ Zones: Explorer, Editor, Results, overlays. Zone switching: `F6` / `shift+F6` cy
 | Global | `ctrl+t` | Jump to table |
 | Global | `ctrl+c` | Cancel focused Run; with nothing running, shows a "ctrl+q to quit" hint |
 | Global | `F1`, `?` (outside editor) | Help overlay |
+| Global | `ctrl+o`, `ctrl+w w`, `ctrl+w W` | Next zone, next zone, previous zone |
+| Global | `ctrl+g` | Tutorial of the navigation (see below) |
 | Explorer | `h` `j` `k` `l`, arrows | Move, collapse/expand, enter column |
 | Explorer | `gg`, `G`, `ctrl+d`, `ctrl+u` | Top, bottom, half page |
 | Explorer | `/` | Search; `:` opens the palette |
@@ -390,18 +409,27 @@ Zones: Explorer, Editor, Results, overlays. Zone switching: `F6` / `shift+F6` cy
 | Explorer | `r`, `R`, `gp` | Refresh project, refresh all, sync problems |
 | Explorer | `Enter` | Expand shard family; zoom detail if collapsed |
 | Explorer | `z` | Zoom the detail; zoomed: movement keys scroll it, left/`esc` leave, `P` side by side or stacked, `Enter` record |
+| Explorer | `i`, `gr` | Insert the table's name into the editor; run list |
 | Explorer | `esc` | Back out one level |
-| Editor | printable keys | Type |
+| Editor | printable keys | Type (plain editing, and vim's Insert mode) |
+| Editor (vim Normal) | `enter`, `space r`, `space d` | Run, run, dry-run; `ctrl+r` is redo and `ctrl+d` scrolls here |
+| Editor (vim) | see 9.1 | Motions, operators, text objects, Visual mode, `/`, `.` |
 | Editor | `ctrl+r` | Run selection, or the whole buffer |
 | Editor | `ctrl+d` | Dry-run |
 | Editor | `ctrl+space` | Force completion |
 | Editor | Tab, `ctrl+n`/`ctrl+p`, arrows, Esc | Popup accept, navigate, dismiss |
 | Editor | `ctrl+x e` | `$EDITOR` hand-off |
-| Editor | `ctrl+x l` | Run list |
+| Editor | `ctrl+x l` | Run list (`enter` shows a Run's result, `c` cancels it) |
+| Editor | `ctrl+s`, `ctrl+x h`, `alt+w` | Save to file; select all; copy the selection |
+| Editor | `ctrl+z`, `ctrl+y` | Undo, redo |
 | Editor | `ctrl+x n`, `ctrl+x b`, `ctrl+x w`, `ctrl+x [`, `ctrl+x ]` | New buffer, buffer list, close buffer, previous and next buffer |
 | Results | `h` `j` `k` `l` | Move the cell cursor |
 | Results | `Enter`, `v` | Single-record view; `n`/`p` next and previous record |
-| Results | `f`, `H`, `/` | Freeze first column, hide column, find in loaded pages |
+| Results | `f`, `H`, `U`, `/`, `n`/`N` | Freeze first column, hide column, show hidden columns, find in loaded pages, next and previous match |
+| Results | `y`, `Y`, `gy`, `gf`, `gt` | Copy cell, row as JSON, column values (loaded page), column name, visible rows as TSV |
+| Results | `e` | Export (Tab cycles CSV, JSON, NDJSON) |
+| Results | `0`, `$`, `gg`, `G`, `ctrl+d`, `ctrl+u` | First and last column, first and last row, half page |
+| Results | `esc` | Clear the find text, then back to the editor |
 | Results | `gr` | Run list |
 
 `ctrl+a` and `ctrl+b` stay with the textarea; move them if the user's tmux prefix is one of them. The registry is checked by a test that finds duplicate bindings within a zone.

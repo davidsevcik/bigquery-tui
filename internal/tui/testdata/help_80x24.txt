@@ -1,23 +1,23 @@
  Projects 1/2     │ Datasets 3/4                 │ Tables 1/4
-acm╭─ Help  (1-18/64) ──────────────────────────────────────────────────────╮
+acm╭─ Help  (1-18/145) ─────────────────────────────────────────────────────╮
 acm│ Global                                                                 │
-   │ ctrl+q          quit                                                   │
+   │ ctrl+q          quit (asks if Runs are in flight)                      │
+   │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results                 │
+   │ ctrl+w W        previous zone                                          │
+   │ ctrl+w h        go to the Explorer                                     │
+   │ ctrl+w l  ctrl+w k  go to the Editor                                   │
+   │ ctrl+w j        go to the Results                                      │
    │ ctrl+p          command palette                                        │
    │ ctrl+t          jump to table (recently opened when empty)             │
    │ f1              this help                                              │
-   │ ctrl+c          cancel the running sync                                │
+   │ ctrl+g          tutorial of the navigation (while it runs: ctrl+g then…│
+   │ ctrl+c          cancel the export, the focused Run, or the sync        │
    │                                                                        │
    │ Explorer                                                               │
    │ j  down         move down                                              │
    │ k  up           move up                                                │
    │ h  left         parent column / collapse                               │
    │ l  right        child column / expand                                  │
-   │ g g  home       first row                                              │
-   │ G  end          last row                                               │
-   │ ctrl+d  pgdown  half page down                                         │
-   │ ctrl+u  pgup    half page up                                           │
-   │ enter           expand a shard family, open a table, zoom the detail w…│
-   │ esc             back out one level                                     │
    ╰────────────────────────────────────────────────────────────────────────╯
                   │                              │
  bqt exec acme-exec  miller                              5 datasets · 13 tables

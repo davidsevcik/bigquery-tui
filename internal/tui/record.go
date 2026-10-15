@@ -9,24 +9,36 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
+	"github.com/davidsevcik/bigquery-tui/internal/format"
 )
 
-// recordData is the row shown in the record popup. The preview holds clipped
-// cells, so a row with clipped values is read again in full.
+// recordData is the row shown in the record popup: a preview row of the
+// explorer, or a result row of a Run. Grids hold clipped cells, so the row is
+// read again in full.
 type recordData struct {
-	key   string
-	row   int
-	cells []api.Cell // full values once read; nil shows the preview's cells
+	key   string // preview: the table's detail key
+	runID int64  // result: the Run
+	row   int64
+	total int64 // rows n/N can reach
+	name  string
+	cols  []api.PreviewColumn
+	cells []api.Cell
 	busy  bool
 	err   string
 }
 
 type recordMsg struct {
-	key  string
-	row  int
-	page api.PreviewPage
-	err  error
+	key   string
+	runID int64
+	row   int64
+	page  api.PreviewPage
+	err   error
 }
+
+// recordCellMax is the size above which a value is clipped in the record view.
+const recordCellMax = 1 << 20
+
+var recordFormat = format.Options{MaxChars: recordCellMax, KeepNewlines: true}
 
 // previewRows returns the loaded preview of the selected table.
 func (m *Model) previewRows() (string, *api.PreviewPage) {
@@ -55,7 +67,7 @@ func (m *Model) loadRecord() tea.Cmd {
 	}
 	m.prevRow = clamp(m.prevRow, 0, len(p.Rows)-1)
 	row := m.prevRow
-	m.rec, m.ovOff = &recordData{key: key, row: row}, 0
+	m.rec, m.ovOff = &recordData{key: key, row: int64(row), total: int64(len(p.Rows)), name: m.sel().path.Table, cols: p.Columns, cells: p.Rows[row]}, 0
 	clipped := false
 	for _, c := range p.Rows[row] {
 		clipped = clipped || c.Truncated
@@ -66,14 +78,29 @@ func (m *Model) loadRecord() tea.Cmd {
 	m.rec.busy = true
 	path := m.sel().path
 	return func() tea.Msg {
-		page, err := m.be.Preview(m.ctx, path, p.StartIndex+int64(row), 1, 0)
-		return recordMsg{key, row, page, err}
+		page, err := m.be.Preview(m.ctx, path, p.StartIndex+int64(row), 1, recordCellMax)
+		return recordMsg{key: key, row: int64(row), page: page, err: err}
+	}
+}
+
+// openRunRecord shows the grid's cursor row as a full record.
+func (m *Model) openRunRecord() tea.Cmd {
+	g := m.grid()
+	if g == nil || g.total == 0 {
+		return nil
+	}
+	m.ov, m.ovOff = ovRecord, 0
+	m.rec = &recordData{runID: g.run, row: g.row, total: g.total, name: fmt.Sprintf("run #%d", g.run), cols: g.cols, cells: g.cells(g.row), busy: true}
+	id, row := g.run, g.row
+	return func() tea.Msg {
+		page, err := m.be.RunRows(m.ctx, id, row, 1, recordFormat)
+		return recordMsg{runID: id, row: row, page: page, err: err}
 	}
 }
 
 func (m *Model) onRecord(msg recordMsg) {
 	r := m.rec
-	if r == nil || r.key != msg.key || r.row != msg.row {
+	if r == nil || r.key != msg.key || r.runID != msg.runID || r.row != msg.row {
 		return
 	}
 	r.busy = false
@@ -85,8 +112,20 @@ func (m *Model) onRecord(msg recordMsg) {
 	}
 }
 
-// recordStep moves the popup to the next or previous loaded row.
+// recordStep moves the popup to the next or previous row.
 func (m *Model) recordStep(d int) tea.Cmd {
+	if m.rec != nil && m.rec.runID != 0 {
+		g := m.grids[m.rec.runID]
+		if g == nil {
+			return nil
+		}
+		before := g.row
+		g.moveRow(int64(d))
+		if g.row == before {
+			return nil
+		}
+		return tea.Batch(m.openRunRecord(), m.gridEnsure())
+	}
 	_, p := m.previewRows()
 	if p == nil {
 		return nil
@@ -103,16 +142,11 @@ func (m *Model) recordStep(d int) tea.Cmd {
 }
 
 func (m *Model) recordLines(w int) (string, []string) {
-	_, p := m.previewRows()
 	r := m.rec
-	if p == nil || r == nil || r.row >= len(p.Rows) {
-		return "Record", []string{" " + sDim.Render("the preview is no longer loaded")}
+	if r == nil {
+		return "Record", []string{" " + sDim.Render("nothing to show")}
 	}
-	ttl := fmt.Sprintf("Record %d of %d · %s", r.row+1, len(p.Rows), m.sel().path.Table)
-	cells := r.cells
-	if cells == nil {
-		cells = p.Rows[r.row]
-	}
+	ttl := fmt.Sprintf("Record %s of %s · %s", format.Count(r.row+1), format.Count(r.total), r.name)
 	var out []string
 	switch {
 	case r.busy:
@@ -120,16 +154,19 @@ func (m *Model) recordLines(w int) (string, []string) {
 	case r.err != "":
 		out = append(out, " "+sWarn.Render("long values are clipped: "+r.err), "")
 	}
+	if r.cells == nil {
+		return ttl, out
+	}
 	nameW := 4
-	for _, c := range p.Columns {
+	for _, c := range r.cols {
 		nameW = max(nameW, wid(c.Name))
 	}
 	nameW = min(nameW, max(8, w/3))
 	valW := max(8, w-nameW-3)
-	for i, c := range p.Columns {
+	for i, c := range r.cols {
 		var cell api.Cell
-		if i < len(cells) {
-			cell = cells[i]
+		if i < len(r.cells) {
+			cell = r.cells[i]
 		}
 		for li, l := range recordValue(c, cell, valW) {
 			name := ""
@@ -143,12 +180,11 @@ func (m *Model) recordLines(w int) (string, []string) {
 }
 
 // recordValue lays one cell out over as many lines as it needs. Nested and
-// JSON values are indented; everything else is wrapped.
+// JSON values are indented; text is wrapped, keeping its own line breaks.
 func recordValue(c api.PreviewColumn, cell api.Cell, w int) []string {
 	if cell.Null {
 		return []string{sFaint.Render("NULL")}
 	}
-	text := cellText(cell)
 	nested := c.Mode == "REPEATED" || c.Type == "RECORD" || c.Type == "STRUCT" || c.Type == "JSON"
 	if nested && !cell.Truncated {
 		var buf bytes.Buffer
@@ -167,10 +203,17 @@ func recordValue(c api.PreviewColumn, cell api.Cell, w int) []string {
 			return out
 		}
 	}
-	if text == "" {
+	if cell.Text == "" {
 		return []string{sFaint.Render(`""`)}
 	}
-	return hardWrap(text, w)
+	var out []string
+	for _, l := range strings.Split(cell.Text, "\n") {
+		out = append(out, hardWrap(l, w)...)
+	}
+	if cell.Truncated {
+		out = append(out, sWarn.Render("… clipped: the value is longer than what the record view loads"))
+	}
+	return out
 }
 
 func colorJSON(l string) string {

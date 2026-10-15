@@ -17,6 +17,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
+	"github.com/davidsevcik/bigquery-tui/internal/format"
 )
 
 type layoutKind int
@@ -51,6 +52,10 @@ const (
 	ovProblems
 	ovSync
 	ovRecord
+	ovRuns
+	ovBuffers
+	ovPrompt
+	ovConfirm
 )
 
 const (
@@ -69,6 +74,8 @@ type Options struct {
 	// Getenv resolves $VISUAL/$EDITOR (default os.Getenv).
 	Getenv func(string) string
 	Now    func() time.Time
+	// File is a .sql file to open as the first buffer (bqt path/to/query.sql).
+	File string
 }
 
 // Model is the root Bubble Tea model.
@@ -78,7 +85,8 @@ type Model struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	w, h int
+	w, h  int
+	termH int // the terminal's rows; h leaves out the tutorial panel
 
 	layout layoutKind
 	place  placement
@@ -106,8 +114,34 @@ type Model struct {
 	zoomStacked bool // zoom shows schema above preview instead of side by side
 	statSeq     int
 
+	tut      *tutorial
+	firstRun bool // no UI state file yet
+
 	pendingKey string
 	toast      string
+
+	// query side: buffers, Runs and their result grids
+	zone       Zone
+	bufs       []*buffer
+	cur        int
+	bufSeq     int
+	orphans    []orphan
+	comp       completion
+	runs       map[int64]api.RunInfo
+	runPos     map[int64][2]int // where a Run's SQL starts in its buffer (line, column)
+	runVer     map[int64]int64  // the newest version of each Run this model has seen
+	runEd      map[int64]int    // the editor version each Run was started from
+	grids      map[int64]*grid
+	prompt     promptState
+	confirm    confirmState
+	confirmQ   []confirmState // questions waiting for the open popup to close
+	draftErr   string         // the last draft write failed with this (retried every tick)
+	ovSel      int
+	exp        Export
+	expEv      api.ExportEvent
+	pricing    api.PricingModel
+	jumpInsert bool // jump-to-table was opened from the editor: enter inserts the name
+	edX, edY   int  // where the editor drew its cursor (for the completion popup)
 
 	syncRun    SyncRun
 	syncing    bool
@@ -130,18 +164,46 @@ func New(be Backend, o Options) *Model {
 		o.Now = time.Now
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30}
+	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30, termH: 30}
 	m.search = &searchState{typing: true}
 	m.jump = &searchState{typing: true, tablesOnly: true}
 	m.flat = &searchState{all: true}
 	m.tree.open = map[string]bool{}
+	m.zone = ZoneExplorer
+	m.runs, m.runPos, m.grids = map[int64]api.RunInfo{}, map[int64][2]int{}, map[int64]*grid{}
+	m.runVer, m.runEd = map[int64]int64{}, map[int64]int{}
 	m.loadState()
 	m.reloadBrowse()
+	if o.File != "" {
+		if err := m.openFile(o.File); err != nil {
+			m.toast = "open " + o.File + ": " + err.Error()
+		} else {
+			m.zone = ZoneEditor
+		}
+	}
+	if len(m.bufs) == 0 {
+		m.addBuffer("", "", "")
+	}
+	m.scanOrphans()
+	if n := len(m.orphans); n > 0 && m.toast == "" {
+		m.toast = fmt.Sprintf("%d draft(s) from earlier sessions can be restored (ctrl+x b in the editor)", n)
+	}
+	if m.firstRun && m.toast == "" && !o.NoBackground {
+		m.toast = "new to bqt? ctrl+g starts a short tutorial of the navigation"
+		m.saveState() // the hint shows once
+	}
 	return m
 }
 
-// Close stops background work.
-func (m *Model) Close() { m.cancel() }
+// Close stops background work and releases the drafts.
+func (m *Model) Close() {
+	m.releaseBuffers()
+	m.cancel()
+}
+
+func contextWithDeadline(ctx context.Context, t time.Time) (context.Context, context.CancelFunc) {
+	return context.WithDeadline(ctx, t)
+}
 
 type uiState struct {
 	Layout string `json:"layout"`
@@ -153,6 +215,7 @@ type uiState struct {
 func (m *Model) loadState() {
 	b, err := os.ReadFile(m.be.StatePath())
 	if err != nil {
+		m.firstRun = errors.Is(err, os.ErrNotExist)
 		return
 	}
 	var st uiState
@@ -242,7 +305,20 @@ func (m *Model) Init() tea.Cmd {
 		return tea.Batch(m.statusCmd(), m.runSearchIfFlat())
 	}
 	return tea.Batch(m.runSearchIfFlat(), m.reconcileCmd(true), m.statusCmd(), m.waitCatalog(m.be.WatchCatalog(m.ctx)),
-		m.waitConfig(m.be.WatchConfig(m.ctx, m.kick)), func() tea.Msg { _ = m.be.WarmSearch(m.ctx); return nil })
+		m.waitConfig(m.be.WatchConfig(m.ctx, m.kick)), func() tea.Msg { _ = m.be.WarmSearch(m.ctx); return nil },
+		m.learnPricing(), tick())
+}
+
+func tick() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg { return tickMsg{} })
+}
+
+// learnPricing asks BigQuery, with a free dry-run, how jobs are billed.
+func (m *Model) learnPricing() tea.Cmd {
+	return func() tea.Msg {
+		_ = m.be.LearnPricing(m.ctx)
+		return pricingMsg{}
+	}
 }
 
 func (m *Model) statusCmd() tea.Cmd {
@@ -316,21 +392,64 @@ func waitSync(run SyncRun) tea.Cmd {
 
 // Update handles one message.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	mod, cmd := m.update(msg)
+	m.tutorialObserve()
+	return mod, cmd
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.w, m.h = msg.Width, msg.Height
+		m.w, m.termH = msg.Width, msg.Height
+		m.fitHeight()
 	case tea.FocusMsg:
 		select {
 		case m.kick <- struct{}{}:
 		default:
 		}
 	case tea.PasteMsg:
+		if m.ov == ovPrompt {
+			m.prompt.fields[m.prompt.idx].insert(strings.ReplaceAll(msg.Content, "\n", " "))
+			return m, nil
+		}
 		if st := m.typingState(); st != nil {
 			st.in.insert(strings.ReplaceAll(msg.Content, "\n", " "))
 			return m, m.runSearch(st)
 		}
+		if m.zone == ZoneEditor && m.ov == ovNone {
+			m.buf().ed.insert(msg.Content) // verbatim: a tab inside a string literal matters
+			return m, m.afterEdit(false)
+		}
+	case runMsg:
+		return m, m.onRun(msg)
+	case runsPollMsg:
+		var cmds []tea.Cmd
+		for _, r := range m.be.RunList() {
+			info, ver := m.be.AwaitRun(m.ctx, r.ID, 0)
+			cmds = append(cmds, m.onRun(runMsg{info: info, ver: ver}))
+		}
+		return m, tea.Batch(cmds...)
+	case pageMsg:
+		m.onPage(msg)
+	case exportMsg:
+		return m, m.onExport(msg)
+	case pricingMsg:
+		m.pricing = m.be.Pricing()
+	case tickMsg:
+		m.saveDrafts()
+		return m, tick()
+	case clipMsg:
+		if msg.err != nil {
+			m.toast = msg.err.Error()
+			return m, nil
+		}
+		m.toast = msg.toast
+		return m, tea.SetClipboard(msg.text)
+	case extEditMsg:
+		m.onExtEdit(msg)
 	case tea.KeyPressMsg:
 		cmd := m.key(msg)
+		m.nextConfirm()
 		return m, tea.Batch(cmd, m.afterSelect())
 	case searchMsg:
 		m.onSearch(msg)
@@ -458,7 +577,11 @@ func (m *Model) onConfig(ev config.Event) tea.Cmd {
 		return nil
 	}
 	m.cfgErr = ""
+	relearn := m.be.Config().ExecutionProject != ev.Config.ExecutionProject || m.be.Config().Location != ev.Config.Location
 	m.be.SetConfig(ev.Config)
+	if relearn {
+		m.pricing = api.PricingModel{}
+	}
 	if len(ev.RestartRequired) > 0 {
 		m.toast = "config: " + strings.Join(ev.RestartRequired, ", ") + " changed: restart bqt to apply"
 	} else if len(ev.Changed) > 0 {
@@ -469,6 +592,9 @@ func (m *Model) onConfig(ev config.Event) tea.Cmd {
 		if k == "projects" || k == "ignore" {
 			return m.reconcileCmd(false)
 		}
+	}
+	if relearn && !m.o.NoBackground {
+		return tea.Batch(m.statusCmd(), m.learnPricing())
 	}
 	return m.statusCmd()
 }
@@ -489,7 +615,7 @@ func (m *Model) typingState() *searchState {
 		return m.search
 	case m.ov == ovJump:
 		return m.jump
-	case m.ov == ovNone && m.layout == layoutFlat && m.flat.typing:
+	case m.ov == ovNone && m.zone == ZoneExplorer && m.layout == layoutFlat && m.flat.typing:
 		return m.flat
 	}
 	return nil
@@ -498,16 +624,28 @@ func (m *Model) typingState() *searchState {
 func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	name := keyName(msg)
 	m.toast = ""
+	if m.tutorialKey(name) {
+		return nil
+	}
 
+	switch m.ov {
+	case ovPrompt:
+		return m.promptKey(msg, name)
+	case ovConfirm:
+		return m.confirmKey(name)
+	}
 	if st := m.typingState(); st != nil {
 		return m.searchKey(st, msg, name)
 	}
 	if m.ov == ovPalette {
 		return m.paletteKey(msg, name)
 	}
-	zone := ZoneExplorer
+	zone := m.zone
 	if m.ov != ovNone {
 		zone = ZoneOverlay
+	}
+	if zone == ZoneEditor {
+		return m.editorKey(msg, name)
 	}
 	if m.pendingKey != "" {
 		name = m.pendingKey + " " + name
@@ -517,8 +655,15 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	act := keys.action(zone, name)
-	if m.ov != ovNone {
+	switch {
+	case m.ov == ovRuns:
+		return m.runsOverlayAction(act, name)
+	case m.ov == ovBuffers:
+		return m.buffersOverlayAction(act)
+	case m.ov != ovNone:
 		return m.overlayAction(act)
+	case zone == ZoneResults:
+		return m.resultsAction(act)
 	}
 	return m.explorerAction(act)
 }
@@ -526,14 +671,59 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 	switch act {
 	case "quit":
-		m.cancel()
-		return tea.Quit, true
+		var why []string
+		if n := len(m.activeRuns()); n > 0 {
+			why = append(why, fmt.Sprintf("%d run(s) are still in flight and will be cancelled.", n))
+		}
+		var unsaved []string
+		for _, b := range m.bufs {
+			if b.modified() {
+				unsaved = append(unsaved, b.title())
+			}
+		}
+		if len(unsaved) > 0 {
+			why = append(why, "Unsaved changes will be lost in: "+strings.Join(unsaved, ", ")+" (ctrl+s in the editor saves).")
+		}
+		if len(why) > 0 {
+			m.ov = ovNone
+			m.askConfirm(confirmState{kind: "quit", lines: append(why, "Quit anyway?")})
+			return nil, true
+		}
+		return m.quit(), true
+	case "zonenext":
+		m.ov = ovNone
+		m.zoneStep(1)
+		return m.gridEnsure(), true
+	case "zoneprev":
+		m.ov = ovNone
+		m.zoneStep(-1)
+		return m.gridEnsure(), true
+	case "zoneexplorer":
+		m.ov = ovNone
+		m.setZone(ZoneExplorer)
+		return nil, true
+	case "zoneeditor":
+		m.ov = ovNone
+		m.setZone(ZoneEditor)
+		return nil, true
+	case "zoneresults":
+		m.ov = ovNone
+		m.setZone(ZoneResults)
+		return m.gridEnsure(), true
+	case "tutorial":
+		m.startTutorial()
+		return nil, true
+	case "cancelall":
+		m.be.CancelAllRuns()
+		m.toast = "cancel requested for every run"
+		return nil, true
 	case "palette":
 		m.ov, m.palSel = ovPalette, 0
 		m.pal.set("")
 		m.filterPalette()
 		return nil, true
 	case "jump":
+		m.jumpInsert = m.zone == ZoneEditor && m.ov == ovNone
 		m.ov = ovJump
 		m.jump.in.set("")
 		m.jump.cur, m.jump.off = 0, 0
@@ -542,6 +732,9 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 		m.ov, m.ovOff = ovHelp, 0
 		return nil, true
 	case "cancel":
+		if m.cancelFocused() {
+			return nil, true
+		}
 		if m.syncing && m.syncRun != nil {
 			m.syncRun.Cancel()
 			m.toast = "cancelling the sync…"
@@ -564,6 +757,11 @@ func (m *Model) overlayAction(act string) tea.Cmd {
 				return m.recordStep(-1)
 			}
 			return m.recordStep(1)
+		}
+	case "copy":
+		if m.ov == ovRecord && m.rec != nil && m.rec.cells != nil {
+			m.toast = "copied the record as JSON"
+			return tea.SetClipboard(format.RowJSON(m.rec.cols, m.rec.cells))
 		}
 	case "down":
 		m.ovOff++
@@ -671,6 +869,15 @@ func (m *Model) explorerAction(act string) tea.Cmd {
 		m.ov, m.ovOff = ovSync, 1<<30
 	case "config":
 		return m.openConfig()
+	case "insert":
+		s := m.sel()
+		if s.detailKey() == "" {
+			m.toast = "select a table to insert its name"
+			return nil
+		}
+		m.insertPath(s.path)
+	case "runs":
+		m.ov, m.ovSel, m.ovOff = ovRuns, 0, 0
 	}
 	return nil
 }
@@ -796,7 +1003,19 @@ func (m *Model) paletteKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	case "open":
 		m.ov = ovNone
 		if m.palSel < len(m.palCmds) {
-			return m.explorerAction(m.palCmds[m.palSel].action)
+			c := m.palCmds[m.palSel]
+			switch c.zone {
+			case ZoneEditor:
+				m.setZone(ZoneEditor)
+				return m.editorAction(c.action)
+			case ZoneResults:
+				m.setZone(ZoneResults)
+				return m.resultsAction(c.action)
+			case ZoneGlobal:
+				cmd, _ := m.globalAction(c.action)
+				return cmd
+			}
+			return m.explorerAction(c.action)
 		}
 		return nil
 	}

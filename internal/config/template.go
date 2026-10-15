@@ -63,4 +63,5 @@ const template = `# bqt configuration. Unknown keys are errors, so typos do not 
 
 # Settings that only the terminal UI reads.
 # [tui]
+# editing = "vim"   # the query editor: "vim" (modes, motions, operators) or "plain" (modeless)
 `

@@ -1,0 +1,24 @@
+ Projects 1/2     │ Datasets (4)                 │ Tables (2)
+acme-prod    ✓ 3h │events                      5 │T clicks
+acme-staging ✓ 3h │finance                     2 │T events_YYYYMMDD          ×4
+                  │sales                       4 │
+                  │us_archive                  1 │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+╭─ Tutorial 3/16 · In and out ─────────────────────────────────────────────────╮
+│ l or → opens the selected project or dataset (in the tree layout:            │
+│ expands it); h or ← goes back out. Go in once and back out once.             │
+│                                                                              │
+│                                                                              │
+│ ctrl+g then: n next · p back · r restart · q quit                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ bqt exec acme-exec  miller                              5 datasets · 13 tables
+ ↑↓←→/hjkl move · / search · L layout · P panes · ? help · ctrl+o zone · ctrl+p…

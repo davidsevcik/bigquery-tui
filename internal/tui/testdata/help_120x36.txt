@@ -1,11 +1,17 @@
  Datasets 3/4                     │ Tables 1/4                       │ Schema · acme-prod.sales.customers
-events      ╭─ Help  (1-30/64) ────────────────────────────────────────────────────────────────────────────╮
+events      ╭─ Help  (1-30/145) ───────────────────────────────────────────────────────────────────────────╮
 finance     │ Global                                                                                       │
-sales       │ ctrl+q          quit                                                                         │
-us_archive  │ ctrl+p          command palette                                                              │
+sales       │ ctrl+q          quit (asks if Runs are in flight)                                            │
+us_archive  │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results                                       │
+            │ ctrl+w W        previous zone                                                                │
+            │ ctrl+w h        go to the Explorer                                                           │
+            │ ctrl+w l  ctrl+w k  go to the Editor                                                         │
+            │ ctrl+w j        go to the Results                                                            │
+            │ ctrl+p          command palette                                                              │
             │ ctrl+t          jump to table (recently opened when empty)                                   │
             │ f1              this help                                                                    │
-            │ ctrl+c          cancel the running sync                                                      │
+            │ ctrl+g          tutorial of the navigation (while it runs: ctrl+g then n, p, r or q)         │
+            │ ctrl+c          cancel the export, the focused Run, or the sync                              │
             │                                                                                              │
             │ Explorer                                                                                     │
             │ j  down         move down                                                                    │
@@ -24,12 +30,6 @@ us_archive  │ ctrl+p          command palette                                 
             │ P               detail pane: auto, right, bottom, hidden; zoomed: schema and preview side by…│
             │ tab             switch between schema and preview (the pane that ctrl+e / ctrl+y move in)    │
             │ z               zoom the detail pane: the movement keys then scroll it, left or esc leaves   │
-            │ ctrl+e          scroll the schema / next preview row                                         │
-            │ ctrl+y          scroll the schema / previous preview row                                     │
-            │ p               load 20 (more) preview rows of the table                                     │
-            │ J               show the selected preview row as a full record (after p)                     │
-            │ S               flat list: cycle scope all, project, dataset                                 │
-            │ y               copy the qualified name                                                      │
             ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
                                   │                                  │
  bqt exec acme-exec  miller                                                                      5 datasets · 13 tables

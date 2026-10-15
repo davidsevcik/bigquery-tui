@@ -22,7 +22,7 @@ func TestKeymapHasNoDuplicateBindings(t *testing.T) {
 		t.Fatalf("duplicate bindings: %v", d)
 	}
 	for _, b := range Keymap {
-		if b.Action == "" || b.Help == "" || len(b.Keys) == 0 {
+		if b.Action == "" || b.Help == "" || (len(b.Keys) == 0 && b.Command == "") {
 			t.Errorf("incomplete binding: %+v", b)
 		}
 	}
@@ -76,18 +76,6 @@ func TestGoldenScreens(t *testing.T) {
 		r.press("esc", "ctrl+p", "sync")
 		r.golden(name("palette"))
 	}
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	s := ""
-	for n > 0 {
-		s = string(rune('0'+n%10)) + s
-		n /= 10
-	}
-	return s
 }
 
 func TestMillerNavigationAndDetail(t *testing.T) {

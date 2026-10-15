@@ -18,6 +18,7 @@ func (e *env) openWithTables(readOnly bool) *Engine {
 		Config: e.cfg, ReadOnly: readOnly,
 		Meta:    func(context.Context) (bq.Metadata, error) { return e.fake, nil },
 		Tables:  func(context.Context) (bq.Tables, error) { return e.fake, nil },
+		Jobs:    func(context.Context) (bq.Jobs, error) { return e.fake, nil },
 		Now:     func() time.Time { return e.now },
 		Backoff: func(int) time.Duration { return 0 },
 	})

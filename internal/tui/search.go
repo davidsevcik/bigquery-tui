@@ -160,6 +160,11 @@ func (m *Model) searchKey(st *searchState, msg tea.KeyPressMsg, name string) tea
 			if s.kind == "" {
 				return nil
 			}
+			if st == m.jump && m.jumpInsert {
+				m.ov = ovNone
+				m.insertPath(s.path)
+				return nil
+			}
 			return m.reveal(s.path, s.kind)
 		}
 		if a := keys[ZoneGlobal][name]; a != "" && a != "palette" {

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 )
 
@@ -112,5 +113,45 @@ func TestHumanNumbers(t *testing.T) {
 		if got := Count(in); got != want {
 			t.Errorf("%d: %s", in, got)
 		}
+	}
+}
+
+func TestArraySummaryAndNewlines(t *testing.T) {
+	arr := bq.Field{Name: "tags", Type: "STRING", Mode: "REPEATED"}
+	v := []any{map[string]any{"v": "a"}, map[string]any{"v": nil}, map[string]any{"v": "c"}}
+	if c := Cell(arr, v, Options{ArraySummary: true}); c.Text != "[3] a, NULL, c" {
+		t.Fatalf("%q", c.Text)
+	}
+	if c := Cell(arr, []any{}, Options{ArraySummary: true}); c.Text != "[0]" {
+		t.Fatalf("%q", c.Text)
+	}
+	recs := bq.Field{Name: "items", Type: "RECORD", Mode: "REPEATED", Fields: []bq.Field{{Name: "sku", Type: "STRING"}}}
+	rv := []any{map[string]any{"v": map[string]any{"f": []any{map[string]any{"v": "s1"}}}}}
+	if c := Cell(recs, rv, Options{ArraySummary: true}); c.Text != `[1] {"sku":"s1"}` {
+		t.Fatalf("%q", c.Text)
+	}
+	str := bq.Field{Name: "s", Type: "STRING"}
+	if c := Cell(str, "a\nb\x1b[31m", Options{KeepNewlines: true}); c.Text != "a\nb�[31m" {
+		t.Fatalf("%q", c.Text)
+	}
+	if c := Cell(str, "a\nb", Options{}); c.Text != "a⏎b" {
+		t.Fatalf("%q", c.Text)
+	}
+	if s, null := Text(str, "a\tb\n"); s != "a\tb\n" || null {
+		t.Fatalf("export text is not sanitized: %q", s)
+	}
+	if _, null := Text(str, nil); !null {
+		t.Fatal("nil is NULL")
+	}
+}
+
+func TestRowJSON(t *testing.T) {
+	cols := []api.PreviewColumn{{Name: "id", Type: "INTEGER"}, {Name: "s", Type: "STRING"}, {Name: "ok", Type: "BOOLEAN"},
+		{Name: "a", Type: "RECORD"}, {Name: "tags", Type: "STRING", Mode: "REPEATED"}, {Name: "n", Type: "NUMERIC"}, {Name: "gone", Type: "STRING"}}
+	cells := []api.Cell{{Text: "9007199254740993"}, {Text: `say "hi"`}, {Text: "true"}, {Text: `{"city":"Brno"}`}, {Text: `["x"]`}, {Null: true}}
+	got := RowJSON(cols, cells)
+	want := `{"id":9007199254740993,"s":"say \"hi\"","ok":true,"a":{"city":"Brno"},"tags":["x"],"n":null,"gone":null}`
+	if got != want {
+		t.Fatalf("\n got %s\nwant %s", got, want)
 	}
 }

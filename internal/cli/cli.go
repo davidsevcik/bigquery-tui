@@ -216,7 +216,8 @@ Usage:
   bqt [global flags] <command> [flags]
 
 Commands:
-  (none), tui    Open the interactive explorer (needs a terminal)
+  (none), tui    Open the interactive UI: explorer, editor, results (needs a terminal)
+  FILE.sql       Open the UI with that file as an editor buffer
   init           Create a commented config file (never overwrites)
   config path    Print the config file path
   config edit    Open the config file in $VISUAL / $EDITOR and validate it
@@ -257,6 +258,10 @@ func Run(ctx context.Context, args []string, env Env) int {
 		rest = []string{"tui"} // bare `bqt` on a terminal opens the explorer
 	}
 	cmd, cargs := rest[0], rest[1:]
+	if strings.HasSuffix(strings.ToLower(cmd), ".sql") {
+		// `bqt path/to/query.sql` opens the file as an editor buffer
+		cmd, cargs = "tui", rest
+	}
 	if cmd == "help" || cmd == "--help" || cmd == "-h" {
 		fmt.Fprint(env.Stdout, usage)
 		return api.ExitOK

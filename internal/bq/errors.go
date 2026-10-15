@@ -105,6 +105,8 @@ func Classify(err error) Kind {
 	case "rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded", "jobRateLimitExceeded",
 		"backendError", "internalError", "serviceUnavailable", "timeout":
 		return KindTransient
+	case "stopped":
+		return KindCancelled
 	case "invalidGrant", "authError":
 		return KindAuth
 	}

@@ -5,11 +5,15 @@ package tui
 
 import (
 	"context"
+	"path/filepath"
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 	"github.com/davidsevcik/bigquery-tui/internal/engine"
+	"github.com/davidsevcik/bigquery-tui/internal/export"
+	"github.com/davidsevcik/bigquery-tui/internal/format"
+	"github.com/davidsevcik/bigquery-tui/internal/runs"
 )
 
 // SyncRun is a running sync.
@@ -48,6 +52,32 @@ type Backend interface {
 	// sync is now needed.
 	Reconcile(ctx context.Context) (syncNeeded bool, reason string, err error)
 	WatchCatalog(ctx context.Context) <-chan struct{}
+
+	// Editor intelligence (byte offsets).
+	Tokenize(text string) []api.Token
+	Complete(text string, cursor int, forced bool) []api.Candidate
+
+	// Runs. StartRun returns the Run's ID at once; AwaitRun follows it.
+	StartRun(ctx context.Context, sql string, params []api.QueryParam, tag string, dryRunOnly bool) int64
+	AwaitRun(ctx context.Context, id, afterVersion int64) (api.RunInfo, int64)
+	RunList() []api.RunInfo
+	ConfirmRun(id int64)
+	CancelRun(id int64)
+	CancelAllRuns()
+	RunRows(ctx context.Context, id int64, startIndex int64, n int, o format.Options) (api.PreviewPage, error)
+	Pricing() api.PricingModel
+	LearnPricing(ctx context.Context) error
+	StartExport(ctx context.Context, runID int64, path string, f export.Format) (Export, error)
+	DefaultExportPath(f export.Format) string
+	// DraftDir is where this frontend autosaves its buffers.
+	DraftDir() string
+}
+
+// Export is a running export.
+type Export interface {
+	Events() <-chan api.ExportEvent
+	Wait() api.ExportEvent
+	Cancel()
 }
 
 // EngineBackend adapts *engine.Engine to Backend.
@@ -87,6 +117,46 @@ func (b EngineBackend) Reconcile(ctx context.Context) (bool, string, error) {
 	}
 	return rec.SyncNeeded, rec.Reason, nil
 }
+
+func (b EngineBackend) StartRun(ctx context.Context, sql string, params []api.QueryParam, tag string, dryRunOnly bool) int64 {
+	return b.Engine.StartRun(ctx, runs.Request{SQL: sql, Params: params, Tag: tag, DryRunOnly: dryRunOnly}).ID()
+}
+
+func (b EngineBackend) AwaitRun(ctx context.Context, id, after int64) (api.RunInfo, int64) {
+	r := b.Engine.Runs().Get(id)
+	if r == nil {
+		return api.RunInfo{ID: id, State: api.RunFailed, Error: &api.QueryError{Message: "unknown run", Kind: "other"}}, after + 1
+	}
+	return r.Await(ctx, after)
+}
+
+func (b EngineBackend) RunList() []api.RunInfo { return b.Engine.Runs().List() }
+
+func (b EngineBackend) ConfirmRun(id int64) {
+	if r := b.Engine.Runs().Get(id); r != nil {
+		r.Confirm()
+	}
+}
+
+func (b EngineBackend) CancelRun(id int64) {
+	if r := b.Engine.Runs().Get(id); r != nil {
+		r.Cancel()
+	}
+}
+
+func (b EngineBackend) CancelAllRuns() { b.Engine.Runs().CancelAll() }
+
+func (b EngineBackend) Pricing() api.PricingModel { return b.Engine.Runs().Pricing() }
+
+func (b EngineBackend) StartExport(ctx context.Context, runID int64, path string, f export.Format) (Export, error) {
+	h, err := b.Engine.StartExport(ctx, runID, path, f)
+	if err != nil {
+		return nil, err
+	}
+	return h, nil
+}
+
+func (b EngineBackend) DraftDir() string { return filepath.Join(b.Paths().Drafts, "tui") }
 
 func (b EngineBackend) WatchCatalog(ctx context.Context) <-chan struct{} {
 	return b.Engine.WatchCatalog(ctx, time.Second)

@@ -29,6 +29,20 @@ const (
 	DefaultMaxConcurrent        = 4
 )
 
+// Editing styles of the TUI's query editor ([tui] editing).
+const (
+	EditingVim   = "vim"
+	EditingPlain = "plain"
+)
+
+// Editing returns the editor's editing style: vim (the default) or plain.
+func (c *Config) Editing() string {
+	if s, _ := c.TUI["editing"].(string); s == EditingPlain {
+		return EditingPlain
+	}
+	return EditingVim
+}
+
 // Config is the effective, validated configuration.
 type Config struct {
 	ExecutionProject     string
@@ -294,6 +308,16 @@ func Parse(raw []byte, path string, opts LoadOptions) (*Config, error) {
 		c.TUI = map[string]any{}
 	}
 	b.build(c, values, &errs)
+	for k, v := range c.TUI {
+		switch k {
+		case "editing":
+			if s, ok := v.(string); !ok || (s != EditingVim && s != EditingPlain) {
+				errs = append(errs, &Error{Key: "tui.editing", Line: b.lineOfKey("editing"), Msg: fmt.Sprintf(`must be "%s" or "%s"`, EditingVim, EditingPlain)})
+			}
+		default:
+			errs = append(errs, &Error{Key: "tui." + k, Line: b.lineOfKey(k), Msg: "unknown key"})
+		}
+	}
 
 	m, perrs := NewMatcher(c.Ignore)
 	for _, pe := range perrs {

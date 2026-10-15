@@ -1,19 +1,19 @@
  Datasets 3/4                │ Tables 1/4
-eve╭─ Help  (1-14/64) ──────────────────────────────────╮
+eve╭─ Help  (1-14/145) ─────────────────────────────────╮
 fin│ Global                                             │
-sal│ ctrl+q          quit                               │
-us_│ ctrl+p          command palette                    │
+sal│ ctrl+q          quit (asks if Runs are in flight)  │
+us_│ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Res…│
+   │ ctrl+w W        previous zone                      │
+   │ ctrl+w h        go to the Explorer                 │
+   │ ctrl+w l  ctrl+w k  go to the Editor               │
+   │ ctrl+w j        go to the Results                  │
+   │ ctrl+p          command palette                    │
    │ ctrl+t          jump to table (recently opened whe…│
    │ f1              this help                          │
-   │ ctrl+c          cancel the running sync            │
+   │ ctrl+g          tutorial of the navigation (while …│
+   │ ctrl+c          cancel the export, the focused Run…│
    │                                                    │
    │ Explorer                                           │
-   │ j  down         move down                          │
-   │ k  up           move up                            │
-   │ h  left         parent column / collapse           │
-   │ l  right        child column / expand              │
-   │ g g  home       first row                          │
-   │ G  end          last row                           │
    ╰────────────────────────────────────────────────────╯
                              │
  bqt exec acme-exec  miller          5 datasets · 13 tables
