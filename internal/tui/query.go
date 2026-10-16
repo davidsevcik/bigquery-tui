@@ -37,19 +37,28 @@ type promptState struct {
 	note   string
 
 	// params
+	specs  []api.ParamSpec
 	sql    string
 	dry    bool
 	line0  int
 	col0   int
 	format export.Format
-	armed  bool // export: the row-count warning was shown
+	armed  bool // export: the row-count warning was shown; favorites: overwrite confirmed
+
+	back    overlayKind // the overlay to return to (the picker)
+	favID   string      // favrename, savefav
+	favPath string      // favrename: the file shown when the prompt opened
+	entryID int64       // promote
 }
 
 // confirmState is a yes/no question.
 type confirmState struct {
-	kind  string // run | quit | closebuf
-	runID int64
-	lines []string
+	kind    string // run | quit | closebuf | load | favdelete
+	runID   int64
+	lines   []string
+	favID   string
+	favPath string // the file the question was asked about (favorites_dir may change meanwhile)
+	back    overlayKind
 }
 
 type (
@@ -301,6 +310,8 @@ func (m *Model) editorAction(act string) tea.Cmd {
 	case "nextbuf":
 		m.cur = (m.cur + 1) % len(m.bufs)
 		return m.gridEnsure()
+	case "savefav":
+		m.openSaveFavorite()
 	case "selectall":
 		b.ed.selectAll()
 	case "copysel":
@@ -326,22 +337,32 @@ func (m *Model) requestRun(dry bool) tea.Cmd {
 		m.toast = "the buffer is empty"
 		return nil
 	}
-	names := sqlx.Params(sql)
-	if len(names) == 0 {
+	specs := m.be.QueryParams(b.ed.text(), sql)
+	if len(specs) == 0 {
 		return m.startRun(b, sql, nil, dry, line0, col0)
 	}
-	p := promptState{kind: "params", title: "Query parameters", labels: names, sql: sql, dry: dry, line0: line0, col0: col0,
-		note: "the type is guessed from the value; force it with a prefix such as STRING:42 · enter runs · esc cancels"}
-	vals := make([]string, len(names))
-	for i, n := range names {
-		vals[i] = b.params[n]
+	names := make([]string, len(specs))
+	vals := make([]string, len(specs))
+	typed := false
+	for i, s := range specs {
+		names[i] = s.Name
+		v, seen := b.params[s.Name]
+		if !seen && s.Default != nil {
+			v = *s.Default
+		}
+		vals[i] = v
+		typed = typed || s.Type != ""
 	}
-	m.openPrompt(p, vals...)
+	note := "the type is guessed from the value; force it with a prefix such as STRING:42 · enter runs · esc cancels"
+	if typed {
+		note = "types come from the -- param: header (others are guessed from the value) · null is NULL · enter runs · esc cancels"
+	}
+	m.openPrompt(promptState{kind: "params", title: "Query parameters", labels: names, specs: specs, sql: sql, dry: dry, line0: line0, col0: col0, note: note}, vals...)
 	return nil
 }
 
 func (m *Model) startRun(b *buffer, sql string, params []api.QueryParam, dry bool, line0, col0 int) tea.Cmd {
-	id := m.be.StartRun(m.ctx, sql, params, b.id, dry)
+	id := m.be.StartRun(m.ctx, sql, params, b.id, dry, m.be.FavoriteFromID(b.path))
 	if !dry {
 		// the result this buffer showed is replaced: free its loaded pages
 		old := b.viewID
@@ -531,7 +552,7 @@ func (m *Model) promptKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	p := &m.prompt
 	switch name {
 	case "esc":
-		m.ov = ovNone
+		m.ov = p.back
 		return nil
 	case "down", "ctrl+n":
 		p.idx = (p.idx + 1) % len(p.fields)
@@ -558,6 +579,9 @@ func (m *Model) promptKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 		return m.promptSubmit()
 	}
 	if p.fields[p.idx].handle(msg) {
+		if p.armed && (p.kind == "promote" || p.kind == "savefav") {
+			p.note = ""
+		}
 		p.armed = false
 		if p.kind == "export" {
 			p.format = export.FormatOf(p.fields[0].value())
@@ -570,11 +594,20 @@ func (m *Model) promptSubmit() tea.Cmd {
 	p := &m.prompt
 	b := m.buf()
 	switch p.kind {
+	case "favrename", "promote", "savefav":
+		return m.promptFavorite(p)
 	case "params":
-		params := make([]api.QueryParam, len(p.labels))
-		for i, n := range p.labels {
-			b.params[n] = p.fields[i].value()
-			params[i] = sqlx.InferParam(n, p.fields[i].value())
+		params := make([]api.QueryParam, len(p.specs))
+		for i, s := range p.specs {
+			qp, err := m.be.BindParam(s, p.fields[i].value())
+			if err != nil {
+				p.idx, p.note = i, sErr.Render(err.Error())
+				return nil
+			}
+			params[i] = qp
+		}
+		for i, s := range p.specs {
+			b.params[s.Name] = p.fields[i].value()
 		}
 		m.ov = ovNone
 		return m.startRun(b, p.sql, params, p.dry, p.line0, p.col0)
@@ -598,8 +631,7 @@ func (m *Model) promptSubmit() tea.Cmd {
 			b.lock.Unlock()
 			b.lock = nil
 		}
-		os.Remove(m.draftPath(b.id))
-		os.Remove(m.lockPath(b.id))
+		m.removeDraft(b)
 		m.ov = ovNone
 		m.toast = "saved " + path
 	case "edfind":
@@ -721,6 +753,43 @@ func (m *Model) nextConfirm() {
 
 func (m *Model) confirmKey(name string) tea.Cmd {
 	c := m.confirm
+	switch c.kind {
+	case "load":
+		req := m.pendingLoad
+		if req == nil {
+			m.ov = ovNone
+			return nil
+		}
+		switch name {
+		case "y", "Y", "enter":
+			m.ov, m.pendingLoad = ovNone, nil
+			return m.finishLoad(*req, true)
+		case "n", "N":
+			m.ov, m.pendingLoad = ovNone, nil
+			return m.finishLoad(*req, false)
+		case "esc", "q", "ctrl+c":
+			m.ov, m.pendingLoad = ovNone, nil
+		}
+		return nil
+	case "favdelete":
+		switch name {
+		case "y", "Y", "enter":
+			m.ov = c.back
+			if p, err := m.be.FavoritePath(c.favID); err != nil || p != c.favPath {
+				m.toast = "favorites_dir changed since the question: nothing was deleted"
+			} else if err := m.be.DeleteFavorite(c.favID); err != nil {
+				m.toast = "delete: " + err.Error()
+			} else {
+				m.toast = "deleted favorite " + c.favID
+			}
+			if m.pk != nil {
+				m.reloadFavorites()
+			}
+		case "n", "N", "esc", "q", "ctrl+c":
+			m.ov = c.back
+		}
+		return nil
+	}
 	switch name {
 	case "y", "Y", "enter":
 		m.ov = ovNone

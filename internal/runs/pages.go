@@ -3,6 +3,7 @@ package runs
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
@@ -129,4 +130,53 @@ func (r *Run) RawRows(ctx context.Context, startIndex int64) ([]bq.Field, [][]an
 		return r.schema, nil, nil
 	}
 	return r.schema, p.Rows[off:], nil
+}
+
+// Reopen shows the result of an earlier job (a History entry) as a finished
+// Run. BigQuery keeps a query's result for about 24 hours; after that, or
+// when the statement returned no rows, Reopen fails and nothing is added.
+// The Run is not recorded in History again.
+func (m *Manager) Reopen(ctx context.Context, e api.HistoryEntry, tag string) (*Run, error) {
+	jobs, err := m.o.Jobs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	page, err := fullPage(ctx, jobs, e.Job, 0, 0)
+	if err != nil {
+		qe := bq.QueryErrorOf(err)
+		if qe.Kind == "not_found" {
+			return nil, fmt.Errorf("the result of this run is no longer available (BigQuery keeps it for about 24 hours): %s", qe.Message)
+		}
+		return nil, errors.New(qe.Message)
+	}
+	if len(page.Schema) == 0 {
+		return nil, ErrNoResult
+	}
+	ref := e.Job
+	stats := &api.RunStats{CacheHit: e.CacheHit, StatementType: e.StatementType, ReservationID: e.ReservationID, Edition: e.Edition, Destination: e.Destination}
+	if e.BytesProcessed != nil {
+		stats.BytesProcessed = *e.BytesProcessed
+	}
+	if e.BytesBilled != nil {
+		stats.BytesBilled = *e.BytesBilled
+	}
+	if e.SlotMs != nil {
+		stats.SlotMs = *e.SlotMs
+	}
+	rctx, cancel := context.WithCancel(context.Background())
+	cancel() // nothing runs: the Run is finished from the start
+	done := make(chan struct{})
+	close(done)
+	m.mu.Lock()
+	m.seq++
+	r := &Run{m: m, id: m.seq, ctx: rctx, stop: cancel, confirm: make(chan struct{}), done: done, changed: make(chan struct{}),
+		jobs: jobs, schema: page.Schema, pages: map[int64]*bq.ResultPage{0: &page}, pageUse: []int64{0}, final: true, version: 1}
+	r.info = api.RunInfo{ID: r.id, Tag: tag, SQL: e.SQL, Params: e.Params, State: api.RunDone, Source: e.Source, Favorite: e.FavoritePath,
+		FromHistory: e.ID, ExecutionProject: e.ExecutionProject, Location: ref.Location, Job: &ref, Stats: stats,
+		HasResult: true, TotalRows: page.TotalRows, Columns: format.Columns(page.Schema), Created: e.Created, Started: e.Started, Ended: e.Ended}
+	m.runs = append(m.runs, r)
+	m.mu.Unlock()
+	m.trimPages()
+	m.publish(r.Info())
+	return r, nil
 }

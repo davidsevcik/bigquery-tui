@@ -58,7 +58,7 @@ type Backend interface {
 	Complete(text string, cursor int, forced bool) []api.Candidate
 
 	// Runs. StartRun returns the Run's ID at once; AwaitRun follows it.
-	StartRun(ctx context.Context, sql string, params []api.QueryParam, tag string, dryRunOnly bool) int64
+	StartRun(ctx context.Context, sql string, params []api.QueryParam, tag string, dryRunOnly bool, favorite string) int64
 	AwaitRun(ctx context.Context, id, afterVersion int64) (api.RunInfo, int64)
 	RunList() []api.RunInfo
 	ConfirmRun(id int64)
@@ -71,6 +71,27 @@ type Backend interface {
 	DefaultExportPath(f export.Format) string
 	// DraftDir is where this frontend autosaves its buffers.
 	DraftDir() string
+
+	// History and Favorites (spec 11).
+	ParseHistoryQuery(raw string) api.ParsedQuery
+	SearchHistory(ctx context.Context, raw string, limit, offset int) (api.HistoryPage, error)
+	HistoryEntry(ctx context.Context, id int64) (api.HistoryEntry, error)
+	ReopenResult(ctx context.Context, entryID int64, tag string) (int64, error)
+	PromoteHistory(ctx context.Context, entryID int64, name, description string, tags []string, overwrite bool) (string, error)
+	ListFavorites() ([]api.Favorite, error)
+	MatchFavorites(favs []api.Favorite, query string) []api.FavoriteMatch
+	ReadFavorite(id string) (api.Favorite, error)
+	FavoritePath(id string) (string, error)
+	FavoriteFromID(file string) string
+	SaveFavorite(id, text string, overwrite bool) (string, error)
+	RenameFavorite(from, to string) (string, error)
+	DeleteFavorite(id string) error
+	// QueryParams is the parameter schema of the SQL that runs (body),
+	// typed by a Favorite header in the buffer text.
+	QueryParams(text, body string) []api.ParamSpec
+	ParseFavorite(text string) api.Favorite
+	RenderFavorite(f api.Favorite) string
+	BindParam(p api.ParamSpec, value string) (api.QueryParam, error)
 }
 
 // Export is a running export.
@@ -118,8 +139,8 @@ func (b EngineBackend) Reconcile(ctx context.Context) (bool, string, error) {
 	return rec.SyncNeeded, rec.Reason, nil
 }
 
-func (b EngineBackend) StartRun(ctx context.Context, sql string, params []api.QueryParam, tag string, dryRunOnly bool) int64 {
-	return b.Engine.StartRun(ctx, runs.Request{SQL: sql, Params: params, Tag: tag, DryRunOnly: dryRunOnly}).ID()
+func (b EngineBackend) StartRun(ctx context.Context, sql string, params []api.QueryParam, tag string, dryRunOnly bool, favorite string) int64 {
+	return b.Engine.StartRun(ctx, runs.Request{SQL: sql, Params: params, Tag: tag, DryRunOnly: dryRunOnly, Favorite: favorite}).ID()
 }
 
 func (b EngineBackend) AwaitRun(ctx context.Context, id, after int64) (api.RunInfo, int64) {

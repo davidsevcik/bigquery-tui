@@ -287,3 +287,14 @@ func TestTUIEditingKey(t *testing.T) {
 		t.Fatalf("an unknown [tui] key is an error: %v", err)
 	}
 }
+
+// Codex review 4, finding 2: a retention so large it would overflow is refused.
+func TestRetentionDaysBound(t *testing.T) {
+	es := parseErrs(t, "execution_project = \"p\"\nhistory_retention_days = 200000\n", LoadOptions{})
+	if !strings.Contains(es.Error(), "at most 36500") {
+		t.Fatal(es)
+	}
+	if c := mustParse(t, "execution_project = \"p\"\nhistory_retention_days = 36500\n", LoadOptions{}); c.HistoryRetentionDays != 36500 {
+		t.Fatal(c.HistoryRetentionDays)
+	}
+}

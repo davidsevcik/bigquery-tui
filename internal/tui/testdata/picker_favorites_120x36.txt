@@ -1,0 +1,36 @@
+ SQL · query 1   1:1
+ 1╭─ Favorites and History ──────────────────────────────────────────────────────────────────────────────────────────╮
+~ │  Favorites 2   History 0   tab switches                                                                          │
+~ │ ▸  search favorites: name, tags, description, SQL                                                                │
+~ │                                                                                                                  │
+~ │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+~ │ events/dau.sql  events                            │ favorite   events/dau.sql                                    │
+~ │ finance/revenue.sql ⚠                             │ about      Daily active users                                │
+~ │                                                   │ tags       events                                            │
+~ │                                                   │ changed    just now                                          │
+~ │                                                   │ ──────────────────────────────────────────────────────────── │
+~ │                                                   │ select count(*) from sessions                                │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+~ │                                                   │                                                              │
+ R│                                                   │                                                              │
+ n│                                                   │                                                              │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ bqt exec acme-exec                                                                              5 datasets · 13 tables
+ type to search · ↑↓ select · enter open · tab favorites/history · ctrl+r rename · ctrl+d delete · ctrl+e/y scroll · es…

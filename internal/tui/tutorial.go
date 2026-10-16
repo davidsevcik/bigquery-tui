@@ -118,6 +118,8 @@ var tutSteps = []tutStep{
 		closedAfter(ovRecord)},
 	{"Back to the Explorer", plain("`ctrl+w h` goes back to the Explorer. There, `i` inserts the selected table's name into the editor. `esc` in the Results also goes back to the Editor."),
 		func(m *Model, t *tutorial) bool { return m.zone == ZoneExplorer }},
+	{"Favorites and History", plain("`ctrl+x r` opens History: every query you ran, searchable (`status:failed`, `since:7d`). `tab` switches to Favorites, your saved queries (`ctrl+x s` saves the buffer as one); `enter` loads one into the editor. Open it and close it."),
+		closedAfter(ovPicker)},
 	{"Done", plain("That is the navigation. `?` lists every key, `ctrl+p` every command, `ctrl+g` starts this tutorial again. `ctrl+g n` closes it."), nil},
 }
 

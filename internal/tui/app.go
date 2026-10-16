@@ -56,6 +56,7 @@ const (
 	ovBuffers
 	ovPrompt
 	ovConfirm
+	ovPicker
 )
 
 const (
@@ -74,6 +75,8 @@ type Options struct {
 	// Getenv resolves $VISUAL/$EDITOR (default os.Getenv).
 	Getenv func(string) string
 	Now    func() time.Time
+	// Location is where times are shown (default the local zone).
+	Location *time.Location
 	// File is a .sql file to open as the first buffer (bqt path/to/query.sql).
 	File string
 }
@@ -116,6 +119,9 @@ type Model struct {
 
 	tut      *tutorial
 	firstRun bool // no UI state file yet
+
+	pk          *picker  // Favorites and History; kept while closed, so the search survives
+	pendingLoad *loadReq // a pick waiting for the "replace the buffer?" answer
 
 	pendingKey string
 	toast      string
@@ -162,6 +168,9 @@ func New(be Backend, o Options) *Model {
 	}
 	if o.Now == nil {
 		o.Now = time.Now
+	}
+	if o.Location == nil {
+		o.Location = time.Local
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30, termH: 30}
@@ -431,6 +440,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	case pageMsg:
 		m.onPage(msg)
+	case histMsg:
+		m.onHistory(msg)
+	case reopenMsg:
+		return m, m.onReopen(msg)
 	case exportMsg:
 		return m, m.onExport(msg)
 	case pricingMsg:
@@ -633,6 +646,8 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return m.promptKey(msg, name)
 	case ovConfirm:
 		return m.confirmKey(name)
+	case ovPicker:
+		return m.pickerKey(msg, name)
 	}
 	if st := m.typingState(); st != nil {
 		return m.searchKey(st, msg, name)
@@ -713,6 +728,10 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 	case "tutorial":
 		m.startTutorial()
 		return nil, true
+	case "favorites":
+		return m.openPicker(scopeFavorites), true
+	case "history":
+		return m.openPicker(scopeHistory), true
 	case "cancelall":
 		m.be.CancelAllRuns()
 		m.toast = "cancel requested for every run"

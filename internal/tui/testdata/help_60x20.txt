@@ -1,5 +1,5 @@
  Datasets 3/4                │ Tables 1/4
-eve╭─ Help  (1-14/145) ─────────────────────────────────╮
+eve╭─ Help  (1-14/163) ─────────────────────────────────╮
 fin│ Global                                             │
 sal│ ctrl+q          quit (asks if Runs are in flight)  │
 us_│ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Res…│
@@ -10,10 +10,10 @@ us_│ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Res…│
    │ ctrl+p          command palette                    │
    │ ctrl+t          jump to table (recently opened whe…│
    │ f1              this help                          │
+   │ ctrl+x f        favorites: saved queries (tab swit…│
+   │ ctrl+x r        history: every query run, searchab…│
    │ ctrl+g          tutorial of the navigation (while …│
    │ ctrl+c          cancel the export, the focused Run…│
-   │                                                    │
-   │ Explorer                                           │
    ╰────────────────────────────────────────────────────╯
                              │
  bqt exec acme-exec  miller          5 datasets · 13 tables

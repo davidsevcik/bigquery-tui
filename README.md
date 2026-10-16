@@ -35,6 +35,18 @@ In the explorer: `hjkl` or the arrows move, `/` searches, `ctrl+t` jumps to a ta
 - Every run does a dry-run first. bqt shows the estimate, asks before a non-SELECT statement or a scan over `confirm_bytes`, and sets `max_bytes_billed` on the job. `ctrl+c` cancels the focused run; `ctrl+x l` (or `gr`) lists the runs.
 - Results: `hjkl` move the cell cursor, `enter` shows the row as a full record, `/` finds text in the loaded pages, `f` freezes the first column, `H` hides one, `y` / `Y` copy the cell or the row as JSON, `e` exports every row to CSV, JSON or NDJSON.
 
+**History and Favorites.** `ctrl+x r` opens History: every query you ran, grouped by SQL text and searchable (`status:failed`, `project:`, `source:`, `since:7d`). `ctrl+x f` opens Favorites, saved queries kept as plain `.sql` files in `favorites_dir` (put it in a git repo if you like); `tab` switches between the two. `enter` loads a pick into the editor, `ctrl+s` on a History entry saves it as a Favorite, `ctrl+r` shows its result again (BigQuery keeps results about 24 hours). In the editor `ctrl+x s` saves the buffer as a Favorite. A Favorite's header declares typed parameters, and the file still runs as plain SQL:
+
+```sql
+-- description: Daily active users by country
+-- tags: events, dau
+-- param: start DATE = 2024-01-01
+-- param: country STRING
+SELECT ... WHERE d >= @start AND c = @country
+```
+
+`bqt history prune --older-than 90d` deletes old History entries (`history_retention_days` in the config does it automatically).
+
 Search syntax: free terms match names (and descriptions last); filters are `p:` project, `d:` dataset, `type:`, `col:`, `label:`, `desc:`; `-d:tmp` excludes; `type:view,mview` is OR; a pasted `project.dataset.table` is an exact lookup. Columns are searched only with `col:`.
 
 Output is JSON when stdout is not a terminal and text otherwise (`--format json|text`). Exit codes: 0 ok, 1 failure, 2 usage, 3 config, 4 auth, 5 over limit, 6 BigQuery error (also: a sync with failed units), 7 cancelled.

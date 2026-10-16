@@ -14,6 +14,7 @@ const (
 	ZoneEditor   Zone = "Editor"
 	ZoneResults  Zone = "Results"
 	ZoneSearch   Zone = "Search and jump"
+	ZonePicker   Zone = "Favorites and History"
 	ZoneOverlay  Zone = "Popups"
 )
 
@@ -43,6 +44,8 @@ var Keymap = []Binding{
 	{ZoneGlobal, []string{"ctrl+p"}, "palette", "command palette", "", "ctrl+p cmds"},
 	{ZoneGlobal, []string{"ctrl+t"}, "jump", "jump to table (recently opened when empty)", "Jump to table", "ctrl+t jump"},
 	{ZoneGlobal, []string{"f1"}, "help", "this help", "Help", ""},
+	{ZoneGlobal, []string{"ctrl+x f"}, "favorites", "favorites: saved queries (tab switches to History)", "Favorites", ""},
+	{ZoneGlobal, []string{"ctrl+x r"}, "history", "history: every query run, searchable (tab switches to Favorites)", "History", ""},
 	{ZoneGlobal, []string{"ctrl+g"}, "tutorial", "tutorial of the navigation (while it runs: ctrl+g then n, p, r or q)", "Tutorial", "ctrl+g tutorial"},
 	{ZoneGlobal, []string{"ctrl+c"}, "cancel", "cancel the export, the focused Run, or the sync", "Cancel the focused Run", ""},
 	{ZoneGlobal, []string{}, "cancelall", "cancel every Run", "Cancel all Runs", ""},
@@ -92,6 +95,7 @@ var Keymap = []Binding{
 	{ZoneEditor, []string{"ctrl+x ["}, "prevbuf", "previous buffer", "", ""},
 	{ZoneEditor, []string{"ctrl+x ]"}, "nextbuf", "next buffer", "", ""},
 	{ZoneEditor, []string{"ctrl+x h"}, "selectall", "select everything", "", ""},
+	{ZoneEditor, []string{"ctrl+x s"}, "savefav", "save the buffer as a favorite (name, description, tags)", "Save buffer as favorite", ""},
 	{ZoneEditor, []string{"alt+w"}, "copysel", "copy the selection", "", ""},
 	{ZoneEditor, []string{"esc"}, "edesc", "dismiss the popup, drop the selection", "", ""},
 
@@ -133,6 +137,19 @@ var Keymap = []Binding{
 	{ZoneSearch, []string{"esc"}, "back", "close", "", "esc close"},
 	{ZoneSearch, []string{"ctrl+e"}, "detaildown", "scroll the detail pane down", "", ""},
 	{ZoneSearch, []string{"ctrl+y"}, "detailup", "scroll the detail pane up", "", ""},
+
+	{ZonePicker, []string{"down", "ctrl+n"}, "down", "next entry", "", ""},
+	{ZonePicker, []string{"up", "ctrl+p"}, "up", "previous entry", "", ""},
+	{ZonePicker, []string{"pgdown"}, "pagedown", "page down", "", ""},
+	{ZonePicker, []string{"pgup"}, "pageup", "page up", "", ""},
+	{ZonePicker, []string{"tab", "shift+tab"}, "scope", "switch between Favorites and History", "", "tab favorites/history"},
+	{ZonePicker, []string{"enter"}, "open", "load it into the editor (asks before replacing unsaved text)", "", "enter open"},
+	{ZonePicker, []string{"ctrl+e"}, "detaildown", "scroll the preview down", "", ""},
+	{ZonePicker, []string{"ctrl+y"}, "detailup", "scroll the preview up", "", ""},
+	{ZonePicker, []string{"ctrl+r"}, "pickr", "Favorites: rename · History: show the result again (BigQuery keeps it about 24 hours)", "", ""},
+	{ZonePicker, []string{"ctrl+d"}, "delete", "Favorites: delete the file (asks first)", "", ""},
+	{ZonePicker, []string{"ctrl+s"}, "promote", "History: save as a favorite", "", ""},
+	{ZonePicker, []string{"esc"}, "back", "close", "", "esc close"},
 
 	{ZoneOverlay, []string{"j", "down", "ctrl+n"}, "down", "next line", "", ""},
 	{ZoneOverlay, []string{"k", "up"}, "up", "previous line", "", ""},
@@ -228,7 +245,7 @@ func paletteCommands() []command {
 
 func helpLines() []string {
 	var out []string
-	for _, z := range []Zone{ZoneGlobal, ZoneExplorer, ZoneEditor, ZoneResults, ZoneSearch, ZoneOverlay} {
+	for _, z := range []Zone{ZoneGlobal, ZoneExplorer, ZoneEditor, ZoneResults, ZoneSearch, ZonePicker, ZoneOverlay} {
 		out = append(out, " "+sBold.Render(string(z)))
 		for _, b := range Keymap {
 			if b.Zone != z {
@@ -289,6 +306,7 @@ var vimHelp = [][2]string{
 	{"/ n N *", "find in the buffer, next, previous, the word under the cursor"},
 	{"enter", "run the buffer (in Visual mode: the selection)"},
 	{"space r / d", "run / dry-run; space l runs, space b buffers, space n new, space w close, space [ ] switch, space s save, space e $EDITOR"},
+	{"space f / h", "favorites / history; space F saves the buffer as a favorite"},
 	{":  ?", "command palette, this help"},
 	{"Insert mode", "ctrl+r runs, ctrl+d dry-runs, tab accepts a completion, ctrl+n forces one"},
 }
