@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -138,6 +139,15 @@ func cursorOf(s string) (int64, error) {
 		return 0, usageErr("invalid --cursor %q", s)
 	}
 	return n, nil
+}
+
+// listCursor is a --cursor into a list held in memory (History, Favorites).
+func listCursor(s string) (int, error) {
+	n, err := cursorOf(s)
+	if err != nil || n > math.MaxInt32 {
+		return 0, usageErr("invalid --cursor %q", s)
+	}
+	return int(n), nil
 }
 
 func cmdSchema(ctx context.Context, o *out, g *globals, args []string) error {
@@ -461,7 +471,7 @@ func cmdHistory(ctx context.Context, o *out, g *globals, args []string) error {
 	if limit <= 0 {
 		return usageErr("--limit must be positive")
 	}
-	start, err := cursorOf(cursor)
+	start, err := listCursor(cursor)
 	if err != nil {
 		return err
 	}
@@ -470,7 +480,7 @@ func cmdHistory(ctx context.Context, o *out, g *globals, args []string) error {
 		return err
 	}
 	defer done()
-	l, err := eng.HistoryList(ctx, strings.Join(pos, " "), limit, int(start))
+	l, err := eng.HistoryList(ctx, strings.Join(pos, " "), limit, start)
 	if err != nil {
 		return err
 	}
@@ -538,7 +548,7 @@ func cmdFavoritesList(ctx context.Context, o *out, g *globals, args []string) er
 	if limit <= 0 {
 		return usageErr("--limit must be positive")
 	}
-	start, err := cursorOf(cursor)
+	start, err := listCursor(cursor)
 	if err != nil {
 		return err
 	}
@@ -547,7 +557,7 @@ func cmdFavoritesList(ctx context.Context, o *out, g *globals, args []string) er
 		return err
 	}
 	defer done()
-	l, err := eng.FavoriteList(strings.Join(pos, " "), limit, int(start), withSQL)
+	l, err := eng.FavoriteList(strings.Join(pos, " "), limit, start, withSQL)
 	if err != nil {
 		return err
 	}

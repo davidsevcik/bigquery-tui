@@ -201,6 +201,11 @@ func TestSchemaHistoryAndFavorites(t *testing.T) {
 	if len(items) != 1 || items[0].(map[string]any)["favorite"] != "dau.sql" || items[0].(map[string]any)["source"] != "cli" {
 		t.Fatalf("%v", items)
 	}
+	for _, args := range [][]string{{"history", "--cursor", "99999999999999"}, {"favorites", "list", "--cursor", "99999999999999"}} {
+		if code, _, errOut := s.run(args...); code != api.ExitUsage || errBody(t, errOut).Code != "usage" {
+			t.Fatalf("%v: a cursor past int range is a usage error: %d %s", args, code, errOut)
+		}
+	}
 }
 
 func TestMCPPrintConfig(t *testing.T) {

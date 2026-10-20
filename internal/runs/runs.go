@@ -655,13 +655,19 @@ func (r *Run) run(cfg *config.Config) {
 	// (Close waits for submissions in flight, so quitting cannot strand one.)
 	req.JobID = newJobID()
 	m.busyAdd(1)
-	sctx, scancel := context.WithTimeout(context.WithoutCancel(r.ctx), m.o.SubmitTimeout)
-	if dl, ok := r.ctx.Deadline(); ok {
-		sctx, scancel = context.WithDeadline(context.WithoutCancel(r.ctx), dl)
+	dl, runDeadline := r.ctx.Deadline()
+	if !runDeadline {
+		dl = time.Now().Add(m.o.SubmitTimeout)
 	}
+	sctx, scancel := context.WithDeadline(context.WithoutCancel(r.ctx), dl)
 	ref, err := jobs.StartQuery(sctx, req)
 	expired := errors.Is(sctx.Err(), context.DeadlineExceeded)
 	scancel()
+	if expired && runDeadline {
+		// The Run's own deadline passed: its context ends with it, but on
+		// its own timer. Wait for it, so the Run ends as a timeout.
+		<-r.ctx.Done()
+	}
 	if err != nil {
 		if expired {
 			// the job may exist without our knowing: stop it by its ID
