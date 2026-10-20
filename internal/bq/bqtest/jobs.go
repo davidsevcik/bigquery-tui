@@ -42,6 +42,16 @@ type fakeJob struct {
 	script    QueryScript
 	cancelled chan struct{}
 	created   time.Time
+	held      bool // WaitJob is waiting on script.Block (guarded by Fake.mu)
+}
+
+// Held reports whether the job is being kept running by its script's Block,
+// so a test can tell a job held on purpose from one that is merely slow.
+func (f *Fake) Held(jobID string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	j := f.jobs[jobID]
+	return j != nil && j.held
 }
 
 // message is an error worded the way BigQuery words it (capitals and all).
@@ -167,12 +177,15 @@ func (f *Fake) WaitJob(ctx context.Context, ref api.JobRef) (bq.JobResult, error
 	res := bq.JobResult{StatementType: s.StatementType, ReservationID: s.ReservationID, Edition: s.Edition,
 		Created: j.created, Started: j.created.Add(time.Second), Ended: j.created.Add(3 * time.Second)}
 	if s.Block != nil {
+		f.setHeld(j, true)
 		select {
 		case <-s.Block:
 		case <-j.cancelled:
 		case <-ctx.Done():
+			f.setHeld(j, false)
 			return bq.JobResult{}, bq.Wrap("fake", ctx.Err())
 		}
+		f.setHeld(j, false)
 	}
 	select {
 	case <-j.cancelled:
@@ -229,4 +242,10 @@ func (f *Fake) QueryRows(ctx context.Context, ref api.JobRef, startIndex int64, 
 	hi := min(lo+maxRows, len(rows))
 	page.Rows = append(page.Rows, rows[lo:hi]...)
 	return page, nil
+}
+
+func (f *Fake) setHeld(j *fakeJob, held bool) {
+	f.mu.Lock()
+	j.held = held
+	f.mu.Unlock()
 }

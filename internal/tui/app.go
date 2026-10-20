@@ -73,6 +73,9 @@ type Options struct {
 	NoBackground bool
 	// StableOutput hides measured timings so screens are reproducible (tests).
 	StableOutput bool
+	// JobHeld reports that a test holds a job running on purpose (tests, with
+	// NoBackground): the TUI stops waiting for that Run instead of timing out.
+	JobHeld func(jobID string) bool
 	// Getenv resolves $VISUAL/$EDITOR (default os.Getenv).
 	Getenv func(string) string
 	Now    func() time.Time
