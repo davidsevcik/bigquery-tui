@@ -16,12 +16,14 @@ var corePackages = []string{
 	"internal/api", "internal/config", "internal/store", "internal/sync",
 	"internal/bq", "internal/bq/bqtest", "internal/engine", "internal/logging", "internal/version",
 	"internal/search", "internal/format", "internal/sqlx", "internal/runs", "internal/export", "internal/favorites",
+	"internal/policy", "internal/handoff",
 }
 
 var forbiddenPrefixes = []string{
 	"charm.land/",
 	"github.com/charmbracelet/",
 	"github.com/muesli/termenv",
+	"github.com/modelcontextprotocol/",
 	module + "/internal/cli",
 	module + "/internal/tui",
 	module + "/internal/mcp",

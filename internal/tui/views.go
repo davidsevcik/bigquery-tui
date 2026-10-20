@@ -125,9 +125,9 @@ func (m *Model) render() []string {
 		bw := clamp(w-8, 30, 80)
 		box := m.confirmBox(bw)
 		body = overlay(body, box, (w-bw)/2, max(0, (bodyH-len(box))/3), w)
-	case ovHelp, ovProblems, ovSync, ovRecord, ovRuns, ovBuffers, ovProjects:
+	case ovHelp, ovProblems, ovSync, ovRecord, ovRuns, ovBuffers, ovProjects, ovHandoff:
 		bw := clamp(w-6, 30, 96)
-		if m.ov == ovProjects {
+		if m.ov == ovProjects || m.ov == ovHandoff {
 			bw = clamp(w-8, 30, 84)
 		}
 		if m.ov == ovRuns || m.ov == ovBuffers {
@@ -953,6 +953,8 @@ func (m *Model) infoBox(bw, maxH int) []string {
 		ttl, lines = "Buffers", m.buffersLines(bw-2)
 	case ovProjects:
 		ttl, lines = "Projects", m.projectsLines(bw-2)
+	case ovHandoff:
+		ttl, lines = "Hand-off to an agent", m.handoffLines(bw-2)
 	}
 	body := max(1, maxH-2)
 	switch m.ov {
@@ -966,6 +968,8 @@ func (m *Model) infoBox(bw, maxH int) []string {
 		window(at, &m.ovOff, len(lines), body)
 	case ovProjects:
 		window(m.ovSel+m.projTop, &m.ovOff, len(lines), body)
+	case ovHandoff:
+		window(m.ovSel+m.hoTop, &m.ovOff, len(lines), body)
 	}
 	m.ovOff = clamp(m.ovOff, 0, max(0, len(lines)-body))
 	end := min(len(lines), m.ovOff+body)

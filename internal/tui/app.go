@@ -58,6 +58,7 @@ const (
 	ovPrompt
 	ovConfirm
 	ovPicker
+	ovHandoff
 )
 
 const (
@@ -95,6 +96,9 @@ type Model struct {
 	layout layoutKind
 	place  placement
 	hidden map[string]bool // projects turned off (ctrl+x p)
+
+	hoItems []handoffItem // the hand-off popup's entries
+	hoTop   int           // first entry line in the popup
 
 	mil  miller
 	tree tree
@@ -463,6 +467,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.saveDrafts()
 		return m, tick()
+	case handoffMsg:
+		return m, m.onHandoff(msg)
 	case clipMsg:
 		if msg.err != nil {
 			m.toast = msg.err.Error()
@@ -689,6 +695,8 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return m.buffersOverlayAction(act)
 	case m.ov == ovProjects:
 		return m.projectsOverlayAction(act)
+	case m.ov == ovHandoff:
+		return m.handoffOverlayAction(act)
 	case m.ov != ovNone:
 		return m.overlayAction(act)
 	case zone == ZoneResults:
@@ -749,6 +757,12 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 		return m.openPicker(scopeFavorites), true
 	case "history":
 		return m.openPicker(scopeHistory), true
+	case "handoff":
+		m.openHandoff()
+		return nil, true
+	case "hoschemamd", "hoschemajson", "hoerror", "hosamplemd", "hosampletsv", "hosamplendjson", "horun":
+		m.ov = ovNone
+		return m.handoffDirect(act), true
 	case "cancelall":
 		m.be.CancelAllRuns()
 		m.toast = "cancel requested for every run"

@@ -49,13 +49,18 @@ func (r *Run) page(ctx context.Context, start int64) (*bq.ResultPage, error) {
 // keeps asking until the page is full or the result ends. Without this a
 // short response would look like missing rows, and an export would stop early.
 func fullPage(ctx context.Context, jobs bq.Jobs, ref api.JobRef, start, total int64) (bq.ResultPage, error) {
+	return readRows(ctx, jobs, ref, start, PageRows, total)
+}
+
+// readRows reads up to n rows from start (total 0: not known yet).
+func readRows(ctx context.Context, jobs bq.Jobs, ref api.JobRef, start int64, n int, total int64) (bq.ResultPage, error) {
 	var page bq.ResultPage
-	for len(page.Rows) < PageRows {
+	for len(page.Rows) < n {
 		at := start + int64(len(page.Rows))
 		if total > 0 && at >= total {
 			break
 		}
-		p, err := jobs.QueryRows(ctx, ref, at, PageRows-len(page.Rows))
+		p, err := jobs.QueryRows(ctx, ref, at, n-len(page.Rows))
 		if err != nil {
 			return bq.ResultPage{}, err
 		}
@@ -180,3 +185,31 @@ func (m *Manager) Reopen(ctx context.Context, e api.HistoryEntry, tag string) (*
 	m.publish(r.Info())
 	return r, nil
 }
+
+// ReadResult reads up to n rows from start of a finished job's result
+// without a Run: the agent surface pages a result by its job, possibly in
+// another process than the one that ran it. A job BigQuery no longer has (it
+// keeps results about 24 hours) is reported as such.
+func (m *Manager) ReadResult(ctx context.Context, ref api.JobRef, start int64, n int) (bq.ResultPage, error) {
+	jobs, err := m.o.Jobs(ctx)
+	if err != nil {
+		return bq.ResultPage{}, err
+	}
+	if start < 0 {
+		start = 0
+	}
+	page, err := readRows(ctx, jobs, ref, start, n, 0)
+	if err != nil {
+		if qe := bq.QueryErrorOf(err); qe.Kind == "not_found" {
+			return page, fmt.Errorf("%w: %s", ErrGone, qe.Message)
+		}
+		return page, err
+	}
+	if len(page.Schema) == 0 {
+		return page, ErrNoResult
+	}
+	return page, nil
+}
+
+// ErrGone is returned for a result BigQuery no longer keeps.
+var ErrGone = errors.New("the result is no longer available (BigQuery keeps it for about 24 hours)")

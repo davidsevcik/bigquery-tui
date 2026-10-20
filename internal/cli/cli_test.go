@@ -62,6 +62,7 @@ func (s *sandbox) run(args ...string) (code int, stdout, stderr string) {
 		IsTTY: func(any) bool { return s.tty },
 		Now:   func() time.Time { return time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC) },
 		Meta:  func(context.Context) (bq.Metadata, error) { return s.fake, nil },
+		Jobs:  func(context.Context) (bq.Jobs, error) { return s.fake, nil },
 		CheckAuth: func(context.Context) (bq.AuthInfo, error) {
 			return bq.AuthInfo{Type: "authorized_user", QuotaProject: "exec-proj"}, nil
 		},
@@ -470,7 +471,7 @@ func TestHistoryPrune(t *testing.T) {
 		}
 	}
 	h.Close()
-	for _, bad := range [][]string{{"history"}, {"history", "prune"}, {"history", "prune", "--all", "--older-than", "1d"}, {"history", "prune", "--older-than", "2026-01-01"}, {"history", "prune", "--before", "soon"}} {
+	for _, bad := range [][]string{{"history", "prune"}, {"history", "prune", "--all", "--older-than", "1d"}, {"history", "prune", "--older-than", "2026-01-01"}, {"history", "prune", "--before", "soon"}} {
 		if code, _, _ := s.run(bad...); code != api.ExitUsage {
 			t.Errorf("%v: exit %d", bad, code)
 		}

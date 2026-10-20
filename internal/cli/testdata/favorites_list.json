@@ -1,0 +1,20 @@
+{
+  "data": {
+    "favorites": [
+      {
+        "description": "Daily users",
+        "id": "dau.sql",
+        "params": [
+          {
+            "default": "7",
+            "name": "n",
+            "type": "INT64"
+          }
+        ]
+      }
+    ],
+    "total": 1,
+    "truncated": false
+  },
+  "schema_version": 1
+}

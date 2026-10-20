@@ -49,6 +49,7 @@ type promptState struct {
 	favID   string      // favrename, savefav
 	favPath string      // favrename: the file shown when the prompt opened
 	entryID int64       // promote
+	hoItem  handoffItem // handoff: what to write
 }
 
 // confirmState is a yes/no question.
@@ -596,6 +597,8 @@ func (m *Model) promptSubmit() tea.Cmd {
 	switch p.kind {
 	case "favrename", "promote", "savefav":
 		return m.promptFavorite(p)
+	case "handoff":
+		return m.handoffSubmit(p)
 	case "params":
 		params := make([]api.QueryParam, len(p.specs))
 		for i, s := range p.specs {
