@@ -52,7 +52,7 @@ func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 	out := make(chan Event, 1)
 	path := ResolvePath(o.Load)
 	// Hash synchronously so a write racing with the goroutine start is seen.
-	seen, _ := readHashed(path)
+	seen, _, _ := readHashed(path)
 	go func() {
 		defer close(out)
 		good := current
@@ -69,7 +69,7 @@ func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 			case <-settle:
 			}
 			settle = nil
-			h, raw := readHashed(path)
+			h, raw, rerr := readHashed(path)
 			if h == seen {
 				pending = seen
 				continue
@@ -84,15 +84,9 @@ func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 			}
 			seen = h
 			ev := Event{}
-			// Parse the bytes that were hashed: reading the file again could
+			// Use the read that was hashed: reading the file again could
 			// catch a write that started after the stability check.
-			var cfg *Config
-			var err error
-			if raw != nil {
-				cfg, err = Parse(raw, path, o.Load)
-			} else {
-				cfg, err = Load(o.Load)
-			}
+			cfg, err := fromRead(path, raw, rerr, o.Load)
 			if err != nil {
 				ev.Err = err
 			} else {
@@ -115,17 +109,17 @@ func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 	return out
 }
 
-// readHashed returns the file's content and its hash. raw is nil when the
-// file is missing or unreadable.
-func readHashed(path string) (h [sha256.Size]byte, raw []byte) {
-	b, err := os.ReadFile(path)
+// readHashed reads the file once and hashes what it saw, including a
+// missing or unreadable file.
+func readHashed(path string) (h [sha256.Size]byte, raw []byte, err error) {
+	raw, err = readFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return sha256.Sum256([]byte("\x00missing")), nil
+			return sha256.Sum256([]byte("\x00missing")), nil, err
 		}
-		return sha256.Sum256([]byte("\x00unreadable")), nil
+		return sha256.Sum256([]byte("\x00unreadable")), nil, err
 	}
-	return sha256.Sum256(b), b
+	return sha256.Sum256(raw), raw, nil
 }
 
 // Diff returns the config keys whose effective values differ, sorted.

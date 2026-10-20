@@ -118,43 +118,16 @@ func (m *Model) projectsOverlayAction(act string) tea.Cmd {
 		m.ovSel = max(0, m.ovSel-1)
 	case "back", "open":
 		m.ov = ovNone
-	case "toggle":
+	case "toggle", "only", "all":
 		if cur == "" {
 			return nil
 		}
-		h := map[string]bool{}
-		for k, v := range m.hidden {
-			h[k] = v
-		}
-		if h[cur] {
-			delete(h, cur)
-		} else {
-			h[cur] = true
-			off := 0
-			for _, p := range all {
-				if h[p.Name] {
-					off++
-				}
-			}
-			if off == len(all) {
-				m.toast = "at least one project stays on (o shows only this one)"
-				return nil
-			}
-		}
-		return m.setHidden(h)
-	case "only":
-		if cur == "" {
+		h, ok := nextHidden(all, m.hidden, cur, act)
+		if !ok {
+			m.toast = "at least one project stays on (o shows only this one)"
 			return nil
 		}
-		h := map[string]bool{}
-		for _, p := range all {
-			if p.Name != cur {
-				h[p.Name] = true
-			}
-		}
 		return m.setHidden(h)
-	case "all":
-		return m.setHidden(nil)
 	default:
 		if cmd, ok := m.globalAction(act); ok {
 			return cmd
@@ -163,17 +136,80 @@ func (m *Model) projectsOverlayAction(act string) tea.Cmd {
 	return nil
 }
 
-// projectsInfo is the status line note while projects are turned off.
-func (m *Model) projectsInfo() string {
-	hid := m.hiddenProjects()
-	if len(hid) == 0 {
-		return ""
+// nextHidden applies a dialog action ("toggle" or "only" on cur, or "all")
+// to the projects that are on, as projects() shows them. Entries for
+// projects missing from the config are kept, so they come back off. ok is
+// false when the action would turn off the last project on.
+func nextHidden(all []api.BrowseNode, hidden map[string]bool, cur, act string) (map[string]bool, bool) {
+	present := map[string]bool{}
+	on := map[string]bool{}
+	for _, p := range all {
+		present[p.Name] = true
+		if !hidden[p.Name] {
+			on[p.Name] = true
+		}
 	}
+	if len(on) == 0 { // every project shows when none is on
+		for _, p := range all {
+			on[p.Name] = true
+		}
+	}
+	switch act {
+	case "toggle":
+		if on[cur] {
+			delete(on, cur)
+		} else {
+			on[cur] = true
+		}
+	case "only":
+		on = map[string]bool{cur: true}
+	case "all":
+		on = present
+	}
+	if len(on) == 0 {
+		return nil, false
+	}
+	out := map[string]bool{}
+	for k, v := range hidden {
+		if v && !present[k] {
+			out[k] = true
+		}
+	}
+	for _, p := range all {
+		if !on[p.Name] {
+			out[p.Name] = true
+		}
+	}
+	return out, true
+}
+
+// projectsInfo is the status line note naming the projects shown: the one
+// project when only one is on, otherwise "N of M" while some are off.
+func (m *Model) projectsInfo() string {
 	on := m.projects()
 	if len(on) == 1 {
 		return on[0].Name
 	}
+	hid := m.hiddenProjects()
+	if len(hid) == 0 {
+		return ""
+	}
 	return fmt.Sprintf("%d of %d projects", len(on), len(on)+len(hid))
+}
+
+// showProject turns p on if it is off, for opening a pasted path in it.
+func (m *Model) showProject(p string) tea.Cmd {
+	if !m.hidden[p] {
+		return nil
+	}
+	h := map[string]bool{}
+	for k, v := range m.hidden {
+		if v && k != p {
+			h[k] = true
+		}
+	}
+	m.toast = "turned project " + p + " on"
+	return m.setHidden(h)
 }
 
 func sortedKeys(s map[string]bool) []string {

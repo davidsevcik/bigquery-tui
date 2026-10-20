@@ -2,9 +2,11 @@ package config
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -137,5 +139,41 @@ func TestDiffIgnoresCommentsAndOrder(t *testing.T) {
 	b := mustParse(t, "# hi\nexecution_project = \"ok-project\"\nprojects = [\"a-proj\", \"b-proj\"]\n", LoadOptions{})
 	if d := Diff(a, b); len(d) != 0 {
 		t.Fatalf("%v", d)
+	}
+}
+
+// A file restored between two reads of one check must not be applied
+// unstable: each check reads the file once.
+func TestWatchReadsOncePerCheck(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(baseCfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := LoadOptions{Path: path, Getenv: func(string) string { return "" }}
+	cur, err := Load(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reads atomic.Int32
+	readFile = func(p string) ([]byte, error) {
+		// read 1 is the baseline, 2 and 3 the two checks that see the file
+		// missing; from read 4 on it is back
+		if n := reads.Add(1); n == 2 || n == 3 {
+			return nil, os.ErrNotExist
+		}
+		return os.ReadFile(p)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	kick := make(chan struct{}, 1)
+	ev := Watch(ctx, cur, WatchOptions{Load: opts, Interval: time.Hour, Stability: time.Nanosecond, Kick: kick})
+	kick <- struct{}{}
+	e := next(t, ev)
+	cancel()
+	for range ev {
+	}
+	readFile = os.ReadFile
+	var nc *ErrNoConfig
+	if !errors.As(e.Err, &nc) || e.Config != nil {
+		t.Fatalf("the event must describe the missing file the check saw: %+v", e)
 	}
 }
