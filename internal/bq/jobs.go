@@ -24,6 +24,10 @@ type QueryRequest struct {
 	// MaxBytesBilled is the hard cap; 0 sets none.
 	MaxBytesBilled int64
 	Labels         map[string]string
+	// JobID is the job's ID, chosen by the caller so a submission whose
+	// answer never arrived can still be cancelled; empty lets the client
+	// choose one.
+	JobID string
 }
 
 // DryRunResult is what a dry-run reports.
@@ -83,6 +87,9 @@ func (c *Client) userQuery(req QueryRequest, dry bool) (*bqapi.Query, error) {
 	q.DryRun = dry
 	q.MaxBytesBilled = req.MaxBytesBilled
 	q.Labels = req.Labels
+	if req.JobID != "" && !dry {
+		q.JobID = req.JobID
+	}
 	for _, p := range req.Params {
 		qp, err := queryParam(p)
 		if err != nil {

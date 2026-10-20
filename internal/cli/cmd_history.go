@@ -17,17 +17,13 @@ type PruneResult struct {
 	Before  time.Time `json:"before"`
 }
 
-// cmdHistory handles `bqt history prune` (listing and search arrive with the
-// agent layer in phase 5).
-func cmdHistory(ctx context.Context, o *out, g *globals, args []string) error {
-	if len(args) == 0 || args[0] != "prune" {
-		return usageErr("usage: bqt history prune --older-than AGE | --before DATE | --all")
-	}
+// cmdHistoryPrune handles `bqt history prune`.
+func cmdHistoryPrune(ctx context.Context, o *out, g *globals, args []string) error {
 	fs := commandFlags("history prune", g)
 	older := fs.String("older-than", "", "delete entries older than an age such as 90d or 12w")
 	before := fs.String("before", "", "delete entries created before a date (2026-01-31)")
 	all := fs.Bool("all", false, "delete every entry")
-	if err := parse(fs, args[1:]); err != nil {
+	if err := parse(fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {

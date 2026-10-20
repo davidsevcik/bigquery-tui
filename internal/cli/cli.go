@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
 
 	"golang.org/x/term"
 
@@ -22,6 +23,9 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 	"github.com/davidsevcik/bigquery-tui/internal/engine"
+	"github.com/davidsevcik/bigquery-tui/internal/favorites"
+	"github.com/davidsevcik/bigquery-tui/internal/policy"
+	"github.com/davidsevcik/bigquery-tui/internal/runs"
 	catsync "github.com/davidsevcik/bigquery-tui/internal/sync"
 	"github.com/davidsevcik/bigquery-tui/internal/version"
 )
@@ -37,6 +41,8 @@ type Env struct {
 	Now   func() time.Time
 	// Meta builds the BigQuery metadata client; nil uses the real one.
 	Meta func(context.Context) (bq.Metadata, error)
+	// Jobs builds the BigQuery query client; nil uses the real one.
+	Jobs func(context.Context) (bq.Jobs, error)
 	// CheckAuth inspects the default credentials; nil uses the real check.
 	CheckAuth func(context.Context) (bq.AuthInfo, error)
 	// Gcloud returns `gcloud config get-value project`, or "".
@@ -185,7 +191,33 @@ func classify(err error) *cmdError {
 	if errors.As(err, &ces) {
 		return &cmdError{exit: api.ExitConfig, code: "config", msg: "invalid config: " + ces.Error(), hint: "fix the config file (`bqt config edit`)"}
 	}
+	var pe *policy.Error
+	if errors.As(err, &pe) {
+		return &cmdError{exit: api.ExitOverLimit, code: pe.Refusal.Code, msg: err.Error(), hint: refusalHint(pe.Refusal)}
+	}
+	var qf *engine.QueryFailure
+	if errors.As(err, &qf) {
+		switch qf.Err.Kind {
+		case "timeout":
+			return &cmdError{exit: api.ExitOverLimit, code: "timeout", msg: qf.Error(), hint: "narrow the query, or raise agent_timeout in the config"}
+		case "auth":
+			return &cmdError{exit: api.ExitAuth, code: "auth", msg: qf.Error(), hint: "run `gcloud auth application-default login`"}
+		case "over_limit":
+			return &cmdError{exit: api.ExitOverLimit, code: "over_limit", msg: qf.Error(), hint: "BigQuery refused it under the job's byte cap (max_bytes_billed, agent_max_bytes)"}
+		}
+		return &cmdError{exit: api.ExitBigQuery, code: "query", msg: qf.Error(), hint: qf.Err.Hint}
+	}
 	switch {
+	case errors.Is(err, engine.ErrNoCatalog):
+		return &cmdError{exit: api.ExitFailure, code: "no_catalog", msg: "no catalog yet", hint: "run `bqt sync`"}
+	case errors.Is(err, engine.ErrUnknownTable):
+		return &cmdError{exit: api.ExitFailure, code: "not_found", msg: err.Error(), hint: "find the name with `bqt search`"}
+	case errors.Is(err, engine.ErrBadResultID):
+		return &cmdError{exit: api.ExitUsage, code: "usage", msg: err.Error()}
+	case errors.Is(err, runs.ErrGone), errors.Is(err, runs.ErrNoResult):
+		return &cmdError{exit: api.ExitBigQuery, code: "no_result", msg: err.Error(), hint: "run the query again"}
+	case errors.Is(err, favorites.ErrNotFound):
+		return &cmdError{exit: api.ExitFailure, code: "not_found", msg: err.Error(), hint: "list them with `bqt favorites list`"}
 	case errors.Is(err, catsync.ErrNoProjects):
 		return &cmdError{exit: api.ExitConfig, code: "no_projects", msg: err.Error(), hint: "add projects with `bqt config edit`"}
 	case errors.Is(err, engine.ErrSyncRunning):
@@ -224,7 +256,14 @@ Commands:
   sync           Refresh the local metadata catalog from BigQuery
   status         Show catalog freshness and sync problems
   search QUERY   Search the catalog (p: d: type: col: label: desc: filters)
+  schema TABLE   Columns, types and descriptions of project.dataset.table
+  query SQL      Run a SELECT (or --file f.sql, or SQL on stdin): --dry-run,
+                 --param name=value, --limit N, --max-bytes, --timeout
+  results ID     More rows of an earlier query: --cursor N --limit N
+  history [Q]    Search History (status: project: source: since: filters)
   history prune  Delete History entries: --older-than 90d, --before 2026-01-31 or --all
+  favorites      list [QUERY] [--sql] | show ID | run ID [--param name=value]
+  mcp            Serve the MCP tools over stdio (--print-config: client snippets)
   doctor         Print diagnostics (paths, versions, auth, catalog age)
   version        Print the version
   help           Show this help
@@ -237,8 +276,14 @@ Global flags:
   --location LOC           override location
   --data-dir DIR           override data_dir
 
-Exit codes: 0 ok, 1 failure, 2 usage, 3 config, 4 auth, 5 over limit,
-6 BigQuery error (also: sync finished with failed units), 7 cancelled.
+Queries from the command line and MCP run under the agent policy: SELECT only
+(cli_allow_writes = true opens the CLI to other statements), at most
+agent_max_bytes per query, agent_timeout, 1000 rows per call, cells cut at 200
+characters. Flags can only lower these limits; the config raises them.
+
+Exit codes: 0 ok, 1 failure, 2 usage, 3 config, 4 auth, 5 over limit or
+refused by the policy, 6 BigQuery error (also: sync finished with failed
+units), 7 cancelled.
 `
 
 // Run executes one bqt invocation and returns the process exit code.
@@ -266,6 +311,11 @@ func Run(ctx context.Context, args []string, env Env) int {
 	if cmd == "help" || cmd == "--help" || cmd == "-h" {
 		fmt.Fprint(env.Stdout, usage)
 		return api.ExitOK
+	}
+	if g.format == "" {
+		// the format may follow the command (`bqt sync --format text`), but
+		// the output is chosen before the command reads its flags
+		g.format = formatFlag(cargs)
 	}
 	o, err := newOut(env, g.format)
 	if err != nil {
@@ -295,6 +345,16 @@ func Run(ctx context.Context, args []string, env Env) int {
 		cerr = cmdDoctor(ctx, o, g, cargs)
 	case "history":
 		cerr = cmdHistory(ctx, o, g, cargs)
+	case "schema":
+		cerr = cmdSchema(ctx, o, g, cargs)
+	case "query":
+		cerr = cmdQuery(ctx, o, g, cargs)
+	case "results":
+		cerr = cmdResults(ctx, o, g, cargs)
+	case "favorites", "favorite", "fav":
+		cerr = cmdFavorites(ctx, o, g, cargs)
+	case "mcp":
+		cerr = cmdMCP(ctx, o, g, cargs)
 	default:
 		cerr = usageErr("unknown command %q", cmd)
 	}
@@ -302,6 +362,41 @@ func Run(ctx context.Context, args []string, env Env) int {
 		return o.fail(cerr)
 	}
 	return api.ExitOK
+}
+
+// formatFlag finds a --format value among a command's arguments, the way
+// the command's own parser reads them: the last one wins, and an argument
+// with white space in it (SQL such as "--format=x\nSELECT 1") is no flag.
+func formatFlag(args []string) string {
+	f := ""
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			return f
+		case strings.IndexFunc(a, unicode.IsSpace) >= 0:
+		case a == "--format" || a == "-format":
+			if i+1 < len(args) {
+				f = args[i+1]
+				i++
+			}
+		case strings.HasPrefix(a, "--format="), strings.HasPrefix(a, "-format="):
+			f = a[strings.IndexByte(a, '=')+1:]
+		}
+	}
+	return f
+}
+
+func refusalHint(r api.Refusal) string {
+	switch r.Code {
+	case api.RefuseOverLimit:
+		return "narrow the query, run it in the TUI, or raise agent_max_bytes in the config"
+	case api.RefuseNeedsConfirmation:
+		return "run it in the TUI, or raise confirm_bytes in the config"
+	case api.RefuseNotReadOnly:
+		return "run it in the TUI"
+	}
+	return "run it in the TUI"
 }
 
 func printUsageError(env Env, err error) int {

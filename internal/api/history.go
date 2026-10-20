@@ -51,6 +51,8 @@ type HistoryPage struct {
 	Groups []HistoryGroup `json:"groups"`
 	// More is set when another page follows.
 	More bool `json:"more,omitempty"`
+	// Total counts the groups that match (0 for a page past the end).
+	Total int `json:"total"`
 }
 
 // Favorite is a saved query: a .sql file under favorites_dir whose relative

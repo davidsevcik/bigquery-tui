@@ -2,7 +2,7 @@
 
 A keyboard-driven terminal tool for browsing, searching, writing and running BigQuery queries across many GCP projects, built to sit next to AI agents.
 
-Status: **phases 1 to 3**. This build has the config file, the local metadata catalog, sync, catalog search, the interactive explorer, the query editor with completion, query runs with a dry-run first, and the results viewer with export. History search, Favorites and the agent layer follow the plan in [`docs/spec/bqt-v1.md`](docs/spec/bqt-v1.md).
+Status: **phases 1 to 5** of [`docs/spec/bqt-v1.md`](docs/spec/bqt-v1.md). This build has the config file, the local metadata catalog, sync, catalog search, the interactive explorer, the query editor with completion, query runs with a dry-run first, the results viewer with export, History and Favorites, and the agent layer: a JSON command line, an MCP server and hand-off actions in the UI.
 
 ## Build
 
@@ -47,9 +47,38 @@ SELECT ... WHERE d >= @start AND c = @country
 
 `bqt history prune --older-than 90d` deletes old History entries (`history_retention_days` in the config does it automatically).
 
+**Hand-off to an agent.** `ctrl+x y` (vim: `space y`) offers what fits the moment: the selected table's schema as markdown or JSON, the focused run's SQL with its error, the first 20 result rows (markdown, TSV or NDJSON), or a summary of the run. `enter` copies it to the clipboard (OSC 52, so it works over SSH and tmux); `w` writes it to a file, `./.bqt-handoff/` by default. Each one is also a palette command ("Hand-off: …").
+
+## Agents: command line and MCP
+
+Agents can use bqt two ways: run the commands (Claude Code calls them through Bash), or start the MCP server.
+
+```sh
+bqt search 'col:customer_id d:sales'         # find tables
+bqt schema proj.sales.orders                  # columns, types, descriptions
+bqt query --dry-run 'SELECT ...'              # bytes, statement type, allowed or not
+bqt query 'SELECT ... WHERE d > @d' --param d=DATE:2024-01-31 --limit 20
+bqt results 'proj:EU.job_id' --cursor 20      # more rows of that query (about 24 hours)
+bqt history 'status:failed since:7d'          # past runs
+bqt favorites list | show ID | run ID --param country=CZ
+bqt mcp --print-config                        # snippets for Claude Code, Codex, Gemini CLI
+```
+
+Every command prints one JSON document when stdout is not a terminal (`{"schema_version":1,"data":…,"truncated":…,"next_cursor":…}`) and errors as JSON on stderr. The SQL can also come from `--file` or stdin.
+
+`bqt mcp` serves eight tools over stdio: `search_catalog`, `get_schema`, `catalog_status`, `dry_run`, `run_query`, `get_results`, `list_favorites`, `search_history`. It never syncs; `catalog_status` tells the agent to ask you to run `bqt sync` when the catalog is stale.
+
+**Safety.** bqt cannot tell an agent from a person at the command line, so `bqt query`, `bqt favorites run` and the MCP server share one policy, checked on the dry-run before any job starts:
+
+- Only `SELECT` runs. Scripts, DML, DDL, `EXPORT DATA` and `CALL` are refused (`cli_allow_writes = true` opens the command line, never MCP).
+- At most `agent_max_bytes` (default 1 GiB) per query; an `UNKNOWN` estimate is refused; a scan over `confirm_bytes` is refused instead of asked about.
+- `agent_timeout` (default 60s) per query, up to 1,000 rows per call, cells cut at 200 characters.
+- Flags and tool arguments can only lower these limits. Raising them takes the config file, which an agent that can edit your files can also do: give the Execution project read-only IAM for the real guarantee.
+- Every job carries the labels `bqt=1` and `bqt_source=cli|mcp`, and lands in History with its source.
+
 Search syntax: free terms match names (and descriptions last); filters are `p:` project, `d:` dataset, `type:`, `col:`, `label:`, `desc:`; `-d:tmp` excludes; `type:view,mview` is OR; a pasted `project.dataset.table` is an exact lookup. Columns are searched only with `col:`.
 
-Output is JSON when stdout is not a terminal and text otherwise (`--format json|text`). Exit codes: 0 ok, 1 failure, 2 usage, 3 config, 4 auth, 5 over limit, 6 BigQuery error (also: a sync with failed units), 7 cancelled.
+Output is JSON when stdout is not a terminal and text otherwise (`--format json|text`). Exit codes: 0 ok, 1 failure, 2 usage, 3 config, 4 auth, 5 over limit or refused by the policy, 6 BigQuery error (also: a sync with failed units), 7 cancelled.
 
 The config file lives at `~/.config/bqt/config.toml` (or `$BQT_CONFIG`, or `--config`). Unknown keys are errors. See the comments in the file `bqt init` writes.
 

@@ -127,7 +127,7 @@ func newRig(t *testing.T, w, h int) *rig {
 		t.Fatal(err)
 	}
 	r.eng = eng
-	r.m = New(EngineBackend{Engine: eng, Load: load}, Options{NoBackground: true, StableOutput: true, Location: time.UTC, Now: func() time.Time { return r.now }, Getenv: func(string) string { return "" }})
+	r.m = New(EngineBackend{Engine: eng, Load: load}, Options{NoBackground: true, StableOutput: true, Location: time.UTC, Now: func() time.Time { return r.now }, Getenv: func(string) string { return "" }, JobHeld: r.fake.Held})
 	t.Cleanup(r.m.Close)
 	r.send(tea.WindowSizeMsg{Width: w, Height: h})
 	r.run(r.m.Init())

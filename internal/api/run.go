@@ -15,12 +15,15 @@ const (
 	RunCancelled  RunState = "cancelled"
 	// RunEstimated is the end state of a dry-run-only Run.
 	RunEstimated RunState = "estimated"
+	// RunRefused is the end state of a Run the safety policy stopped after
+	// its dry-run (agent entry points only); no job was started.
+	RunRefused RunState = "refused"
 )
 
 // Finished reports whether the state is final.
 func (s RunState) Finished() bool {
 	switch s {
-	case RunDone, RunFailed, RunCancelled, RunEstimated:
+	case RunDone, RunFailed, RunCancelled, RunEstimated, RunRefused:
 		return true
 	}
 	return false
@@ -107,9 +110,12 @@ type RunInfo struct {
 
 	Estimate     *Estimate     `json:"estimate,omitempty"`
 	Confirmation *Confirmation `json:"confirmation,omitempty"`
-	Job          *JobRef       `json:"job,omitempty"`
-	Error        *QueryError   `json:"error,omitempty"`
-	Stats        *RunStats     `json:"stats,omitempty"`
+	// Refusal is the safety policy's verdict for a Run under a policy: set
+	// on a refused Run, and on a dry-run-only Run the policy would refuse.
+	Refusal *Refusal    `json:"refusal,omitempty"`
+	Job     *JobRef     `json:"job,omitempty"`
+	Error   *QueryError `json:"error,omitempty"`
+	Stats   *RunStats   `json:"stats,omitempty"`
 	// CancelRequested is set between the cancel request and the job's
 	// confirmation; the Run may still be billed.
 	CancelRequested bool `json:"cancel_requested,omitempty"`

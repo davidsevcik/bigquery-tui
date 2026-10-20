@@ -51,11 +51,11 @@ func (e *Engine) SearchHistory(ctx context.Context, raw string, limit, offset in
 	if err != nil {
 		return page, err
 	}
-	gs, more, err := h.SearchHistory(ctx, search.HistoryQuery(q, e.o.Now()), limit, offset)
+	gs, more, total, err := h.SearchHistory(ctx, search.HistoryQuery(q, e.o.Now()), limit, offset)
 	if err != nil {
 		return page, err
 	}
-	page.Groups, page.More = gs, more
+	page.Groups, page.More, page.Total = gs, more, total
 	return page, nil
 }
 

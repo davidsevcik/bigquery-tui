@@ -13,6 +13,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/export"
 	"github.com/davidsevcik/bigquery-tui/internal/format"
+	"github.com/davidsevcik/bigquery-tui/internal/handoff"
 	"github.com/davidsevcik/bigquery-tui/internal/runs"
 	"github.com/davidsevcik/bigquery-tui/internal/sqlx"
 )
@@ -237,4 +238,52 @@ func (e *Engine) StartExport(ctx context.Context, runID int64, path string, f ex
 		h.emit(ev)
 	}()
 	return h, nil
+}
+
+// RunSample renders the first handoff.SampleRows rows of a Run's result for
+// a hand-off. NDJSON is written from the raw values (as an export would), so
+// strings keep their line breaks and tabs; markdown and TSV come from the
+// formatted cells, which they have to flatten anyway.
+func (e *Engine) RunSample(ctx context.Context, id int64, f handoff.SampleFormat) (string, error) {
+	r := e.runs.Get(id)
+	if r == nil {
+		return "", ErrUnknownRun
+	}
+	info := r.Info()
+	if !info.HasResult {
+		return "", runs.ErrNoResult
+	}
+	var raw [][]any
+	for start := int64(0); start < info.TotalRows && len(raw) < handoff.SampleRows; {
+		_, rows, err := r.RawRows(ctx, start)
+		if err != nil {
+			return "", err
+		}
+		if len(rows) == 0 {
+			break
+		}
+		raw = append(raw, rows...)
+		start += int64(len(rows))
+	}
+	if len(raw) > handoff.SampleRows {
+		raw = raw[:handoff.SampleRows]
+	}
+	schema := r.Schema()
+	if f == handoff.NDJSON {
+		var b strings.Builder
+		done := false
+		_, err := export.Write(ctx, &b, export.NDJSON, schema, func(context.Context, int64) ([][]any, error) {
+			if done {
+				return nil, nil
+			}
+			done = true
+			return raw, nil
+		}, nil)
+		return b.String(), err
+	}
+	cells := make([][]api.Cell, len(raw))
+	for i, row := range raw {
+		cells[i] = format.Row(schema, row, format.Options{})
+	}
+	return handoff.Sample(format.Columns(schema), cells, f), nil
 }

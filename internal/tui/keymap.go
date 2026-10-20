@@ -50,6 +50,14 @@ var Keymap = []Binding{
 	{ZoneGlobal, []string{"ctrl+g"}, "tutorial", "tutorial of the navigation (while it runs: ctrl+g then n, p, r or q)", "Tutorial", "ctrl+g tutorial"},
 	{ZoneGlobal, []string{"ctrl+c"}, "cancel", "cancel the export, the focused Run, or the sync", "Cancel the focused Run", ""},
 	{ZoneGlobal, []string{}, "cancelall", "cancel every Run", "Cancel all Runs", ""},
+	{ZoneGlobal, []string{"ctrl+x y"}, "handoff", "hand-off to an agent: the selected table's schema, the focused Run's error, result sample or summary, to the clipboard or a file", "Hand-off to an agent", ""},
+	{ZoneGlobal, []string{}, "hoschemamd", "copy the selected table's schema as markdown", "Hand-off: copy schema (markdown)", ""},
+	{ZoneGlobal, []string{}, "hoschemajson", "copy the selected table's schema as JSON (as bqt schema)", "Hand-off: copy schema (JSON)", ""},
+	{ZoneGlobal, []string{}, "hoerror", "copy the focused Run's SQL and error", "Hand-off: copy query and error", ""},
+	{ZoneGlobal, []string{}, "hosamplemd", "copy the first 20 result rows as markdown", "Hand-off: copy result sample (markdown)", ""},
+	{ZoneGlobal, []string{}, "hosampletsv", "copy the first 20 result rows as TSV", "Hand-off: copy result sample (TSV)", ""},
+	{ZoneGlobal, []string{}, "hosamplendjson", "copy the first 20 result rows as NDJSON", "Hand-off: copy result sample (NDJSON)", ""},
+	{ZoneGlobal, []string{}, "horun", "copy the focused Run: SQL, estimate, state, outcome", "Hand-off: copy the run", ""},
 
 	{ZoneExplorer, []string{"j", "down"}, "down", "move down", "", "↑↓←→/hjkl move"},
 	{ZoneExplorer, []string{"k", "up"}, "up", "move up", "", ""},
@@ -163,6 +171,7 @@ var Keymap = []Binding{
 	{ZoneOverlay, []string{"space", "x"}, "toggle", "projects popup: turn the project on or off", "", ""},
 	{ZoneOverlay, []string{"o"}, "only", "projects popup: turn on only this project", "", ""},
 	{ZoneOverlay, []string{"a"}, "all", "projects popup: turn every project on", "", ""},
+	{ZoneOverlay, []string{"w"}, "write", "hand-off popup: write to a file", "", ""},
 	{ZoneOverlay, []string{"esc", "q"}, "back", "close", "", "esc close"},
 }
 
@@ -325,6 +334,7 @@ var vimHelp = [][2]string{
 	{"space r / d", "run / dry-run; space l runs, space b buffers, space n new, space w close, space [ ] switch, space s save, space e $EDITOR"},
 	{"space f / h", "favorites / history; space F saves the buffer as a favorite"},
 	{"space p", "projects: turn them on or off"},
+	{"space y", "hand-off to an agent (schema, error, result sample, run)"},
 	{":  ?", "command palette, this help"},
 	{"Insert mode", "ctrl+r runs, ctrl+d dry-runs, tab accepts a completion, ctrl+n forces one"},
 }

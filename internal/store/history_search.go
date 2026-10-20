@@ -211,7 +211,9 @@ func (h *History) Prune(ctx context.Context, before time.Time) (int64, error) {
 // SearchHistory returns one group per SQL text, newest first. Free terms
 // match the SQL through full-text search (each term as a prefix; a term with
 // punctuation matches as a phrase).
-func (h *History) SearchHistory(ctx context.Context, q HistoryQuery, limit, offset int) ([]api.HistoryGroup, bool, error) {
+// SearchHistory returns one page of groups, whether more follow, and the
+// number of groups that match (0 when the page is past the end).
+func (h *History) SearchHistory(ctx context.Context, q HistoryQuery, limit, offset int) ([]api.HistoryGroup, bool, int, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -254,7 +256,7 @@ func (h *History) SearchHistory(ctx context.Context, q HistoryQuery, limit, offs
 		case "since":
 			cond, cargs = "h.created_at >= ?", []any{c.Since.Unix()}
 		default:
-			return nil, false, fmt.Errorf("history: unknown filter %q", c.Field)
+			return nil, false, 0, fmt.Errorf("history: unknown filter %q", c.Field)
 		}
 		if c.Negated {
 			cond = "NOT " + cond
@@ -274,33 +276,34 @@ g AS (SELECT k, COUNT(*) AS n,
   SUM(CASE WHEN reservation_id != '' THEN COALESCE(total_slot_ms, 0) ELSE 0 END) AS slot
   FROM k GROUP BY k),
 r AS (SELECT id, k FROM k WHERE rn = 1)
-SELECT ` + entryCols + `, g.n, g.billed, g.slot, g.k FROM g JOIN r ON r.k = g.k JOIN history h ON h.id = r.id
+SELECT ` + entryCols + `, g.n, g.billed, g.slot, g.k, COUNT(*) OVER () FROM g JOIN r ON r.k = g.k JOIN history h ON h.id = r.id
 ORDER BY h.created_at DESC, h.id DESC LIMIT ? OFFSET ?`
 	args = append(args, limit+1, offset)
 	rows, err := h.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, false, err
+		return nil, false, 0, err
 	}
 	defer rows.Close()
 	out := []api.HistoryGroup{}
+	total := 0
 	for rows.Next() {
 		var g api.HistoryGroup
-		e, err := scanEntry(rows, &g.Runs, &g.BytesBilled, &g.SlotMs, &g.Key)
+		e, err := scanEntry(rows, &g.Runs, &g.BytesBilled, &g.SlotMs, &g.Key, &total)
 		if err != nil {
-			return nil, false, err
+			return nil, false, 0, err
 		}
 		g.Latest = e
 		g.Spans = termSpans(e.SQL, q.Terms)
 		out = append(out, g)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, false, err
+		return nil, false, 0, err
 	}
 	more := len(out) > limit
 	if more {
 		out = out[:limit]
 	}
-	return out, more, nil
+	return out, more, total, nil
 }
 
 func hasWordChar(s string) bool {

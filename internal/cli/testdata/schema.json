@@ -1,0 +1,19 @@
+{
+  "data": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "STRING"
+      },
+      {
+        "name": "amount",
+        "type": "STRING"
+      }
+    ],
+    "location": "EU",
+    "synced_at": "2026-10-01T08:00:00Z",
+    "table": "proj-a.sales.orders",
+    "type": "table"
+  },
+  "schema_version": 1
+}

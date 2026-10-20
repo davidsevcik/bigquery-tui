@@ -7,6 +7,10 @@ package runs
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"log/slog"
 	"sort"
 	"sync"
@@ -16,13 +20,14 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 	"github.com/davidsevcik/bigquery-tui/internal/format"
+	"github.com/davidsevcik/bigquery-tui/internal/policy"
 )
 
 const (
 	// OnDemandUSDPerTiB is the on-demand list price used for the estimate.
 	OnDemandUSDPerTiB = 6.25
 	// AutoConfirmBytes is the confirm_bytes default for on-demand Runs.
-	AutoConfirmBytes int64 = 10 << 30
+	AutoConfirmBytes = policy.AutoConfirmBytes
 	// PageRows is the size of a result page; PageCache is how many are kept.
 	PageRows  = 500
 	PageCache = 10
@@ -44,6 +49,9 @@ type Options struct {
 	// RetryDelay is the base delay between retries of a cancel request or a
 	// status poll (default 1s; tests shorten it).
 	RetryDelay time.Duration
+	// SubmitTimeout bounds a job submission outside the agent timeout
+	// (default 2 minutes).
+	SubmitTimeout time.Duration
 }
 
 // Request starts a Run.
@@ -56,6 +64,10 @@ type Request struct {
 	DryRunOnly bool
 	// Favorite is the ID of the Favorite the SQL came from (History).
 	Favorite string
+	// Policy puts the Run under the agent safety profile (spec 14.3): it is
+	// refused after the dry-run instead of asking for confirmation, and it
+	// times out. nil (the TUI) asks instead.
+	Policy *policy.Profile
 }
 
 // Manager owns the Runs of one process.
@@ -91,6 +103,9 @@ func New(o Options) *Manager {
 	}
 	if o.RetryDelay <= 0 {
 		o.RetryDelay = time.Second
+	}
+	if o.SubmitTimeout <= 0 {
+		o.SubmitTimeout = 2 * time.Minute
 	}
 	return &Manager{o: o, events: make(chan api.RunEvent, 256)}
 }
@@ -234,7 +249,18 @@ func (m *Manager) Close() {
 	// billing) after bqt has gone: give the requests a moment to be sent.
 	// The same goes for a job being submitted right now: wait for its ID and
 	// for the cancel that follows.
+	// Every Run is cancelled now; wait for them to end too, so their History
+	// entries are written before the caller closes the store.
 	deadline := time.Now().Add(15 * time.Second)
+	m.mu.Lock()
+	all := append([]*Run(nil), m.runs...)
+	m.mu.Unlock()
+	for _, r := range all {
+		select {
+		case <-r.done:
+		case <-time.After(time.Until(deadline)):
+		}
+	}
 	for {
 		m.mu.Lock()
 		busy := m.busy
@@ -348,9 +374,18 @@ func (m *Manager) release() {
 func (m *Manager) Start(ctx context.Context, req Request) *Run {
 	cfg := m.o.Config()
 	rctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	var pol *policy.Profile
+	if req.Policy != nil {
+		p := *req.Policy
+		pol = &p
+		if p.Timeout > 0 {
+			cancel()
+			rctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), p.Timeout)
+		}
+	}
 	m.mu.Lock()
 	m.seq++
-	r := &Run{m: m, id: m.seq, ctx: rctx, stop: cancel, confirm: make(chan struct{}), done: make(chan struct{}),
+	r := &Run{m: m, id: m.seq, ctx: rctx, stop: cancel, policy: pol, confirm: make(chan struct{}), done: make(chan struct{}),
 		changed: make(chan struct{}), pages: map[int64]*bq.ResultPage{}}
 	r.info = api.RunInfo{ID: r.id, Tag: req.Tag, SQL: req.SQL, Params: append([]api.QueryParam(nil), req.Params...),
 		State: api.RunEstimating, DryRunOnly: req.DryRunOnly, Source: m.o.Source, Favorite: req.Favorite,
@@ -360,7 +395,7 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 	m.runs = append(m.runs, r)
 	m.mu.Unlock()
 	if closed {
-		r.finish(func(i *api.RunInfo) { i.State = api.RunCancelled })
+		r.finish(r.markCancelled)
 		return r
 	}
 	m.publish(r.Info())
@@ -372,6 +407,7 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 type Run struct {
 	m       *Manager
 	id      int64
+	policy  *policy.Profile // nil outside the agent entry points
 	ctx     context.Context
 	stop    context.CancelFunc
 	confirm chan struct{}
@@ -519,10 +555,21 @@ func (r *Run) Cancel() {
 	r.stop()
 }
 
+// markCancelled sets the end state of a Run that stopped before finishing:
+// cancelled, or failed with a timeout when the agent profile's timeout ran out.
+func (r *Run) markCancelled(i *api.RunInfo) {
+	if r.policy != nil && errors.Is(r.ctx.Err(), context.DeadlineExceeded) {
+		i.State, i.Error = api.RunFailed, &api.QueryError{Kind: "timeout",
+			Message: fmt.Sprintf("the query took longer than %s (agent_timeout) and was cancelled", r.policy.Timeout)}
+		return
+	}
+	i.State = api.RunCancelled
+}
+
 func (r *Run) fail(err error) {
 	qe := bq.QueryErrorOf(err)
 	if r.ctx.Err() != nil || qe.Kind == "cancelled" {
-		r.finish(func(i *api.RunInfo) { i.State = api.RunCancelled })
+		r.finish(r.markCancelled)
 		return
 	}
 	r.finish(func(i *api.RunInfo) { i.State, i.Error = api.RunFailed, qe })
@@ -557,24 +604,37 @@ func (r *Run) run(cfg *config.Config) {
 		usd := float64(dr.BytesProcessed) / float64(1<<40) * OnDemandUSDPerTiB
 		est.ApproxUSD = &usd
 	}
+	var refusal *api.Refusal
+	if r.policy != nil {
+		refusal = r.policy.Check(cfg, *est)
+	}
 	if dryOnly {
-		r.finish(func(i *api.RunInfo) { i.State, i.Estimate = api.RunEstimated, est })
+		r.finish(func(i *api.RunInfo) { i.State, i.Estimate, i.Refusal = api.RunEstimated, est, refusal })
+		return
+	}
+	if refusal != nil {
+		r.finish(func(i *api.RunInfo) { i.State, i.Estimate, i.Refusal = api.RunRefused, est, refusal })
 		return
 	}
 
 	conf := confirmation(cfg, est)
+	if r.policy != nil {
+		// The policy has decided instead: it refuses what the TUI would ask
+		// about, except a write the config allows from the CLI.
+		conf = nil
+	}
 	if conf != nil {
 		r.set(func(i *api.RunInfo) { i.State, i.Estimate, i.Confirmation = api.RunNeedsOK, est, conf })
 		select {
 		case <-r.confirm:
 		case <-r.ctx.Done():
-			r.finish(func(i *api.RunInfo) { i.State = api.RunCancelled })
+			r.finish(r.markCancelled)
 			return
 		}
 	}
 	r.set(func(i *api.RunInfo) { i.State, i.Estimate, i.Confirmation = api.RunQueued, est, nil })
 	if !m.acquire(r.ctx) {
-		r.finish(func(i *api.RunInfo) { i.State = api.RunCancelled })
+		r.finish(r.markCancelled)
 		return
 	}
 	defer m.release()
@@ -584,17 +644,42 @@ func (r *Run) run(cfg *config.Config) {
 		req.Location = dr.Location
 	}
 	if r.ctx.Err() != nil {
-		r.finish(func(i *api.RunInfo) { i.State = api.RunCancelled })
+		r.finish(r.markCancelled)
 		return
 	}
-	// Submitting is not cancellable: a request cut off half way can leave a
-	// job running that nobody knows the ID of. A cancel that arrives meanwhile
-	// is honoured right after, with the job ID in hand.
+	// Submitting is not cancelled with the Run: a cancel that arrives
+	// meanwhile is honoured right after, with the job in hand. It is bounded,
+	// though (the client retries transient errors until its context ends):
+	// by the agent timeout, or submitTimeout. The job ID is chosen here, so a
+	// submission that ran out of time can still be cancelled by ID.
 	// (Close waits for submissions in flight, so quitting cannot strand one.)
+	req.JobID = newJobID()
 	m.busyAdd(1)
-	ref, err := jobs.StartQuery(context.WithoutCancel(r.ctx), req)
+	dl, runDeadline := r.ctx.Deadline()
+	if !runDeadline {
+		dl = time.Now().Add(m.o.SubmitTimeout)
+	}
+	sctx, scancel := context.WithDeadline(context.WithoutCancel(r.ctx), dl)
+	ref, err := jobs.StartQuery(sctx, req)
+	expired := errors.Is(sctx.Err(), context.DeadlineExceeded)
+	scancel()
+	if expired && runDeadline {
+		// The Run's own deadline passed: its context ends with it, but on
+		// its own timer. Wait for it, so the Run ends as a timeout.
+		<-r.ctx.Done()
+	}
 	if err != nil {
+		if expired {
+			// the job may exist without our knowing: stop it by its ID
+			m.cancelJob(jobs, api.JobRef{Project: cfg.ExecutionProject, Location: req.Location, ID: req.JobID}, nil)
+		}
 		m.busyAdd(-1)
+		if expired && r.ctx.Err() == nil {
+			qe := bq.QueryErrorOf(err)
+			qe.Message = "submitting the job took too long (a cancel was requested): " + qe.Message
+			r.finish(func(i *api.RunInfo) { i.State, i.Error = api.RunFailed, qe })
+			return
+		}
 		r.fail(err)
 		return
 	}
@@ -603,7 +688,8 @@ func (r *Run) run(cfg *config.Config) {
 		m.cancelJob(jobs, ref, nil)
 		m.busyAdd(-1)
 		r.finish(func(i *api.RunInfo) {
-			i.State, i.Job, i.Started, i.Location = api.RunCancelled, &ref, &started, ref.Location
+			r.markCancelled(i)
+			i.Job, i.Started, i.Location = &ref, &started, ref.Location
 		})
 		return
 	}
@@ -650,7 +736,12 @@ func (r *Run) run(cfg *config.Config) {
 		if qe.Kind == "cancelled" {
 			state, qe = api.RunCancelled, nil
 		}
-		r.finish(func(i *api.RunInfo) { i.State, i.Error, i.Stats, i.CancelRequested = state, qe, stats, false })
+		r.finish(func(i *api.RunInfo) {
+			i.State, i.Error, i.Stats, i.CancelRequested = state, qe, stats, false
+			if state == api.RunCancelled {
+				r.markCancelled(i) // a timeout cancels the job too
+			}
+		})
 		return
 	}
 
@@ -659,6 +750,9 @@ func (r *Run) run(cfg *config.Config) {
 	r.finish(func(i *api.RunInfo) {
 		i.State, i.Stats, i.CancelRequested = api.RunDone, stats, false
 		switch {
+		case perr != nil && r.policy != nil && r.ctx.Err() != nil:
+			// the agent timeout ran out while reading the rows
+			r.markCancelled(i)
 		case perr != nil:
 			i.ResultError = bq.QueryErrorOf(perr).Message
 		case len(page.Schema) > 0:
@@ -676,15 +770,7 @@ func confirmation(cfg *config.Config, est *api.Estimate) *api.Confirmation {
 	if est.StatementType != "SELECT" {
 		c.Reasons = append(c.Reasons, "statement")
 	}
-	var threshold int64
-	switch cfg.ConfirmBytes.Mode {
-	case config.ByteLimitValue:
-		threshold = cfg.ConfirmBytes.Bytes
-	case config.ByteLimitAuto:
-		if !est.Capacity {
-			threshold = AutoConfirmBytes
-		}
-	}
+	threshold := policy.ConfirmThreshold(cfg, est.Capacity)
 	if threshold > 0 && est.Bytes > threshold {
 		c.Reasons = append(c.Reasons, "bytes")
 		c.Threshold = threshold
@@ -693,4 +779,13 @@ func confirmation(cfg *config.Config, est *api.Estimate) *api.Confirmation {
 		return nil
 	}
 	return c
+}
+
+// newJobID returns a fresh job ID (BigQuery allows letters, digits, _ and -).
+func newJobID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("bqt_%x", time.Now().UnixNano())
+	}
+	return "bqt_" + hex.EncodeToString(b[:])
 }

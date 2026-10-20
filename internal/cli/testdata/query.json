@@ -1,0 +1,41 @@
+{
+  "data": {
+    "columns": [
+      {
+        "name": "n",
+        "type": "INTEGER"
+      },
+      {
+        "name": "label",
+        "type": "STRING"
+      }
+    ],
+    "next_cursor": "3",
+    "result_id": "fake-exec:EU.bqt_JOBID",
+    "rows": [
+      [
+        "0",
+        "row 0"
+      ],
+      [
+        "1",
+        "row 1"
+      ],
+      [
+        "2",
+        "row 2"
+      ]
+    ],
+    "start_index": 0,
+    "statement_type": "SELECT",
+    "stats": {
+      "bytes_billed": 6000,
+      "bytes_processed": 6000
+    },
+    "total_rows": 60,
+    "truncated": true
+  },
+  "next_cursor": "3",
+  "schema_version": 1,
+  "truncated": true
+}

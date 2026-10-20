@@ -49,6 +49,7 @@ type promptState struct {
 	favID   string      // favrename, savefav
 	favPath string      // favrename: the file shown when the prompt opened
 	entryID int64       // promote
+	hoItem  handoffItem // handoff: what to write
 }
 
 // confirmState is a yes/no question.
@@ -386,20 +387,25 @@ func (m *Model) startRun(b *buffer, sql string, params []api.QueryParam, dry boo
 }
 
 // followRun waits for the Run's next change. In tests (no background work) it
-// waits until the Run needs the user or has finished, giving up after a short
-// while if a job is still running.
+// waits until the Run needs the user or has finished, or its job is held
+// running by the test (Options.JobHeld); a safety limit stops a stuck test.
 func (m *Model) followRun(id, ver int64) tea.Cmd {
 	return func() tea.Msg {
 		if !m.o.NoBackground {
 			info, v := m.be.AwaitRun(m.ctx, id, ver)
 			return runMsg{info, v}
 		}
-		deadline := time.Now().Add(300 * time.Millisecond)
+		deadline := time.Now().Add(10 * time.Second)
 		for {
-			ctx, cancel := contextWithDeadline(m.ctx, deadline)
+			step := time.Now().Add(10 * time.Millisecond)
+			if step.After(deadline) {
+				step = deadline
+			}
+			ctx, cancel := contextWithDeadline(m.ctx, step)
 			info, v := m.be.AwaitRun(ctx, id, ver)
 			cancel()
-			if info.State.Finished() || info.State == api.RunNeedsOK || !time.Now().Before(deadline) {
+			held := info.Job != nil && m.o.JobHeld != nil && m.o.JobHeld(info.Job.ID)
+			if info.State.Finished() || info.State == api.RunNeedsOK || held || !time.Now().Before(deadline) {
 				return runMsg{info, v}
 			}
 			ver = v
@@ -596,6 +602,8 @@ func (m *Model) promptSubmit() tea.Cmd {
 	switch p.kind {
 	case "favrename", "promote", "savefav":
 		return m.promptFavorite(p)
+	case "handoff":
+		return m.handoffSubmit(p)
 	case "params":
 		params := make([]api.QueryParam, len(p.specs))
 		for i, s := range p.specs {
