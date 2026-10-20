@@ -147,43 +147,8 @@ func (s *Searcher) Search(ctx context.Context, raw string, o api.SearchOptions) 
 	start := time.Now()
 	q := Parse(raw)
 	resp := api.SearchResponse{Query: q, Results: []api.SearchResult{}}
-	x := s.Index()
-
-	c := &compiled{q: q}
-	for _, t := range q.Terms {
-		c.terms = append(c.terms, t.Text)
-	}
-	needCols := false
-	for _, f := range q.Filters {
-		if !usable(f) {
-			continue
-		}
-		c.filters = append(c.filters, f)
-		if f.Key == "col" {
-			needCols = true
-		}
-	}
-	if needCols {
-		ix, cb, err := s.columns(ctx)
-		if err != nil {
-			return resp, err
-		}
-		x = ix
-		for _, f := range c.filters {
-			if f.Key != "col" {
-				continue
-			}
-			set := colSet{neg: f.Negated, m: map[int]int{}}
-			if cb != nil {
-				set.m = cb.match(ctx, f.Values)
-			}
-			c.colSets = append(c.colSets, set)
-			if !f.Negated {
-				c.colVals = append(c.colVals, f.Values...)
-			}
-		}
-	}
-	if err := ctx.Err(); err != nil {
+	x, c, err := s.compile(ctx, q)
+	if err != nil {
 		return resp, err
 	}
 
@@ -232,6 +197,48 @@ func (s *Searcher) Search(ctx context.Context, raw string, o api.SearchOptions) 
 	}
 	resp.TookMS = float64(time.Since(start).Microseconds()) / 1000
 	return resp, nil
+}
+
+// compile prepares a parsed query: its free terms, its usable filters and,
+// for col:, the matching column sets. It returns the index the column sets
+// belong to.
+func (s *Searcher) compile(ctx context.Context, q api.ParsedQuery) (*Index, *compiled, error) {
+	x := s.Index()
+	c := &compiled{q: q}
+	for _, t := range q.Terms {
+		c.terms = append(c.terms, t.Text)
+	}
+	needCols := false
+	for _, f := range q.Filters {
+		if !usable(f) {
+			continue
+		}
+		c.filters = append(c.filters, f)
+		if f.Key == "col" {
+			needCols = true
+		}
+	}
+	if needCols {
+		ix, cb, err := s.columns(ctx)
+		if err != nil {
+			return x, c, err
+		}
+		x = ix
+		for _, f := range c.filters {
+			if f.Key != "col" {
+				continue
+			}
+			set := colSet{neg: f.Negated, m: map[int]int{}}
+			if cb != nil {
+				set.m = cb.match(ctx, f.Values)
+			}
+			c.colSets = append(c.colSets, set)
+			if !f.Negated {
+				c.colVals = append(c.colVals, f.Values...)
+			}
+		}
+	}
+	return x, c, ctx.Err()
 }
 
 func (x *Index) tableHit(i, maxScore, sum int) hit {
@@ -300,47 +307,35 @@ func (s *Searcher) rank(ctx context.Context, x *Index, c *compiled, o api.Search
 	}
 
 	// Score tables in parallel chunks; chunk order keeps the result deterministic.
-	workers := min(runtime.GOMAXPROCS(0), 8)
-	n := len(x.tables)
-	if n < 4096 {
-		workers = 1
-	}
-	parts := make([][]hit, workers)
-	var wg gosync.WaitGroup
-	for w := 0; w < workers; w++ {
-		lo, hi := n*w/workers, n*(w+1)/workers
-		wg.Add(1)
-		go func(w, lo, hi int) {
-			defer wg.Done()
-			var out []hit
-			for i := lo; i < hi; i++ {
-				if i%2048 == 0 && ctx.Err() != nil {
-					return
-				}
-				if !sc.table(x, i) || !x.passTable(i, c) {
-					continue
-				}
-				maxS, sum := 0, 0
-				for ti, term := range terms {
-					sc := x.scoreTerm(i, term, dsScore[ti])
-					if sc >= noMatch {
-						maxS = -1
-						break
-					}
-					if sc > maxS {
-						maxS = sc
-					}
-					sum += sc
-				}
-				if maxS < 0 {
-					continue
-				}
-				out = append(out, x.tableHit(i, maxS, sum))
+	parts := make([][]hit, maxChunks)
+	eachChunk(len(x.tables), func(w, lo, hi int) {
+		var out []hit
+		for i := lo; i < hi; i++ {
+			if i%2048 == 0 && ctx.Err() != nil {
+				return
 			}
-			parts[w] = out
-		}(w, lo, hi)
-	}
-	wg.Wait()
+			if !sc.table(x, i) || !x.passTable(i, c, false) {
+				continue
+			}
+			maxS, sum := 0, 0
+			for ti, term := range terms {
+				sc := x.scoreTerm(i, term, dsScore[ti])
+				if sc >= noMatch {
+					maxS = -1
+					break
+				}
+				if sc > maxS {
+					maxS = sc
+				}
+				sum += sc
+			}
+			if maxS < 0 {
+				continue
+			}
+			out = append(out, x.tableHit(i, maxS, sum))
+		}
+		parts[w] = out
+	})
 	if ctx.Err() != nil {
 		return nil
 	}
@@ -378,12 +373,19 @@ func (s *Searcher) rank(ctx context.Context, x *Index, c *compiled, o api.Search
 		}
 	}
 
-	if len(terms) == 0 {
-		sort.SliceStable(out, func(i, j int) bool { return out[i].path < out[j].path })
-		return out
+	sortHits(out, len(terms) > 0)
+	return out
+}
+
+// sortHits orders hits by tier when the query has free terms (ties: shorter
+// name, then path) and by path otherwise.
+func sortHits(hits []hit, ranked bool) {
+	if !ranked {
+		sort.SliceStable(hits, func(i, j int) bool { return hits[i].path < hits[j].path })
+		return
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := out[i], out[j]
+	sort.SliceStable(hits, func(i, j int) bool {
+		a, b := hits[i], hits[j]
 		if a.max != b.max {
 			return a.max < b.max
 		}
@@ -395,7 +397,27 @@ func (s *Searcher) rank(ctx context.Context, x *Index, c *compiled, o api.Search
 		}
 		return a.path < b.path
 	})
-	return out
+}
+
+const maxChunks = 8
+
+// eachChunk runs fn over [0, n) split into up to maxChunks parallel chunks
+// (one chunk below 4096 items) and waits for them.
+func eachChunk(n int, fn func(chunk, lo, hi int)) {
+	workers := min(runtime.GOMAXPROCS(0), maxChunks)
+	if n < 4096 {
+		workers = 1
+	}
+	var wg gosync.WaitGroup
+	for w := 0; w < workers; w++ {
+		lo, hi := n*w/workers, n*(w+1)/workers
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fn(w, lo, hi)
+		}()
+	}
+	wg.Wait()
 }
 
 func onlyScopeFilters(fs []api.QueryFilter) bool {
@@ -468,7 +490,9 @@ func passDataset(p *projEntry, d *dsEntry, fs []api.QueryFilter) bool {
 	return true
 }
 
-func (x *Index) passTable(i int, c *compiled) bool {
+// passTable applies the filters to table i. In search, label: and desc: also
+// accept the dataset's labels and description; own keeps them to the table's.
+func (x *Index) passTable(i int, c *compiled, own bool) bool {
 	t := &x.tables[i]
 	d := &x.datasets[t.ds]
 	p := &x.projects[d.proj]
@@ -492,13 +516,11 @@ func (x *Index) passTable(i int, c *compiled) bool {
 					m = true
 				}
 			}
-			for k, v := range d.labels {
-				if anySub(strings.ToLower(k+":"+v), f.Values) {
-					m = true
-				}
+			if !own && datasetLabel(d, f.Values) {
+				m = true
 			}
 		case "desc":
-			m = anySub(t.ldesc, f.Values) || anySub(d.ldesc, f.Values)
+			m = anySub(t.ldesc, f.Values) || !own && anySub(d.ldesc, f.Values)
 		case "col":
 			_, m = c.colSets[ci].m[i]
 			ci++
@@ -508,6 +530,15 @@ func (x *Index) passTable(i int, c *compiled) bool {
 		}
 	}
 	return true
+}
+
+func datasetLabel(d *dsEntry, vals []string) bool {
+	for k, v := range d.labels {
+		if anySub(strings.ToLower(k+":"+v), vals) {
+			return true
+		}
+	}
+	return false
 }
 
 // collapseShards folds two or more equally scored members of one shard family

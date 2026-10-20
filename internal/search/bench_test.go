@@ -49,11 +49,38 @@ func percentile(d []time.Duration, p float64) time.Duration {
 
 func measure(t *testing.T, s *Searcher, queries []string, rounds int) (p50, p95, worst time.Duration, slowest string) {
 	t.Helper()
+	return measureFn(t, queries, rounds, func(q string) error {
+		_, err := s.Search(ctx, q, api.SearchOptions{Limit: 50})
+		return err
+	})
+}
+
+// filterScopes are the Explorer filter's two shapes: the whole tree, and one
+// Miller column (a dataset's tables).
+var filterScopes = []api.FilterOptions{
+	{},
+	{Scope: &api.ObjectPath{Project: "acme-prod", Dataset: "dataset_0042"}, Kinds: []api.ResultKind{api.KindTable, api.KindShards}},
+}
+
+func measureFilter(t *testing.T, s *Searcher, queries []string, rounds int) (p50, p95, worst time.Duration, slowest string) {
+	t.Helper()
+	return measureFn(t, queries, rounds, func(q string) error {
+		for _, o := range filterScopes {
+			if _, err := s.Filter(ctx, q, o); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func measureFn(t *testing.T, queries []string, rounds int, run func(string) error) (p50, p95, worst time.Duration, slowest string) {
+	t.Helper()
 	var all []time.Duration
 	for r := 0; r < rounds; r++ {
 		for _, q := range queries {
 			st := time.Now()
-			if _, err := s.Search(ctx, q, api.SearchOptions{Limit: 50}); err != nil {
+			if err := run(q); err != nil {
 				t.Fatal(err)
 			}
 			d := time.Since(st)
@@ -83,6 +110,10 @@ func TestSearchLatencySmoke(t *testing.T) {
 	if p95 > 150*time.Millisecond {
 		t.Fatalf("p95 %s exceeds the 150 ms guard (worst %s on %q)", p95, worst, slowest)
 	}
+	_, p95, worst, slowest = measureFilter(t, s, benchQueries, 3)
+	if p95 > 2*150*time.Millisecond { // two filter queries per round: tree and column
+		t.Fatalf("filter p95 %s exceeds the 300 ms guard (worst %s on %q)", p95, worst, slowest)
+	}
 }
 
 // TestSearchLatencyReport prints the numbers behind the 30 ms budget.
@@ -96,6 +127,10 @@ func TestSearchLatencyReport(t *testing.T) {
 	t.Logf("index of 50,000 tables built in %s", time.Since(st).Round(time.Millisecond))
 	p50, p95, worst, slowest := measure(t, s, benchQueries, 5)
 	t.Logf("name/filter queries: p50 %s, p95 %s, worst %s on %q", p50.Round(100*time.Microsecond), p95.Round(100*time.Microsecond), worst.Round(100*time.Microsecond), slowest)
+	for _, o := range filterScopes {
+		p50, p95, worst, slowest = measureFn(t, benchQueries, 5, func(q string) error { _, err := s.Filter(ctx, q, o); return err })
+		t.Logf("explorer filter (scope %v): p50 %s, p95 %s, worst %s on %q", o.Scope, p50.Round(100*time.Microsecond), p95.Round(100*time.Microsecond), worst.Round(100*time.Microsecond), slowest)
+	}
 
 	st = time.Now()
 	if err := s.WarmColumns(ctx); err != nil {
@@ -105,6 +140,8 @@ func TestSearchLatencyReport(t *testing.T) {
 	t.Logf("column data for %d field paths built in %s (%d MB)", ncols, time.Since(st).Round(time.Millisecond), len(cb.text)>>20)
 	p50, p95, worst, slowest = measure(t, s, colQueries, 5)
 	t.Logf("col: queries: p50 %s, p95 %s, worst %s on %q", p50.Round(100*time.Microsecond), p95.Round(100*time.Microsecond), worst.Round(100*time.Microsecond), slowest)
+	p50, p95, worst, slowest = measureFn(t, colQueries, 5, func(q string) error { _, err := s.Filter(ctx, q, api.FilterOptions{}); return err })
+	t.Logf("col: explorer filter (tree): p50 %s, p95 %s, worst %s on %q", p50.Round(100*time.Microsecond), p95.Round(100*time.Microsecond), worst.Round(100*time.Microsecond), slowest)
 	for _, q := range append(append([]string{}, benchQueries...), colQueries...) {
 		st := time.Now()
 		r, _ := s.Search(ctx, q, api.SearchOptions{Limit: 50})

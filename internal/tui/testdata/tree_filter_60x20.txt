@@ -1,0 +1,20 @@
+ Explorer  4/10 ▸ ord · 5 matches
+▾ acme-prod                                            ✓ 3h
+  ▾ sales                                                 4
+      T order_items
+      T orders
+      V v_orders
+  ▾ us_archive                                            1
+      T orders_2019
+▾ acme-staging                                         ✓ 3h
+  ▾ sales                                                 1
+      T orders
+
+
+
+
+
+
+
+ bqt exec acme-exec  tree            5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · …

@@ -208,6 +208,8 @@ Both SQLite files use `modernc.org/sqlite`, WAL, `busy_timeout`, `synchronous=NO
 
 Three layouts: Miller columns (project | dataset | table; the default), tree, and flat list with a scoped filter. `L` cycles them and selection carries across. The last layout is remembered in `state/tui.json`. All lists are virtualized.
 
+`/` filters the list in place in every layout; it never opens a separate view. In the Miller columns it filters the focused column: each column has its own filter, shown in its title with the matched count (`Tables 2/3 of 4 ▸ ord`), and moving left clears the filter of the column left behind. In the tree it filters the whole tree: matches are shown with their ancestors, which open by themselves; a project or dataset found by its own name opens to all its children; clearing the filter gives back the rows the user had opened. The flat list is the ranked, catalog-wide filter. Typing narrows the list on every keystroke and moves the cursor to the best match; `enter` or `esc` goes back to the list with the filter kept, and `esc` there clears it. Each layout keeps its own filter for the session; jumping to an object (or carrying the selection across `L`) clears a filter that would hide it. Jump-to-table (`ctrl+t`) is the quick search.
+
 Projects can be turned off for the TUI: `ctrl+x p` (vim Normal: `space p`, or the palette's "Projects") opens a checklist of the configured projects. `space` turns the cursor's project on or off, `o` turns on only it, `a` turns every project on; the last project on cannot be turned off. A project that is off is left out of the explorer, search and jump-to-table (a pasted `project.dataset.table` path still resolves, and opening it turns its project back on), but the catalog keeps syncing it. With a single project on, the Miller layout leaves out the project column and starts at the datasets; the status line names the project (or "N of M projects"). The set is remembered in `state/tui.json` as the projects turned off, so a project added to the config later starts on, and one removed and added back keeps its setting.
 
 Detail panes (schema and preview): to the right at 100 columns or more, at the bottom from 70 to 99 columns, collapsed below 70 (where `Enter` zooms the detail and `esc` returns). The bottom pane defaults to hidden below 30 rows. The list keeps focus; `ctrl+e` and `ctrl+y` scroll the detail pane. `esc` always backs out exactly one level (zoom, then results, then filter). `z` zooms the detail to the full screen. While zoomed, the movement keys act on the detail (scroll the schema, move the preview row cursor), left or `esc` leaves the zoom, and `P` switches schema and preview between side by side and stacked (remembered in the state file). Search results are one line each, and the selected result expands to show its description and column hits. Footer hints must be readable (`↑↓←→/hjkl move`).
@@ -223,6 +225,7 @@ Detail panes (schema and preview): to the right at 100 columns or more, at the b
 - An empty query shows recently opened tables from `recent_objects`; this is also what `ctrl+t` shows before typing.
 - Implementation: an in-memory index of every project, dataset and table (names, descriptions, labels, shard family) is scored in Go in parallel chunks; dataset- and project-level scores are computed once per term and dataset. The index is rebuilt when the catalog changes (a `PRAGMA data_version` poll on a pinned connection, which also sees other processes) and at the end of the process's own sync. The `col:` filter scans one in-memory string of all lower-cased `path\0description` records. Spans and column hits are computed only for the returned page.
 - Result shape: `{kind, path, matched_field, tier, spans[], column_hits[≤3], more, freshness, stale, names_only, shard_family?}`. Spans are offsets for several fields at once (table, dataset, project, each column hit, description), never highlighted strings.
+- The Explorer filter (Miller columns and tree) uses the same syntax with one difference: free terms match only an object's own name, never descriptions and never through a parent, because a filter that kept every table of a dataset whose name matched would not narrow the list. Table filters (`type:`, `col:`, `label:`, `desc:`) keep a table that passes them and a project or dataset that holds one; `p:` and `d:` narrow by path; a shard family passes when one of its members does. The core's filter query returns every matching path in rank order, without spans or paging, within the same latency budget.
 - Actions in the core: open schema, copy the qualified name, copy as backticked, fetch a preview, insert into the editor (the frontend decides how). Project and dataset results offer select only.
 - Latency: p95 ≤ 30 ms per keystroke at 50k tables and 1.25M columns. Search runs off the UI thread and a new keystroke cancels the stale query. Measured on the synthetic 50k-table catalog: name and filter queries p50 6 ms, p95 23 ms; `col:` queries p50 20 ms, p95 66 ms once the column data is in memory (about 1 s and 23 MB to build for 1.3M field paths). On the real 9,500-table catalog queries take 1 to 4 ms. A CI smoke guard fails above 150 ms.
 - Sync ignore patterns play no part in search.
@@ -239,7 +242,7 @@ Two or more tables in one dataset sharing a prefix and an 8-digit date suffix (`
 
 ### 8.5 Navigation
 
-Vim keys (`hjkl`, `gg`/`G`, `ctrl+d`/`ctrl+u`, `/`), the command palette (`ctrl+p`, or `:` in the explorer), and jump-to-table (`ctrl+t`). Full table in section 15.
+Vim keys (`hjkl`, `gg`/`G`, `ctrl+d`/`ctrl+u`), `/` to filter (8.1), the command palette (`ctrl+p`, or `:` in the explorer), and jump-to-table (`ctrl+t`). Full table in section 15.
 
 ### 8.6 MVP acceptance criteria (phases 1 and 2)
 
@@ -414,7 +417,7 @@ Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks
 | Global | `ctrl+g` | Tutorial of the navigation (see below) |
 | Explorer | `h` `j` `k` `l`, arrows | Move, collapse/expand, enter column |
 | Explorer | `gg`, `G`, `ctrl+d`, `ctrl+u` | Top, bottom, half page |
-| Explorer | `/` | Search; `:` opens the palette |
+| Explorer | `/` | Filter the focused column, the tree or the flat list in place; `:` opens the palette |
 | Explorer | `L`, `P` | Cycle layout; cycle pane placement |
 | Explorer | `p`, `J` | Fetch more preview rows; record JSON |
 | Explorer | `ctrl+e`, `ctrl+y` | Scroll detail pane |

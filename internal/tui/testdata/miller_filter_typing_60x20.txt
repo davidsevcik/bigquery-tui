@@ -1,0 +1,20 @@
+ filter tables ▸ ord                              3 matches
+ “ord”
+ Datasets 3/4                │ Tables 2/3 of 4 ▸ ord
+events                     5 │T order_items
+finance                    2 │T orders
+sales                      4 │V v_orders
+us_archive                 1 │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+ bqt exec acme-exec  miller          5 datasets · 13 tables
+ type to filter · enter/esc back to the list · esc there cl…

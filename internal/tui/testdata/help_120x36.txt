@@ -1,4 +1,4 @@
- Datasets 3/4                     │ Tables 1/4                       │ Schema · acme-prod.sales.customers
+ Datasets 1/4                     │ Tables 1/2                       │ Schema · acme-prod.events.clicks
 events      ╭─ Help  (1-30/177) ───────────────────────────────────────────────────────────────────────────╮
 finance     │ Global                                                                                       │
 sales       │ ctrl+q          quit (asks if Runs are in flight)                                            │
@@ -29,7 +29,7 @@ us_archive  │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results          
             │ enter           expand a shard family, open a table, zoom the detail when it is collapsed;   │
             │                 zoomed preview: show the row as a record                                     │
             │ esc             back out one level                                                           │
-            │ /               search the catalog                                                           │
+            │ /               filter the column (Miller), the tree, or the list (flat)                     │
             ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
                                   │                                  │
  bqt exec acme-exec  miller                                                                      5 datasets · 13 tables

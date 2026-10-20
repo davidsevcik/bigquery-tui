@@ -1,6 +1,6 @@
- Datasets 3/4                │ Tables 1/4
+ Datasets 1/4                │ Tables 1/2
 events╭─ Commands ───────────────────────────────────╮
-financ│ > sync                                       │
+financ│ > sync                                       │   ×4
 sales │ Show sync problems                       g p │
 us_arc│ Show sync progress                       g s │
       ╰──────────────────────────────────────────────╯
