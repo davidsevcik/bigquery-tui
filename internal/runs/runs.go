@@ -7,6 +7,8 @@ package runs
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -47,6 +49,9 @@ type Options struct {
 	// RetryDelay is the base delay between retries of a cancel request or a
 	// status poll (default 1s; tests shorten it).
 	RetryDelay time.Duration
+	// SubmitTimeout bounds a job submission outside the agent timeout
+	// (default 2 minutes).
+	SubmitTimeout time.Duration
 }
 
 // Request starts a Run.
@@ -98,6 +103,9 @@ func New(o Options) *Manager {
 	}
 	if o.RetryDelay <= 0 {
 		o.RetryDelay = time.Second
+	}
+	if o.SubmitTimeout <= 0 {
+		o.SubmitTimeout = 2 * time.Minute
 	}
 	return &Manager{o: o, events: make(chan api.RunEvent, 256)}
 }
@@ -639,14 +647,33 @@ func (r *Run) run(cfg *config.Config) {
 		r.finish(r.markCancelled)
 		return
 	}
-	// Submitting is not cancellable: a request cut off half way can leave a
-	// job running that nobody knows the ID of. A cancel that arrives meanwhile
-	// is honoured right after, with the job ID in hand.
+	// Submitting is not cancelled with the Run: a cancel that arrives
+	// meanwhile is honoured right after, with the job in hand. It is bounded,
+	// though (the client retries transient errors until its context ends):
+	// by the agent timeout, or submitTimeout. The job ID is chosen here, so a
+	// submission that ran out of time can still be cancelled by ID.
 	// (Close waits for submissions in flight, so quitting cannot strand one.)
+	req.JobID = newJobID()
 	m.busyAdd(1)
-	ref, err := jobs.StartQuery(context.WithoutCancel(r.ctx), req)
+	sctx, scancel := context.WithTimeout(context.WithoutCancel(r.ctx), m.o.SubmitTimeout)
+	if dl, ok := r.ctx.Deadline(); ok {
+		sctx, scancel = context.WithDeadline(context.WithoutCancel(r.ctx), dl)
+	}
+	ref, err := jobs.StartQuery(sctx, req)
+	expired := errors.Is(sctx.Err(), context.DeadlineExceeded)
+	scancel()
 	if err != nil {
+		if expired {
+			// the job may exist without our knowing: stop it by its ID
+			m.cancelJob(jobs, api.JobRef{Project: cfg.ExecutionProject, Location: req.Location, ID: req.JobID}, nil)
+		}
 		m.busyAdd(-1)
+		if expired && r.ctx.Err() == nil {
+			qe := bq.QueryErrorOf(err)
+			qe.Message = "submitting the job took too long (a cancel was requested): " + qe.Message
+			r.finish(func(i *api.RunInfo) { i.State, i.Error = api.RunFailed, qe })
+			return
+		}
 		r.fail(err)
 		return
 	}
@@ -717,6 +744,9 @@ func (r *Run) run(cfg *config.Config) {
 	r.finish(func(i *api.RunInfo) {
 		i.State, i.Stats, i.CancelRequested = api.RunDone, stats, false
 		switch {
+		case perr != nil && r.policy != nil && r.ctx.Err() != nil:
+			// the agent timeout ran out while reading the rows
+			r.markCancelled(i)
 		case perr != nil:
 			i.ResultError = bq.QueryErrorOf(perr).Message
 		case len(page.Schema) > 0:
@@ -743,4 +773,13 @@ func confirmation(cfg *config.Config, est *api.Estimate) *api.Confirmation {
 		return nil
 	}
 	return c
+}
+
+// newJobID returns a fresh job ID (BigQuery allows letters, digits, _ and -).
+func newJobID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("bqt_%x", time.Now().UnixNano())
+	}
+	return "bqt_" + hex.EncodeToString(b[:])
 }

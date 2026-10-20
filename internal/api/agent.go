@@ -184,10 +184,12 @@ type HistoryItem struct {
 
 // HistoryList is a page of History search results.
 type HistoryList struct {
-	Items      []HistoryItem `json:"items"`
-	Ignored    []string      `json:"ignored_filters,omitempty"`
-	Truncated  bool          `json:"truncated"`
-	NextCursor string        `json:"next_cursor,omitempty"`
+	Items   []HistoryItem `json:"items"`
+	Ignored []string      `json:"ignored_filters,omitempty"`
+	// Total counts the matching groups (0 for a page past the end).
+	Total      int    `json:"total"`
+	Truncated  bool   `json:"truncated"`
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 
 // CatalogFreshness is the catalog_status tool's compact freshness report.

@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
 
 	"golang.org/x/term"
 
@@ -363,21 +364,27 @@ func Run(ctx context.Context, args []string, env Env) int {
 	return api.ExitOK
 }
 
-// formatFlag finds a --format value among a command's arguments.
+// formatFlag finds a --format value among a command's arguments, the way
+// the command's own parser reads them: the last one wins, and an argument
+// with white space in it (SQL such as "--format=x\nSELECT 1") is no flag.
 func formatFlag(args []string) string {
-	for i, a := range args {
+	f := ""
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		switch {
 		case a == "--":
-			return ""
+			return f
+		case strings.IndexFunc(a, unicode.IsSpace) >= 0:
 		case a == "--format" || a == "-format":
 			if i+1 < len(args) {
-				return args[i+1]
+				f = args[i+1]
+				i++
 			}
 		case strings.HasPrefix(a, "--format="), strings.HasPrefix(a, "-format="):
-			return a[strings.IndexByte(a, '=')+1:]
+			f = a[strings.IndexByte(a, '=')+1:]
 		}
 	}
-	return ""
+	return f
 }
 
 func refusalHint(r api.Refusal) string {

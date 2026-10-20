@@ -23,7 +23,10 @@ type QueryScript struct {
 	Schema    []bq.Field
 	Rows      [][]any
 	// Block keeps the job running until it is closed or the job is cancelled.
-	Block        chan struct{}
+	Block chan struct{}
+	// SubmitBlock holds StartQuery until it is closed or the call's context
+	// ends (a submission whose answer never arrives).
+	SubmitBlock  chan struct{}
 	SlotMs       int64
 	CacheHit     bool
 	AffectedRows int64
@@ -109,6 +112,16 @@ func (f *Fake) StartQuery(ctx context.Context, req bq.QueryRequest) (api.JobRef,
 		return api.JobRef{}, err
 	}
 	s := f.script(req.SQL)
+	if s.SubmitBlock != nil {
+		select {
+		case <-s.SubmitBlock:
+		case <-ctx.Done():
+			f.mu.Lock()
+			f.queries = append(f.queries, QueryCall{req, false})
+			f.mu.Unlock()
+			return api.JobRef{}, bq.Wrap("fake", ctx.Err())
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.queries = append(f.queries, QueryCall{req, false})
@@ -124,6 +137,9 @@ func (f *Fake) StartQuery(ctx context.Context, req bq.QueryRequest) (api.JobRef,
 		loc = "EU"
 	}
 	ref := api.JobRef{Project: "fake-exec", Location: loc, ID: fmt.Sprintf("job_%d", f.jobSeq)}
+	if req.JobID != "" {
+		ref.ID = req.JobID
+	}
 	f.jobs[ref.ID] = &fakeJob{script: s, cancelled: make(chan struct{}), created: time.Unix(1700000000+int64(f.jobSeq), 0).UTC()}
 	return ref, nil
 }
@@ -175,11 +191,11 @@ func (f *Fake) WaitJob(ctx context.Context, ref api.JobRef) (bq.JobResult, error
 
 // CancelJob implements bq.Jobs.
 func (f *Fake) CancelJob(ctx context.Context, ref api.JobRef) error {
-	j, err := f.fakeJob(ref)
-	if err != nil {
+	if err := f.begin(ctx, Call{Method: "CancelJob", Location: ref.Location}); err != nil {
 		return err
 	}
-	if err := f.begin(ctx, Call{Method: "CancelJob", Location: ref.Location}); err != nil {
+	j, err := f.fakeJob(ref)
+	if err != nil {
 		return err
 	}
 	f.mu.Lock()

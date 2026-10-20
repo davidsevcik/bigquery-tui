@@ -13,7 +13,6 @@ import (
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/engine"
-	"github.com/davidsevcik/bigquery-tui/internal/format"
 	"github.com/davidsevcik/bigquery-tui/internal/handoff"
 )
 
@@ -96,18 +95,9 @@ func (m *Model) handoffItems() []handoffItem {
 			f   handoff.SampleFormat
 			ext string
 		}{{"hosamplemd", handoff.Markdown, "md"}, {"hosampletsv", handoff.TSV, "tsv"}, {"hosamplendjson", handoff.NDJSON, "ndjson"}} {
-			id, cols := r.ID, r.Columns
+			id, sf := r.ID, f.f
 			items = append(items, handoffItem{f.id, fmt.Sprintf("First %d rows of run #%d (%s)", handoff.SampleRows, r.ID, f.ext), fmt.Sprintf("sample-%d.%s", r.ID, f.ext),
-				func(ctx context.Context) (string, error) {
-					page, err := m.be.RunRows(ctx, id, 0, handoff.SampleRows, format.Options{})
-					if err != nil {
-						return "", err
-					}
-					if len(page.Columns) > 0 {
-						cols = page.Columns
-					}
-					return handoff.Sample(cols, page.Rows, f.f), nil
-				}})
+				func(ctx context.Context) (string, error) { return m.be.RunSample(ctx, id, sf) }})
 		}
 	}
 	info := r
@@ -151,17 +141,39 @@ func (m *Model) handoffCopy(it handoffItem) tea.Cmd {
 	}
 }
 
-func (m *Model) handoffWrite(it handoffItem, path string) tea.Cmd {
+// handoffWrite renders the item and writes it. Without overwrite the file
+// is created exclusively: one that appeared meanwhile is not replaced.
+func (m *Model) handoffWrite(it handoffItem, path string, overwrite bool) tea.Cmd {
 	ctx := m.ctx
 	return func() tea.Msg {
 		text, err := it.make(ctx)
 		if err == nil {
-			if err = os.MkdirAll(filepath.Dir(path), 0o755); err == nil {
-				err = os.WriteFile(path, []byte(text), 0o644)
-			}
+			err = writeHandoff(path, text, overwrite)
 		}
 		return handoffMsg{label: it.label, path: path, err: err}
 	}
+}
+
+func writeHandoff(path, text string, overwrite bool) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	if overwrite {
+		flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	}
+	f, err := os.OpenFile(path, flags, 0o644)
+	if errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("%s was created meanwhile; write again to overwrite it", path)
+	}
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(text)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 func (m *Model) onHandoff(msg handoffMsg) tea.Cmd {
@@ -240,5 +252,5 @@ func (m *Model) handoffSubmit(p *promptState) tea.Cmd {
 		return nil
 	}
 	m.ov = ovNone
-	return m.handoffWrite(p.hoItem, path)
+	return m.handoffWrite(p.hoItem, path, p.armed)
 }

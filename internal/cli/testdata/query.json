@@ -11,7 +11,7 @@
       }
     ],
     "next_cursor": "3",
-    "result_id": "fake-exec:EU.job_1",
+    "result_id": "fake-exec:EU.bqt_JOBID",
     "rows": [
       [
         "0",

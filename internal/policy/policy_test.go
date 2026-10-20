@@ -32,6 +32,7 @@ func TestCheckEveryStatementAndAccuracy(t *testing.T) {
 		{"select upper bound", c, "cli", api.Estimate{StatementType: "SELECT", Accuracy: "UPPER_BOUND", Bytes: 5}, ""},
 		{"select unknown", c, "cli", api.Estimate{StatementType: "SELECT", Accuracy: "UNKNOWN", Bytes: 0}, api.RefuseUnknownEstimate},
 		{"select odd accuracy", c, "cli", api.Estimate{StatementType: "SELECT", Accuracy: "SOMETHING_NEW"}, api.RefuseUnknownEstimate},
+		{"select missing accuracy", c, "mcp", api.Estimate{StatementType: "SELECT"}, api.RefuseUnknownEstimate},
 		{"select over limit", c, "cli", api.Estimate{StatementType: "SELECT", Accuracy: "PRECISE", Bytes: 1<<30 + 1}, api.RefuseOverLimit},
 		{"select at limit", c, "cli", api.Estimate{StatementType: "SELECT", Accuracy: "PRECISE", Bytes: 1 << 30}, ""},
 		{"no statement type", c, "cli", api.Estimate{Accuracy: "PRECISE"}, api.RefuseNotReadOnly},

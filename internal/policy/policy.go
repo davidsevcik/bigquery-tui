@@ -89,7 +89,7 @@ func ConfirmThreshold(cfg *config.Config, capacity bool) int64 {
 // Check returns why the profile refuses a query with this dry-run estimate,
 // or nil when it may run. It fails closed: an empty or unknown statement
 // type and an UNKNOWN estimate are refused. A LOWER_BOUND estimate is checked
-// against its lower bound; the job's MaximumBytesBilled (max_bytes_billed,
+// against its lower bound; a missing accuracy is refused like UNKNOWN; the job's MaximumBytesBilled (max_bytes_billed,
 // set on every job) is the server-side backstop. The agent limit is not set
 // as the job's cap: BigQuery bills at least 10 MiB per table referenced, so a
 // cap that low would refuse queries whose estimate is tiny.
@@ -106,7 +106,7 @@ func (p Profile) Check(cfg *config.Config, est api.Estimate) *api.Refusal {
 		return &api.Refusal{Code: api.RefuseNotReadOnly, Message: msg + ")", StatementType: st}
 	}
 	switch est.Accuracy {
-	case "", "PRECISE", "LOWER_BOUND", "UPPER_BOUND":
+	case "PRECISE", "LOWER_BOUND", "UPPER_BOUND":
 	default:
 		return &api.Refusal{Code: api.RefuseUnknownEstimate, StatementType: st, Bytes: est.Bytes, Limit: p.MaxBytes,
 			Message: fmt.Sprintf("the dry-run could not estimate the bytes (accuracy %s), so the limit cannot be checked; run it in the TUI", est.Accuracy)}

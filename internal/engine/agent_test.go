@@ -12,7 +12,9 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/internal/handoff"
 	"github.com/davidsevcik/bigquery-tui/internal/policy"
+	"github.com/davidsevcik/bigquery-tui/internal/runs"
 )
 
 // agent opens a read-only engine for an agent entry point over the synced
@@ -207,5 +209,78 @@ func TestFavoriteListAndBindParams(t *testing.T) {
 	}
 	if ps, err := BindParams("select @x", nil, map[string]string{"x": "DATE:2024-01-01"}); err != nil || ps[0].Type != "DATE" {
 		t.Fatalf("%v %+v", err, ps)
+	}
+}
+
+func TestBindParamsCaseDuplicatesAndExplicitEmpty(t *testing.T) {
+	if _, err := BindParams("select @Country", nil, map[string]string{"country": "CZ", "COUNTRY": "US"}); err == nil || !strings.Contains(err.Error(), "twice") {
+		t.Fatalf("names that differ only in case: %v", err)
+	}
+	f := api.Favorite{SQL: "select @country", Params: []api.ParamSpec{{Name: "country", Type: "STRING", Default: ptr("CZ")}}}
+	ps, err := BindParams("", &f, map[string]string{"country": ""})
+	if err != nil || len(ps) != 1 || ps[0].Value != "" {
+		t.Fatalf("a value given empty stays empty: %v %+v", err, ps)
+	}
+	ps, err = BindParams("", &f, map[string]string{})
+	if err != nil || ps[0].Value != "CZ" {
+		t.Fatalf("a missing value takes the default: %v %+v", err, ps)
+	}
+	n := api.Favorite{SQL: "select @n", Params: []api.ParamSpec{{Name: "n", Type: "INT64", Default: ptr("7")}}}
+	if _, err := BindParams("", &n, map[string]string{"n": " "}); err == nil {
+		t.Fatal("an INT64 given blank is an error, not the default")
+	}
+}
+
+func ptr(s string) *string { return &s }
+
+func TestHistoryListCountsTheGroups(t *testing.T) {
+	e, _ := synced(t, `["proj-a"]`)
+	eng := e.agent("cli")
+	for _, sql := range []string{"select 1", "select 2", "select 3", "select 1"} {
+		if _, err := eng.RunAgentQuery(ctx, AgentQuery{SQL: sql}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l, err := eng.HistoryList(ctx, "", 2, 0)
+	if err != nil || l.Total != 3 || len(l.Items) != 2 || !l.Truncated || l.NextCursor != "2" {
+		t.Fatalf("%v %+v", err, l)
+	}
+}
+
+func TestRowReadingIsBoundedByTheTimeout(t *testing.T) {
+	e, _ := synced(t, `["proj-a"]`)
+	eng := e.agent("mcp")
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1200) }
+	calls := 0 // the first page is read inside the Run; slow down the second
+	e.fake.OnCall = func(c bqtest.Call) {
+		if c.Method == "QueryRows" {
+			calls++
+			if calls > 1 {
+				time.Sleep(300 * time.Millisecond)
+			}
+		}
+	}
+	_, err := eng.RunAgentQuery(ctx, AgentQuery{SQL: "select", Limit: 1000, Timeout: 150 * time.Millisecond})
+	var qf *QueryFailure
+	if !errors.As(err, &qf) || qf.Err.Kind != "timeout" {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestRunSampleKeepsRawValues(t *testing.T) {
+	e, eng := synced(t, `["proj-a"]`)
+	e.fake.OnQuery = func(string) bqtest.QueryScript {
+		s := bqtest.Numbers(25)
+		s.Rows[0][1] = "a\nb\tc"
+		return s
+	}
+	info := eng.StartRun(ctx, runs.Request{SQL: "select"}).Wait()
+	nd, err := eng.RunSample(ctx, info.ID, handoff.NDJSON)
+	if err != nil || !strings.HasPrefix(nd, `{"n":0,"label":"a\nb\tc"}`) || strings.Count(nd, "\n") != handoff.SampleRows {
+		t.Fatalf("%v %q", err, nd)
+	}
+	md, _ := eng.RunSample(ctx, info.ID, handoff.Markdown)
+	if !strings.Contains(md, "| 19 | row 19 |") {
+		t.Fatal(md)
 	}
 }

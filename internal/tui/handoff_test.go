@@ -107,3 +107,23 @@ func TestHandoffOfTheSelectedTable(t *testing.T) {
 	r.press("enter")
 	r.contains("copied schema of")
 }
+
+func TestHandoffFileIsNotReplacedUnasked(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x.md")
+	if err := writeHandoff(path, "one", false); err != nil {
+		t.Fatal(err)
+	}
+	// the file appeared between the prompt's check and the write
+	if err := writeHandoff(path, "two", false); err == nil || !strings.Contains(err.Error(), "created meanwhile") {
+		t.Fatalf("%v", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "one" {
+		t.Fatalf("%q", b)
+	}
+	if err := writeHandoff(path, "three", true); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "three" {
+		t.Fatalf("%q", b)
+	}
+}

@@ -119,8 +119,10 @@ func parseParams(list []string) (map[string]string, error) {
 		if !ok || k == "" {
 			return nil, usageErr("--param %q: want name=value (a TYPE: prefix forces the type, e.g. d=DATE:2024-01-31)", p)
 		}
-		if _, dup := m[k]; dup {
-			return nil, usageErr("--param %s given twice", k)
+		for prev := range m {
+			if strings.EqualFold(prev, k) {
+				return nil, usageErr("--param %s given twice (names ignore case)", k)
+			}
 		}
 		m[k] = v
 	}

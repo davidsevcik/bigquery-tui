@@ -47,7 +47,7 @@ func groupSQL(gs []api.HistoryGroup) []string {
 
 func TestHistorySearchGroupsIdenticalSQL(t *testing.T) {
 	h := historyFixture(t)
-	gs, more, err := h.SearchHistory(ctx, HistoryQuery{}, 10, 0)
+	gs, more, _, err := h.SearchHistory(ctx, HistoryQuery{}, 10, 0)
 	if err != nil || more {
 		t.Fatal(err, more)
 	}
@@ -64,12 +64,12 @@ func TestHistorySearchGroupsIdenticalSQL(t *testing.T) {
 		t.Fatalf("times: %+v", g.Latest)
 	}
 	// paging
-	gs, more, _ = h.SearchHistory(ctx, HistoryQuery{}, 3, 0)
-	if len(gs) != 3 || !more {
-		t.Fatal("first page")
+	gs, more, total, _ := h.SearchHistory(ctx, HistoryQuery{}, 3, 0)
+	if len(gs) != 3 || !more || total != 4 {
+		t.Fatalf("first page: total %d", total)
 	}
-	gs, more, _ = h.SearchHistory(ctx, HistoryQuery{}, 3, 3)
-	if len(gs) != 1 || more {
+	gs, more, total, _ = h.SearchHistory(ctx, HistoryQuery{}, 3, 3)
+	if len(gs) != 1 || more || total != 4 {
 		t.Fatal("last page")
 	}
 }
@@ -78,7 +78,7 @@ func TestHistorySearchTermsAndFilters(t *testing.T) {
 	h := historyFixture(t)
 	q := func(hq HistoryQuery) []string {
 		t.Helper()
-		gs, _, err := h.SearchHistory(ctx, hq, 10, 0)
+		gs, _, _, err := h.SearchHistory(ctx, hq, 10, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -122,21 +122,21 @@ func TestHistorySearchTermsAndFilters(t *testing.T) {
 		t.Fatalf("since: %q", got)
 	}
 	// a filtered group counts only the matching Runs
-	gs, _, _ := h.SearchHistory(ctx, HistoryQuery{Conds: []HistoryCond{{Field: "source", Values: []string{"tui"}}}, Terms: terms("revenue")}, 10, 0)
+	gs, _, _, _ := h.SearchHistory(ctx, HistoryQuery{Conds: []HistoryCond{{Field: "source", Values: []string{"tui"}}}, Terms: terms("revenue")}, 10, 0)
 	if len(gs) != 2 || gs[1].Runs != 1 {
 		t.Fatalf("%+v", gs)
 	}
 	if sp := gs[0].Spans; len(sp) != 1 || gs[0].Latest.SQL[sp[0].Start:sp[0].End] != "revenue" {
 		t.Fatalf("spans %+v", sp)
 	}
-	if _, _, err := h.SearchHistory(ctx, HistoryQuery{Conds: []HistoryCond{{Field: "nope"}}}, 10, 0); err == nil {
+	if _, _, _, err := h.SearchHistory(ctx, HistoryQuery{Conds: []HistoryCond{{Field: "nope"}}}, 10, 0); err == nil {
 		t.Fatal("an unknown field is an error")
 	}
 }
 
 func TestHistoryEntryFavoriteAndPrune(t *testing.T) {
 	h := historyFixture(t)
-	gs, _, _ := h.SearchHistory(ctx, HistoryQuery{}, 10, 0)
+	gs, _, _, _ := h.SearchHistory(ctx, HistoryQuery{}, 10, 0)
 	id := gs[0].Latest.ID
 	if err := h.SetFavoritePath(ctx, id, "sales/customers.sql"); err != nil {
 		t.Fatal(err)
@@ -167,7 +167,7 @@ func TestHistoryRunFavoriteAndParamsRoundTrip(t *testing.T) {
 	if err := h.InsertRun(ctx, r); err != nil {
 		t.Fatal(err)
 	}
-	gs, _, _ := h.SearchHistory(ctx, HistoryQuery{}, 1, 0)
+	gs, _, _, _ := h.SearchHistory(ctx, HistoryQuery{}, 1, 0)
 	e := gs[0].Latest
 	if e.FavoritePath != "dau.sql" || len(e.Params) != 1 || e.Params[0].Type != "INT64" {
 		t.Fatalf("%+v", e)
@@ -192,7 +192,7 @@ func TestHistoryKeysAreFilledAfterMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer h.Close()
-	gs, _, err := h.SearchHistory(ctx, HistoryQuery{}, 10, 0)
+	gs, _, _, err := h.SearchHistory(ctx, HistoryQuery{}, 10, 0)
 	if err != nil || len(gs) != 1 || gs[0].Runs != 2 {
 		t.Fatalf("%+v %v", gs, err)
 	}
@@ -236,7 +236,7 @@ func TestHistoryGroupShowsTheNewestRun(t *testing.T) {
 	addRun(t, h, "slow", "select z", api.RunFailed, "tui", hbase.Add(10*time.Hour), 0, "")
 	addRun(t, h, "fast", "select z", api.RunDone, "tui", hbase.Add(11*time.Hour), 0, "")
 	addRun(t, h, "older-but-later", "select z", api.RunCancelled, "tui", hbase.Add(9*time.Hour), 0, "")
-	gs, _, err := h.SearchHistory(ctx, HistoryQuery{}, 10, 0)
+	gs, _, _, err := h.SearchHistory(ctx, HistoryQuery{}, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

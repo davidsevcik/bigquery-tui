@@ -6,6 +6,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -18,6 +19,8 @@ var update = flag.Bool("update", false, "rewrite the golden files")
 // golden compares a command's JSON output with testdata/<name>.json.
 func golden(t *testing.T, name, got string) {
 	t.Helper()
+	// job IDs are random (bqt_<hex>): pin them
+	got = regexp.MustCompile(`bqt_[0-9a-f]{32}`).ReplaceAllString(got, "bqt_JOBID")
 	var v any
 	if err := json.Unmarshal([]byte(got), &v); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, got)
@@ -226,5 +229,25 @@ func TestFormatAfterTheCommand(t *testing.T) {
 	s.tty = true
 	if code, out, _ := s.run("version", "--format=json"); code != 0 || !strings.HasPrefix(out, "{") {
 		t.Fatalf("%d %q", code, out)
+	}
+}
+
+func TestFormatFlagReadsLikeTheParser(t *testing.T) {
+	cases := map[string][]string{
+		"":     {"--format=text\nSELECT 1"},
+		"json": {"--format", "text", "--format=json"},
+		"text": {"select 1", "--format", "text"},
+	}
+	for want, args := range cases {
+		if got := formatFlag(args); got != want {
+			t.Errorf("%q: got %q, want %q", args, got, want)
+		}
+	}
+	s := syncedSandbox(t, "")
+	if code, _, errOut := s.run("query", "--format=text\nSELECT 1"); code != 0 {
+		t.Fatalf("SQL starting with a comment that looks like a flag: %d %s", code, errOut)
+	}
+	if code, _, errOut := s.run("query", "select @a", "--param", "a=1", "--param", "A=2"); code != api.ExitUsage || !strings.Contains(errOut, "twice") {
+		t.Fatalf("%d %s", code, errOut)
 	}
 }

@@ -114,6 +114,8 @@ func (e *Engine) AgentDryRun(ctx context.Context, q AgentQuery) (api.DryRunResul
 // A refusal is a *policy.Error, a failed query a *QueryFailure.
 func (e *Engine) RunAgentQuery(ctx context.Context, q AgentQuery) (api.QueryResult, error) {
 	prof := e.AgentProfile(q.MaxBytes, q.Timeout)
+	// one deadline covers the Run and reading the rows returned
+	deadline := time.Now().Add(prof.Timeout)
 	r := e.runs.Start(ctx, runs.Request{SQL: q.SQL, Params: q.Params, Favorite: q.Favorite, Policy: &prof})
 	info := await(ctx, r)
 	if err := runError(info); err != nil {
@@ -144,8 +146,14 @@ func (e *Engine) RunAgentQuery(ctx context.Context, q AgentQuery) (api.QueryResu
 		res.ResultID = "" // nothing to page
 		return res, nil
 	}
-	page, err := r.Rows(ctx, 0, rowLimit(q.Limit), format.Options{MaxChars: policy.CellChars, KeepNewlines: true})
+	rctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	page, err := r.Rows(rctx, 0, rowLimit(q.Limit), format.Options{MaxChars: policy.CellChars, KeepNewlines: true})
 	if err != nil {
+		if errors.Is(rctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+			return res, &QueryFailure{Err: api.QueryError{Kind: "timeout",
+				Message: fmt.Sprintf("reading the rows took longer than %s (agent_timeout)", prof.Timeout)}}
+		}
 		return res, err
 	}
 	fillRows(&res, page.Rows, 0)
@@ -362,7 +370,7 @@ func (e *Engine) HistoryList(ctx context.Context, query string, limit, offset in
 	if err != nil {
 		return api.HistoryList{}, err
 	}
-	out := api.HistoryList{Items: []api.HistoryItem{}}
+	out := api.HistoryList{Items: []api.HistoryItem{}, Total: page.Total}
 	for _, f := range page.Query.Filters {
 		if f.Status != api.FilterOK {
 			out.Ignored = append(out.Ignored, f.Key+": ("+string(f.Status)+")")
@@ -388,14 +396,28 @@ func (e *Engine) HistoryList(ctx context.Context, query string, limit, offset in
 
 // BindParams binds parameter values to the parameters a query uses: typed by
 // a Favorite header (in the text itself, or fav when given), guessed from the
-// value otherwise (a TYPE: prefix forces it). A parameter without a value or
-// a default, or a value for a parameter the query does not use, is an error.
+// value otherwise (a TYPE: prefix forces it). A default fills only a missing
+// parameter: a value given empty stays empty. A parameter without a value or
+// a default, a value for a parameter the query does not use, and two names
+// that differ only in case are errors.
 func BindParams(text string, fav *api.Favorite, values map[string]string) ([]api.QueryParam, error) {
 	f := favorites.Parse(text)
 	if fav != nil {
 		f = *fav
 	}
 	specs := favorites.Schema(f)
+	seen := map[string]string{}
+	for k := range values {
+		fk := strings.ToLower(k)
+		if other, dup := seen[fk]; dup {
+			a, b := other, k
+			if a > b {
+				a, b = b, a
+			}
+			return nil, fmt.Errorf("the parameter %s is given twice (%s and %s; names ignore case)", fk, a, b)
+		}
+		seen[fk] = k
+	}
 	used := map[string]bool{}
 	var out []api.QueryParam
 	var missing []string
@@ -406,6 +428,9 @@ func BindParams(text string, fav *api.Favorite, values map[string]string) ([]api
 		if !ok && s.Default == nil {
 			missing = append(missing, "@"+s.Name)
 			continue
+		}
+		if ok {
+			s.Default = nil // a value given, even an empty one, is used as given
 		}
 		p, err := favorites.Bind(s, v)
 		if err != nil {

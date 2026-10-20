@@ -13,6 +13,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/engine"
 	"github.com/davidsevcik/bigquery-tui/internal/export"
 	"github.com/davidsevcik/bigquery-tui/internal/format"
+	"github.com/davidsevcik/bigquery-tui/internal/handoff"
 	"github.com/davidsevcik/bigquery-tui/internal/runs"
 )
 
@@ -65,6 +66,8 @@ type Backend interface {
 	CancelRun(id int64)
 	CancelAllRuns()
 	RunRows(ctx context.Context, id int64, startIndex int64, n int, o format.Options) (api.PreviewPage, error)
+	// RunSample renders a Run's first rows for a hand-off.
+	RunSample(ctx context.Context, id int64, f handoff.SampleFormat) (string, error)
 	Pricing() api.PricingModel
 	LearnPricing(ctx context.Context) error
 	StartExport(ctx context.Context, runID int64, path string, f export.Format) (Export, error)

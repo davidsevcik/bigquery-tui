@@ -2,6 +2,7 @@ package runs
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,5 +96,62 @@ func TestNoPolicyStillAsks(t *testing.T) {
 	run.Cancel()
 	if info := run.Wait(); info.State != api.RunCancelled || info.Refusal != nil {
 		t.Fatalf("%+v", info)
+	}
+}
+
+func TestSubmissionThatOutlivesTheTimeoutIsCancelledByID(t *testing.T) {
+	r := newRig(t)
+	p := agentProfile(r)
+	short := p.Lower(0, 80*time.Millisecond)
+	never := make(chan struct{})
+	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.SubmitBlock = never; return s }
+	info := r.m.Start(context.Background(), Request{SQL: "select", Policy: &short}).Wait()
+	if info.State != api.RunFailed || info.Error == nil || info.Error.Kind != "timeout" {
+		t.Fatalf("%+v", info)
+	}
+	var id string
+	for _, c := range r.fake.QueryCalls() {
+		if !c.Dry {
+			id = c.Req.JobID
+		}
+	}
+	if !strings.HasPrefix(id, "bqt_") {
+		t.Fatalf("the job ID is chosen before submitting: %q", id)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for len(r.fake.CallsTo("CancelJob")) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the job that may exist was not cancelled")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestSubmissionIsBoundedOutsideThePolicyToo(t *testing.T) {
+	r := newRig(t)
+	r.m.o.SubmitTimeout = 50 * time.Millisecond
+	never := make(chan struct{})
+	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.SubmitBlock = never; return s }
+	info := r.m.Start(context.Background(), Request{SQL: "select"}).Wait()
+	if info.State != api.RunFailed || info.Error == nil || !strings.Contains(info.Error.Message, "took too long") {
+		t.Fatalf("%+v", info)
+	}
+}
+
+func TestTimeoutWhileReadingTheFirstPage(t *testing.T) {
+	r := newRig(t)
+	p := agentProfile(r)
+	short := p.Lower(0, 80*time.Millisecond)
+	r.fake.OnCall = func(c bqtest.Call) {
+		if c.Method == "QueryRows" {
+			time.Sleep(150 * time.Millisecond)
+		}
+	}
+	info := r.m.Start(context.Background(), Request{SQL: "select", Policy: &short}).Wait()
+	if info.State != api.RunFailed || info.Error == nil || info.Error.Kind != "timeout" || info.Stats == nil {
+		t.Fatalf("a timeout while reading rows is a timeout, with the job's stats: %+v", info)
+	}
+	if rec := r.recorded(); len(rec) != 1 || rec[0].State != api.RunFailed {
+		t.Fatalf("History says the same: %+v", rec)
 	}
 }
