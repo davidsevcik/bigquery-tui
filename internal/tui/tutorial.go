@@ -31,12 +31,13 @@ type tutorial struct {
 	praise  string
 
 	// observed since the step started
-	start   tutSnap
-	keys    map[string]bool // keys pressed in the zone the step starts in
-	seenOv  map[overlayKind]bool
-	zoomed  bool
-	inserts bool // vim Insert mode was entered
-	layouts bool
+	start    tutSnap
+	keys     map[string]bool // keys pressed in the zone the step starts in
+	seenOv   map[overlayKind]bool
+	zoomed   bool
+	inserts  bool // vim Insert mode was entered
+	layouts  bool
+	filtered bool // an Explorer filter was set
 }
 
 type tutSnap struct {
@@ -78,8 +79,8 @@ var tutSteps = []tutStep{
 		func(m *Model, t *tutorial) bool {
 			return t.pressed("l", "right", "enter") && t.pressed("h", "left", "esc")
 		}},
-	{"Search the catalog", plain("`/` opens the search. Type part of a table name; `↑` `↓` pick a result, `enter` goes to it in the Explorer, `esc` closes without moving."),
-		closedAfter(ovSearch)},
+	{"Filter the Explorer", plain("`/` filters the list you are in: the focused column in the Miller layout, the whole tree in the tree layout. Type part of a name; `enter` or `esc` goes back to the list with the filter kept, and `esc` there clears it. Filter once, then clear it."),
+		func(m *Model, t *tutorial) bool { return t.filtered && !m.filterOn() }},
 	{"Jump to a table", plain("`ctrl+t` jumps to a table from any zone: type, then `enter`. Empty, it lists the tables you opened lately. From the Editor it inserts the name instead. Try it, then close it."),
 		closedAfter(ovJump)},
 	{"Layouts", plain("`L` cycles the Explorer layout: Miller columns, tree, flat list. bqt remembers your choice, so press it until you are back at the one you like."),
@@ -139,7 +140,7 @@ func (m *Model) tutGo(step int) {
 	t := m.tut
 	t.step = clamp(step, 0, len(tutSteps)-1)
 	t.keys, t.seenOv = map[string]bool{}, map[overlayKind]bool{}
-	t.zoomed, t.inserts, t.layouts = false, false, false
+	t.zoomed, t.inserts, t.layouts, t.filtered = false, false, false, false
 	t.start = m.tutSnap()
 	m.fitHeight()
 }
@@ -214,6 +215,9 @@ func (m *Model) tutorialObserve() {
 	}
 	if m.zoom {
 		t.zoomed = true
+	}
+	if m.filterOn() {
+		t.filtered = true
 	}
 	if m.layout != t.start.layout {
 		t.layouts = true

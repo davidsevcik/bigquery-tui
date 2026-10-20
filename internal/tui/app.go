@@ -45,7 +45,6 @@ type overlayKind int
 
 const (
 	ovNone overlayKind = iota
-	ovSearch
 	ovJump
 	ovPalette
 	ovHelp
@@ -101,7 +100,6 @@ type Model struct {
 	flat *searchState
 
 	ov      overlayKind
-	search  *searchState
 	jump    *searchState
 	pal     input
 	palSel  int
@@ -177,7 +175,6 @@ func New(be Backend, o Options) *Model {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30, termH: 30}
-	m.search = &searchState{typing: true}
 	m.jump = &searchState{typing: true, tablesOnly: true}
 	m.flat = &searchState{all: true}
 	m.tree.open = map[string]bool{}
@@ -414,6 +411,7 @@ func waitSync(run SyncRun) tea.Cmd {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	mod, cmd := m.update(msg)
 	m.mil.col = max(m.mil.col, m.milFirst())
+	m.dropDeeperFilters()
 	m.tutorialObserve()
 	return mod, cmd
 }
@@ -436,6 +434,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if st := m.typingState(); st != nil {
 			st.in.insert(strings.ReplaceAll(msg.Content, "\n", " "))
 			return m, m.runSearch(st)
+		}
+		if f := m.typingFilter(); f != nil {
+			f.in.insert(strings.ReplaceAll(msg.Content, "\n", " "))
+			f.best = true
+			return m, m.refilter(f)
 		}
 		if m.zone == ZoneEditor && m.ov == ovNone {
 			m.buf().ed.insert(msg.Content) // verbatim: a tab inside a string literal matters
@@ -478,6 +481,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, m.afterSelect())
 	case searchMsg:
 		m.onSearch(msg)
+		return m, m.afterSelect()
+	case filterMsg:
+		m.onFilter(msg)
 		return m, m.afterSelect()
 	case detailMsg:
 		d := m.detail(msg.key)
@@ -636,8 +642,6 @@ func keyName(msg tea.KeyPressMsg) string {
 
 func (m *Model) typingState() *searchState {
 	switch {
-	case m.ov == ovSearch:
-		return m.search
 	case m.ov == ovJump:
 		return m.jump
 	case m.ov == ovNone && m.zone == ZoneExplorer && m.layout == layoutFlat && m.flat.typing:
@@ -663,6 +667,9 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	if st := m.typingState(); st != nil {
 		return m.searchKey(st, msg, name)
+	}
+	if f := m.typingFilter(); f != nil {
+		return m.filterKey(f, msg, name)
 	}
 	if m.ov == ovPalette {
 		return m.paletteKey(msg, name)
@@ -848,13 +855,16 @@ func (m *Model) explorerAction(act string) tea.Cmd {
 		return m.open()
 	case "back":
 		return m.back()
-	case "search":
+	case "filter":
+		m.setZone(ZoneExplorer) // the palette runs it from any zone
 		if m.layout == layoutFlat {
 			m.flat.typing = true
 			return nil
 		}
-		m.ov = ovSearch
-		return m.runSearch(m.search)
+		if f := m.layoutFilter(); f != nil {
+			f.typing = true
+		}
+		return nil
 	case "layout":
 		m.setLayout((m.layout + 1) % 3)
 		m.saveState()
@@ -998,6 +1008,10 @@ func (m *Model) back() tea.Cmd {
 		return m.runSearch(m.flat)
 	case m.layout == layoutMiller && m.mil.family != nil:
 		m.milCollapseFamily()
+	case m.layoutFilter() != nil && m.layoutFilter().active():
+		f := m.layoutFilter()
+		f.clear()
+		return m.refilter(f)
 	}
 	return nil
 }

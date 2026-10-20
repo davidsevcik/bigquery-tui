@@ -147,43 +147,8 @@ func (s *Searcher) Search(ctx context.Context, raw string, o api.SearchOptions) 
 	start := time.Now()
 	q := Parse(raw)
 	resp := api.SearchResponse{Query: q, Results: []api.SearchResult{}}
-	x := s.Index()
-
-	c := &compiled{q: q}
-	for _, t := range q.Terms {
-		c.terms = append(c.terms, t.Text)
-	}
-	needCols := false
-	for _, f := range q.Filters {
-		if !usable(f) {
-			continue
-		}
-		c.filters = append(c.filters, f)
-		if f.Key == "col" {
-			needCols = true
-		}
-	}
-	if needCols {
-		ix, cb, err := s.columns(ctx)
-		if err != nil {
-			return resp, err
-		}
-		x = ix
-		for _, f := range c.filters {
-			if f.Key != "col" {
-				continue
-			}
-			set := colSet{neg: f.Negated, m: map[int]int{}}
-			if cb != nil {
-				set.m = cb.match(ctx, f.Values)
-			}
-			c.colSets = append(c.colSets, set)
-			if !f.Negated {
-				c.colVals = append(c.colVals, f.Values...)
-			}
-		}
-	}
-	if err := ctx.Err(); err != nil {
+	x, c, err := s.compile(ctx, q)
+	if err != nil {
 		return resp, err
 	}
 
@@ -232,6 +197,48 @@ func (s *Searcher) Search(ctx context.Context, raw string, o api.SearchOptions) 
 	}
 	resp.TookMS = float64(time.Since(start).Microseconds()) / 1000
 	return resp, nil
+}
+
+// compile prepares a parsed query: its free terms, its usable filters and,
+// for col:, the matching column sets. It returns the index the column sets
+// belong to.
+func (s *Searcher) compile(ctx context.Context, q api.ParsedQuery) (*Index, *compiled, error) {
+	x := s.Index()
+	c := &compiled{q: q}
+	for _, t := range q.Terms {
+		c.terms = append(c.terms, t.Text)
+	}
+	needCols := false
+	for _, f := range q.Filters {
+		if !usable(f) {
+			continue
+		}
+		c.filters = append(c.filters, f)
+		if f.Key == "col" {
+			needCols = true
+		}
+	}
+	if needCols {
+		ix, cb, err := s.columns(ctx)
+		if err != nil {
+			return x, c, err
+		}
+		x = ix
+		for _, f := range c.filters {
+			if f.Key != "col" {
+				continue
+			}
+			set := colSet{neg: f.Negated, m: map[int]int{}}
+			if cb != nil {
+				set.m = cb.match(ctx, f.Values)
+			}
+			c.colSets = append(c.colSets, set)
+			if !f.Negated {
+				c.colVals = append(c.colVals, f.Values...)
+			}
+		}
+	}
+	return x, c, ctx.Err()
 }
 
 func (x *Index) tableHit(i, maxScore, sum int) hit {

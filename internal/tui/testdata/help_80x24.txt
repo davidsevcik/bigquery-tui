@@ -1,6 +1,6 @@
- Projects 1/2     │ Datasets 3/4                 │ Tables 1/4
-acm╭─ Help  (1-18/193) ─────────────────────────────────────────────────────╮
-acm│ Global                                                                 │
+ Projects 1/2     │ Datasets 1/4                 │ Tables 1/2
+acm╭─ Help  (1-18/194) ─────────────────────────────────────────────────────╮
+acm│ Global                                                                 │×4
    │ ctrl+q          quit (asks if Runs are in flight)                      │
    │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results                 │
    │ ctrl+w W        previous zone                                          │

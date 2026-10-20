@@ -1,0 +1,36 @@
+ filter ▸ ord col:amount                                                                                    1/1 · 0.0ms
+ [col:amount] “ord”
+▌T orders  acme-prod.sales                                 prefix 3h │ Schema · acme-prod.sales.orders
+    All customer orders, one row per order                           │ acme-prod.sales.orders
+    ↳ amount  STRING                                                 │ table · EU · 45 rows · 5.0 MiB
+                                                                     │ partition created_at
+                                                                     │ labels team:sales
+                                                                     │ ✓ synced 3h ago
+                                                                     │ All customer orders, one row per order
+                                                                     │
+                                                                     │ ── schema · 8 fields ──
+                                                                     │ id          INT64          required Order id
+                                                                     │ customer_id STRING
+                                                                     │ amount      STRING
+                                                                     │ address     STRUCT<…>
+                                                                     │   city      STRING
+                                                                     │   geo       STRING
+                                                                     │     lat     STRING
+                                                                     │ created_at  TIMESTAMP
+                                                                     │
+                                                                     │ Preview · acme-prod.sales.orders
+                                                                     │ p loads the first 20 rows
+                                                                     │ (read directly: free, no query job)
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+ bqt exec acme-exec  flat                                                                        5 datasets · 13 tables
+ type to filter · enter/esc back to the list · esc there clears the filter

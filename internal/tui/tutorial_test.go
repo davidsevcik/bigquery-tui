@@ -50,8 +50,11 @@ func TestTutorialWalkthrough(t *testing.T) {
 	r.press("h")
 	r.tutStep(3)
 	r.press("/")
-	r.typeText("orders")
-	r.press("esc")
+	r.typeText("staging")
+	r.press("esc") // back to the list, the filter kept
+	r.tutStep(3)
+	r.contains("Projects 1/1 of 2 ▸ sta")
+	r.press("esc") // clears it
 	r.tutStep(4)
 	r.press("ctrl+t")
 	r.typeText("orders")

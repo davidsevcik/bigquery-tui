@@ -62,6 +62,12 @@ func (e *Engine) Search(ctx context.Context, query string, o api.SearchOptions) 
 	return e.search.Search(ctx, query, o)
 }
 
+// Filter lists every object that passes the Explorer's in-place filter, best
+// match first. Free terms match only an object's own name.
+func (e *Engine) Filter(ctx context.Context, query string, o api.FilterOptions) (api.FilterResponse, error) {
+	return e.search.Filter(ctx, query, o)
+}
+
 // ParseQuery parses a query without running it (for input colouring and chips).
 func (e *Engine) ParseQuery(query string) api.ParsedQuery { return search.Parse(query) }
 

@@ -1,0 +1,20 @@
+ Projects 1/2         │ Datasets 2/3 of 4 ▸ s
+acme-prod        ✓ 3h │events                             5
+acme-staging     ✓ 3h │sales                              4
+                      │us_archive                         1
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+                      │
+ bqt exec acme-exec  miller          5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · …

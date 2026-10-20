@@ -13,7 +13,7 @@ const (
 	ZoneExplorer Zone = "Explorer"
 	ZoneEditor   Zone = "Editor"
 	ZoneResults  Zone = "Results"
-	ZoneSearch   Zone = "Search and jump"
+	ZoneSearch   Zone = "Filter and jump"
 	ZonePicker   Zone = "Favorites and History"
 	ZoneOverlay  Zone = "Popups"
 )
@@ -61,7 +61,7 @@ var Keymap = []Binding{
 	{ZoneExplorer, []string{"ctrl+u", "pgup"}, "halfup", "half page up", "", ""},
 	{ZoneExplorer, []string{"enter"}, "open", "expand a shard family, open a table, zoom the detail when it is collapsed; zoomed preview: show the row as a record", "", ""},
 	{ZoneExplorer, []string{"esc"}, "back", "back out one level", "", ""},
-	{ZoneExplorer, []string{"/"}, "search", "search the catalog", "Search", "/ search"},
+	{ZoneExplorer, []string{"/"}, "filter", "filter the column (Miller), the tree, or the list (flat)", "Filter", "/ filter"},
 	{ZoneExplorer, []string{":"}, "palette", "command palette", "", ""},
 	{ZoneExplorer, []string{"L"}, "layout", "cycle layout: Miller columns, tree, flat list", "Cycle layout", "L layout"},
 	{ZoneExplorer, []string{"P"}, "panes", "detail pane: auto, right, bottom, hidden; zoomed: schema and preview side by side or stacked", "Cycle detail pane placement", "P panes"},

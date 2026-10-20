@@ -32,6 +32,8 @@ type miller struct {
 	col    int
 	family *api.BrowseNode // set when the tables column shows a shard family's members
 	famIdx int             // cursor to return to when the family is collapsed
+	f      [3]listFilter   // each column's filter
+	all    [3]int          // each column's length before its filter
 }
 
 func (ml *miller) at(c int) (api.BrowseNode, bool) {
@@ -59,10 +61,24 @@ func (m *Model) milLoad(c int) {
 		if n, ok := ml.at(c); ok {
 			name = n.Name
 		}
+		ml.all[c] = len(nodes)
+		f := &ml.f[c]
+		if f.active() && f.ok {
+			kept := make([]api.BrowseNode, 0, len(nodes))
+			for _, n := range nodes {
+				if f.passes(n) {
+					kept = append(kept, n)
+				}
+			}
+			nodes = kept
+		}
 		ml.cols[c] = nodes
-		if i := indexOf(nodes, name); i >= 0 {
+		switch i := indexOf(nodes, name); {
+		case i >= 0:
 			ml.cur[c] = i
-		} else {
+		case f.active() && f.bestIn(nodes) >= 0:
+			ml.cur[c] = f.bestIn(nodes) // the selection was filtered out
+		default:
 			ml.cur[c] = clamp(ml.cur[c], 0, max(0, len(nodes)-1))
 		}
 	}
@@ -96,8 +112,32 @@ func (m *Model) milLoad(c int) {
 		ml.family = nil
 	}
 	keep(2, ts)
-	for ml.col > 0 && len(ml.cols[ml.col]) == 0 {
+	// an empty column cannot hold the focus, unless only its filter emptied it
+	for ml.col > 0 && len(ml.cols[ml.col]) == 0 && !(ml.f[ml.col].active() && ml.all[ml.col] > 0) {
 		ml.col--
+	}
+}
+
+// milDropHiding clears every column filter that would hide an object or one
+// of its ancestors.
+func (m *Model) milDropHiding(p api.ObjectPath, kind api.ResultKind) {
+	ml := &m.mil
+	levels := []api.BrowseNode{{Kind: api.KindProject, Path: api.ObjectPath{Project: p.Project}}}
+	if p.Dataset != "" {
+		levels = append(levels, api.BrowseNode{Kind: api.KindDataset, Path: api.ObjectPath{Project: p.Project, Dataset: p.Dataset}})
+	}
+	if p.Table != "" {
+		k := api.KindTable
+		if kind == api.KindShards {
+			k = api.KindShards
+		}
+		levels = append(levels, api.BrowseNode{Kind: k, Path: p})
+	}
+	for c := range ml.f {
+		f := &ml.f[c]
+		if f.active() && f.ok && (c >= len(levels) || !f.set[openKey(levels[c])]) {
+			f.clear()
+		}
 	}
 }
 
@@ -126,9 +166,43 @@ type tree struct {
 	rows     []treeRow
 	cur, off int
 	open     map[string]bool
+	f        listFilter
+	// fexp is the expansion while the filter is on, kept apart from open so
+	// that clearing the filter restores the rows the user had opened. A row
+	// missing from it is open when it holds a match (shard families stay
+	// closed).
+	fexp map[string]bool
 }
 
 func openKey(n api.BrowseNode) string { return string(n.Kind) + "\x00" + n.Path.String() }
+
+func (t *tree) filtering() bool { return t.f.active() && t.f.ok }
+
+func (t *tree) isOpen(n api.BrowseNode) bool {
+	k := openKey(n)
+	if !t.filtering() {
+		return t.open[k]
+	}
+	if v, ok := t.fexp[k]; ok {
+		return v
+	}
+	return t.f.under[k]
+}
+
+func (t *tree) setOpen(n api.BrowseNode, v bool) {
+	k := openKey(n)
+	switch {
+	case t.filtering():
+		if t.fexp == nil {
+			t.fexp = map[string]bool{}
+		}
+		t.fexp[k] = v
+	case v:
+		t.open[k] = true
+	default:
+		delete(t.open, k)
+	}
+}
 
 func (m *Model) treeBuild() {
 	t := &m.tree
@@ -137,35 +211,70 @@ func (m *Model) treeBuild() {
 		keep = openKey(t.rows[t.cur].node)
 	}
 	t.rows = t.rows[:0]
+	f := &t.f
+	on := t.filtering()
+	// shown: under the filter, a row is a match or holds one; below a
+	// container that matched only by its own name, every row is shown
+	shown := func(n api.BrowseNode, all bool) bool {
+		return !on || all || f.set[openKey(n)] || f.under[openKey(n)]
+	}
 	for _, p := range m.projects() {
-		t.rows = append(t.rows, treeRow{0, p})
-		if !t.open[openKey(p)] {
+		if !shown(p, false) {
 			continue
 		}
+		t.rows = append(t.rows, treeRow{0, p})
+		if !t.isOpen(p) {
+			continue
+		}
+		allP := on && !f.under[openKey(p)]
 		for _, d := range m.be.Datasets(p.Name) {
-			t.rows = append(t.rows, treeRow{1, d})
-			if !t.open[openKey(d)] {
+			if !shown(d, allP) {
 				continue
 			}
+			t.rows = append(t.rows, treeRow{1, d})
+			if !t.isOpen(d) {
+				continue
+			}
+			allD := allP || on && !f.under[openKey(d)]
 			for _, tb := range m.be.Tables(p.Name, d.Name) {
+				if !shown(tb, allD) {
+					continue
+				}
 				t.rows = append(t.rows, treeRow{2, tb})
-				if tb.Kind == api.KindShards && t.open[openKey(tb)] {
+				if tb.Kind == api.KindShards && t.isOpen(tb) {
 					for _, mem := range m.be.ShardMembers(p.Name, d.Name, tb.Shard.Prefix) {
-						t.rows = append(t.rows, treeRow{3, mem})
+						if shown(mem, allD) {
+							t.rows = append(t.rows, treeRow{3, mem})
+						}
 					}
 				}
 			}
 		}
 	}
+	found := false
 	if keep != "" {
 		for i, r := range t.rows {
 			if openKey(r.node) == keep {
-				t.cur = i
+				t.cur, found = i, true
 				break
 			}
 		}
 	}
+	if !found && on {
+		if i := m.treeBest(); i >= 0 {
+			t.cur = i // the selection was filtered out
+		}
+	}
 	t.cur = clamp(t.cur, 0, max(0, len(t.rows)-1))
+}
+
+// treeBest is the row of the best-ranked match the tree shows, or -1.
+func (m *Model) treeBest() int {
+	nodes := make([]api.BrowseNode, len(m.tree.rows))
+	for i, r := range m.tree.rows {
+		nodes[i] = r.node
+	}
+	return m.tree.f.bestIn(nodes)
 }
 
 // --- shared navigation
@@ -177,6 +286,14 @@ func (m *Model) reloadBrowse() {
 
 func (m *Model) rerunSearches() tea.Cmd {
 	var cmds []tea.Cmd
+	for c := range m.mil.f {
+		if m.mil.f[c].active() {
+			cmds = append(cmds, m.refilter(&m.mil.f[c]))
+		}
+	}
+	if m.tree.f.active() {
+		cmds = append(cmds, m.refilter(&m.tree.f))
+	}
 	if m.layout == layoutFlat {
 		cmds = append(cmds, m.runSearch(m.flat))
 	}
@@ -214,8 +331,6 @@ func (m *Model) sel() selection {
 // activeResults is the result list the cursor is in, if any.
 func (m *Model) activeResults() *searchState {
 	switch {
-	case m.ov == ovSearch:
-		return m.search
 	case m.ov == ovJump:
 		return m.jump
 	case m.ov == ovNone && m.layout == layoutFlat:
@@ -273,8 +388,8 @@ func (m *Model) left() {
 			return
 		}
 		r := t.rows[t.cur]
-		if t.open[openKey(r.node)] {
-			delete(t.open, openKey(r.node))
+		if t.isOpen(r.node) {
+			t.setOpen(r.node, false)
 			m.treeBuild()
 			return
 		}
@@ -305,8 +420,8 @@ func (m *Model) right() tea.Cmd {
 		}
 		n := t.rows[t.cur].node
 		expandable := n.Kind == api.KindProject || n.Kind == api.KindDataset || n.Kind == api.KindShards
-		if expandable && !t.open[openKey(n)] {
-			t.open[openKey(n)] = true
+		if expandable && !t.isOpen(n) {
+			t.setOpen(n, true)
 			m.treeBuild()
 			return nil
 		}
@@ -335,7 +450,7 @@ func (m *Model) open() tea.Cmd {
 		case layoutFlat:
 			return m.reveal(s.path, s.kind)
 		case layoutTree:
-			m.tree.open[openKey(s.node)] = !m.tree.open[openKey(s.node)]
+			m.tree.setOpen(s.node, !m.tree.isOpen(s.node))
 			m.treeBuild()
 			return nil
 		}
@@ -356,7 +471,7 @@ func (m *Model) open() tea.Cmd {
 			ml.cur[2], ml.off[2] = 0, 0
 			m.milLoad(2)
 		case layoutTree:
-			m.tree.open[openKey(s.node)] = !m.tree.open[openKey(s.node)]
+			m.tree.setOpen(s.node, !m.tree.isOpen(s.node))
 			m.treeBuild()
 		case layoutFlat:
 			m.flat.in.set("d:" + s.path.Dataset + " p:" + s.path.Project + " " + strings.TrimSuffix(s.path.Table, "YYYYMMDD"))
@@ -394,6 +509,7 @@ func (m *Model) locate(p api.ObjectPath, kind api.ResultKind) {
 	case layoutMiller:
 		ml := &m.mil
 		ml.family = nil
+		m.milDropHiding(p, kind)
 		m.milLoad(0)
 		i := indexOf(ml.cols[0], p.Project)
 		if i < 0 {
@@ -435,6 +551,14 @@ func (m *Model) locate(p api.ObjectPath, kind api.ResultKind) {
 		}
 	case layoutTree:
 		t := &m.tree
+		if t.filtering() && !m.treeLocateFiltered(p, kind) {
+			// the filter hides the target: drop it
+			t.f.clear()
+			t.fexp = nil
+		}
+		if t.filtering() {
+			return
+		}
 		pn := api.BrowseNode{Kind: api.KindProject, Path: api.ObjectPath{Project: p.Project}}
 		if p.Dataset != "" {
 			t.open[openKey(pn)] = true
@@ -467,6 +591,41 @@ func (m *Model) locate(p api.ObjectPath, kind api.ResultKind) {
 	case layoutFlat:
 		m.flat.pending = &p
 	}
+}
+
+// treeLocateFiltered moves the cursor to an object the tree filter shows,
+// opening its ancestors (and its shard family) in the filter's expansion.
+func (m *Model) treeLocateFiltered(p api.ObjectPath, kind api.ResultKind) bool {
+	t := &m.tree
+	find := func(k api.ResultKind) bool {
+		for i, r := range t.rows {
+			if r.node.Path == p && (r.node.Kind == k || k == "") {
+				t.cur = i
+				return true
+			}
+		}
+		return false
+	}
+	if p.Dataset != "" {
+		t.setOpen(api.BrowseNode{Kind: api.KindProject, Path: api.ObjectPath{Project: p.Project}}, true)
+	}
+	if p.Table != "" {
+		t.setOpen(api.BrowseNode{Kind: api.KindDataset, Path: api.ObjectPath{Project: p.Project, Dataset: p.Dataset}}, true)
+	}
+	m.treeBuild()
+	if find(kind) {
+		return true
+	}
+	if p.Table == "" {
+		return false
+	}
+	for _, r := range t.rows {
+		if r.node.Kind == api.KindShards && r.node.Path.Project == p.Project && r.node.Path.Dataset == p.Dataset && strings.HasPrefix(p.Table, r.node.Shard.Prefix) {
+			t.setOpen(r.node, true)
+		}
+	}
+	m.treeBuild()
+	return find(api.KindTable)
 }
 
 // reveal closes any overlay and shows the object in the explorer.

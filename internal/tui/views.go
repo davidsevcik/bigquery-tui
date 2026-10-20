@@ -91,16 +91,22 @@ func (m *Model) render() []string {
 	bodyH := h - 2
 	var body []string
 	switch {
-	case m.zone != ZoneExplorer && m.ov != ovSearch:
+	case m.zone != ZoneExplorer:
 		body = m.queryBody(w, bodyH)
-	case m.ov == ovSearch:
-		body = m.searchBody(m.search, w, bodyH, " search ▸ ")
 	case m.layout == layoutFlat:
 		body = m.searchBody(m.flat, w, bodyH, " filter ▸ ")
 	case m.layout == layoutTree:
 		body = m.withDetail(w, bodyH, m.treeList)
 	default:
 		body = m.withDetail(w, bodyH, m.millerList)
+	}
+	if f := m.typingFilter(); f != nil && m.layout != layoutFlat && bodyH > 4 {
+		hdr := m.filterHeader(f, w, m.filterWhat())
+		list := m.treeList
+		if m.layout == layoutMiller {
+			list = m.millerList
+		}
+		body = append(hdr, m.withDetail(w, bodyH-len(hdr), list)...)
 	}
 	body = fillTo(body, w, bodyH)
 
@@ -203,7 +209,7 @@ func (m *Model) footerLine(w int) string {
 	}
 	var hint string
 	switch {
-	case m.ov == ovSearch || m.ov == ovJump:
+	case m.ov == ovJump:
 		hint = "type to search · ↑↓ select · " + footerHints(ZoneSearch)
 	case m.ov == ovRecord:
 		hint = "n/N next/previous row · j/k scroll · y copy as JSON · " + footerHints(ZoneOverlay)
@@ -242,8 +248,8 @@ func (m *Model) footerLine(w int) string {
 		hint = footerHints(ZoneOverlay)
 	case m.zoom:
 		hint = "↑↓/jk scroll · tab schema/preview · P split · p rows · J record · ←/esc back"
-	case m.layout == layoutFlat && m.flat.typing:
-		hint = "type to filter · enter/esc back to the list"
+	case m.layout == layoutFlat && m.flat.typing, m.typingFilter() != nil:
+		hint = "type to filter · enter/esc back to the list · esc there clears the filter"
 	default:
 		hint = footerHints(ZoneExplorer, ZoneGlobal)
 	}
@@ -328,13 +334,20 @@ func (m *Model) millerCol(c, w, h int) []string {
 	cur := ml.cur[c]
 	focused := c == ml.col && !m.zoom
 	hdr := fmt.Sprintf(" %s %s/%s", name, format.Count(int64(min(cur+1, total))), format.Count(int64(total)))
+	f := &ml.f[c]
+	if f.active() {
+		hdr += fmt.Sprintf(" of %s ▸ %s", format.Count(int64(ml.all[c])), f.in.value())
+	}
 	if c > ml.col {
 		hdr = fmt.Sprintf(" %s (%s)", name, format.Count(int64(total)))
 	}
 	out := []string{title(hdr, w, focused)}
 	if total == 0 {
 		msg := "empty"
-		if c == 0 {
+		switch {
+		case f.active() && ml.all[c] > 0:
+			msg = "no match for “" + f.in.value() + "”"
+		case c == 0:
 			msg = "no projects: add them with gc (open config)"
 		}
 		out = append(out, " "+sDim.Render(msg))
@@ -387,9 +400,20 @@ func (m *Model) nodeRow(b *rb, n api.BrowseNode, bold bool) {
 
 func (m *Model) treeList(w, h int) []string {
 	t := &m.tree
-	out := []string{title(fmt.Sprintf(" Explorer  %s/%s", format.Count(int64(min(t.cur+1, len(t.rows)))), format.Count(int64(len(t.rows)))), w, !m.zoom)}
+	hdr := fmt.Sprintf(" Explorer  %s/%s", format.Count(int64(min(t.cur+1, len(t.rows)))), format.Count(int64(len(t.rows))))
+	if t.f.active() {
+		hdr += " ▸ " + t.f.in.value()
+		if t.f.ok {
+			hdr += " · " + plural(len(t.f.rank), "match", "matches")
+		}
+	}
+	out := []string{title(hdr, w, !m.zoom)}
 	if len(t.rows) == 0 {
-		out = append(out, " "+sDim.Render("no projects: add them with gc (open config)"))
+		msg := "no projects: add them with gc (open config)"
+		if t.f.active() {
+			msg = "no match for “" + t.f.in.value() + "”"
+		}
+		out = append(out, " "+sDim.Render(msg))
 		return fillTo(out, w, h)
 	}
 	st, en := window(t.cur, &t.off, len(t.rows), h-1)
@@ -400,7 +424,7 @@ func (m *Model) treeList(w, h int) []string {
 		switch r.node.Kind {
 		case api.KindProject, api.KindDataset, api.KindShards:
 			arrow := "▸ "
-			if t.open[openKey(r.node)] {
+			if t.isOpen(r.node) {
 				arrow = "▾ "
 			}
 			b.add(arrow, sDim)
@@ -411,6 +435,14 @@ func (m *Model) treeList(w, h int) []string {
 		out = append(out, b.line(w))
 	}
 	return fillTo(out, w, h)
+}
+
+// filterWhat names the list the filter line narrows.
+func (m *Model) filterWhat() string {
+	if m.layout == layoutTree {
+		return "tree"
+	}
+	return []string{"projects", "datasets", "tables"}[m.mil.col]
 }
 
 func scopeLabel(st *searchState) string {

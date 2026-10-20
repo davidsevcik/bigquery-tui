@@ -1,6 +1,6 @@
- Projects 1/2     │ Datasets 3/4                 │ Tables 1/4
+ Projects 1/2     │ Datasets 1/4                 │ Tables 1/2
 acme╭─ Jump to table ──────────────────────────────────────────────────────╮
-acme│ ⌕ ev                                                     1/2 · 0.0ms │
+acme│ ⌕ ev                                                     1/2 · 0.0ms │ ×4
     │ “ev”                                                                 │
     │▌T events_YYYYMMDD ×4  acme-prod.events                     prefix 3h │
     │ T clicks  acme-prod.events                         dataset·prefix 3h │

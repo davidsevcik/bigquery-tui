@@ -1,0 +1,36 @@
+ Projects 1/2            │ Datasets 2/3 of 4 ▸ s                     │ Schema · acme-prod.sales
+acme-prod           ✓ 3h │events                                   5 │ acme-prod.sales  dataset
+acme-staging        ✓ 3h │sales                                    4 │ EU · 4 tables
+                         │us_archive                               1 │ ✓ synced 3h ago
+                         │                                           │ dataset sales
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+ bqt exec acme-exec  miller                                                                      5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · ctrl+o zone · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial

@@ -1,6 +1,6 @@
- Projects 1/2     │ Datasets 3/4                 │ Tables 1/4
+ Projects 1/2     │ Datasets 1/4                 │ Tables 1/2
 acme-p╭─ Commands ───────────────────────────────────────────────────────╮
-acme-s│ > sync                                                           │
+acme-s│ > sync                                                           │   ×4
       │ Show sync problems                                           g p │
       │ Show sync progress                                           g s │
       ╰──────────────────────────────────────────────────────────────────╯
