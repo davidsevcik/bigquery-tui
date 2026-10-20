@@ -54,8 +54,10 @@ const (
 	ovRecord
 	ovRuns
 	ovBuffers
+	ovProjects
 	ovPrompt
 	ovConfirm
+	ovPicker
 )
 
 const (
@@ -74,6 +76,8 @@ type Options struct {
 	// Getenv resolves $VISUAL/$EDITOR (default os.Getenv).
 	Getenv func(string) string
 	Now    func() time.Time
+	// Location is where times are shown (default the local zone).
+	Location *time.Location
 	// File is a .sql file to open as the first buffer (bqt path/to/query.sql).
 	File string
 }
@@ -90,6 +94,7 @@ type Model struct {
 
 	layout layoutKind
 	place  placement
+	hidden map[string]bool // projects turned off (ctrl+x p)
 
 	mil  miller
 	tree tree
@@ -117,6 +122,9 @@ type Model struct {
 	tut      *tutorial
 	firstRun bool // no UI state file yet
 
+	pk          *picker  // Favorites and History; kept while closed, so the search survives
+	pendingLoad *loadReq // a pick waiting for the "replace the buffer?" answer
+
 	pendingKey string
 	toast      string
 
@@ -137,6 +145,7 @@ type Model struct {
 	confirmQ   []confirmState // questions waiting for the open popup to close
 	draftErr   string         // the last draft write failed with this (retried every tick)
 	ovSel      int
+	projTop    int // lines above the list in the projects popup
 	exp        Export
 	expEv      api.ExportEvent
 	pricing    api.PricingModel
@@ -162,6 +171,9 @@ func New(be Backend, o Options) *Model {
 	}
 	if o.Now == nil {
 		o.Now = time.Now
+	}
+	if o.Location == nil {
+		o.Location = time.Local
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30, termH: 30}
@@ -210,6 +222,8 @@ type uiState struct {
 	Panes  string `json:"panes"`
 	// ZoomStacked: the zoomed detail shows schema above preview.
 	ZoomStacked bool `json:"zoom_stacked,omitempty"`
+	// Hidden lists the projects turned off (ctrl+x p).
+	Hidden []string `json:"hidden_projects,omitempty"`
 }
 
 func (m *Model) loadState() {
@@ -233,6 +247,12 @@ func (m *Model) loadState() {
 		}
 	}
 	m.zoomStacked = st.ZoomStacked
+	for _, p := range st.Hidden {
+		if m.hidden == nil {
+			m.hidden = map[string]bool{}
+		}
+		m.hidden[p] = true
+	}
 }
 
 func (m *Model) saveState() {
@@ -240,7 +260,7 @@ func (m *Model) saveState() {
 	if os.MkdirAll(filepath.Dir(p), 0o700) != nil {
 		return
 	}
-	b, _ := json.Marshal(uiState{Layout: layoutNames[m.layout], Panes: placementNames[m.place], ZoomStacked: m.zoomStacked})
+	b, _ := json.Marshal(uiState{Layout: layoutNames[m.layout], Panes: placementNames[m.place], ZoomStacked: m.zoomStacked, Hidden: sortedKeys(m.hidden)})
 	_ = os.WriteFile(p, b, 0o600)
 }
 
@@ -393,6 +413,7 @@ func waitSync(run SyncRun) tea.Cmd {
 // Update handles one message.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	mod, cmd := m.update(msg)
+	m.mil.col = max(m.mil.col, m.milFirst())
 	m.tutorialObserve()
 	return mod, cmd
 }
@@ -431,6 +452,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	case pageMsg:
 		m.onPage(msg)
+	case histMsg:
+		m.onHistory(msg)
+	case reopenMsg:
+		return m, m.onReopen(msg)
 	case exportMsg:
 		return m, m.onExport(msg)
 	case pricingMsg:
@@ -633,6 +658,8 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return m.promptKey(msg, name)
 	case ovConfirm:
 		return m.confirmKey(name)
+	case ovPicker:
+		return m.pickerKey(msg, name)
 	}
 	if st := m.typingState(); st != nil {
 		return m.searchKey(st, msg, name)
@@ -660,6 +687,8 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return m.runsOverlayAction(act, name)
 	case m.ov == ovBuffers:
 		return m.buffersOverlayAction(act)
+	case m.ov == ovProjects:
+		return m.projectsOverlayAction(act)
 	case m.ov != ovNone:
 		return m.overlayAction(act)
 	case zone == ZoneResults:
@@ -713,6 +742,13 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 	case "tutorial":
 		m.startTutorial()
 		return nil, true
+	case "projects":
+		m.openProjects()
+		return nil, true
+	case "favorites":
+		return m.openPicker(scopeFavorites), true
+	case "history":
+		return m.openPicker(scopeHistory), true
 	case "cancelall":
 		m.be.CancelAllRuns()
 		m.toast = "cancel requested for every run"

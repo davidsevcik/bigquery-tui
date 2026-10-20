@@ -1,5 +1,5 @@
  Datasets 3/4                     │ Tables 1/4                       │ Schema · acme-prod.sales.customers
-events      ╭─ Help  (1-30/145) ───────────────────────────────────────────────────────────────────────────╮
+events      ╭─ Help  (1-30/177) ───────────────────────────────────────────────────────────────────────────╮
 finance     │ Global                                                                                       │
 sales       │ ctrl+q          quit (asks if Runs are in flight)                                            │
 us_archive  │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results                                       │
@@ -10,6 +10,10 @@ us_archive  │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results          
             │ ctrl+p          command palette                                                              │
             │ ctrl+t          jump to table (recently opened when empty)                                   │
             │ f1              this help                                                                    │
+            │ ctrl+x p        projects: turn them on or off in the explorer and search (one on hides the   │
+            │                 project column)                                                              │
+            │ ctrl+x f        favorites: saved queries (tab switches to History)                           │
+            │ ctrl+x r        history: every query run, searchable (tab switches to Favorites)             │
             │ ctrl+g          tutorial of the navigation (while it runs: ctrl+g then n, p, r or q)         │
             │ ctrl+c          cancel the export, the focused Run, or the sync                              │
             │                                                                                              │
@@ -22,14 +26,10 @@ us_archive  │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results          
             │ G  end          last row                                                                     │
             │ ctrl+d  pgdown  half page down                                                               │
             │ ctrl+u  pgup    half page up                                                                 │
-            │ enter           expand a shard family, open a table, zoom the detail when it is collapsed; z…│
+            │ enter           expand a shard family, open a table, zoom the detail when it is collapsed;   │
+            │                 zoomed preview: show the row as a record                                     │
             │ esc             back out one level                                                           │
             │ /               search the catalog                                                           │
-            │ :               command palette                                                              │
-            │ L               cycle layout: Miller columns, tree, flat list                                │
-            │ P               detail pane: auto, right, bottom, hidden; zoomed: schema and preview side by…│
-            │ tab             switch between schema and preview (the pane that ctrl+e / ctrl+y move in)    │
-            │ z               zoom the detail pane: the movement keys then scroll it, left or esc leaves   │
             ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
                                   │                                  │
  bqt exec acme-exec  miller                                                                      5 datasets · 13 tables

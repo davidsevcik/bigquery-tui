@@ -300,7 +300,7 @@ func TestVimModesInTheUI(t *testing.T) {
 		t.Fatal(": opens the palette")
 	}
 	r.press("esc", "?")
-	if r.m.ov != ovHelp || !strings.Contains(strings.Join(helpLines(), "\n"), "vim editing") {
+	if r.m.ov != ovHelp || !strings.Contains(strings.Join(helpLines(80), "\n"), "vim editing") {
 		t.Fatal("? opens the help, which documents the vim keys")
 	}
 	r.press("esc", "ctrl+x", "n")

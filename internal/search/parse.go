@@ -20,6 +20,21 @@ var TypeNames = []string{"table", "view", "mview", "external", "snapshot", "clon
 // incomplete or invalid filter is reported through its Status so a frontend
 // can show it as a pending or red chip.
 func Parse(raw string) api.ParsedQuery {
+	q := ParseWith(raw, FilterKeys, validateCatalogFilter)
+	// A single pasted `project.dataset.table` is an exact path lookup.
+	if len(q.Terms) == 1 && len(q.Filters) == 0 {
+		// from the raw text: the path keeps its case (identity is case-sensitive)
+		if p, ok := SplitPath(strings.Trim(raw[q.Terms[0].Span.Start:q.Terms[0].Span.End], `"`)); ok {
+			q.Path = &p
+		}
+	}
+	return q
+}
+
+// ParseWith parses a query with another set of filter keys (History uses
+// status:, project:, source:, since:). validate may mark a complete filter
+// invalid; it may be nil.
+func ParseWith(raw string, keys map[string]bool, validate func(*api.QueryFilter)) api.ParsedQuery {
 	q := api.ParsedQuery{Raw: raw}
 	i := 0
 	for i < len(raw) {
@@ -36,14 +51,7 @@ func Parse(raw string) api.ParsedQuery {
 			}
 			i++
 		}
-		parseToken(&q, start, i)
-	}
-	// A single pasted `project.dataset.table` is an exact path lookup.
-	if len(q.Terms) == 1 && len(q.Filters) == 0 {
-		// from the raw text: the path keeps its case (identity is case-sensitive)
-		if p, ok := SplitPath(strings.Trim(raw[q.Terms[0].Span.Start:q.Terms[0].Span.End], `"`)); ok {
-			q.Path = &p
-		}
+		parseToken(&q, start, i, keys, validate)
 	}
 	return q
 }
@@ -66,13 +74,13 @@ func SplitPath(s string) (api.ObjectPath, bool) {
 	return api.ObjectPath{Project: strings.Join(parts[:n-2], "."), Dataset: parts[n-2], Table: parts[n-1]}, true
 }
 
-func parseToken(q *api.ParsedQuery, s, e int) {
+func parseToken(q *api.ParsedQuery, s, e int, keys map[string]bool, validate func(*api.QueryFilter)) {
 	tok := q.Raw[s:e]
 	body, neg := tok, false
 	if strings.HasPrefix(body, "-") && len(body) > 1 {
 		body, neg = body[1:], true
 	}
-	if ci := strings.IndexByte(body, ':'); ci > 0 && FilterKeys[strings.ToLower(body[:ci])] {
+	if ci := strings.IndexByte(body, ':'); ci > 0 && keys[strings.ToLower(body[:ci])] {
 		f := api.QueryFilter{Key: strings.ToLower(body[:ci]), Negated: neg, Status: api.FilterOK,
 			Span: api.Span{Start: s, End: e}, ValueSpan: api.Span{Start: e - (len(body) - ci - 1), End: e}}
 		for _, v := range splitValues(body[ci+1:]) {
@@ -83,19 +91,8 @@ func parseToken(q *api.ParsedQuery, s, e int) {
 		}
 		if len(f.Values) == 0 {
 			f.Status = api.FilterPending
-		}
-		if f.Key == "type" {
-			for _, v := range f.Values {
-				ok := false
-				for _, k := range TypeNames {
-					if strings.HasPrefix(k, v) {
-						ok = true
-					}
-				}
-				if !ok {
-					f.Status = api.FilterInvalid
-				}
-			}
+		} else if validate != nil {
+			validate(&f)
 		}
 		q.Filters = append(q.Filters, f)
 		return
@@ -105,6 +102,26 @@ func parseToken(q *api.ParsedQuery, s, e int) {
 		return
 	}
 	q.Terms = append(q.Terms, api.QueryTerm{Text: t, Span: api.Span{Start: s, End: e}})
+}
+
+func validateCatalogFilter(f *api.QueryFilter) {
+	if f.Key == "type" {
+		for _, v := range f.Values {
+			if !anyPrefix(TypeNames, v) {
+				f.Status = api.FilterInvalid
+			}
+		}
+	}
+}
+
+// anyPrefix reports whether v is a prefix of one of names.
+func anyPrefix(names []string, v string) bool {
+	for _, k := range names {
+		if strings.HasPrefix(k, v) {
+			return true
+		}
+	}
+	return false
 }
 
 func splitValues(s string) []string {

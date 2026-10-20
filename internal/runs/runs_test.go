@@ -575,3 +575,48 @@ func TestFailedCancelCanBeAskedAgain(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestReopenShowsAnEarlierResult(t *testing.T) {
+	r := newRig(t)
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1234) }
+	first := r.m.Start(context.Background(), Request{SQL: "select n", Favorite: "dau.sql"}).Wait()
+	if first.Favorite != "dau.sql" || r.recorded()[0].Favorite != "dau.sql" {
+		t.Fatal("the Favorite travels to History")
+	}
+	billed := int64(99)
+	e := api.HistoryEntry{ID: 7, Job: *first.Job, SQL: "select n", State: api.RunDone, Source: "tui", ExecutionProject: "exec", BytesBilled: &billed}
+	run, err := r.m.Reopen(context.Background(), e, "buf2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := run.Info()
+	if info.State != api.RunDone || !info.HasResult || info.TotalRows != 1234 || info.FromHistory != 7 || info.Tag != "buf2" || info.Stats.BytesBilled != 99 {
+		t.Fatalf("%+v", info)
+	}
+	select {
+	case <-run.Done():
+	default:
+		t.Fatal("a reopened Run is finished")
+	}
+	page, err := run.Rows(context.Background(), 600, 3, format.Options{})
+	if err != nil || len(page.Rows) != 3 {
+		t.Fatalf("pages beyond the first: %v %v", page, err)
+	}
+	if got, v := run.Await(context.Background(), 0); got.State != api.RunDone || v == 0 {
+		t.Fatal("await")
+	}
+	if len(r.recorded()) != 1 {
+		t.Fatal("a reopened Run is not recorded again")
+	}
+	if r.m.Get(run.ID()) == nil || len(r.m.List()) != 2 {
+		t.Fatal("the Run is in the list")
+	}
+	// a job BigQuery no longer has
+	e.Job.ID = "gone"
+	if _, err := r.m.Reopen(context.Background(), e, ""); err == nil || !strings.Contains(err.Error(), "no longer available") {
+		t.Fatalf("%v", err)
+	}
+	if len(r.m.List()) != 2 {
+		t.Fatal("a failed reopen adds nothing")
+	}
+}

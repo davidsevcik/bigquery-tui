@@ -1,0 +1,30 @@
+ Projects 1/2        │ Datasets (4)                      │ Schema · acme-prod
+ac╭─ Favorites and History ──────────────────────────────────────────────────────────────────────╮
+ac│  Favorites 0   History 0   tab switches                                                      │
+  │ ▸ q?                                                                                         │
+  │ “q?”                                                                                         │
+  │──────────────────────────────────────────────────────────────────────────────────────────────│
+  │ nothing matches                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  │                                          │                                                   │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+                     │                                   │
+ bqt exec acme-exec  miller                                                  5 datasets · 13 tables
+ type to search · ↑↓ select · enter open · tab favorites/history · ctrl+r show result · ctrl+s save…

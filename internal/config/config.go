@@ -210,7 +210,15 @@ var envKeys = []string{
 // *ErrNoConfig.
 func Load(opts LoadOptions) (*Config, error) {
 	path := ResolvePath(opts)
-	raw, err := os.ReadFile(path)
+	raw, err := readFile(path)
+	return fromRead(path, raw, err, opts)
+}
+
+// readFile is os.ReadFile; tests replace it.
+var readFile = os.ReadFile
+
+// fromRead is Load for content already read from path.
+func fromRead(path string, raw []byte, err error, opts LoadOptions) (*Config, error) {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, &ErrNoConfig{Path: path}
@@ -514,6 +522,8 @@ func (b *builder) build(c *Config, v map[string]layered, errs *Errors) {
 			fail("history_retention_days", l.src, err.Error())
 		case n < 0:
 			fail("history_retention_days", l.src, "must not be negative")
+		case n > 36500:
+			fail("history_retention_days", l.src, "must be at most 36500 (100 years)")
 		default:
 			c.HistoryRetentionDays = int(n)
 		}

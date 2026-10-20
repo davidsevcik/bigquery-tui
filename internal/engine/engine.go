@@ -76,6 +76,9 @@ type Engine struct {
 	infos    map[string]bq.TableInfo
 	closers  []func() error
 	closed   bool
+
+	retainedDays int // history_retention_days last applied, and when
+	retainedAt   time.Time
 }
 
 // Open prepares the engine. In read-write mode it creates the data directory
@@ -143,6 +146,7 @@ func (e *Engine) History() (*store.History, error) {
 		return nil, ErrClosed
 	}
 	if e.history != nil {
+		e.applyRetention(e.history)
 		return e.history, nil
 	}
 	if err := e.paths.Ensure(); err != nil {
@@ -153,6 +157,7 @@ func (e *Engine) History() (*store.History, error) {
 		return nil, err
 	}
 	e.history = h
+	e.applyRetention(h)
 	return h, nil
 }
 

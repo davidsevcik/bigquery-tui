@@ -52,7 +52,7 @@ func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 	out := make(chan Event, 1)
 	path := ResolvePath(o.Load)
 	// Hash synchronously so a write racing with the goroutine start is seen.
-	seen := hashFile(path)
+	seen, _, _ := readHashed(path)
 	go func() {
 		defer close(out)
 		good := current
@@ -69,7 +69,7 @@ func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 			case <-settle:
 			}
 			settle = nil
-			h := hashFile(path)
+			h, raw, rerr := readHashed(path)
 			if h == seen {
 				pending = seen
 				continue
@@ -84,7 +84,9 @@ func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 			}
 			seen = h
 			ev := Event{}
-			cfg, err := Load(o.Load)
+			// Use the read that was hashed: reading the file again could
+			// catch a write that started after the stability check.
+			cfg, err := fromRead(path, raw, rerr, o.Load)
 			if err != nil {
 				ev.Err = err
 			} else {
@@ -107,15 +109,17 @@ func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 	return out
 }
 
-func hashFile(path string) [sha256.Size]byte {
-	b, err := os.ReadFile(path)
+// readHashed reads the file once and hashes what it saw, including a
+// missing or unreadable file.
+func readHashed(path string) (h [sha256.Size]byte, raw []byte, err error) {
+	raw, err = readFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return sha256.Sum256([]byte("\x00missing"))
+			return sha256.Sum256([]byte("\x00missing")), nil, err
 		}
-		return sha256.Sum256([]byte("\x00unreadable"))
+		return sha256.Sum256([]byte("\x00unreadable")), nil, err
 	}
-	return sha256.Sum256(b)
+	return sha256.Sum256(raw), raw, nil
 }
 
 // Diff returns the config keys whose effective values differ, sorted.

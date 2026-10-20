@@ -73,6 +73,7 @@ func (m *Model) searchCmd(st *searchState, limit, offset int, appendTo bool) tea
 	ctx, cancel := context.WithCancel(m.ctx)
 	st.cancel = cancel
 	opts := st.options(limit, offset)
+	opts.Hidden = m.hiddenProjects()
 	return func() tea.Msg {
 		resp, err := m.be.Search(ctx, query, opts)
 		return searchMsg{st: st, seq: seq, resp: resp, err: err, append: appendTo}

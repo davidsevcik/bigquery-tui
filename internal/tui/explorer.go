@@ -67,7 +67,7 @@ func (m *Model) milLoad(c int) {
 		}
 	}
 	if c <= 0 {
-		keep(0, m.be.Projects())
+		keep(0, m.projects())
 	}
 	if c <= 1 {
 		var ds []api.BrowseNode
@@ -78,6 +78,11 @@ func (m *Model) milLoad(c int) {
 	}
 	var ts []api.BrowseNode
 	if d, ok := ml.at(1); ok {
+		// an open family belongs to one dataset: drop it when the dataset
+		// changed under it (a project turned off, a config reload)
+		if f := ml.family; f != nil && (f.Path.Project != d.Path.Project || f.Path.Dataset != d.Path.Dataset) {
+			ml.family = nil
+		}
 		if ml.family != nil {
 			ts = m.be.ShardMembers(d.Path.Project, d.Path.Dataset, ml.family.Shard.Prefix)
 			if len(ts) == 0 {
@@ -132,7 +137,7 @@ func (m *Model) treeBuild() {
 		keep = openKey(t.rows[t.cur].node)
 	}
 	t.rows = t.rows[:0]
-	for _, p := range m.be.Projects() {
+	for _, p := range m.projects() {
 		t.rows = append(t.rows, treeRow{0, p})
 		if !t.open[openKey(p)] {
 			continue
@@ -261,7 +266,7 @@ func (m *Model) left() {
 			m.milCollapseFamily()
 			return
 		}
-		ml.col = max(0, ml.col-1)
+		ml.col = max(m.milFirst(), ml.col-1)
 	case layoutTree:
 		t := &m.tree
 		if t.cur >= len(t.rows) {
@@ -471,6 +476,8 @@ func (m *Model) reveal(p api.ObjectPath, kind api.ResultKind) tea.Cmd {
 		// the flat list cannot show containers: fall back to Miller columns
 		m.layout = layoutMiller
 	}
+	// a pasted path can name a project that is turned off
+	show := m.showProject(p.Project)
 	m.locate(p, kind)
 	if kind == api.KindShards && m.layout == layoutMiller {
 		if n, ok := m.mil.at(2); ok && n.Kind == api.KindShards {
@@ -481,9 +488,9 @@ func (m *Model) reveal(p api.ObjectPath, kind api.ResultKind) tea.Cmd {
 		}
 	}
 	if kind == api.KindTable {
-		return func() tea.Msg { _ = m.be.TouchRecent(m.ctx, p); return nil }
+		return tea.Batch(show, func() tea.Msg { _ = m.be.TouchRecent(m.ctx, p); return nil })
 	}
-	return nil
+	return show
 }
 
 func (m *Model) cycleScope() {

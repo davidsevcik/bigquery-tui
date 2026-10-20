@@ -312,6 +312,28 @@ func TestScopeLimitOffsetTotal(t *testing.T) {
 	eq(t, names(t, s, "orders", api.SearchOptions{TablesOnly: true, Scope: &api.ObjectPath{Project: "acme-staging"}}), "acme-staging.sales.orders")
 }
 
+func TestHiddenProjects(t *testing.T) {
+	s := standard().searcher()
+	s.Recent = func(context.Context, int) ([]string, error) {
+		return []string{"acme-prod.events.clicks", "acme-staging.sales.orders"}, nil
+	}
+	hide := []string{"acme-prod"}
+	for _, q := range []string{"orders", "acme", "sales", ""} {
+		r, err := s.Search(ctx, q, api.SearchOptions{Hidden: hide})
+		if err != nil || (q != "" && len(r.Results) == 0) {
+			t.Fatalf("%q: %v %+v", q, err, r)
+		}
+		for _, x := range r.Results {
+			if x.Path.Project == "acme-prod" {
+				t.Fatalf("%q: hidden project in results: %+v", q, x)
+			}
+		}
+	}
+	if r, _ := s.Search(ctx, "acme-prod.sales.orders", api.SearchOptions{Hidden: hide}); len(r.Results) != 1 {
+		t.Fatal("a pasted path is an exact lookup even in a hidden project")
+	}
+}
+
 func TestSpansAndFreshness(t *testing.T) {
 	s := standard().searcher()
 	r, _ := s.Search(ctx, "items d:sal p:prod", api.SearchOptions{TablesOnly: true})

@@ -26,7 +26,7 @@ bin/bqt status                           # freshness and sync problems
 bin/bqt doctor                           # paths, versions, auth, catalog age
 ```
 
-In the explorer: `hjkl` or the arrows move, `/` searches, `ctrl+t` jumps to a table, `ctrl+p` opens the command palette, `L` cycles the layout (Miller columns, tree, flat list), `p` previews rows, `?` lists every key. `ctrl+g` starts an interactive tutorial of the navigation.
+In the explorer: `hjkl` or the arrows move, `/` searches, `ctrl+t` jumps to a table, `ctrl+p` opens the command palette, `L` cycles the layout (Miller columns, tree, flat list), `p` previews rows, `?` lists every key. `ctrl+x p` turns projects on or off; with one project on, the Miller view starts at its datasets. `ctrl+g` starts an interactive tutorial of the navigation.
 
 **Writing and running queries.** `ctrl+o` cycles the three zones: Explorer, Editor, Results (`ctrl+w` then `h`/`l`/`j` goes straight to one; `ctrl+w w` / `W` cycle as in vim).
 
@@ -34,6 +34,18 @@ In the explorer: `hjkl` or the arrows move, `/` searches, `ctrl+t` jumps to a ta
 - Type SQL; the completion popup offers projects, datasets, tables, columns (through aliases, CTEs and `UNNEST`), functions and keywords. `tab` accepts, `ctrl+space` forces it. `ctrl+r` runs the selection or the whole buffer, `ctrl+d` only dry-runs it. `@name` parameters are asked for. `ctrl+x n` / `b` / `w` / `[` / `]` manage buffers; every buffer is autosaved as a draft and offered for restore after a crash or a closed terminal. `i` in the Explorer inserts the selected table's name.
 - Every run does a dry-run first. bqt shows the estimate, asks before a non-SELECT statement or a scan over `confirm_bytes`, and sets `max_bytes_billed` on the job. `ctrl+c` cancels the focused run; `ctrl+x l` (or `gr`) lists the runs.
 - Results: `hjkl` move the cell cursor, `enter` shows the row as a full record, `/` finds text in the loaded pages, `f` freezes the first column, `H` hides one, `y` / `Y` copy the cell or the row as JSON, `e` exports every row to CSV, JSON or NDJSON.
+
+**History and Favorites.** `ctrl+x r` opens History: every query you ran, grouped by SQL text and searchable (`status:failed`, `project:`, `source:`, `since:7d`). `ctrl+x f` opens Favorites, saved queries kept as plain `.sql` files in `favorites_dir` (put it in a git repo if you like); `tab` switches between the two. `enter` loads a pick into the editor, `ctrl+s` on a History entry saves it as a Favorite, `ctrl+r` shows its result again (BigQuery keeps results about 24 hours). In the editor `ctrl+x s` saves the buffer as a Favorite. A Favorite's header declares typed parameters, and the file still runs as plain SQL:
+
+```sql
+-- description: Daily active users by country
+-- tags: events, dau
+-- param: start DATE = 2024-01-01
+-- param: country STRING
+SELECT ... WHERE d >= @start AND c = @country
+```
+
+`bqt history prune --older-than 90d` deletes old History entries (`history_retention_days` in the config does it automatically).
 
 Search syntax: free terms match names (and descriptions last); filters are `p:` project, `d:` dataset, `type:`, `col:`, `label:`, `desc:`; `-d:tmp` excludes; `type:view,mview` is OR; a pasted `project.dataset.table` is an exact lookup. Columns are searched only with `col:`.
 

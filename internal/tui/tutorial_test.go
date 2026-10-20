@@ -37,7 +37,7 @@ func TestTutorialWalkthrough(t *testing.T) {
 	if r.m.zone != ZoneExplorer || r.m.h != 36-tutorialRows {
 		t.Fatalf("zone %s, height %d", r.m.zone, r.m.h)
 	}
-	r.contains("Tutorial 1/16 · Welcome", "ctrl+g then: n next")
+	r.contains("Tutorial 1/17 · Welcome", "ctrl+g then: n next")
 	r.press("j") // the welcome step waits for ctrl+g n
 	r.tutStep(0)
 	r.press("k", "ctrl+g", "n")
@@ -90,6 +90,8 @@ func TestTutorialWalkthrough(t *testing.T) {
 	r.tutStep(14)
 	r.press("ctrl+w", "h")
 	r.tutStep(15)
+	r.press("ctrl+x", "r", "esc")
+	r.tutStep(16)
 	r.press("ctrl+g", "n")
 	if r.m.tut != nil || r.m.h != 36 {
 		t.Fatalf("the last step closes the tutorial and gives the rows back (%d)", r.m.h)

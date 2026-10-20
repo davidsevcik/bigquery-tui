@@ -121,6 +121,9 @@ type SearchOptions struct {
 	// ExpandShards lists shard-family members individually instead of
 	// collapsing them into one family result.
 	ExpandShards bool `json:"expand_shards,omitempty"`
+	// Hidden leaves these projects out (the projects turned off in the TUI).
+	// A pasted path is still an exact lookup.
+	Hidden []string `json:"hidden,omitempty"`
 }
 
 // SearchResponse is a page of results.
