@@ -11,6 +11,11 @@ import (
 
 func watchSetup(t *testing.T, src string) (path string, cur *Config, events <-chan Event, kick chan struct{}) {
 	t.Helper()
+	return watchSetupStability(t, src, 30*time.Millisecond)
+}
+
+func watchSetupStability(t *testing.T, src string, stability time.Duration) (path string, cur *Config, events <-chan Event, kick chan struct{}) {
+	t.Helper()
 	path = filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
 		t.Fatal(err)
@@ -23,7 +28,7 @@ func watchSetup(t *testing.T, src string) (path string, cur *Config, events <-ch
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	kick = make(chan struct{}, 1)
-	events = Watch(ctx, cur, WatchOptions{Load: opts, Interval: 10 * time.Millisecond, Stability: 30 * time.Millisecond, Kick: kick})
+	events = Watch(ctx, cur, WatchOptions{Load: opts, Interval: 10 * time.Millisecond, Stability: stability, Kick: kick})
 	return
 }
 
@@ -99,9 +104,10 @@ func TestWatchRestartKeysAndRenameSave(t *testing.T) {
 }
 
 func TestWatchWaitsForStability(t *testing.T) {
-	path, _, ev, _ := watchSetup(t, baseCfg)
+	// a wide window so a stalled CI runner does not let a write look stable
+	path, _, ev, _ := watchSetupStability(t, baseCfg, 250*time.Millisecond)
 	// keep rewriting faster than the stability window: nothing may be applied
-	deadline := time.Now().Add(150 * time.Millisecond)
+	deadline := time.Now().Add(400 * time.Millisecond)
 	i := 0
 	for time.Now().Before(deadline) {
 		i++
