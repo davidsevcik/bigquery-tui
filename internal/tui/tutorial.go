@@ -216,7 +216,7 @@ func (m *Model) tutorialObserve() {
 	if m.zoom {
 		t.zoomed = true
 	}
-	if m.filterOn() {
+	if m.filterActive() {
 		t.filtered = true
 	}
 	if m.layout != t.start.layout {

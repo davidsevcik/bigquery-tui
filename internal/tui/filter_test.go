@@ -92,10 +92,11 @@ func TestTreeFilterShowsMatchesWithTheirAncestors(t *testing.T) {
 	r.lacks("order_items")
 	r.press("l", "j", "j", "j") // reopen, back down to orders
 	r.selected("acme-prod.sales.orders")
-	// clearing restores the hand-made expansion and keeps the selection
+	// clearing restores the hand-made expansion; the cursor goes to the
+	// nearest row still shown
 	r.press("esc")
-	r.contains("▾ acme-prod", "finance", "events", "▸ acme-staging")
-	r.selected("acme-prod.sales.orders")
+	r.contains("▾ acme-prod", "finance", "events", "▸ sales", "▸ acme-staging")
+	r.selected("acme-prod.sales")
 }
 
 func TestTreeFilterContainerMatchedByNameOpensToEverything(t *testing.T) {
@@ -197,4 +198,37 @@ func TestFilteringProjectsToOneKeepsTheProjectColumn(t *testing.T) {
 	r.selected("acme-staging")
 	r.press("esc")
 	r.contains("Projects 2/2")
+}
+
+func TestClearingTheTreeFilterRestoresTheExpansionExactly(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.press("L", "l", "/", "ord", "enter") // acme-prod opened by hand, sales by the filter
+	r.selected("acme-prod.sales.orders")
+	r.press("esc")
+	r.contains("▾ acme-prod", "▸ sales", "▸ acme-staging")
+	r.lacks("order_items")
+	r.selected("acme-prod.sales") // the nearest row still shown
+}
+
+func TestEscLeavesTheZoomBeforeClearingTheFilter(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.press("l", "j", "j", "l", "/", "ord", "enter", "z")
+	r.press("esc")
+	if r.m.zoom || !r.m.mil.f[2].active() {
+		t.Fatalf("first esc leaves the zoom only (zoom %v)", r.m.zoom)
+	}
+	r.press("esc")
+	if r.m.mil.f[2].active() {
+		t.Fatal("second esc clears the filter")
+	}
+}
+
+func TestMatchCountsCountWhatTheListShows(t *testing.T) {
+	r := newRig(t, 160, 30)
+	r.press("l", "l", "/", "2024", "enter") // events: the family, not its members
+	r.contains("Tables 1/1 of 2 ▸ 2024")
+	r.press("/")
+	r.contains("1 match")
+	r.press("esc", "esc", "L", "/", "type:view", "enter")
+	r.contains("▸ type:view · 1 match") // v_orders, not the dataset and project holding it
 }

@@ -248,7 +248,9 @@ func (m *Model) footerLine(w int) string {
 		hint = footerHints(ZoneOverlay)
 	case m.zoom:
 		hint = "↑↓/jk scroll · tab schema/preview · P split · p rows · J record · ←/esc back"
-	case m.layout == layoutFlat && m.flat.typing, m.typingFilter() != nil:
+	case m.layout == layoutFlat && m.flat.typing:
+		hint = "type to filter · enter/esc back to the list"
+	case m.typingFilter() != nil:
 		hint = "type to filter · enter/esc back to the list · esc there clears the filter"
 	default:
 		hint = footerHints(ZoneExplorer, ZoneGlobal)
@@ -336,7 +338,7 @@ func (m *Model) millerCol(c, w, h int) []string {
 	hdr := fmt.Sprintf(" %s %s/%s", name, format.Count(int64(min(cur+1, total))), format.Count(int64(total)))
 	f := &ml.f[c]
 	if f.active() {
-		hdr += fmt.Sprintf(" of %s ▸ %s", format.Count(int64(ml.all[c])), f.in.value())
+		hdr += fmt.Sprintf(" of %s ▸ %s", format.Count(int64(ml.unfiltered[c])), f.in.value())
 	}
 	if c > ml.col {
 		hdr = fmt.Sprintf(" %s (%s)", name, format.Count(int64(total)))
@@ -345,7 +347,7 @@ func (m *Model) millerCol(c, w, h int) []string {
 	if total == 0 {
 		msg := "empty"
 		switch {
-		case f.active() && ml.all[c] > 0:
+		case f.active() && ml.unfiltered[c] > 0:
 			msg = "no match for “" + f.in.value() + "”"
 		case c == 0:
 			msg = "no projects: add them with gc (open config)"
@@ -403,8 +405,8 @@ func (m *Model) treeList(w, h int) []string {
 	hdr := fmt.Sprintf(" Explorer  %s/%s", format.Count(int64(min(t.cur+1, len(t.rows)))), format.Count(int64(len(t.rows))))
 	if t.f.active() {
 		hdr += " ▸ " + t.f.in.value()
-		if t.f.ok {
-			hdr += " · " + plural(len(t.f.rank), "match", "matches")
+		if t.f.answered {
+			hdr += " · " + plural(t.f.count, "match", "matches")
 		}
 	}
 	out := []string{title(hdr, w, !m.zoom)}

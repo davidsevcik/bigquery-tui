@@ -162,3 +162,11 @@ func TestTutorialResize(t *testing.T) {
 	}
 	r.tutStep(0)
 }
+
+func TestTutorialFilterStepNeedsAFilter(t *testing.T) {
+	r := tutorialRig(t, 120, 36)
+	r.press("ctrl+g", "ctrl+g", "n", "j", "l", "h")
+	r.tutStep(3)
+	r.press("/", "esc") // opened and closed, nothing typed
+	r.tutStep(3)
+}

@@ -26,14 +26,14 @@ func (s selection) detailKey() string {
 // --- Miller columns
 
 type miller struct {
-	cols   [3][]api.BrowseNode
-	cur    [3]int
-	off    [3]int
-	col    int
-	family *api.BrowseNode // set when the tables column shows a shard family's members
-	famIdx int             // cursor to return to when the family is collapsed
-	f      [3]listFilter   // each column's filter
-	all    [3]int          // each column's length before its filter
+	cols       [3][]api.BrowseNode
+	cur        [3]int
+	off        [3]int
+	col        int
+	family     *api.BrowseNode // set when the tables column shows a shard family's members
+	famIdx     int             // cursor to return to when the family is collapsed
+	f          [3]listFilter   // each column's filter
+	unfiltered [3]int          // each column's length before its filter
 }
 
 func (ml *miller) at(c int) (api.BrowseNode, bool) {
@@ -61,9 +61,9 @@ func (m *Model) milLoad(c int) {
 		if n, ok := ml.at(c); ok {
 			name = n.Name
 		}
-		ml.all[c] = len(nodes)
+		ml.unfiltered[c] = len(nodes)
 		f := &ml.f[c]
-		if f.active() && f.ok {
+		if f.active() && f.answered {
 			kept := make([]api.BrowseNode, 0, len(nodes))
 			for _, n := range nodes {
 				if f.passes(n) {
@@ -113,7 +113,7 @@ func (m *Model) milLoad(c int) {
 	}
 	keep(2, ts)
 	// an empty column cannot hold the focus, unless only its filter emptied it
-	for ml.col > 0 && len(ml.cols[ml.col]) == 0 && !(ml.f[ml.col].active() && ml.all[ml.col] > 0) {
+	for ml.col > 0 && len(ml.cols[ml.col]) == 0 && !(ml.f[ml.col].active() && ml.unfiltered[ml.col] > 0) {
 		ml.col--
 	}
 }
@@ -135,7 +135,7 @@ func (m *Model) milDropHiding(p api.ObjectPath, kind api.ResultKind) {
 	}
 	for c := range ml.f {
 		f := &ml.f[c]
-		if f.active() && f.ok && (c >= len(levels) || !f.set[openKey(levels[c])]) {
+		if f.active() && (!f.answered || c >= len(levels) || !f.set[openKey(levels[c])]) {
 			f.clear()
 		}
 	}
@@ -167,23 +167,26 @@ type tree struct {
 	cur, off int
 	open     map[string]bool
 	f        listFilter
-	// fexp is the expansion while the filter is on, kept apart from open so
+	// filterOpen is the expansion while the filter is on, kept apart from open so
 	// that clearing the filter restores the rows the user had opened. A row
 	// missing from it is open when it holds a match (shard families stay
 	// closed).
-	fexp map[string]bool
+	filterOpen map[string]bool
 }
 
-func openKey(n api.BrowseNode) string { return string(n.Kind) + "\x00" + n.Path.String() }
+// nodeKey identifies an object across browse nodes and filter matches.
+func nodeKey(kind api.ResultKind, p api.ObjectPath) string { return string(kind) + "\x00" + p.String() }
 
-func (t *tree) filtering() bool { return t.f.active() && t.f.ok }
+func openKey(n api.BrowseNode) string { return nodeKey(n.Kind, n.Path) }
+
+func (t *tree) filtering() bool { return t.f.active() && t.f.answered }
 
 func (t *tree) isOpen(n api.BrowseNode) bool {
 	k := openKey(n)
 	if !t.filtering() {
 		return t.open[k]
 	}
-	if v, ok := t.fexp[k]; ok {
+	if v, ok := t.filterOpen[k]; ok {
 		return v
 	}
 	return t.f.under[k]
@@ -193,10 +196,10 @@ func (t *tree) setOpen(n api.BrowseNode, v bool) {
 	k := openKey(n)
 	switch {
 	case t.filtering():
-		if t.fexp == nil {
-			t.fexp = map[string]bool{}
+		if t.filterOpen == nil {
+			t.filterOpen = map[string]bool{}
 		}
-		t.fexp[k] = v
+		t.filterOpen[k] = v
 	case v:
 		t.open[k] = true
 	default:
@@ -551,12 +554,12 @@ func (m *Model) locate(p api.ObjectPath, kind api.ResultKind) {
 		}
 	case layoutTree:
 		t := &m.tree
-		if t.filtering() && !m.treeLocateFiltered(p, kind) {
+		if t.f.active() && (!t.filtering() || !m.treeLocateFiltered(p, kind)) {
 			// the filter hides the target: drop it
 			t.f.clear()
-			t.fexp = nil
+			t.filterOpen = nil
 		}
-		if t.filtering() {
+		if t.f.active() {
 			return
 		}
 		pn := api.BrowseNode{Kind: api.KindProject, Path: api.ObjectPath{Project: p.Project}}

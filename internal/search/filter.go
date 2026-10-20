@@ -2,9 +2,6 @@ package search
 
 import (
 	"context"
-	"runtime"
-	"sort"
-	gosync "sync"
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
@@ -50,46 +47,28 @@ func (s *Searcher) Filter(ctx context.Context, raw string, o api.FilterOptions) 
 		}
 	}
 	// own[i]: the table's own-name score (max, sum), or max -1 when it fails
-	own := make([][2]int, len(x.tables))
-	workers := min(runtime.GOMAXPROCS(0), 8)
-	if len(x.tables) < 4096 {
-		workers = 1
-	}
-	var wg gosync.WaitGroup
-	for w := 0; w < workers; w++ {
-		lo, hi := len(x.tables)*w/workers, len(x.tables)*(w+1)/workers
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := lo; i < hi; i++ {
-				if i%2048 == 0 && ctx.Err() != nil {
-					return
-				}
-				own[i][0] = -1
-				pass[i] = sc.table(x, i) && (pasted < 0 || i == pasted) && x.passTable(i, c)
-				if pass[i] {
-					if maxS, sum, ok := ownScore(x.tables[i].lname, c.terms, true); ok {
-						own[i] = [2]int{maxS, sum}
-					}
-				}
+	own := make([]ownHit, len(x.tables))
+	eachChunk(len(x.tables), func(_, lo, hi int) {
+		for i := lo; i < hi; i++ {
+			if i%2048 == 0 && ctx.Err() != nil {
+				return
 			}
-		}()
-	}
-	wg.Wait()
+			pass[i] = sc.table(x, i) && (pasted < 0 || i == pasted) && x.passTable(i, c, true)
+			if pass[i] {
+				own[i].max, own[i].sum, own[i].ok = ownScore(x.tables[i].lname, c.terms, true)
+			}
+		}
+	})
 	if err := ctx.Err(); err != nil {
 		return resp, err
 	}
 
-	type scored struct {
-		m        api.FilterMatch
-		max, sum int
-		name     string
-		key      string // the path, for ordering
-	}
-	var out []scored
-	add := func(k api.ResultKind, p api.ObjectPath, lname, name string, fuzzy bool) {
-		if maxS, sum, ok := ownScore(lname, c.terms, fuzzy); ok {
-			out = append(out, scored{api.FilterMatch{Kind: k, Path: p}, maxS, sum, name, p.String()})
+	var out []hit
+	var paths []api.ObjectPath // paths[h.i] for every hit
+	add := func(k api.ResultKind, p api.ObjectPath, lname, name string) {
+		if maxS, sum, ok := ownScore(lname, c.terms, true); ok {
+			out = append(out, hit{kind: k, i: len(paths), max: maxS, sum: sum, name: name, path: p.String()})
+			paths = append(paths, p)
 		}
 	}
 	for pi := range x.projects {
@@ -106,7 +85,7 @@ func (s *Searcher) Filter(ctx context.Context, raw string, o api.FilterOptions) 
 			if !passDataset(p, d, c.filters) {
 				continue
 			}
-			holds := !tableFilters
+			holds := !tableFilters || pasted < 0 && passDatasetOwn(d, c.filters)
 			for _, ti := range d.tables {
 				if holds {
 					break
@@ -118,11 +97,11 @@ func (s *Searcher) Filter(ctx context.Context, raw string, o api.FilterOptions) 
 			}
 			projHolds = true
 			if want(api.KindDataset) {
-				add(api.KindDataset, api.ObjectPath{Project: p.name, Dataset: d.name}, d.lname, d.name, false)
+				add(api.KindDataset, api.ObjectPath{Project: p.name, Dataset: d.name}, d.lname, d.name)
 			}
 		}
 		if want(api.KindProject) && (projHolds || !dsFilters) && passDataset(p, &dsEntry{}, onlyP(c.filters)) {
-			add(api.KindProject, api.ObjectPath{Project: p.name}, p.lname, p.name, false)
+			add(api.KindProject, api.ObjectPath{Project: p.name}, p.lname, p.name)
 		}
 	}
 	if want(api.KindTable) || want(api.KindShards) {
@@ -135,14 +114,15 @@ func (s *Searcher) Filter(ctx context.Context, raw string, o api.FilterOptions) 
 		}
 		fams := map[famKey]int{} // index into out
 		for i := range x.tables {
-			if own[i][0] < 0 {
+			if !own[i].ok {
 				continue
 			}
 			t := &x.tables[i]
-			maxS, sum := own[i][0], own[i][1]
+			maxS, sum := own[i].max, own[i].sum
 			p := x.tablePath(i)
 			if want(api.KindTable) {
-				out = append(out, scored{api.FilterMatch{Kind: api.KindTable, Path: p}, maxS, sum, t.name, p.String()})
+				out = append(out, hit{kind: api.KindTable, i: len(paths), max: maxS, sum: sum, name: t.name, path: p.String()})
+				paths = append(paths, p)
 			}
 			if t.shard == nil || !want(api.KindShards) {
 				continue
@@ -152,35 +132,26 @@ func (s *Searcher) Filter(ctx context.Context, raw string, o api.FilterOptions) 
 			fp := api.ObjectPath{Project: p.Project, Dataset: p.Dataset, Table: name}
 			if j, seen := fams[k]; !seen {
 				fams[k] = len(out)
-				out = append(out, scored{api.FilterMatch{Kind: api.KindShards, Path: fp}, maxS, sum, name, fp.String()})
+				out = append(out, hit{kind: api.KindShards, i: len(paths), max: maxS, sum: sum, name: name, path: fp.String()})
+				paths = append(paths, fp)
 			} else if f := &out[j]; maxS < f.max || maxS == f.max && sum < f.sum {
 				f.max, f.sum = maxS, sum
 			}
 		}
 	}
 
-	if len(c.terms) == 0 {
-		sort.SliceStable(out, func(i, j int) bool { return out[i].key < out[j].key })
-	} else {
-		sort.SliceStable(out, func(i, j int) bool {
-			a, b := out[i], out[j]
-			if a.max != b.max {
-				return a.max < b.max
-			}
-			if a.sum != b.sum {
-				return a.sum < b.sum
-			}
-			if len(a.name) != len(b.name) {
-				return len(a.name) < len(b.name)
-			}
-			return a.key < b.key
-		})
-	}
+	sortHits(out, len(c.terms) > 0)
 	for _, h := range out {
-		resp.Matches = append(resp.Matches, h.m)
+		resp.Matches = append(resp.Matches, api.FilterMatch{Kind: h.kind, Path: paths[h.i]})
 	}
 	resp.TookMS = float64(time.Since(start).Microseconds()) / 1000
 	return resp, nil
+}
+
+// ownHit is a table's own-name score.
+type ownHit struct {
+	max, sum int
+	ok       bool
 }
 
 // ownScore scores a name against every term; each term must match it.
@@ -194,6 +165,29 @@ func ownScore(lname string, terms []string, fuzzy bool) (maxS, sum int, ok bool)
 		sum += tier
 	}
 	return maxS, sum, true
+}
+
+// passDatasetOwn reports whether a dataset satisfies the table filters by
+// itself: only desc: and label: can describe a dataset, through its own
+// description and labels.
+func passDatasetOwn(d *dsEntry, fs []api.QueryFilter) bool {
+	for _, f := range fs {
+		var m bool
+		switch f.Key {
+		case "p", "d":
+			continue
+		case "desc":
+			m = anySub(d.ldesc, f.Values)
+		case "label":
+			m = datasetLabel(d, f.Values)
+		default:
+			return false
+		}
+		if m == f.Negated {
+			return false
+		}
+	}
+	return true
 }
 
 func onlyKey(fs []api.QueryFilter, key string) bool {

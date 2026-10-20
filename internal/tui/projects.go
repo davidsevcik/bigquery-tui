@@ -55,7 +55,7 @@ func (m *Model) setHidden(hidden map[string]bool) tea.Cmd {
 // project column is left out.
 func (m *Model) milFirst() int {
 	// one project on, not one left by the projects column's filter
-	if m.mil.all[0] == 1 && len(m.mil.cols[0]) == 1 && len(m.mil.cols[1]) > 0 {
+	if m.mil.unfiltered[0] == 1 && len(m.mil.cols[0]) == 1 && len(m.mil.cols[1]) > 0 {
 		return 1
 	}
 	return 0

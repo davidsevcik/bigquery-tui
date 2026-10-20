@@ -16,11 +16,12 @@ type listFilter struct {
 	parsed api.ParsedQuery
 	typing bool
 
-	ok    bool            // set and rank answer the current text
-	set   map[string]bool // openKey of every match
-	under map[string]bool // openKey of every project and dataset that holds a match
-	rank  []string        // openKeys, best first
-	err   string
+	answered bool            // set and rank answer the current text
+	set      map[string]bool // openKey of every match
+	under    map[string]bool // openKey of every project and dataset that holds a match
+	rank     []string        // openKeys, best first
+	count    int             // matches the list shows (a family once, not with its members)
+	err      string
 	// best moves the cursor to the best match when the next answer arrives
 	// (set while typing; a reload keeps the cursor where it is).
 	best bool
@@ -34,7 +35,7 @@ func (f *listFilter) active() bool { return strings.TrimSpace(f.in.value()) != "
 // passes reports whether the list shows n. Until the first answer for the
 // current text arrives the list stays as it was.
 func (f *listFilter) passes(n api.BrowseNode) bool {
-	return !f.active() || !f.ok || f.set[openKey(n)]
+	return !f.active() || !f.answered || f.set[openKey(n)]
 }
 
 func (f *listFilter) clear() {
@@ -57,8 +58,6 @@ func (f *listFilter) bestIn(nodes []api.BrowseNode) int {
 	}
 	return -1
 }
-
-func matchKey(fm api.FilterMatch) string { return string(fm.Kind) + "\x00" + fm.Path.String() }
 
 type filterMsg struct {
 	f     *listFilter
@@ -111,7 +110,7 @@ func (m *Model) refilter(f *listFilter) tea.Cmd {
 	f.seq++
 	f.parsed = m.be.ParseQuery(f.in.value())
 	if !f.active() {
-		f.ok, f.set, f.under, f.rank, f.err = false, nil, nil, nil, ""
+		f.answered, f.set, f.under, f.rank, f.count, f.err = false, nil, nil, nil, 0, ""
 		m.applyFilter(f)
 		return nil
 	}
@@ -139,11 +138,11 @@ func (m *Model) onFilter(msg filterMsg) {
 		}
 		return
 	}
-	f.err, f.ok = "", true
+	f.err, f.answered = "", true
 	f.set, f.under = map[string]bool{}, map[string]bool{}
 	f.rank = make([]string, 0, len(msg.resp.Matches))
 	for _, fm := range msg.resp.Matches {
-		k := matchKey(fm)
+		k := nodeKey(fm.Kind, fm.Path)
 		f.set[k] = true
 		f.rank = append(f.rank, k)
 		p := fm.Path
@@ -154,12 +153,35 @@ func (m *Model) onFilter(msg filterMsg) {
 			f.under[openKey(api.BrowseNode{Kind: api.KindDataset, Path: api.ObjectPath{Project: p.Project, Dataset: p.Dataset}})] = true
 		}
 	}
+	f.count = countMatches(msg.resp.Matches, f.under)
 	m.applyFilter(f)
+}
+
+// countMatches counts what a list shows: a container that holds a match is
+// counted through that match, and a shard member through its family.
+func countMatches(ms []api.FilterMatch, under map[string]bool) int {
+	fams := map[string]bool{} // dataset path + family prefix
+	for _, fm := range ms {
+		if fm.Kind == api.KindShards {
+			fams[fm.Path.Project+"."+fm.Path.Dataset+"\x00"+strings.TrimSuffix(fm.Path.Table, "YYYYMMDD")] = true
+		}
+	}
+	n := 0
+	for _, fm := range ms {
+		if under[nodeKey(fm.Kind, fm.Path)] {
+			continue
+		}
+		if t := fm.Path.Table; fm.Kind == api.KindTable && len(t) > 8 && fams[fm.Path.Project+"."+fm.Path.Dataset+"\x00"+t[:len(t)-8]] {
+			continue
+		}
+		n++
+	}
+	return n
 }
 
 // applyFilter shows a filter's answer in its list.
 func (m *Model) applyFilter(f *listFilter) {
-	best := f.best && f.ok
+	best := f.best && f.answered
 	f.best = false
 	if t := &m.tree; f == &t.f {
 		var prev *api.BrowseNode
@@ -168,7 +190,7 @@ func (m *Model) applyFilter(f *listFilter) {
 			prev = &n
 		}
 		if !f.active() {
-			t.fexp = nil
+			t.filterOpen = nil
 		}
 		m.treeBuild()
 		switch {
@@ -177,7 +199,7 @@ func (m *Model) applyFilter(f *listFilter) {
 				t.cur = i
 			}
 		case !f.active() && prev != nil:
-			m.locate(prev.Path, prev.Kind) // keep the selection once the filter is cleared
+			m.treeSelectNearest(prev.Path)
 		}
 		return
 	}
@@ -258,7 +280,7 @@ func (m *Model) filterKey(f *listFilter, msg tea.KeyPressMsg, name string) tea.C
 	if f.in.handle(msg) {
 		f.best = true
 		if f == &m.tree.f {
-			m.tree.fexp = nil // a new query starts from the automatic expansion
+			m.tree.filterOpen = nil // a new query starts from the automatic expansion
 		}
 		return m.refilter(f)
 	}
@@ -287,8 +309,8 @@ func (m *Model) filterHeader(f *listFilter, w int, what string) []string {
 	switch {
 	case f.err != "":
 		info = "error: " + f.err
-	case f.active() && f.ok:
-		info = plural(len(f.rank), "match", "matches")
+	case f.active() && f.answered:
+		info = plural(f.count, "match", "matches")
 	}
 	b.addR(info+" ", sDim)
 	return []string{b.line(w), fit(" "+chips(f.parsed, w-1, ""), w)}
@@ -299,6 +321,45 @@ func plural(n int, one, many string) string {
 		return "1 " + one
 	}
 	return itoa(n) + " " + many
+}
+
+// filterActive reports whether the current layout's list is filtered.
+func (m *Model) filterActive() bool {
+	switch m.layout {
+	case layoutFlat:
+		return m.flat.in.value() != ""
+	case layoutMiller:
+		for c := range m.mil.f {
+			if m.mil.f[c].active() {
+				return true
+			}
+		}
+		return false
+	}
+	return m.tree.f.active()
+}
+
+// treeSelectNearest puts the cursor on the object, or on its nearest
+// ancestor the tree shows (the filter is cleared without opening rows).
+func (m *Model) treeSelectNearest(p api.ObjectPath) {
+	t := &m.tree
+	keys := []string{nodeKey(api.KindProject, api.ObjectPath{Project: p.Project})}
+	if p.Dataset != "" {
+		keys = append(keys, nodeKey(api.KindDataset, api.ObjectPath{Project: p.Project, Dataset: p.Dataset}))
+	}
+	if p.Table != "" {
+		keys = append(keys, nodeKey(api.KindTable, p), nodeKey(api.KindShards, p))
+	}
+	at := map[string]int{}
+	for i, r := range t.rows {
+		at[openKey(r.node)] = i
+	}
+	for i := len(keys) - 1; i >= 0; i-- {
+		if row, ok := at[keys[i]]; ok {
+			t.cur = row
+			return
+		}
+	}
 }
 
 // filterOn reports whether the current layout's list is filtered (or its

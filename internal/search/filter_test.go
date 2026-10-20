@@ -81,3 +81,19 @@ func TestFilterPastedPathAndHiddenProjects(t *testing.T) {
 	eq(t, filtered(t, s, "orders", api.FilterOptions{Kinds: kinds(api.KindTable), Hidden: []string{"acme-prod"}}), "table:acme-staging.sales.orders")
 	eq(t, filtered(t, s, "", api.FilterOptions{Kinds: kinds(api.KindProject), Hidden: []string{"acme-prod"}}), "project:acme-staging")
 }
+
+func TestFilterDescAndLabelDescribeTheObjectItself(t *testing.T) {
+	f := standard()
+	f.dataset("acme-prod", "empty_marts", "EU", "Marts to come")
+	s := f.searcher()
+	// a table does not pass desc: through its dataset's description
+	eq(t, filtered(t, s, "desc:marts", api.FilterOptions{Scope: inSales(), Kinds: kinds(api.KindTable)}))
+	// a dataset passes on its own description, even with no tables
+	eq(t, filtered(t, s, "desc:marts", api.FilterOptions{Kinds: kinds(api.KindDataset)}), "dataset:acme-prod.empty_marts", "dataset:acme-prod.sales")
+	eq(t, filtered(t, s, "desc:marts", api.FilterOptions{Kinds: kinds(api.KindProject)}), "project:acme-prod")
+}
+
+func TestFilterContainersMatchFuzzily(t *testing.T) {
+	s := standard().searcher()
+	eq(t, filtered(t, s, "tmsrh", api.FilterOptions{Kinds: kinds(api.KindDataset)}), "dataset:acme-prod.tmp_scratch")
+}
