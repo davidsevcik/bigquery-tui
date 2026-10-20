@@ -205,7 +205,7 @@ func (s *Searcher) Search(ctx context.Context, raw string, o api.SearchOptions) 
 				return resp, err
 			}
 			for _, p := range paths {
-				if i, ok := x.resolve(p); ok && inScope(x, i, o.Scope) {
+				if i, ok := x.resolve(p); ok && newScoper(o).table(x, i) {
 					hits = append(hits, x.tableHit(i, 0, 0))
 				}
 			}
@@ -238,18 +238,40 @@ func (x *Index) tableHit(i, maxScore, sum int) hit {
 	return hit{kind: api.KindTable, i: i, max: maxScore, sum: sum, name: x.tables[i].name, path: x.tablePath(i).String()}
 }
 
-func inScope(x *Index, ti int, scope *api.ObjectPath) bool {
-	if scope == nil || scope.Project == "" {
-		return true
+// scoper decides which tables and projects a search may return.
+type scoper struct {
+	scope  *api.ObjectPath
+	hidden map[string]bool
+}
+
+func newScoper(o api.SearchOptions) scoper {
+	sc := scoper{scope: o.Scope}
+	for _, p := range o.Hidden {
+		if sc.hidden == nil {
+			sc.hidden = map[string]bool{}
+		}
+		sc.hidden[p] = true
 	}
-	d := &x.datasets[x.tables[ti].ds]
-	if x.projects[d.proj].name != scope.Project {
+	return sc
+}
+
+func (sc scoper) project(name string) bool {
+	if sc.hidden[name] {
 		return false
 	}
-	return scope.Dataset == "" || d.name == scope.Dataset
+	return sc.scope == nil || sc.scope.Project == "" || sc.scope.Project == name
+}
+
+func (sc scoper) table(x *Index, ti int) bool {
+	d := &x.datasets[x.tables[ti].ds]
+	if !sc.project(x.projects[d.proj].name) {
+		return false
+	}
+	return sc.scope == nil || sc.scope.Project == "" || sc.scope.Dataset == "" || d.name == sc.scope.Dataset
 }
 
 func (s *Searcher) rank(ctx context.Context, x *Index, c *compiled, o api.SearchOptions) []hit {
+	sc := newScoper(o)
 	terms := c.terms
 	// Dataset- and project-level scores are the same for every table of a
 	// dataset, so compute them once per (term, dataset).
@@ -295,7 +317,7 @@ func (s *Searcher) rank(ctx context.Context, x *Index, c *compiled, o api.Search
 				if i%2048 == 0 && ctx.Err() != nil {
 					return
 				}
-				if !inScope(x, i, o.Scope) || !x.passTable(i, c) {
+				if !sc.table(x, i) || !x.passTable(i, c) {
 					continue
 				}
 				maxS, sum := 0, 0
@@ -333,7 +355,7 @@ func (s *Searcher) rank(ctx context.Context, x *Index, c *compiled, o api.Search
 	if !o.TablesOnly && len(terms) > 0 && onlyScopeFilters(c.filters) {
 		for pi := range x.projects {
 			p := &x.projects[pi]
-			if o.Scope != nil && o.Scope.Project != "" && o.Scope.Project != p.name {
+			if !sc.project(p.name) {
 				continue
 			}
 			if len(c.filters) == 0 && (o.Scope == nil || o.Scope.Project == "") {

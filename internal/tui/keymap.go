@@ -44,6 +44,7 @@ var Keymap = []Binding{
 	{ZoneGlobal, []string{"ctrl+p"}, "palette", "command palette", "", "ctrl+p cmds"},
 	{ZoneGlobal, []string{"ctrl+t"}, "jump", "jump to table (recently opened when empty)", "Jump to table", "ctrl+t jump"},
 	{ZoneGlobal, []string{"f1"}, "help", "this help", "Help", ""},
+	{ZoneGlobal, []string{"ctrl+x p"}, "projects", "projects: turn them on or off in the explorer and search (one on hides the project column)", "Projects", ""},
 	{ZoneGlobal, []string{"ctrl+x f"}, "favorites", "favorites: saved queries (tab switches to History)", "Favorites", ""},
 	{ZoneGlobal, []string{"ctrl+x r"}, "history", "history: every query run, searchable (tab switches to Favorites)", "History", ""},
 	{ZoneGlobal, []string{"ctrl+g"}, "tutorial", "tutorial of the navigation (while it runs: ctrl+g then n, p, r or q)", "Tutorial", "ctrl+g tutorial"},
@@ -159,6 +160,9 @@ var Keymap = []Binding{
 	{ZoneOverlay, []string{"n"}, "next", "record popup: next row", "", ""},
 	{ZoneOverlay, []string{"N", "p"}, "prev", "record popup: previous row", "", ""},
 	{ZoneOverlay, []string{"y"}, "copy", "record popup: copy the record as JSON", "", ""},
+	{ZoneOverlay, []string{"space", "x"}, "toggle", "projects popup: turn the project on or off", "", ""},
+	{ZoneOverlay, []string{"o"}, "only", "projects popup: turn on only this project", "", ""},
+	{ZoneOverlay, []string{"a"}, "all", "projects popup: turn every project on", "", ""},
 	{ZoneOverlay, []string{"esc", "q"}, "back", "close", "", "esc close"},
 }
 
@@ -243,8 +247,21 @@ func paletteCommands() []command {
 	return out
 }
 
-func helpLines() []string {
+// helpLines lays the key reference out for an inner width of w. A key column
+// is at least 16 cells; descriptions wrap under their own column.
+func helpLines(w int) []string {
 	var out []string
+	row := func(keys, text string) {
+		kw := max(16, wid(keys)+2)
+		tw := max(20, w-1-kw)
+		for i, l := range wrap(text, tw) {
+			k := strings.Repeat(" ", kw)
+			if i == 0 {
+				k = sKey.Render(pad(keys, kw))
+			}
+			out = append(out, " "+k+l)
+		}
+	}
 	for _, z := range []Zone{ZoneGlobal, ZoneExplorer, ZoneEditor, ZoneResults, ZoneSearch, ZonePicker, ZoneOverlay} {
 		out = append(out, " "+sBold.Render(string(z)))
 		for _, b := range Keymap {
@@ -254,27 +271,27 @@ func helpLines() []string {
 			if len(b.Keys) == 0 {
 				continue // palette only
 			}
-			ks := strings.Join(b.Keys, "  ")
-			out = append(out, " "+sKey.Render(pad(ks, max(16, wid(ks)+2)))+b.Help)
+			row(strings.Join(b.Keys, "  "), b.Help)
 		}
 		if z == ZoneEditor {
 			for _, l := range editingHelp {
-				out = append(out, " "+sKey.Render(pad(l[0], 16))+l[1])
+				row(l[0], l[1])
 			}
-			out = append(out, "", " "+sBold.Render("Editor, vim editing")+sDim.Render(`  ([tui] editing = "vim", the default; "plain" turns it off)`))
+			out = append(out, "", " "+sBold.Render("Editor, vim editing"))
+			for _, l := range wrap(`[tui] editing = "vim" is the default; "plain" turns it off`, max(20, w-2)) {
+				out = append(out, " "+sDim.Render(l))
+			}
 			for _, l := range vimHelp {
-				out = append(out, " "+sKey.Render(pad(l[0], 16))+l[1])
+				row(l[0], l[1])
 			}
 		}
 		out = append(out, "")
 	}
-	out = append(out,
-		" "+sBold.Render("Search syntax"),
-		" "+sKey.Render(pad("p: d: type:", 16))+"filters; also col: label: desc:",
-		" "+sKey.Render(pad("-d:tmp", 16))+"negate · type:view,mview is OR · d:\"my set\" quoted",
-		" "+sKey.Render(pad("col:user.id", 16))+"columns are searched only with col:",
-		" "+sKey.Render(pad("proj.ds.table", 16))+"a pasted path is an exact lookup",
-	)
+	out = append(out, " "+sBold.Render("Search syntax"))
+	row("p: d: type:", "filters; also col: label: desc:")
+	row("-d:tmp", "negate · type:view,mview is OR · d:\"my set\" quoted")
+	row("col:user.id", "columns are searched only with col:")
+	row("proj.ds.table", "a pasted path is an exact lookup")
 	return out
 }
 
@@ -307,6 +324,7 @@ var vimHelp = [][2]string{
 	{"enter", "run the buffer (in Visual mode: the selection)"},
 	{"space r / d", "run / dry-run; space l runs, space b buffers, space n new, space w close, space [ ] switch, space s save, space e $EDITOR"},
 	{"space f / h", "favorites / history; space F saves the buffer as a favorite"},
+	{"space p", "projects: turn them on or off"},
 	{":  ?", "command palette, this help"},
 	{"Insert mode", "ctrl+r runs, ctrl+d dry-runs, tab accepts a completion, ctrl+n forces one"},
 }

@@ -125,8 +125,11 @@ func (m *Model) render() []string {
 		bw := clamp(w-8, 30, 80)
 		box := m.confirmBox(bw)
 		body = overlay(body, box, (w-bw)/2, max(0, (bodyH-len(box))/3), w)
-	case ovHelp, ovProblems, ovSync, ovRecord, ovRuns, ovBuffers:
+	case ovHelp, ovProblems, ovSync, ovRecord, ovRuns, ovBuffers, ovProjects:
 		bw := clamp(w-6, 30, 96)
+		if m.ov == ovProjects {
+			bw = clamp(w-8, 30, 84)
+		}
 		if m.ov == ovRuns || m.ov == ovBuffers {
 			bw = clamp(w-4, 30, 140)
 		}
@@ -145,6 +148,9 @@ func (m *Model) statusLine(w int) string {
 	b.add(" bqt ", sBold).add("exec ", sDim).add(cfg.ExecutionProject, sAcc)
 	if m.zone == ZoneExplorer {
 		b.add("  "+layoutNames[m.layout], sDim)
+	}
+	if pi := m.projectsInfo(); pi != "" {
+		b.add("  projects ", sDim).add(pi, sAcc)
 	}
 	if pt := pricingText(m.pricing); pt != "" {
 		b.add("  "+pt, sDim)
@@ -277,14 +283,9 @@ func (m *Model) withDetail(w, h int, list func(w, h int) []string) []string {
 
 func (m *Model) millerList(w, h int) []string {
 	ml := &m.mil
-	n := clamp(w/24, 1, 3)
-	start := 0
-	switch n {
-	case 2:
-		start = max(0, ml.col-1)
-	case 1:
-		start = ml.col
-	}
+	first := m.milFirst()
+	n := clamp(w/24, 1, 3-first)
+	start := clamp(ml.col-(n-1), first, 3-n)
 	avail := w - (n - 1)
 	var blocks [][]string
 	used := 0
@@ -939,7 +940,7 @@ func (m *Model) infoBox(bw, maxH int) []string {
 	var lines []string
 	switch m.ov {
 	case ovHelp:
-		ttl, lines = "Help", helpLines()
+		ttl, lines = "Help", helpLines(bw-2)
 	case ovProblems:
 		ttl, lines = "Sync problems", m.problemLines(bw-4)
 	case ovSync:
@@ -950,6 +951,8 @@ func (m *Model) infoBox(bw, maxH int) []string {
 		ttl, lines = "Runs", m.runsLines(bw-2)
 	case ovBuffers:
 		ttl, lines = "Buffers", m.buffersLines(bw-2)
+	case ovProjects:
+		ttl, lines = "Projects", m.projectsLines(bw-2)
 	}
 	body := max(1, maxH-2)
 	switch m.ov {
@@ -961,6 +964,8 @@ func (m *Model) infoBox(bw, maxH int) []string {
 			at += 2 // the "Restore drafts" heading
 		}
 		window(at, &m.ovOff, len(lines), body)
+	case ovProjects:
+		window(m.ovSel+m.projTop, &m.ovOff, len(lines), body)
 	}
 	m.ovOff = clamp(m.ovOff, 0, max(0, len(lines)-body))
 	end := min(len(lines), m.ovOff+body)

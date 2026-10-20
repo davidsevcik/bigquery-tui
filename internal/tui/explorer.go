@@ -67,7 +67,7 @@ func (m *Model) milLoad(c int) {
 		}
 	}
 	if c <= 0 {
-		keep(0, m.be.Projects())
+		keep(0, m.projects())
 	}
 	if c <= 1 {
 		var ds []api.BrowseNode
@@ -132,7 +132,7 @@ func (m *Model) treeBuild() {
 		keep = openKey(t.rows[t.cur].node)
 	}
 	t.rows = t.rows[:0]
-	for _, p := range m.be.Projects() {
+	for _, p := range m.projects() {
 		t.rows = append(t.rows, treeRow{0, p})
 		if !t.open[openKey(p)] {
 			continue
@@ -261,7 +261,7 @@ func (m *Model) left() {
 			m.milCollapseFamily()
 			return
 		}
-		ml.col = max(0, ml.col-1)
+		ml.col = max(m.milFirst(), ml.col-1)
 	case layoutTree:
 		t := &m.tree
 		if t.cur >= len(t.rows) {

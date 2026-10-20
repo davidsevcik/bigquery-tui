@@ -208,6 +208,8 @@ Both SQLite files use `modernc.org/sqlite`, WAL, `busy_timeout`, `synchronous=NO
 
 Three layouts: Miller columns (project | dataset | table; the default), tree, and flat list with a scoped filter. `L` cycles them and selection carries across. The last layout is remembered in `state/tui.json`. All lists are virtualized.
 
+Projects can be turned off for the TUI: `ctrl+x p` (vim Normal: `space p`, or the palette's "Projects") opens a checklist of the configured projects. `space` turns the cursor's project on or off, `o` turns on only it, `a` turns every project on; the last project on cannot be turned off. A project that is off is left out of the explorer, search and jump-to-table (a pasted `project.dataset.table` path still resolves), but the catalog keeps syncing it. With a single project on, the Miller layout leaves out the project column and starts at the datasets; the status line names the project (or "N of M projects"). The set is remembered in `state/tui.json` as the projects turned off, so a project added to the config later starts on.
+
 Detail panes (schema and preview): to the right at 100 columns or more, at the bottom from 70 to 99 columns, collapsed below 70 (where `Enter` zooms the detail and `esc` returns). The bottom pane defaults to hidden below 30 rows. The list keeps focus; `ctrl+e` and `ctrl+y` scroll the detail pane. `esc` always backs out exactly one level (zoom, then results, then filter). `z` zooms the detail to the full screen. While zoomed, the movement keys act on the detail (scroll the schema, move the preview row cursor), left or `esc` leaves the zoom, and `P` switches schema and preview between side by side and stacked (remembered in the state file). Search results are one line each, and the selected result expands to show its description and column hits. Footer hints must be readable (`↑↓←→/hjkl move`).
 
 ### 8.2 Search syntax and ranking (core)
@@ -435,6 +437,7 @@ Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks
 | Editor | `ctrl+x n`, `ctrl+x b`, `ctrl+x w`, `ctrl+x [`, `ctrl+x ]` | New buffer, buffer list, close buffer, previous and next buffer |
 | Editor | `ctrl+x s` (vim: `space F`) | Save the buffer as a Favorite |
 | Global | `ctrl+x f`, `ctrl+x r` (vim: `space f`, `space h`) | Favorites and History picker |
+| Global | `ctrl+x p` (vim: `space p`) | Projects: turn them on or off (`space`, `o` only this one, `a` all) |
 | Picker | `tab`, `enter`, `ctrl+e`/`ctrl+y`, `esc` | Switch list, load into the editor, scroll the preview, close |
 | Picker | `ctrl+r`, `ctrl+d`, `ctrl+s` | Favorites: rename, delete; History: show the result again, save as a Favorite |
 | Results | `h` `j` `k` `l` | Move the cell cursor |
