@@ -26,7 +26,7 @@ bin/bqt status                           # freshness and sync problems
 bin/bqt doctor                           # paths, versions, auth, catalog age
 ```
 
-In the explorer: `hjkl` or the arrows move, `/` searches, `ctrl+t` jumps to a table, `ctrl+p` opens the command palette, `L` cycles the layout (Miller columns, tree, flat list), `p` previews rows, `?` lists every key. `ctrl+x p` turns projects on or off; with one project on, the Miller view starts at its datasets. `ctrl+g` starts an interactive tutorial of the navigation.
+In the explorer: `hjkl` or the arrows move, `/` filters the list in place (the focused Miller column, the whole tree, or the flat list; `esc` clears it), `ctrl+t` jumps to a table, `ctrl+p` opens the command palette, `L` cycles the layout (Miller columns, tree, flat list), `p` previews rows, `?` lists every key. `ctrl+x p` turns projects on or off; with one project on, the Miller view starts at its datasets. `ctrl+g` starts an interactive tutorial of the navigation.
 
 **Writing and running queries.** `ctrl+o` cycles the three zones: Explorer, Editor, Results (`ctrl+w` then `h`/`l`/`j` goes straight to one; `ctrl+w w` / `W` cycle as in vim).
 

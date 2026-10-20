@@ -1,8 +1,8 @@
- Datasets 3/4                     │ Tables 1/4                       │ Schema · acme-prod.sales.customers
-events                          5 │T customers                       │ acme-prod.sales.customers
-finance                         2 │T order_items                     │ table · EU · 0 rows · 0 B
-sales                           4 │T orders                          │ ✓ synced 3h ago
-us_archive                      1 │V v_orders                        │
+ Datasets 1/4                     │ Tables 1/2                       │ Schema · acme-prod.events.clicks
+events                          5 │T clicks                          │ acme-prod.events.clicks
+finance                         2 │T events_YYYYMMDD              ×4 │ table · EU · 0 rows · 0 B
+sales                           4 │                                  │ ✓ synced 3h ago
+us_archive                      1 │                                  │
                          ╭─ Commands ─────────────────────────────────────────────────────────╮
                          │ > sync                                                             │
                          │ Show sync problems                                             g p │
@@ -17,9 +17,9 @@ us_archive                      1 │V v_orders                        │
                                   │                                  │
                                   │                                  │
                                   │                                  │
-                                  │                                  │ Preview · acme-prod.sales.customers
-                                  │                                  │ the table is empty
-                                  │                                  │
+                                  │                                  │ Preview · acme-prod.events.clicks
+                                  │                                  │ p loads the first 20 rows
+                                  │                                  │ (read directly: free, no query job)
                                   │                                  │
                                   │                                  │
                                   │                                  │

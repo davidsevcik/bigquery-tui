@@ -1,0 +1,36 @@
+ Explorer  4/10 ▸ ord · 5 matches                                    │ Schema · acme-prod.sales.orders
+▾ acme-prod                                                     ✓ 3h │ acme-prod.sales.orders
+  ▾ sales                                                          4 │ table · EU · 45 rows · 5.0 MiB
+      T order_items                                                  │ partition created_at
+      T orders                                                       │ labels team:sales
+      V v_orders                                                     │ ✓ synced 3h ago
+  ▾ us_archive                                                     1 │ All customer orders, one row per order
+      T orders_2019                                                  │
+▾ acme-staging                                                  ✓ 3h │ ── schema · 8 fields ──
+  ▾ sales                                                          1 │ id          INT64          required Order id
+      T orders                                                       │ customer_id STRING
+                                                                     │ amount      STRING
+                                                                     │ address     STRUCT<…>
+                                                                     │   city      STRING
+                                                                     │   geo       STRING
+                                                                     │     lat     STRING
+                                                                     │ created_at  TIMESTAMP
+                                                                     │
+                                                                     │
+                                                                     │ Preview · acme-prod.sales.orders
+                                                                     │ p loads the first 20 rows
+                                                                     │ (read directly: free, no query job)
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+                                                                     │
+ bqt exec acme-exec  tree                                                                        5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · ctrl+o zone · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial

@@ -91,8 +91,8 @@ func TestHandoffOfAFailedQuery(t *testing.T) {
 
 func TestHandoffOfTheSelectedTable(t *testing.T) {
 	r := newRig(t, 120, 30)
-	r.press("/", "orders")
-	r.press("enter")
+	r.press("ctrl+t", "orders", "enter")
+	r.selected("acme-prod.sales.orders")
 	r.press("ctrl+x", "y")
 	r.contains("Schema of", "(markdown)", "(JSON, as bqt schema)")
 	md := r.handoffText("hoschemamd")

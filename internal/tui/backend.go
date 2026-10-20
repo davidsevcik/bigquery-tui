@@ -39,6 +39,7 @@ type Backend interface {
 	ShardMembers(project, dataset, prefix string) []api.BrowseNode
 	ParseQuery(string) api.ParsedQuery
 	Search(ctx context.Context, query string, o api.SearchOptions) (api.SearchResponse, error)
+	Filter(ctx context.Context, query string, o api.FilterOptions) (api.FilterResponse, error)
 	WarmSearch(ctx context.Context) error
 
 	TableDetail(ctx context.Context, p api.ObjectPath) (api.TableDetail, error)

@@ -67,9 +67,17 @@ func TestGoldenScreens(t *testing.T) {
 		r.golden(name("tree"))
 		r.press("L")
 		r.golden(name("flat"))
-		r.press("L", "/", "ord col:amount")
-		r.golden(name("search"))
-		r.press("esc", "ctrl+t", "ev")
+		r.press("L", "/", "ord") // Miller again, in the tables of sales
+		r.golden(name("miller_filter_typing"))
+		r.press("enter")
+		r.golden(name("miller_filter_tables"))
+		r.press("h", "/", "s", "enter")
+		r.golden(name("miller_filter_datasets"))
+		r.press("esc", "L", "/", "ord", "enter")
+		r.golden(name("tree_filter"))
+		r.press("esc", "L", "/", "ord col:amount")
+		r.golden(name("flat_filter"))
+		r.press("esc", "esc", "L", "ctrl+t", "ev")
 		r.golden(name("jump"))
 		r.press("esc", "?")
 		r.golden(name("help"))
@@ -173,20 +181,25 @@ func TestTreeExpandCollapse(t *testing.T) {
 	r.lacks("clicks")
 }
 
-func TestSearchOverlayFindsAndReveals(t *testing.T) {
+func TestSlashFiltersInPlaceInEveryLayout(t *testing.T) {
 	r := newRig(t, 120, 30)
-	r.press("/")
-	r.contains("search ▸", "nothing opened yet")
-	r.press("oi")
-	r.contains("order_items", "word")
-	r.press("enter")
-	if r.m.ov != ovNone {
-		t.Fatal("enter closes the overlay")
+	for _, layout := range []string{"miller", "tree", "flat"} {
+		r.press("/")
+		if r.m.ov != ovNone || !r.m.filterOn() {
+			t.Fatalf("%s: / opens a popup (%v) or no filter input", layout, r.m.ov)
+		}
+		r.contains(" "+layout, "filter ")
+		r.lacks("search ▸")
+		r.press("esc", "L")
 	}
-	if got := r.m.sel().path.String(); got != "acme-prod.sales.order_items" {
-		t.Fatalf("revealed %s", got)
-	}
-	// the table is now recently opened
+}
+
+func TestJumpListsRecentlyOpenedTables(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.press("ctrl+t")
+	r.contains("Jump to table", "nothing opened yet")
+	r.press("oi", "enter")
+	r.selected("acme-prod.sales.order_items")
 	r.press("ctrl+t")
 	r.contains("Jump to table", "recently opened", "order_items")
 	r.press("esc")
@@ -195,27 +208,21 @@ func TestSearchOverlayFindsAndReveals(t *testing.T) {
 	}
 }
 
-func TestSearchChipsAndColumnHits(t *testing.T) {
+func TestFlatChipsAndColumnHits(t *testing.T) {
 	r := newRig(t, 120, 30)
-	r.press("/", "type:foo d: -p:staging col:amount")
+	r.press("L", "L", "/", "type:foo d: -p:staging col:amount")
 	r.contains("[type:foo]", "[d:…]", "[-p:staging]", "[col:amount]")
+	r.press("ctrl+u", "col:amount")
 	r.contains("↳ amount")
-	r.press("ctrl+u")
-	r.press("email")
+	r.press("ctrl+u", "email")
 	r.contains("no matches") // columns are not searched without col:
-	r.press("ctrl+u", "events")
-	r.contains("events_YYYYMMDD", "×4")
-	r.press("down", "enter") // the family result (after the dataset row)
-	if s := r.m.sel(); !strings.HasPrefix(s.path.Table, "events_2024") {
-		t.Fatalf("revealing a family lists its shards: %+v", s.path)
-	}
 }
 
-func TestTypingNeverTriggersCommands(t *testing.T) {
+func TestTypingInTheJumpPopupNeverTriggersCommands(t *testing.T) {
 	r := newRig(t, 120, 30)
-	r.press("/", "qLPrRy?gg")
-	if r.m.ov != ovSearch || r.m.search.in.value() != "qLPrRy?gg" {
-		t.Fatalf("printable keys must type: ov=%v text=%q", r.m.ov, r.m.search.in.value())
+	r.press("ctrl+t", "qLPrRy?gg")
+	if r.m.ov != ovJump || r.m.jump.in.value() != "qLPrRy?gg" {
+		t.Fatalf("printable keys must type: ov=%v text=%q", r.m.ov, r.m.jump.in.value())
 	}
 	if r.m.syncing || r.m.layout != layoutMiller {
 		t.Fatal("no command may run while typing")
@@ -224,8 +231,8 @@ func TestTypingNeverTriggersCommands(t *testing.T) {
 
 func TestStaleSearchResultsAreDropped(t *testing.T) {
 	r := newRig(t, 120, 30)
-	r.press("/")
-	st := r.m.search
+	r.press("ctrl+t")
+	st := r.m.jump
 	st.in.set("ord")
 	first := r.m.runSearch(st) // not delivered yet
 	st.in.set("refunds")

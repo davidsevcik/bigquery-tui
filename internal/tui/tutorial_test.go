@@ -50,8 +50,11 @@ func TestTutorialWalkthrough(t *testing.T) {
 	r.press("h")
 	r.tutStep(3)
 	r.press("/")
-	r.typeText("orders")
-	r.press("esc")
+	r.typeText("staging")
+	r.press("esc") // back to the list, the filter kept
+	r.tutStep(3)
+	r.contains("Projects 1/1 of 2 ▸ sta")
+	r.press("esc") // clears it
 	r.tutStep(4)
 	r.press("ctrl+t")
 	r.typeText("orders")
@@ -158,4 +161,12 @@ func TestTutorialResize(t *testing.T) {
 		t.Fatalf("h %d termH %d", r.m.h, r.m.termH)
 	}
 	r.tutStep(0)
+}
+
+func TestTutorialFilterStepNeedsAFilter(t *testing.T) {
+	r := tutorialRig(t, 120, 36)
+	r.press("ctrl+g", "ctrl+g", "n", "j", "l", "h")
+	r.tutStep(3)
+	r.press("/", "esc") // opened and closed, nothing typed
+	r.tutStep(3)
 }

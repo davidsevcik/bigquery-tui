@@ -1,6 +1,6 @@
- Datasets 3/4                │ Tables 1/4
-eve╭─ Help  (1-14/246) ─────────────────────────────────╮
-fin│ Global                                             │
+ Datasets 1/4                │ Tables 1/2
+eve╭─ Help  (1-14/247) ─────────────────────────────────╮
+fin│ Global                                             │×4
 sal│ ctrl+q          quit (asks if Runs are in flight)  │
 us_│ ctrl+o  ctrl+w w  next zone: Explorer, Editor,     │
    │                   Results                          │

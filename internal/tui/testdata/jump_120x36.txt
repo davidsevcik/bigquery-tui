@@ -1,6 +1,6 @@
- Datasets 3/4                     │ Tables 1/4                       │ Schema · acme-prod.events.events_YYYYMMDD
-events                          5 │T customers                       │ acme-prod.events.events_YYYYMMDD
-finance                         2 │T order_items                     │ shard family ×4  20240101 → 20240104
+ Datasets 1/4                     │ Tables 1/2                       │ Schema · acme-prod.events.events_YYYYMMDD
+events                          5 │T clicks                          │ acme-prod.events.events_YYYYMMDD
+finance                         2 │T events_YYYYMMDD              ×4 │ shard family ×4  20240101 → 20240104
 sales       ╭─ Jump to table ──────────────────────────────────────────────────────────────────────────────╮sts the sha…
 us_archive  │ ⌕ ev                                                                             1/2 · 0.0ms │
             │ “ev”                                                                                         │

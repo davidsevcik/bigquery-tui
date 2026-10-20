@@ -126,6 +126,30 @@ type SearchOptions struct {
 	Hidden []string `json:"hidden,omitempty"`
 }
 
+// FilterOptions bounds a filter query (the Explorer's in-place filter).
+type FilterOptions struct {
+	// Scope restricts matches to a project or dataset.
+	Scope *ObjectPath `json:"scope,omitempty"`
+	// Kinds lists the object kinds to return; empty returns every kind.
+	// Shard members come back as tables, their family as KindShards.
+	Kinds []ResultKind `json:"kinds,omitempty"`
+	// Hidden leaves these projects out.
+	Hidden []string `json:"hidden,omitempty"`
+}
+
+// FilterMatch is one object that passes a filter.
+type FilterMatch struct {
+	Kind ResultKind `json:"kind"`
+	Path ObjectPath `json:"path"`
+}
+
+// FilterResponse lists every object that passes a filter, best match first.
+type FilterResponse struct {
+	Query   ParsedQuery   `json:"query"`
+	Matches []FilterMatch `json:"matches"`
+	TookMS  float64       `json:"took_ms"`
+}
+
 // SearchResponse is a page of results.
 type SearchResponse struct {
 	Query   ParsedQuery    `json:"query"`
