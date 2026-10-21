@@ -406,7 +406,7 @@ func (m *Model) shownRun() (api.RunInfo, bool) {
 	if len(m.bufs) == 0 {
 		return api.RunInfo{}, false
 	}
-	info, ok := m.runs[m.buf().viewID]
+	info, ok := m.runs.Info(m.buf().viewID)
 	return info, ok
 }
 

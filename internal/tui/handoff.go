@@ -47,7 +47,7 @@ func (m *Model) focusedRun() (api.RunInfo, bool) {
 		ids = []int64{m.buf().viewID, m.buf().runID}
 	}
 	for _, id := range ids {
-		if r, ok := m.runs[id]; ok && id != 0 {
+		if r, ok := m.runs.Info(id); ok && id != 0 {
 			return r, true
 		}
 	}

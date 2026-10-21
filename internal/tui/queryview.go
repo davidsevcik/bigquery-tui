@@ -157,7 +157,7 @@ func (m *Model) queryBody(w, h int) []string {
 	if len(m.bufs) > 1 {
 		ttl += fmt.Sprintf("  [%d/%d]", m.cur+1, len(m.bufs))
 	}
-	if r, ok := m.runs[b.runID]; ok {
+	if r, ok := m.runs.Info(b.runID); ok {
 		ttl += "  " + stateWord(r)
 	}
 	ttl += fmt.Sprintf("   %d:%d", b.ed.row+1, b.ed.col+1)
@@ -201,13 +201,8 @@ func (m *Model) resultsPane(w, h int) []string {
 	switch {
 	case r.State == api.RunFailed && r.Error != nil:
 		e := r.Error
-		if e.Line > 0 {
-			pos := m.runPos[r.ID]
-			col := e.Col
-			if e.Line == 1 {
-				col += pos[1]
-			}
-			add(fmt.Sprintf("line %d, column %d", e.Line+pos[0], col), sWarn)
+		if mk, ok := m.runs.ErrorMark(r.ID); ok {
+			add(fmt.Sprintf("line %d, column %d", mk.Line, mk.Col), sWarn)
 		}
 		add(e.Message, sErr)
 		if e.Hint != "" {
@@ -220,7 +215,7 @@ func (m *Model) resultsPane(w, h int) []string {
 	case !r.State.Finished():
 		line := stateWord(r)
 		switch {
-		case r.CancelRequested && !m.pricing.Capacity:
+		case r.CancelRequested && !m.runs.Pricing().Capacity:
 			line = "cancel requested: waiting for BigQuery to confirm (the query may still be billed)"
 		case r.CancelRequested:
 			line = "cancel requested: waiting for BigQuery to confirm"
@@ -352,7 +347,7 @@ func (m *Model) confirmBox(bw int) []string {
 }
 
 func (m *Model) runsLines(w int) []string {
-	list := m.be.RunList()
+	list := m.runs.List()
 	if len(list) == 0 {
 		return []string{" " + sDim.Render("no runs in this session yet")}
 	}
@@ -397,7 +392,7 @@ func (m *Model) buffersLines(w int) []string {
 			mark = "▸ "
 		}
 		r.add(" "+mark+fit(b.title(), 22)+" ", sBase)
-		if run, ok := m.runs[b.runID]; ok {
+		if run, ok := m.runs.Info(b.runID); ok {
 			r.add(fit(stateWord(run), 18), stateStyle(run.State))
 		} else {
 			r.add(fit("", 18), sBase)
