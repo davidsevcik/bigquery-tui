@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,6 +18,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/export"
 	"github.com/davidsevcik/bigquery-tui/internal/favorites"
 	"github.com/davidsevcik/bigquery-tui/internal/format"
+	"github.com/davidsevcik/bigquery-tui/internal/runs"
 	"github.com/davidsevcik/bigquery-tui/internal/sqlx"
 )
 
@@ -66,12 +68,8 @@ type confirmState struct {
 }
 
 type (
-	runMsg struct {
-		info api.RunInfo
-		ver  int64
-	}
-	runsPollMsg struct{}
-	exportMsg   struct {
+	runMsg    struct{ u runs.Update }
+	exportMsg struct {
 		ev api.ExportEvent
 		ok bool
 	}
@@ -367,7 +365,8 @@ func (m *Model) requestRun(dry bool) tea.Cmd {
 }
 
 func (m *Model) startRun(b *buffer, sql string, params []api.QueryParam, dry bool, line0, col0 int) tea.Cmd {
-	id := m.be.StartRun(m.ctx, sql, params, b.id, dry, m.be.FavoriteFromID(b.path))
+	id := m.runs.Start(m.ctx, runs.Request{SQL: sql, Params: params, Tag: b.id, DryRunOnly: dry, Favorite: m.be.FavoriteFromID(b.path)},
+		runs.Origin{Line: line0, Col: col0, TextVersion: b.ed.version})
 	if !dry {
 		// the result this buffer showed is replaced: free its loaded pages
 		old := b.viewID
@@ -380,40 +379,33 @@ func (m *Model) startRun(b *buffer, sql string, params []api.QueryParam, dry boo
 		}
 	}
 	b.runID = id
-	m.runPos[id] = [2]int{line0, col0}
-	m.runEd[id] = b.ed.version
-	m.runs[id] = api.RunInfo{ID: id, Tag: b.id, SQL: sql, State: api.RunEstimating, DryRunOnly: dry}
 	if !dry {
 		b.viewID = id
 	}
 	b.ed.errLine, b.ed.errCol = 0, 0
-	return m.followRun(id, 0)
+	return m.followRun(id)
 }
 
 // followRun waits for the Run's next change. In tests (no background work) it
 // waits until the Run needs the user or has finished, or its job is held
 // running by the test (Options.JobHeld); a safety limit stops a stuck test.
-func (m *Model) followRun(id, ver int64) tea.Cmd {
+func (m *Model) followRun(id int64) tea.Cmd {
 	return func() tea.Msg {
-		if !m.o.NoBackground {
-			info, v := m.be.AwaitRun(m.ctx, id, ver)
-			return runMsg{info, v}
-		}
-		deadline := time.Now().Add(10 * time.Second)
-		for {
-			step := time.Now().Add(10 * time.Millisecond)
-			if step.After(deadline) {
-				step = deadline
+		ctx := m.ctx
+		var settled func(api.RunInfo) bool // nil: the next change
+		if m.o.NoBackground {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(m.ctx, 10*time.Second)
+			defer cancel()
+			settled = func(info api.RunInfo) bool {
+				held := info.Job != nil && m.o.JobHeld != nil && m.o.JobHeld(info.Job.ID)
+				return info.State == api.RunNeedsOK || held
 			}
-			ctx, cancel := contextWithDeadline(m.ctx, step)
-			info, v := m.be.AwaitRun(ctx, id, ver)
-			cancel()
-			held := info.Job != nil && m.o.JobHeld != nil && m.o.JobHeld(info.Job.ID)
-			if info.State.Finished() || info.State == api.RunNeedsOK || held || !time.Now().Before(deadline) {
-				return runMsg{info, v}
-			}
-			ver = v
 		}
+		if u, ok := m.runs.Wait(ctx, id, settled); ok {
+			return runMsg{u}
+		}
+		return nil
 	}
 }
 
@@ -427,19 +419,13 @@ func (m *Model) bufferOf(tag string) (*buffer, int) {
 }
 
 func (m *Model) onRun(msg runMsg) tea.Cmd {
-	info := msg.info
-	prev, known := m.runs[info.ID]
-	m.runs[info.ID] = info
-	if msg.ver > m.runVer[info.ID] {
-		m.runVer[info.ID] = msg.ver
-	}
-	m.pricing = m.be.Pricing()
+	info, news := m.runs.Apply(msg.u)
 	b, bi := m.bufferOf(info.Tag)
 	var cmds []tea.Cmd
 	if !info.State.Finished() && !m.o.NoBackground {
-		cmds = append(cmds, m.followRun(info.ID, msg.ver))
+		cmds = append(cmds, m.followRun(info.ID))
 	}
-	if known && prev.State == info.State && prev.CancelRequested == info.CancelRequested {
+	if !news {
 		return tea.Batch(cmds...)
 	}
 	here := b != nil && bi == m.cur && m.zone != ZoneExplorer
@@ -454,14 +440,9 @@ func (m *Model) onRun(msg runMsg) tea.Cmd {
 				b.viewID = info.ID
 			}
 			// the position only means something in the text that was run
-			if info.Error != nil && info.Error.Line > 0 && b.runID == info.ID && b.ed.version == m.runEd[info.ID] {
-				pos := m.runPos[info.ID]
-				line, col := info.Error.Line+pos[0], info.Error.Col
-				if info.Error.Line == 1 {
-					col += pos[1]
-				}
-				b.ed.moveTo(line, col)
-				b.ed.errLine, b.ed.errCol = line, col
+			if mk, ok := m.runs.ErrorMark(info.ID); ok && b.runID == info.ID && b.ed.version == mk.TextVersion {
+				b.ed.moveTo(mk.Line, mk.Col)
+				b.ed.errLine, b.ed.errCol = mk.Line, mk.Col
 			}
 		}
 		if !here && info.Error != nil {
@@ -763,7 +744,7 @@ func (m *Model) nextConfirm() {
 		c := m.confirmQ[0]
 		m.confirmQ = m.confirmQ[1:]
 		if c.kind == "run" {
-			if r, ok := m.runs[c.runID]; !ok || r.State != api.RunNeedsOK {
+			if r, ok := m.runs.Info(c.runID); !ok || r.State != api.RunNeedsOK {
 				continue
 			}
 		}
@@ -816,17 +797,12 @@ func (m *Model) confirmKey(name string) tea.Cmd {
 		m.ov = ovNone
 		switch c.kind {
 		case "run":
-			m.be.ConfirmRun(c.runID)
-			if info, ok := m.runs[c.runID]; ok {
-				info.State = api.RunQueued
-				info.Confirmation = nil
-				m.runs[c.runID] = info
-			}
+			m.runs.Confirm(c.runID)
 			if m.o.NoBackground {
-				return m.followRun(c.runID, m.runVer[c.runID])
+				return m.followRun(c.runID)
 			}
 		case "quit":
-			m.be.CancelAllRuns()
+			m.runs.CancelAll()
 			return m.quit()
 		case "closebuf":
 			m.closeBuffer()
@@ -834,9 +810,9 @@ func (m *Model) confirmKey(name string) tea.Cmd {
 	case "n", "N", "esc", "q", "ctrl+c":
 		m.ov = ovNone
 		if c.kind == "run" {
-			m.be.CancelRun(c.runID)
+			m.runs.Cancel(c.runID)
 			if m.o.NoBackground {
-				return m.followRun(c.runID, m.runVer[c.runID])
+				return m.followRun(c.runID)
 			}
 		}
 	}
@@ -851,7 +827,7 @@ func (m *Model) quit() tea.Cmd {
 
 func (m *Model) activeRuns() []api.RunInfo {
 	var out []api.RunInfo
-	for _, r := range m.be.RunList() {
+	for _, r := range m.runs.List() {
 		if !r.State.Finished() {
 			out = append(out, r)
 		}
@@ -875,7 +851,7 @@ func (m *Model) cancelFocused() bool {
 			ids = []int64{m.buf().viewID, m.buf().runID}
 		}
 		for _, id := range ids {
-			if r, ok := m.runs[id]; ok && !r.State.Finished() {
+			if r, ok := m.runs.Info(id); ok && !r.State.Finished() {
 				target = r.ID
 				break
 			}
@@ -889,9 +865,9 @@ func (m *Model) cancelFocused() bool {
 	if target == 0 {
 		return false
 	}
-	m.be.CancelRun(target)
+	m.runs.Cancel(target)
 	m.toast = fmt.Sprintf("cancel requested for run #%d", target)
-	if !m.pricing.Capacity {
+	if !m.runs.Pricing().Capacity {
 		m.toast += " (it may still be billed)"
 	}
 	return true
@@ -1097,7 +1073,7 @@ func (m *Model) findNext(dir int) tea.Cmd {
 // --- list overlays: runs and buffers
 
 func (m *Model) runsOverlayAction(act string, name string) tea.Cmd {
-	list := m.be.RunList()
+	list := m.runs.List()
 	switch act {
 	case "down":
 		m.ovSel = min(m.ovSel+1, max(0, len(list)-1))
@@ -1109,7 +1085,6 @@ func (m *Model) runsOverlayAction(act string, name string) tea.Cmd {
 		m.ov = ovNone
 		if m.ovSel < len(list) {
 			r := list[m.ovSel]
-			m.runs[r.ID] = r
 			if r.State == api.RunNeedsOK {
 				m.askConfirm(confirmState{kind: "run", runID: r.ID, lines: confirmLines(r)})
 				return nil
@@ -1126,7 +1101,7 @@ func (m *Model) runsOverlayAction(act string, name string) tea.Cmd {
 		}
 	default:
 		if name == "c" && m.ovSel < len(list) {
-			m.be.CancelRun(list[m.ovSel].ID)
+			m.runs.Cancel(list[m.ovSel].ID)
 			m.toast = fmt.Sprintf("cancel requested for run #%d", list[m.ovSel].ID)
 		}
 		if cmd, ok := m.globalAction(act); ok {

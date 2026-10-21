@@ -62,17 +62,12 @@ type Backend interface {
 	Tokenize(text string) []api.Token
 	Complete(text string, cursor int, forced bool) []api.Candidate
 
-	// Runs. StartRun returns the Run's ID at once; AwaitRun follows it.
-	StartRun(ctx context.Context, sql string, params []api.QueryParam, tag string, dryRunOnly bool, favorite string) int64
-	AwaitRun(ctx context.Context, id, afterVersion int64) (api.RunInfo, int64)
-	RunList() []api.RunInfo
-	ConfirmRun(id int64)
-	CancelRun(id int64)
-	CancelAllRuns()
+	// FollowRuns returns a new Follower of the Runs: it starts, follows,
+	// confirms and cancels them for this frontend.
+	FollowRuns() *runs.Follower
 	RunRows(ctx context.Context, id int64, startIndex int64, n int, o format.Options) (api.PreviewPage, error)
 	// RunSample renders a Run's first rows for a hand-off.
 	RunSample(ctx context.Context, id int64, f handoff.SampleFormat) (string, error)
-	Pricing() api.PricingModel
 	LearnPricing(ctx context.Context) error
 	StartExport(ctx context.Context, runID int64, path string, f export.Format) (Export, error)
 	DefaultExportPath(f export.Format) string
@@ -139,36 +134,6 @@ func (b EngineBackend) Reconcile(ctx context.Context) (bool, string, error) {
 	}
 	return rec.SyncNeeded, rec.Reason, nil
 }
-
-func (b EngineBackend) StartRun(ctx context.Context, sql string, params []api.QueryParam, tag string, dryRunOnly bool, favorite string) int64 {
-	return b.Engine.StartRun(ctx, runs.Request{SQL: sql, Params: params, Tag: tag, DryRunOnly: dryRunOnly, Favorite: favorite}).ID()
-}
-
-func (b EngineBackend) AwaitRun(ctx context.Context, id, after int64) (api.RunInfo, int64) {
-	r := b.Engine.Runs().Get(id)
-	if r == nil {
-		return api.RunInfo{ID: id, State: api.RunFailed, Error: &api.QueryError{Message: "unknown run", Kind: "other"}}, after + 1
-	}
-	return r.Await(ctx, after)
-}
-
-func (b EngineBackend) RunList() []api.RunInfo { return b.Engine.Runs().List() }
-
-func (b EngineBackend) ConfirmRun(id int64) {
-	if r := b.Engine.Runs().Get(id); r != nil {
-		r.Confirm()
-	}
-}
-
-func (b EngineBackend) CancelRun(id int64) {
-	if r := b.Engine.Runs().Get(id); r != nil {
-		r.Cancel()
-	}
-}
-
-func (b EngineBackend) CancelAllRuns() { b.Engine.Runs().CancelAll() }
-
-func (b EngineBackend) Pricing() api.PricingModel { return b.Engine.Runs().Pricing() }
 
 func (b EngineBackend) StartExport(ctx context.Context, runID int64, path string, f export.Format) (Export, error) {
 	h, err := b.Engine.StartExport(ctx, runID, path, f)

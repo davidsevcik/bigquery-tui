@@ -390,7 +390,7 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 	r.info = api.RunInfo{ID: r.id, Tag: req.Tag, SQL: req.SQL, Params: append([]api.QueryParam(nil), req.Params...),
 		State: api.RunEstimating, DryRunOnly: req.DryRunOnly, Source: m.o.Source, Favorite: req.Favorite,
 		ExecutionProject: cfg.ExecutionProject, Location: cfg.Location, Created: m.o.Now()}
-	r.version = 1
+	r.version, r.first = 1, r.info
 	closed := m.closed
 	m.runs = append(m.runs, r)
 	m.mu.Unlock()
@@ -415,6 +415,7 @@ type Run struct {
 
 	mu        sync.Mutex
 	info      api.RunInfo
+	first     api.RunInfo // the state it started in (version 1)
 	version   int64
 	changed   chan struct{} // closed and replaced on every change
 	final     bool          // the end state is published (and recorded)

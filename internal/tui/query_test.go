@@ -12,6 +12,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/internal/runs"
 )
 
 // editorRig opens the UI with the editor focused.
@@ -635,9 +636,10 @@ func TestConfirmationsQueueInsteadOfReplacingEachOther(t *testing.T) {
 		t.Fatal("the first statement asks")
 	}
 	// a second statement reaches its confirmation while the first is open
-	id := r.m.be.StartRun(t.Context(), "delete from b where true", nil, r.m.buf().id, false, "")
-	info, ver := r.m.be.AwaitRun(t.Context(), id, 1)
-	r.send(runMsg{info, ver})
+	asks := func(i api.RunInfo) bool { return i.State == api.RunNeedsOK }
+	id := r.m.runs.Start(t.Context(), runs.Request{SQL: "delete from b where true", Tag: r.m.buf().id}, runs.Origin{})
+	u, _ := r.m.runs.Wait(t.Context(), id, asks)
+	r.send(runMsg{u})
 	if r.m.confirm.runID != 1 || len(r.m.confirmQ) != 1 {
 		t.Fatalf("the open question must stay: showing #%d, %d queued", r.m.confirm.runID, len(r.m.confirmQ))
 	}
@@ -652,8 +654,8 @@ func TestConfirmationsQueueInsteadOfReplacingEachOther(t *testing.T) {
 	}
 	// a waiting confirmation can be reopened from the run list
 	r.press("ctrl+r", "esc") // run #3 asks; esc declines it
-	id4 := r.m.be.StartRun(t.Context(), "delete from c where true", nil, r.m.buf().id, false, "")
-	r.m.be.AwaitRun(t.Context(), id4, 1)
+	id4 := r.m.runs.Start(t.Context(), runs.Request{SQL: "delete from c where true", Tag: r.m.buf().id}, runs.Origin{})
+	r.m.runs.Wait(t.Context(), id4, asks)
 	r.press("ctrl+x", "l", "enter") // the newest run is first
 	if r.m.ov != ovConfirm || r.m.confirm.runID != id4 {
 		t.Fatalf("enter on a waiting run reopens its question: ov %v #%d", r.m.ov, r.m.confirm.runID)

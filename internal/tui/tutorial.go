@@ -49,7 +49,7 @@ type tutSnap struct {
 }
 
 func (m *Model) tutSnap() tutSnap {
-	return tutSnap{zone: m.zone, sel: m.sel().path.String() + "\x00" + string(m.sel().kind), layout: m.layout, runs: len(m.runs), text: m.buf().ed.text()}
+	return tutSnap{zone: m.zone, sel: m.sel().path.String() + "\x00" + string(m.sel().kind), layout: m.layout, runs: len(m.runs.List()), text: m.buf().ed.text()}
 }
 
 func plain(s string) func(*Model) string { return func(*Model) string { return s } }
@@ -112,7 +112,7 @@ var tutSteps = []tutStep{
 		}
 		return "`ctrl+r` runs the buffer (or the selection); `ctrl+d` is a dry-run, which only checks and estimates. SELECT 1 reads no data. Run it."
 	},
-		func(m *Model, t *tutorial) bool { return len(m.runs) > t.start.runs }},
+		func(m *Model, t *tutorial) bool { return len(m.runs.List()) > t.start.runs }},
 	{"Go to the Results", plain("`ctrl+w` then a direction goes straight to a zone: `ctrl+w j` the Results, `ctrl+w k` the Editor, `ctrl+w h` the Explorer. Go to the Results now."),
 		func(m *Model, t *tutorial) bool { return m.zone == ZoneResults }},
 	{"Read the Results", plain("`h` `j` `k` `l` move between cells, `enter` shows the row as a record (`n` `p` step rows), `esc` closes it. `y` copies a cell, `e` exports. Open a record and close it."),

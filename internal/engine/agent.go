@@ -54,55 +54,17 @@ func (e *Engine) AgentProfile(maxBytes int64, timeout time.Duration) policy.Prof
 	return policy.For(e.Config(), e.agentSource()).Lower(maxBytes, timeout)
 }
 
-// await follows a Run to its end; when ctx ends first the Run is cancelled
-// (and its job with it) before await returns.
-func await(ctx context.Context, r *runs.Run) api.RunInfo {
-	select {
-	case <-r.Done():
-	case <-ctx.Done():
-		r.Cancel()
-		<-r.Done()
-	}
-	return r.Info()
-}
-
-// runError turns a Run's end state into the error a frontend reports.
-func runError(info api.RunInfo) error {
-	switch info.State {
-	case api.RunRefused:
-		if info.Refusal != nil {
-			return &policy.Error{Refusal: *info.Refusal}
-		}
-	case api.RunCancelled:
-		return context.Canceled
-	case api.RunFailed:
-		if info.Error != nil {
-			return &QueryFailure{Err: *info.Error}
-		}
-		return errors.New("the query failed")
-	}
-	return nil
-}
-
 // QueryFailure is a failed dry-run or job, with BigQuery's message and the
 // error position when there is one.
-type QueryFailure struct{ Err api.QueryError }
-
-func (f *QueryFailure) Error() string {
-	msg := f.Err.Message
-	if f.Err.Line > 0 && !strings.Contains(msg, fmt.Sprintf("[%d:%d]", f.Err.Line, f.Err.Col)) {
-		msg += fmt.Sprintf(" (at line %d, column %d)", f.Err.Line, f.Err.Col)
-	}
-	return msg
-}
+type QueryFailure = runs.QueryFailure
 
 // AgentDryRun estimates a query and says whether the policy would run it.
 func (e *Engine) AgentDryRun(ctx context.Context, q AgentQuery) (api.DryRunResult, error) {
 	prof := e.AgentProfile(q.MaxBytes, q.Timeout)
-	r := e.runs.Start(ctx, runs.Request{SQL: q.SQL, Params: q.Params, DryRunOnly: true, Policy: &prof})
-	info := await(ctx, r)
+	f := e.runs.Follow()
+	info, err := f.Outcome(ctx, f.Start(ctx, runs.Request{SQL: q.SQL, Params: q.Params, DryRunOnly: true, Policy: &prof}, runs.Origin{}))
 	if info.State != api.RunEstimated {
-		return api.DryRunResult{}, runError(info)
+		return api.DryRunResult{}, err
 	}
 	est := info.Estimate
 	return api.DryRunResult{StatementType: est.StatementType, Bytes: est.Bytes, Accuracy: est.Accuracy,
@@ -116,9 +78,10 @@ func (e *Engine) RunAgentQuery(ctx context.Context, q AgentQuery) (api.QueryResu
 	prof := e.AgentProfile(q.MaxBytes, q.Timeout)
 	// one deadline covers the Run and reading the rows returned
 	deadline := time.Now().Add(prof.Timeout)
-	r := e.runs.Start(ctx, runs.Request{SQL: q.SQL, Params: q.Params, Favorite: q.Favorite, Policy: &prof})
-	info := await(ctx, r)
-	if err := runError(info); err != nil {
+	f := e.runs.Follow()
+	id := f.Start(ctx, runs.Request{SQL: q.SQL, Params: q.Params, Favorite: q.Favorite, Policy: &prof}, runs.Origin{})
+	info, err := f.Outcome(ctx, id)
+	if err != nil {
 		return api.QueryResult{}, err
 	}
 	res := api.QueryResult{Columns: info.Columns, Rows: [][]*string{}, TotalRows: info.TotalRows}
@@ -148,7 +111,7 @@ func (e *Engine) RunAgentQuery(ctx context.Context, q AgentQuery) (api.QueryResu
 	}
 	rctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	page, err := r.Rows(rctx, 0, rowLimit(q.Limit), format.Options{MaxChars: policy.CellChars, KeepNewlines: true})
+	page, err := e.RunRows(rctx, id, 0, rowLimit(q.Limit), format.Options{MaxChars: policy.CellChars, KeepNewlines: true})
 	if err != nil {
 		if errors.Is(rctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
 			return res, &QueryFailure{Err: api.QueryError{Kind: "timeout",

@@ -331,7 +331,7 @@ func (m *Model) onReopen(msg reopenMsg) tea.Cmd {
 	b.viewID = msg.id
 	m.setZone(ZoneResults)
 	m.toast = ""
-	return m.followRun(msg.id, 0)
+	return m.followRun(msg.id)
 }
 
 // --- prompts and questions started from the picker
