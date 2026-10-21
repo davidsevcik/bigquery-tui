@@ -178,7 +178,7 @@ func TestSchemaSearchAndPaths(t *testing.T) {
 	}
 }
 
-func TestFavoriteListAndBindParams(t *testing.T) {
+func TestFavoriteList(t *testing.T) {
 	e, _ := synced(t, `["proj-a"]`)
 	eng := e.agent("cli")
 	dir := eng.Config().FavoritesDir
@@ -193,45 +193,7 @@ func TestFavoriteListAndBindParams(t *testing.T) {
 	if len(l.Favorites) != 1 || l.Favorites[0].ID != "team/dau.sql" || !strings.Contains(l.Favorites[0].SQL, "@country") || len(l.Favorites[0].Params) != 3 {
 		t.Fatalf("%+v", l)
 	}
-	f, _ := eng.ReadFavorite("team/dau")
-	if _, err := BindParams("", &f, map[string]string{"country": "CZ"}); err == nil || !strings.Contains(err.Error(), "@n") {
-		t.Fatalf("a parameter without a value or default: %v", err)
-	}
-	ps, err := BindParams("", &f, map[string]string{"COUNTRY": "CZ", "n": "5"})
-	if err != nil || len(ps) != 3 || ps[0].Type != "DATE" || ps[0].Value != "2024-01-01" || ps[2].Type != "INT64" {
-		t.Fatalf("%v %+v", err, ps)
-	}
-	if _, err := BindParams("", &f, map[string]string{"country": "CZ", "n": "1", "typo": "x"}); err == nil || !strings.Contains(err.Error(), "typo") {
-		t.Fatalf("an unused parameter is an error: %v", err)
-	}
-	if _, err := BindParams("", &f, map[string]string{"country": "CZ", "n": "1", "start": "soon"}); err == nil {
-		t.Fatal("a bad DATE is an error")
-	}
-	if ps, err := BindParams("select @x", nil, map[string]string{"x": "DATE:2024-01-01"}); err != nil || ps[0].Type != "DATE" {
-		t.Fatalf("%v %+v", err, ps)
-	}
 }
-
-func TestBindParamsCaseDuplicatesAndExplicitEmpty(t *testing.T) {
-	if _, err := BindParams("select @Country", nil, map[string]string{"country": "CZ", "COUNTRY": "US"}); err == nil || !strings.Contains(err.Error(), "twice") {
-		t.Fatalf("names that differ only in case: %v", err)
-	}
-	f := api.Favorite{SQL: "select @country", Params: []api.ParamSpec{{Name: "country", Type: "STRING", Default: ptr("CZ")}}}
-	ps, err := BindParams("", &f, map[string]string{"country": ""})
-	if err != nil || len(ps) != 1 || ps[0].Value != "" {
-		t.Fatalf("a value given empty stays empty: %v %+v", err, ps)
-	}
-	ps, err = BindParams("", &f, map[string]string{})
-	if err != nil || ps[0].Value != "CZ" {
-		t.Fatalf("a missing value takes the default: %v %+v", err, ps)
-	}
-	n := api.Favorite{SQL: "select @n", Params: []api.ParamSpec{{Name: "n", Type: "INT64", Default: ptr("7")}}}
-	if _, err := BindParams("", &n, map[string]string{"n": " "}); err == nil {
-		t.Fatal("an INT64 given blank is an error, not the default")
-	}
-}
-
-func ptr(s string) *string { return &s }
 
 func TestHistoryListCountsTheGroups(t *testing.T) {
 	e, _ := synced(t, `["proj-a"]`)

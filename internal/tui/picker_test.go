@@ -3,12 +3,60 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/internal/favorites"
 )
+
+// The params prompt binds a Favorite as `bqt favorites run` and the MCP
+// tools do (favorites.Bind with the values given): the same values give
+// the same parameters, and an answer left empty is what a value left out is
+// on the CLI (spec 11: it takes the default).
+func TestParamsPromptBindsLikeTheCLI(t *testing.T) {
+	r := editorRig(t, 120, 36)
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
+	r.writeFav("q.sql", "-- param: d DATE = 2024-01-01\n-- param: s STRING = CZ\nselect @d, @s, @n\n")
+	f, err := favorites.Dir(r.favDir()).Read("q")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.press("ctrl+x", "f", "enter")
+	prompt := func(answers ...string) []api.QueryParam {
+		r.t.Helper()
+		r.press("ctrl+r")
+		if r.m.ov != ovPrompt {
+			t.Fatal("the prompt asks for the parameters")
+		}
+		for i, a := range answers {
+			if i > 0 {
+				r.press("down")
+			}
+			r.press("ctrl+u")
+			r.typeText(a)
+		}
+		r.press("enter")
+		calls := r.fake.QueryCalls()
+		return calls[len(calls)-1].Req.Params
+	}
+	cli := func(values map[string]string) []api.QueryParam {
+		r.t.Helper()
+		ps, err := favorites.Bind(f, favorites.Given(values))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ps
+	}
+	if tui, want := prompt("2025-05-05", "null", "7"), cli(map[string]string{"d": "2025-05-05", "s": "null", "n": "7"}); !reflect.DeepEqual(tui, want) {
+		t.Fatalf("the same values:\n%+v\n%+v", tui, want)
+	}
+	if tui, want := prompt("", "", "7"), cli(map[string]string{"n": "7"}); !reflect.DeepEqual(tui, want) || tui[1].Value != "CZ" {
+		t.Fatalf("empty answers take the defaults:\n%+v\n%+v", tui, want)
+	}
+}
 
 func (r *rig) favDir() string { return r.m.be.Config().FavoritesDir }
 

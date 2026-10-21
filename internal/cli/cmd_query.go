@@ -15,6 +15,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 	"github.com/davidsevcik/bigquery-tui/internal/engine"
+	"github.com/davidsevcik/bigquery-tui/internal/favorites"
 	"github.com/davidsevcik/bigquery-tui/internal/format"
 )
 
@@ -275,7 +276,7 @@ func cmdQuery(ctx context.Context, o *out, g *globals, args []string) error {
 	if err != nil {
 		return err
 	}
-	ps, err := engine.BindParams(sql, nil, values)
+	ps, err := favorites.Bind(favorites.Parse(sql), favorites.Given(values))
 	if err != nil {
 		return usageErr("%v", err)
 	}
@@ -616,7 +617,7 @@ func cmdFavoritesShow(ctx context.Context, o *out, g *globals, args []string) er
 	if err != nil {
 		return err
 	}
-	s := api.FavoriteSummary{ID: f.ID, Description: f.Description, Tags: f.Tags, Params: eng.QueryParams(f.Text, f.SQL), SQL: f.SQL, Problems: f.Problems}
+	s := api.FavoriteSummary{ID: f.ID, Description: f.Description, Tags: f.Tags, Params: favorites.Schema(f), SQL: f.SQL, Problems: f.Problems}
 	o.result(s, func(w io.Writer) { fmt.Fprint(w, f.Text) })
 	return nil
 }
@@ -650,7 +651,7 @@ func cmdFavoritesRun(ctx context.Context, o *out, g *globals, args []string) err
 	if err != nil {
 		return err
 	}
-	ps, err := engine.BindParams(f.Text, &f, values)
+	ps, err := favorites.Bind(f, favorites.Given(values))
 	if err != nil {
 		return usageErr("%v", err)
 	}

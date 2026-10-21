@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,7 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
+	"github.com/davidsevcik/bigquery-tui/internal/favorites"
 	"github.com/davidsevcik/bigquery-tui/internal/format"
 )
 
@@ -86,7 +87,7 @@ func (m *Model) reloadFavorites() {
 	if err != nil {
 		pk.favErr = err.Error()
 	}
-	pk.fm = m.be.MatchFavorites(pk.favs, pk.in.value())
+	pk.fm = favorites.Search(pk.favs, pk.in.value())
 	pk.sel[scopeFavorites] = clamp(pk.sel[scopeFavorites], 0, max(0, len(pk.fm)-1))
 }
 
@@ -205,8 +206,7 @@ func (m *Model) pickerKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	case "pickr":
 		if s == scopeFavorites {
 			if f, ok := m.pickedFavorite(); ok {
-				fp, _ := m.be.FavoritePath(f.ID)
-				m.openPrompt(promptState{kind: "favrename", title: "Rename favorite", labels: []string{"new name"}, back: ovPicker, favID: f.ID, favPath: fp,
+				m.openPrompt(promptState{kind: "favrename", title: "Rename favorite", labels: []string{"new name"}, back: ovPicker, fav: f,
 					note: "a path under favorites_dir; subfolders are created · enter renames · esc cancels"}, strings.TrimSuffix(f.ID, ".sql"))
 			}
 			return nil
@@ -229,8 +229,7 @@ func (m *Model) pickerKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	case "delete":
 		if f, ok := m.pickedFavorite(); ok {
 			m.ov = ovNone
-			fp, _ := m.be.FavoritePath(f.ID)
-			m.askConfirm(confirmState{kind: "favdelete", favID: f.ID, favPath: fp, back: ovPicker,
+			m.askConfirm(confirmState{kind: "favdelete", subject: f, back: ovPicker,
 				lines: []string{"Delete the favorite " + f.ID + "?", "The file is removed; there is no undo (keep favorites_dir in git as a safety net)."}})
 		}
 		return nil
@@ -243,7 +242,7 @@ func (m *Model) pickerKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	}
 	if pk.in.handle(msg) {
 		pk.poff = 0
-		pk.fm = m.be.MatchFavorites(pk.favs, pk.in.value())
+		pk.fm = favorites.Search(pk.favs, pk.in.value())
 		pk.sel[scopeFavorites], pk.off[scopeFavorites] = 0, 0
 		return m.searchHistory(false)
 	}
@@ -253,26 +252,10 @@ func (m *Model) pickerKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 // pickOpen loads the selected Favorite or History entry into the editor.
 func (m *Model) pickOpen() tea.Cmd {
 	if f, ok := m.pickedFavorite(); ok {
-		p, err := m.be.FavoritePath(f.ID)
-		if err != nil {
-			m.toast = err.Error()
-			return nil
-		}
-		return m.loadPick(loadReq{text: f.Text, path: p, what: "favorite " + f.ID})
+		return m.loadPick(loadReq{text: f.Text, path: f.Path, what: "favorite " + f.ID})
 	}
 	if g, ok := m.pickedHistory(); ok {
-		params := map[string]string{}
-		for _, p := range g.Latest.Params {
-			v := p.Value
-			if p.Null {
-				v = "null"
-			}
-			if p.Type != "" {
-				v = p.Type + ":" + v
-			}
-			params[p.Name] = v
-		}
-		return m.loadPick(loadReq{text: g.Latest.SQL, params: params, what: "the query from History"})
+		return m.loadPick(loadReq{text: g.Latest.SQL, params: favorites.Remembered(g.Latest.Params), what: "the query from History"})
 	}
 	return nil
 }
@@ -356,31 +339,28 @@ func (m *Model) onReopen(msg reopenMsg) tea.Cmd {
 func (m *Model) promptFavorite(p *promptState) tea.Cmd {
 	switch p.kind {
 	case "favrename":
-		oldPath, err := m.be.FavoritePath(p.favID)
-		if err != nil || oldPath != p.favPath {
+		nf, err := m.be.RenameFavorite(p.fav, p.fields[0].value())
+		if errors.Is(err, favorites.ErrMoved) {
 			p.note = sErr.Render("favorites_dir changed since this prompt opened: close it and pick the favorite again")
 			return nil
 		}
-		id, err := m.be.RenameFavorite(p.favID, p.fields[0].value())
 		if err != nil {
 			p.note = sErr.Render(err.Error())
 			return nil
 		}
-		if np, err := m.be.FavoritePath(id); err == nil {
-			for _, b := range m.bufs {
-				if b.path == oldPath {
-					b.path = np
-				}
+		for _, b := range m.bufs {
+			if b.path == p.fav.Path {
+				b.path = nf.Path
 			}
 		}
 		m.reloadFavorites()
-		m.selectFavorite(id)
+		m.selectFavorite(nf.ID)
 		m.ov = ovPicker
-		m.toast = "renamed to " + id
+		m.toast = "renamed to " + nf.ID
 	case "promote":
 		tags := splitTags(p.fields[2].value())
 		id, err := m.be.PromoteHistory(m.ctx, p.entryID, p.fields[0].value(), p.fields[1].value(), tags, p.armed)
-		if engine.IsFavoriteExists(err) && !p.armed {
+		if errors.Is(err, favorites.ErrExists) && !p.armed {
 			p.armed = true
 			p.note = sWarn.Render("a favorite with that name exists: press enter again to overwrite it")
 			return nil
@@ -424,12 +404,12 @@ func splitTags(s string) []string {
 // a Favorite, prefilled from its header (and its name, if it is one).
 func (m *Model) openSaveFavorite() {
 	b := m.buf()
-	f := m.be.ParseFavorite(b.ed.text())
-	name := strings.TrimSuffix(m.be.FavoriteFromID(b.path), ".sql")
+	f := favorites.Parse(b.ed.text())
+	own := m.be.FavoriteFromID(b.path)
 	m.openPrompt(promptState{kind: "savefav", title: "Save buffer as favorite", labels: []string{"name", "description", "tags"},
-		favID: m.be.FavoriteFromID(b.path),
+		favID: own,
 		note:  "the name is a path under favorites_dir (subfolders are created); tags are comma-separated; -- param: lines in the buffer are kept · enter saves · esc cancels"},
-		name, f.Description, strings.Join(f.Tags, ", "))
+		strings.TrimSuffix(own, ".sql"), f.Description, strings.Join(f.Tags, ", "))
 }
 
 // saveBufferAsFavorite writes the buffer with a fresh header; the buffer then
@@ -437,12 +417,9 @@ func (m *Model) openSaveFavorite() {
 func (m *Model) saveBufferAsFavorite(p *promptState) tea.Cmd {
 	b := m.buf()
 	text := b.ed.text()
-	f := m.be.ParseFavorite(text)
-	f.Description, f.Tags = strings.TrimSpace(p.fields[1].value()), splitTags(p.fields[2].value())
-	out := m.be.RenderFavorite(f)
-	same := p.favID != "" && strings.TrimSuffix(p.favID, ".sql") == strings.TrimSuffix(strings.TrimSpace(p.fields[0].value()), ".sql")
-	id, err := m.be.SaveFavorite(p.fields[0].value(), out, same || p.armed)
-	if engine.IsFavoriteExists(err) && !p.armed {
+	s, err := m.be.SaveFavorite(favorites.SaveRequest{Text: text, Name: p.fields[0].value(),
+		Description: p.fields[1].value(), Tags: splitTags(p.fields[2].value()), Own: p.favID, Overwrite: p.armed})
+	if errors.Is(err, favorites.ErrExists) && !p.armed {
 		p.armed = true
 		p.note = sWarn.Render("a favorite with that name exists: press enter again to overwrite it")
 		return nil
@@ -451,26 +428,17 @@ func (m *Model) saveBufferAsFavorite(p *promptState) tea.Cmd {
 		p.note = sErr.Render(err.Error())
 		return nil
 	}
-	path, err := m.be.FavoritePath(id)
-	if err != nil {
-		p.note = sErr.Render(err.Error())
-		return nil
-	}
 	// the buffer takes the new header (one undo step), keeping the cursor
-	oldHead := len(text) - len(f.SQL)
-	newHead := len(out) - len(f.SQL)
-	if !strings.HasSuffix(f.SQL, "\n") && f.SQL != "" {
-		newHead-- // Render added the final newline
-	}
-	if text[:oldHead] != out[:newHead] {
+	if h := s.Header; text[:h.Old] != h.New {
 		row, col := b.ed.row, b.ed.col
-		delta := strings.Count(out[:newHead], "\n") - strings.Count(text[:oldHead], "\n")
-		b.ed.replaceBytes(0, oldHead, out[:newHead])
+		delta := strings.Count(h.New, "\n") - strings.Count(text[:h.Old], "\n")
+		b.ed.replaceBytes(0, h.Old, h.New)
 		b.ed.row = clamp(row+delta, 0, len(b.ed.lines)-1)
 		b.ed.col = clamp(col, 0, len(b.ed.lines[b.ed.row]))
 		b.ed.want = b.ed.col
 	}
-	b.path = path
+	id := s.Favorite.ID
+	b.path = s.Favorite.Path
 	b.savedVersion = b.ed.version
 	if b.lock != nil {
 		b.lock.Unlock()

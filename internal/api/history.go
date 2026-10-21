@@ -64,8 +64,11 @@ type Favorite struct {
 	Tags        []string    `json:"tags,omitempty"`
 	Params      []ParamSpec `json:"params,omitempty"`
 	// SQL is the body below the header; Text is the whole file.
-	SQL     string    `json:"sql"`
-	Text    string    `json:"-"`
+	SQL  string `json:"sql"`
+	Text string `json:"-"`
+	// Path is the file the Favorite was read from. A rename or delete acts
+	// only on that file.
+	Path    string    `json:"-"`
 	ModTime time.Time `json:"mod_time"`
 	// Problems lists header lines that could not be read.
 	Problems []string `json:"problems,omitempty"`

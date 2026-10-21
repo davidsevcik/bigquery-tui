@@ -27,6 +27,9 @@ var (
 	ErrExists   = errors.New("a favorite with that name already exists")
 	ErrNotFound = errors.New("no such favorite")
 	ErrBadID    = errors.New("invalid favorite name")
+	// ErrMoved refuses a rename or delete of a Favorite whose name now
+	// leads to another file (favorites_dir changed since it was read).
+	ErrMoved = errors.New("favorites_dir changed since the favorite was shown")
 )
 
 func validType(t string) bool {
@@ -120,7 +123,7 @@ func parseParam(s string) (api.ParamSpec, error) {
 	p := api.ParamSpec{Name: name, Type: typ}
 	if hasDef {
 		d := unquote(strings.TrimSpace(def))
-		if _, err := Bind(api.ParamSpec{Name: name, Type: typ}, d); err != nil {
+		if _, err := bindValue(api.ParamSpec{Name: name, Type: typ}, d); err != nil {
 			return api.ParamSpec{}, fmt.Errorf("@%s: default: %v", name, err)
 		}
 		p.Default = &d
@@ -321,7 +324,7 @@ func (d Dir) read(id, p string) (api.Favorite, error) {
 		return api.Favorite{}, err
 	}
 	f := Parse(string(data))
-	f.ID = id
+	f.ID, f.Path = id, p
 	f.Name = strings.TrimSuffix(path.Base(id), path.Ext(id))
 	if st, err := os.Stat(p); err == nil {
 		f.ModTime = st.ModTime()
@@ -329,8 +332,43 @@ func (d Dir) read(id, p string) (api.Favorite, error) {
 	return f, nil
 }
 
-// Path returns the file of a Favorite.
-func (d Dir) Path(id string) (string, error) { return d.file(id) }
+// IDOf returns the Favorite ID of a file inside the directory, or "" for a
+// file elsewhere (or not a .sql file). Links are resolved on both sides.
+func (d Dir) IDOf(file string) string {
+	if d == "" || file == "" {
+		return ""
+	}
+	real := func(p string) string {
+		p = filepath.Clean(p)
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		return p
+	}
+	rel, err := filepath.Rel(real(string(d)), real(file))
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return ""
+	}
+	id, err := CleanID(filepath.ToSlash(rel))
+	if err != nil || !strings.EqualFold(filepath.Ext(rel), ".sql") {
+		return ""
+	}
+	return id
+}
+
+// shown returns the file of a Favorite as it was read (by List or Read),
+// refusing one whose ID now leads to another file: a reload of
+// favorites_dir in the meantime must not redirect a rename or a delete.
+func (d Dir) shown(f api.Favorite) (string, error) {
+	p, err := d.file(f.ID)
+	if err != nil {
+		return "", err
+	}
+	if f.Path == "" || p != f.Path {
+		return "", fmt.Errorf("%w: %s", ErrMoved, f.ID)
+	}
+	return p, nil
+}
 
 // Read reads one Favorite.
 func (d Dir) Read(id string) (api.Favorite, error) {
@@ -394,38 +432,40 @@ func (d Dir) Write(id, text string, overwrite bool) (string, error) {
 	return clean, nil
 }
 
-// Rename moves a Favorite to a new name; the target must not exist.
-func (d Dir) Rename(from, to string) (string, error) {
-	src, err := d.file(from)
+// Rename moves a Favorite, as it was read, to a new name and returns it
+// there; the target must not exist. A Favorite whose name now leads to
+// another file is an ErrMoved.
+func (d Dir) Rename(f api.Favorite, to string) (api.Favorite, error) {
+	src, err := d.shown(f)
 	if err != nil {
-		return "", err
+		return api.Favorite{}, err
 	}
 	dst, err := d.file(to)
 	if err != nil {
-		return "", err
+		return api.Favorite{}, err
 	}
 	clean, _ := CleanID(to)
 	if _, err := os.Stat(src); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return "", fmt.Errorf("%w: %s", ErrNotFound, from)
+			return api.Favorite{}, fmt.Errorf("%w: %s", ErrNotFound, f.ID)
 		}
-		return "", err
+		return api.Favorite{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return "", err
+		return api.Favorite{}, err
 	}
 	if err := claim(dst); err != nil {
 		if errors.Is(err, fs.ErrExist) {
-			return "", fmt.Errorf("%w: %s", ErrExists, clean)
+			return api.Favorite{}, fmt.Errorf("%w: %s", ErrExists, clean)
 		}
-		return "", err
+		return api.Favorite{}, err
 	}
 	if err := os.Rename(src, dst); err != nil {
 		os.Remove(dst)
-		return "", err
+		return api.Favorite{}, err
 	}
 	d.pruneDirs(filepath.Dir(src))
-	return clean, nil
+	return d.read(clean, dst)
 }
 
 // claim creates an empty file that must not exist yet.
@@ -437,15 +477,17 @@ func claim(p string) error {
 	return f.Close()
 }
 
-// Delete removes a Favorite (there is no trash; git is the safety net).
-func (d Dir) Delete(id string) error {
-	p, err := d.file(id)
+// Delete removes a Favorite, as it was read (there is no trash; git is the
+// safety net). A Favorite whose name now leads to another file is an
+// ErrMoved.
+func (d Dir) Delete(f api.Favorite) error {
+	p, err := d.shown(f)
 	if err != nil {
 		return err
 	}
 	if err := os.Remove(p); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("%w: %s", ErrNotFound, id)
+			return fmt.Errorf("%w: %s", ErrNotFound, f.ID)
 		}
 		return err
 	}
