@@ -19,10 +19,10 @@ import (
 )
 
 // ErrUnknownRun is returned for a Run ID this process does not know.
-var ErrUnknownRun = errors.New("unknown run")
+var ErrUnknownRun = runs.ErrUnknownRun
 
-// Runs returns the Run manager.
-func (e *Engine) Runs() *runs.Manager { return e.runs }
+// FollowRuns returns a new Follower of this engine's Runs, for one frontend.
+func (e *Engine) FollowRuns() *runs.Follower { return e.runs.Follow() }
 
 // StartRun begins a Run (dry-run, confirmation, job) and returns at once.
 func (e *Engine) StartRun(ctx context.Context, req runs.Request) *runs.Run {

@@ -18,6 +18,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 	"github.com/davidsevcik/bigquery-tui/internal/format"
+	"github.com/davidsevcik/bigquery-tui/internal/runs"
 )
 
 type layoutKind int
@@ -140,10 +141,7 @@ type Model struct {
 	bufSeq     int
 	orphans    []orphan
 	comp       completion
-	runs       map[int64]api.RunInfo
-	runPos     map[int64][2]int // where a Run's SQL starts in its buffer (line, column)
-	runVer     map[int64]int64  // the newest version of each Run this model has seen
-	runEd      map[int64]int    // the editor version each Run was started from
+	runs       *runs.Follower // the Runs as this model last applied them
 	grids      map[int64]*grid
 	prompt     promptState
 	confirm    confirmState
@@ -153,7 +151,6 @@ type Model struct {
 	projTop    int // lines above the list in the projects popup
 	exp        Export
 	expEv      api.ExportEvent
-	pricing    api.PricingModel
 	jumpInsert bool // jump-to-table was opened from the editor: enter inserts the name
 	edX, edY   int  // where the editor drew its cursor (for the completion popup)
 
@@ -186,8 +183,7 @@ func New(be Backend, o Options) *Model {
 	m.flat = &searchState{all: true}
 	m.tree.open = map[string]bool{}
 	m.zone = ZoneExplorer
-	m.runs, m.runPos, m.grids = map[int64]api.RunInfo{}, map[int64][2]int{}, map[int64]*grid{}
-	m.runVer, m.runEd = map[int64]int64{}, map[int64]int{}
+	m.runs, m.grids = be.FollowRuns(), map[int64]*grid{}
 	m.loadState()
 	m.reloadBrowse()
 	if o.File != "" {
@@ -215,10 +211,6 @@ func New(be Backend, o Options) *Model {
 func (m *Model) Close() {
 	m.releaseBuffers()
 	m.cancel()
-}
-
-func contextWithDeadline(ctx context.Context, t time.Time) (context.Context, context.CancelFunc) {
-	return context.WithDeadline(ctx, t)
 }
 
 type uiState struct {
@@ -453,13 +445,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case runMsg:
 		return m, m.onRun(msg)
-	case runsPollMsg:
-		var cmds []tea.Cmd
-		for _, r := range m.be.RunList() {
-			info, ver := m.be.AwaitRun(m.ctx, r.ID, 0)
-			cmds = append(cmds, m.onRun(runMsg{info: info, ver: ver}))
-		}
-		return m, tea.Batch(cmds...)
 	case pageMsg:
 		m.onPage(msg)
 	case histMsg:
@@ -469,7 +454,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case exportMsg:
 		return m, m.onExport(msg)
 	case pricingMsg:
-		m.pricing = m.be.Pricing()
+		// the status line reads the pricing model live: redraw
 	case tickMsg:
 		m.saveDrafts()
 		return m, tick()
@@ -618,10 +603,7 @@ func (m *Model) onConfig(ev config.Event) tea.Cmd {
 	}
 	m.cfgErr = ""
 	relearn := m.be.Config().ExecutionProject != ev.Config.ExecutionProject || m.be.Config().Location != ev.Config.Location
-	m.be.SetConfig(ev.Config)
-	if relearn {
-		m.pricing = api.PricingModel{}
-	}
+	m.be.SetConfig(ev.Config) // forgets the pricing model when it may differ
 	if len(ev.RestartRequired) > 0 {
 		m.toast = "config: " + strings.Join(ev.RestartRequired, ", ") + " changed: restart bqt to apply"
 	} else if len(ev.Changed) > 0 {
@@ -774,7 +756,7 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 		m.ov = ovNone
 		return m.handoffDirect(act), true
 	case "cancelall":
-		m.be.CancelAllRuns()
+		m.runs.CancelAll()
 		m.toast = "cancel requested for every run"
 		return nil, true
 	case "palette":

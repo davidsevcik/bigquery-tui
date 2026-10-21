@@ -17,6 +17,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 	"github.com/davidsevcik/bigquery-tui/internal/engine"
+	"github.com/davidsevcik/bigquery-tui/internal/runs"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden screen files")
@@ -202,10 +203,14 @@ func (r *rig) typeText(text string) {
 // settle waits for every Run to finish and lets the model see the outcome.
 func (r *rig) settle() {
 	r.t.Helper()
-	for _, info := range r.eng.Runs().List() {
-		r.eng.Runs().Get(info.ID).Wait()
+	var ends []runs.Update
+	for _, info := range r.m.runs.List() {
+		u, _ := r.m.runs.Wait(r.t.Context(), info.ID, func(api.RunInfo) bool { return false })
+		ends = append(ends, u)
 	}
-	r.send(runsPollMsg{})
+	for _, u := range ends {
+		r.send(runMsg{u})
+	}
 }
 
 func (r *rig) screen() string {

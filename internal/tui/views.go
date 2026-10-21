@@ -158,7 +158,7 @@ func (m *Model) statusLine(w int) string {
 	if pi := m.projectsInfo(); pi != "" {
 		b.add("  projects ", sDim).add(pi, sAcc)
 	}
-	if pt := pricingText(m.pricing); pt != "" {
+	if pt := pricingText(m.runs.Pricing()); pt != "" {
 		b.add("  "+pt, sDim)
 	}
 	if act := m.activeRuns(); len(act) > 0 {
