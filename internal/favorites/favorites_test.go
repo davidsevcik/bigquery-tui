@@ -85,21 +85,27 @@ func TestSchemaAndBind(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("%v", got)
 	}
-	q, err := Bind(s[0], "")
-	if err != nil || q.Value != "2024-01-01" || q.Type != "DATE" {
-		t.Fatalf("the default fills an empty value: %+v %v", q, err)
+	f := Parse(dau)
+	ps, err := Bind(f, Prompted(map[string]string{"start": "", "country": "", "undeclared": "42"}))
+	if err != nil || len(ps) != 3 {
+		t.Fatal(ps, err)
 	}
-	if _, err := Bind(s[0], "2024-02-30"); err == nil {
-		t.Fatal("an invalid date is refused")
+	if ps[0] != (api.QueryParam{Name: "start", Type: "DATE", Value: "2024-01-01"}) {
+		t.Fatalf("an empty answer takes the default: %+v", ps[0])
 	}
-	if q, err := Bind(s[1], ""); err != nil || q.Value != "" || q.Null {
-		t.Fatalf("an empty STRING is allowed: %+v %v", q, err)
+	if ps[1].Value != "" || ps[1].Null || ps[1].Type != "STRING" {
+		t.Fatalf("an empty STRING is allowed: %+v", ps[1])
 	}
-	if q, _ := Bind(s[1], "NULL"); !q.Null {
+	if ps[2].Type != "INT64" {
+		t.Fatalf("an undeclared type is guessed: %+v", ps[2])
+	}
+	_, err = Bind(f, Prompted(map[string]string{"start": "2024-02-30", "country": "", "undeclared": ""}))
+	var pe *ParamError
+	if !errors.As(err, &pe) || pe.Name != "start" {
+		t.Fatalf("an invalid date is refused, naming the parameter: %v", err)
+	}
+	if q, _ := bind1("STRING", "NULL"); !q.Null {
 		t.Fatal("null")
-	}
-	if q, _ := Bind(s[2], "42"); q.Type != "INT64" {
-		t.Fatalf("an undeclared type is guessed: %+v", q)
 	}
 	for typ, cases := range map[string]map[string]bool{
 		"INT64":     {"42": true, "-1": true, "4.2": false, "": false},
@@ -109,14 +115,93 @@ func TestSchemaAndBind(t *testing.T) {
 		"TIMESTAMP": {"2024-01-01T10:00:00Z": true, "2024-01-01 10:00:00+02:00": true, "2024-01-01 10:00:00 UTC": true, "soon": false},
 	} {
 		for v, ok := range cases {
-			_, err := Bind(api.ParamSpec{Name: "p", Type: typ}, v)
+			_, err := bind1(typ, v)
 			if (err == nil) != ok {
 				t.Errorf("%s %q: %v", typ, v, err)
 			}
 		}
 	}
-	if q, _ := Bind(api.ParamSpec{Name: "b", Type: "BOOL"}, " TRUE "); q.Value != "true" {
+	if q, _ := bind1("BOOL", " TRUE "); q.Value != "true" {
 		t.Fatalf("%+v", q)
+	}
+}
+
+// bind1 binds one value, given by name, to "SELECT @p" with p declared typ.
+func bind1(typ, v string) (api.QueryParam, error) {
+	ps, err := Bind(api.Favorite{SQL: "SELECT @p", Params: []api.ParamSpec{{Name: "p", Type: typ}}}, Given(map[string]string{"p": v}))
+	if err != nil {
+		return api.QueryParam{}, err
+	}
+	return ps[0], nil
+}
+
+// The agent surface (spec 14): a default fills only a missing value, a
+// value given empty stays empty, names ignore case, and a missing or unused
+// parameter is an error.
+func TestBindGivenValues(t *testing.T) {
+	f := Parse("-- param: start DATE = 2024-01-01\n-- param: country STRING\nSELECT 1 WHERE @start > '2000-01-01' AND @country = 'x' AND @n > 0\n")
+	if _, err := Bind(f, Given(map[string]string{"country": "CZ"})); err == nil || !strings.Contains(err.Error(), "@n") {
+		t.Fatalf("a parameter without a value or default: %v", err)
+	}
+	ps, err := Bind(f, Given(map[string]string{"COUNTRY": "CZ", "n": "5"}))
+	if err != nil || len(ps) != 3 || ps[0].Type != "DATE" || ps[0].Value != "2024-01-01" || ps[1].Value != "CZ" || ps[2].Type != "INT64" {
+		t.Fatalf("%v %+v", err, ps)
+	}
+	if _, err := Bind(f, Given(map[string]string{"country": "CZ", "n": "1", "typo": "x"})); err == nil || !strings.Contains(err.Error(), "typo") {
+		t.Fatalf("an unused parameter is an error: %v", err)
+	}
+	if _, err := Bind(f, Given(map[string]string{"country": "CZ", "n": "1", "start": "soon"})); err == nil {
+		t.Fatal("a bad DATE is an error")
+	}
+	if ps, err := Bind(Parse("select @x"), Given(map[string]string{"x": "DATE:2024-01-01"})); err != nil || ps[0].Type != "DATE" {
+		t.Fatalf("a prefix forces the type: %v %+v", err, ps)
+	}
+	if _, err := Bind(Parse("select @Country"), Given(map[string]string{"country": "CZ", "COUNTRY": "US"})); err == nil || !strings.Contains(err.Error(), "twice") {
+		t.Fatalf("names that differ only in case: %v", err)
+	}
+	def := Parse("-- param: country STRING = CZ\nselect @country")
+	if ps, err := Bind(def, Given(map[string]string{"country": ""})); err != nil || ps[0].Value != "" {
+		t.Fatalf("a value given empty stays empty: %v %+v", err, ps)
+	}
+	if ps, err := Bind(def, Given(map[string]string{})); err != nil || ps[0].Value != "CZ" {
+		t.Fatalf("a missing value takes the default: %v %+v", err, ps)
+	}
+	if _, err := Bind(Parse("-- param: n INT64 = 7\nselect @n"), Given(map[string]string{"n": " "})); err == nil {
+		t.Fatal("an INT64 given blank is an error, not the default")
+	}
+}
+
+// The same Favorite binds the same way from the TUI's prompt and from the
+// CLI or MCP: the values given bind identically, and only an empty value
+// differs, as the spec has it (spec 11: an empty answer takes the default;
+// spec 14: a value given empty stays empty).
+func TestPromptedAndGivenBindTheSameFavorite(t *testing.T) {
+	f := Parse("-- param: d DATE = 2024-01-01\n-- param: s STRING = CZ\n-- param: n INT64\nselect @d, @s, @n, @x")
+	vals := map[string]string{"d": "DATE:2025-05-05", "s": "null", "n": " 7 ", "x": "true"}
+	tui, err1 := Bind(f, Prompted(vals))
+	cli, err2 := Bind(f, Given(vals))
+	if err1 != nil || err2 != nil || !reflect.DeepEqual(tui, cli) || len(tui) != 4 {
+		t.Fatalf("the same values bind the same way:\n%+v %v\n%+v %v", tui, err1, cli, err2)
+	}
+	if tui[0].Value != "2025-05-05" || !tui[1].Null || tui[2].Value != "7" || tui[3].Type != "BOOL" {
+		t.Fatalf("%+v", tui)
+	}
+	empty := map[string]string{"d": "", "s": "", "n": "1", "x": "y"}
+	if tui, err := Bind(f, Prompted(empty)); err != nil || tui[0].Value != "2024-01-01" || tui[1].Value != "CZ" {
+		t.Fatalf("the prompt fills an empty answer with the default: %+v %v", tui, err)
+	}
+	if _, err := Bind(f, Given(empty)); err == nil || !strings.Contains(err.Error(), "@d needs a DATE value") {
+		t.Fatalf("a DATE given empty is an error, not the default: %v", err)
+	}
+	empty["d"] = "2025-01-01"
+	if cli, err := Bind(f, Given(empty)); err != nil || cli[1].Value != "" || cli[1].Null {
+		t.Fatalf("a STRING given empty stays empty: %+v %v", cli, err)
+	}
+	// a Run's parameters, remembered, bind back to the same parameters
+	ran := []api.QueryParam{{Name: "d", Type: "DATE", Value: "2025-05-05"}, {Name: "s", Type: "STRING", Null: true}, {Name: "n", Type: "INT64", Value: "7"}, {Name: "x", Type: "BOOL", Value: "true"}}
+	again, err := Bind(f, Prompted(Remembered(ran)))
+	if err != nil || !reflect.DeepEqual(again, ran) {
+		t.Fatalf("%+v %v", again, err)
 	}
 }
 
@@ -167,27 +252,30 @@ func TestDirOperations(t *testing.T) {
 	if !strings.HasSuffix(fs[0].Text, "-- more\n") || fs[0].ModTime.IsZero() {
 		t.Fatal("overwrite")
 	}
+	if fs[0].Path != filepath.Join(string(d), "events", "dau.sql") {
+		t.Fatalf("a Favorite knows its file: %q", fs[0].Path)
+	}
 	// rename refuses an existing target, moves across folders and prunes empty ones
-	if _, err := d.Rename("events/dau", "top"); !errors.Is(err, ErrExists) {
+	if _, err := d.Rename(fs[0], "top"); !errors.Is(err, ErrExists) {
 		t.Fatalf("%v", err)
 	}
-	id, err = d.Rename("events/dau", "metrics/daily/dau")
-	if err != nil || id != "metrics/daily/dau.sql" {
-		t.Fatal(id, err)
+	moved, err := d.Rename(fs[0], "metrics/daily/dau")
+	if err != nil || moved.ID != "metrics/daily/dau.sql" || moved.Path != filepath.Join(string(d), "metrics", "daily", "dau.sql") || moved.Description == "" {
+		t.Fatal(moved, err)
 	}
 	if _, err := os.Stat(filepath.Join(string(d), "events")); !os.IsNotExist(err) {
 		t.Fatal("the empty folder is removed")
 	}
-	if f, err := d.Read("metrics/daily/dau"); err != nil || f.Description == "" {
-		t.Fatalf("%+v %v", f, err)
+	if _, err := d.Rename(fs[0], "again"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("the old name is gone: %v", err)
 	}
-	if err := d.Delete("metrics/daily/dau.sql"); err != nil {
+	if err := d.Delete(moved); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(string(d), "metrics")); !os.IsNotExist(err) {
 		t.Fatal("empty folders go with the last file")
 	}
-	if err := d.Delete("metrics/daily/dau.sql"); !errors.Is(err, ErrNotFound) {
+	if err := d.Delete(moved); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("%v", err)
 	}
 	if _, err := d.Read("nope"); !errors.Is(err, ErrNotFound) {
@@ -268,18 +356,119 @@ func TestDefaultsRoundTrip(t *testing.T) {
 // Codex review 4, finding 4: a remembered "TYPE:value" binds under the
 // declared type.
 func TestBindStripsTheDeclaredTypePrefix(t *testing.T) {
-	q, err := Bind(api.ParamSpec{Name: "n", Type: "INT64"}, "INT64:7")
+	q, err := bind1("INT64", "INT64:7")
 	if err != nil || q.Value != "7" {
 		t.Fatalf("%+v %v", q, err)
 	}
-	if q, _ := Bind(api.ParamSpec{Name: "s", Type: "STRING"}, "string:abc"); q.Value != "abc" {
+	if q, _ := bind1("STRING", "string:abc"); q.Value != "abc" {
 		t.Fatalf("%+v", q)
 	}
-	if q, _ := Bind(api.ParamSpec{Name: "s", Type: "STRING"}, "STRING:null"); !q.Null {
+	if q, _ := bind1("STRING", "STRING:null"); !q.Null {
 		t.Fatal("null")
 	}
-	if q, _ := Bind(api.ParamSpec{Name: "s", Type: "STRING"}, "DATE:x"); q.Value != "DATE:x" {
+	if q, _ := bind1("STRING", "DATE:x"); q.Value != "DATE:x" {
 		t.Fatal("another type's prefix is part of a STRING")
+	}
+}
+
+// Codex review 4, finding 3: rename and delete act only on the file that
+// was shown, so a favorites_dir reload meanwhile cannot redirect them.
+func TestRenameAndDeleteActOnTheShownFile(t *testing.T) {
+	root := t.TempDir()
+	a, b := Dir(filepath.Join(root, "a")), Dir(filepath.Join(root, "b"))
+	a.Write("q", "select 1\n", false)
+	b.Write("q", "select 2\n", false)
+	shown, err := a.Read("q")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Delete(shown); !errors.Is(err, ErrMoved) {
+		t.Fatalf("delete after a reload: %v", err)
+	}
+	if _, err := b.Rename(shown, "r"); !errors.Is(err, ErrMoved) {
+		t.Fatalf("rename after a reload: %v", err)
+	}
+	if err := b.Delete(api.Favorite{ID: "q.sql"}); !errors.Is(err, ErrMoved) {
+		t.Fatalf("a Favorite that was never read: %v", err)
+	}
+	for _, d := range []Dir{a, b} {
+		if _, err := d.Read("q"); err != nil {
+			t.Fatalf("%s/q.sql must survive: %v", d, err)
+		}
+	}
+	if err := a.Delete(shown); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSaveRewritesTheHeader(t *testing.T) {
+	d := Dir(t.TempDir())
+	text := "-- description: old\n-- param: start DATE = 2024-01-01\nselect @start" // no final newline
+	s, err := d.Save(SaveRequest{Text: text, Name: "sales/daily", Description: " Daily ", Tags: []string{"sales", "daily"}})
+	if err != nil || s.Favorite.ID != "sales/daily.sql" || s.Favorite.Path != filepath.Join(string(d), "sales", "daily.sql") {
+		t.Fatal(s, err)
+	}
+	head := "-- description: Daily\n-- tags: sales, daily\n-- param: start DATE = 2024-01-01\n"
+	if data, _ := os.ReadFile(s.Favorite.Path); string(data) != head+"select @start\n" {
+		t.Fatalf("%q", data)
+	}
+	if s.Header.Old != len(text)-len("select @start") || s.Header.New != head {
+		t.Fatalf("%+v", s.Header)
+	}
+	if got := s.Header.New + text[s.Header.Old:]; got != head+"select @start" {
+		t.Fatalf("the edit gives the text the file's header: %q", got)
+	}
+	// saving under its own name again replaces it; another existing name asks
+	if _, err := d.Save(SaveRequest{Text: text, Name: "sales/daily.sql ", Own: "sales/daily.sql"}); err != nil {
+		t.Fatal(err)
+	}
+	d.Write("taken", "select 0\n", false)
+	if _, err := d.Save(SaveRequest{Text: text, Name: "taken", Own: "sales/daily.sql"}); !errors.Is(err, ErrExists) {
+		t.Fatalf("%v", err)
+	}
+	if _, err := d.Save(SaveRequest{Text: text, Name: "taken", Overwrite: true}); err != nil {
+		t.Fatal(err)
+	}
+	// a text without a header, and an empty body
+	if s, _ := d.Save(SaveRequest{Text: "select 1\n", Name: "plain"}); s.Header != (HeaderEdit{Old: 0, New: ""}) {
+		t.Fatalf("%+v", s.Header)
+	}
+	if s, _ := d.Save(SaveRequest{Text: "", Name: "empty", Description: "x"}); s.Header != (HeaderEdit{Old: 0, New: "-- description: x\n"}) {
+		t.Fatalf("%+v", s.Header)
+	}
+}
+
+func TestFromHistory(t *testing.T) {
+	// a Run from a Favorite's buffer carries its header: it is replaced, not
+	// stacked; the declared default stays; NULL is written as null
+	sql := "-- description: old\n-- tags: a\n-- param: d DATE = 2024-01-01\nselect @d, @p, @n"
+	got := FromHistory(sql, []api.QueryParam{{Name: "d", Type: "DATE", Value: "2025-05-05"}, {Name: "p", Type: "STRING", Null: true},
+		{Name: "n", Type: "INT64", Value: "7"}, {Name: "unused", Type: "INT64", Value: "1"}, {Name: "bad", Type: "STRUCT"}}, "new", nil)
+	want := "-- description: new\n-- tags: a\n-- param: d DATE = 2024-01-01\n-- param: p STRING = null\n-- param: n INT64 = 7\nselect @d, @p, @n\n"
+	if got != want {
+		t.Fatalf("%q", got)
+	}
+	if got := FromHistory("select @k", []api.QueryParam{{Name: "k", Type: "INT64", Value: "7"}}, "A kept query", nil); got != "-- description: A kept query\n-- param: k INT64 = 7\nselect @k\n" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestIDOf(t *testing.T) {
+	root := t.TempDir()
+	d := Dir(filepath.Join(root, "favs"))
+	d.Write("a/b", "select 1\n", false)
+	for file, want := range map[string]string{
+		filepath.Join(string(d), "a", "b.sql"): "a/b.sql",
+		filepath.Join(root, "x.sql"):           "",
+		filepath.Join(string(d), "notes.txt"):  "",
+		"":                                     "",
+	} {
+		if got := d.IDOf(file); got != want {
+			t.Errorf("%q: %q, want %q", file, got, want)
+		}
+	}
+	if Dir("").IDOf(filepath.Join(root, "x.sql")) != "" {
+		t.Error("no favorites_dir")
 	}
 }
 
@@ -309,14 +498,16 @@ func TestLinksCannotLeaveTheDirectory(t *testing.T) {
 	if _, err := d.Read("leaf"); !errors.Is(err, ErrBadID) {
 		t.Errorf("read a linked file: %v", err)
 	}
-	if err := d.Delete("out/secret"); !errors.Is(err, ErrBadID) {
+	secret := api.Favorite{ID: "out/secret.sql", Path: filepath.Join(string(d), "out", "secret.sql")}
+	if err := d.Delete(secret); !errors.Is(err, ErrBadID) {
 		t.Errorf("delete: %v", err)
 	}
 	d.Write("mine", "select 1\n", false)
-	if _, err := d.Rename("mine", "out/mine"); !errors.Is(err, ErrBadID) {
+	mine, _ := d.Read("mine")
+	if _, err := d.Rename(mine, "out/mine"); !errors.Is(err, ErrBadID) {
 		t.Errorf("rename out: %v", err)
 	}
-	if _, err := d.Rename("out/secret", "stolen"); !errors.Is(err, ErrBadID) {
+	if _, err := d.Rename(secret, "stolen"); !errors.Is(err, ErrBadID) {
 		t.Errorf("rename in: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(outside, "secret.sql")); err != nil {

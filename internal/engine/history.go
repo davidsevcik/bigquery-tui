@@ -2,16 +2,12 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/favorites"
 	"github.com/davidsevcik/bigquery-tui/internal/search"
-	"github.com/davidsevcik/bigquery-tui/internal/sqlx"
 	"github.com/davidsevcik/bigquery-tui/internal/store"
 )
 
@@ -100,60 +96,30 @@ func (e *Engine) FavoritesDir() favorites.Dir { return favorites.Dir(e.Config().
 // ListFavorites reads every Favorite.
 func (e *Engine) ListFavorites() ([]api.Favorite, error) { return e.FavoritesDir().List() }
 
-// MatchFavorites ranks Favorites for a query (in memory).
-func (e *Engine) MatchFavorites(favs []api.Favorite, query string) []api.FavoriteMatch {
-	return favorites.Search(favs, query)
-}
-
 // ReadFavorite reads one Favorite.
 func (e *Engine) ReadFavorite(id string) (api.Favorite, error) { return e.FavoritesDir().Read(id) }
 
-// FavoritePath returns the file of a Favorite.
-func (e *Engine) FavoritePath(id string) (string, error) { return e.FavoritesDir().Path(id) }
-
-// SaveFavorite writes a Favorite's full text (header and body) and returns
-// its ID. Without overwrite an existing Favorite is an error.
-func (e *Engine) SaveFavorite(id, text string, overwrite bool) (string, error) {
-	return e.FavoritesDir().Write(id, text, overwrite)
+// SaveFavorite saves a text as a Favorite with a fresh header.
+func (e *Engine) SaveFavorite(r favorites.SaveRequest) (favorites.Saved, error) {
+	return e.FavoritesDir().Save(r)
 }
 
-// RenameFavorite renames a Favorite; the target must not exist.
-func (e *Engine) RenameFavorite(from, to string) (string, error) {
-	return e.FavoritesDir().Rename(from, to)
+// RenameFavorite renames a Favorite as it was read; the target must not
+// exist, and a reload of favorites_dir since then refuses it.
+func (e *Engine) RenameFavorite(f api.Favorite, to string) (api.Favorite, error) {
+	return e.FavoritesDir().Rename(f, to)
 }
 
-// DeleteFavorite removes a Favorite.
-func (e *Engine) DeleteFavorite(id string) error { return e.FavoritesDir().Delete(id) }
+// DeleteFavorite removes a Favorite as it was read; a reload of
+// favorites_dir since then refuses it.
+func (e *Engine) DeleteFavorite(f api.Favorite) error { return e.FavoritesDir().Delete(f) }
 
 // FavoriteFromID returns the Favorite ID of a file inside favorites_dir, or
 // "" for a file elsewhere.
-func (e *Engine) FavoriteFromID(file string) string {
-	dir := e.Config().FavoritesDir
-	if dir == "" || file == "" {
-		return ""
-	}
-	real := func(p string) string {
-		p = filepath.Clean(p)
-		if r, err := filepath.EvalSymlinks(p); err == nil {
-			return r
-		}
-		return p
-	}
-	rel, err := filepath.Rel(real(dir), real(file))
-	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-		return ""
-	}
-	id, err := favorites.CleanID(filepath.ToSlash(rel))
-	if err != nil || !strings.EqualFold(filepath.Ext(rel), ".sql") {
-		return ""
-	}
-	return id
-}
+func (e *Engine) FavoriteFromID(file string) string { return e.FavoritesDir().IDOf(file) }
 
-// PromoteHistory saves a History entry as a Favorite: the entry's SQL, a
-// header with the description and tags, and its parameters declared with
-// the types and values it ran with (as defaults). The Favorite's ID is
-// written back onto the entry.
+// PromoteHistory saves a History entry as a Favorite (favorites.FromHistory)
+// and writes the Favorite's ID back onto the entry.
 func (e *Engine) PromoteHistory(ctx context.Context, entryID int64, name, description string, tags []string, overwrite bool) (string, error) {
 	h, err := e.History()
 	if err != nil {
@@ -163,36 +129,7 @@ func (e *Engine) PromoteHistory(ctx context.Context, entryID int64, name, descri
 	if err != nil {
 		return "", err
 	}
-	// a Run from a Favorite's buffer carries that header in its SQL: start
-	// from it, so the new header replaces it instead of stacking on it
-	f := favorites.Parse(entry.SQL)
-	f.Text, f.Problems = "", nil
-	if strings.TrimSpace(description) != "" || len(f.Description) == 0 {
-		f.Description = description
-	}
-	if len(tags) > 0 {
-		f.Tags = tags
-	}
-	declared := map[string]bool{}
-	for _, p := range f.Params {
-		declared[strings.ToLower(p.Name)] = true
-	}
-	used := map[string]bool{}
-	for _, n := range sqlx.Params(f.SQL) {
-		used[strings.ToLower(n)] = true
-	}
-	for _, p := range entry.Params {
-		k := strings.ToLower(p.Name)
-		if !used[k] || declared[k] || !validParamType(p.Type) {
-			continue
-		}
-		v := p.Value
-		if p.Null {
-			v = "null" // Bind reads it back as NULL
-		}
-		f.Params = append(f.Params, api.ParamSpec{Name: p.Name, Type: p.Type, Default: &v})
-	}
-	id, err := e.FavoritesDir().Write(name, favorites.Render(f), overwrite)
+	id, err := e.FavoritesDir().Write(name, favorites.FromHistory(entry.SQL, entry.Params, description, tags), overwrite)
 	if err != nil {
 		return "", err
 	}
@@ -201,35 +138,3 @@ func (e *Engine) PromoteHistory(ctx context.Context, entryID int64, name, descri
 	}
 	return id, nil
 }
-
-func validParamType(t string) bool {
-	for _, x := range favorites.Types {
-		if x == t {
-			return true
-		}
-	}
-	return false
-}
-
-// QueryParams is the parameter schema of a query text: the parameters its
-// body uses, typed by a Favorite header if the text has one.
-func (e *Engine) QueryParams(text, body string) []api.ParamSpec {
-	f := favorites.Parse(text)
-	f.SQL = body
-	return favorites.Schema(f)
-}
-
-// BindParam checks a value against its declared type.
-func (e *Engine) BindParam(p api.ParamSpec, value string) (api.QueryParam, error) {
-	return favorites.Bind(p, value)
-}
-
-// IsFavoriteExists reports an "already exists" error from the Favorite
-// operations.
-func IsFavoriteExists(err error) bool { return errors.Is(err, favorites.ErrExists) }
-
-// ParseFavorite reads a Favorite header and body from text.
-func (e *Engine) ParseFavorite(text string) api.Favorite { return favorites.Parse(text) }
-
-// RenderFavorite writes a Favorite's header and body as file text.
-func (e *Engine) RenderFavorite(f api.Favorite) string { return favorites.Render(f) }

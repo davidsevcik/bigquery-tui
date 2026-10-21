@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/internal/favorites"
 	"github.com/davidsevcik/bigquery-tui/internal/format"
 	"github.com/davidsevcik/bigquery-tui/internal/runs"
 )
@@ -58,15 +60,14 @@ func TestHistorySearchPromoteAndReopen(t *testing.T) {
 	if entry, _ := eng.HistoryEntry(ctx, firstID); entry.FavoritePath != "dated.sql" {
 		t.Fatalf("the Favorite is written back: %+v", entry)
 	}
-	if _, err := eng.PromoteHistory(ctx, firstID, "dated", "", nil, false); !IsFavoriteExists(err) {
+	if _, err := eng.PromoteHistory(ctx, firstID, "dated", "", nil, false); !errors.Is(err, favorites.ErrExists) {
 		t.Fatalf("%v", err)
 	}
 	if eng.FavoriteFromID(filepath.Join(e.cfg.FavoritesDir, "dated.sql")) != "dated.sql" || eng.FavoriteFromID(filepath.Join(e.dir, "x.sql")) != "" {
 		t.Fatal("FavoriteFromID")
 	}
-	specs := eng.QueryParams(f.Text, f.SQL)
-	if len(specs) != 1 || specs[0].Type != "DATE" {
-		t.Fatalf("%+v", specs)
+	if ps, err := favorites.Bind(f, favorites.Given(nil)); err != nil || len(ps) != 1 || ps[0] != (api.QueryParam{Name: "start", Type: "DATE", Value: "2024-01-01"}) {
+		t.Fatalf("the promoted Favorite runs with the values it ran with: %+v %v", ps, err)
 	}
 
 	// reopen the result of a History entry
@@ -140,11 +141,13 @@ func TestPromoteKeepsOneHeaderAndNull(t *testing.T) {
 	if *f.Params[0].Default != "2024-01-01" {
 		t.Fatal("the declared default is kept")
 	}
-	specs := eng.QueryParams(f.Text, f.SQL)
-	for _, s := range specs[1:] {
-		q, err := eng.BindParam(s, "")
-		if err != nil || !q.Null {
-			t.Fatalf("%s: NULL by default: %+v %v", s.Name, q, err)
+	ps, err := favorites.Bind(f, favorites.Prompted(map[string]string{"d": "", "p": "", "n": ""}))
+	if err != nil || len(ps) != 3 {
+		t.Fatal(ps, err)
+	}
+	for _, q := range ps[1:] {
+		if !q.Null {
+			t.Fatalf("%s: NULL by default: %+v", q.Name, q)
 		}
 	}
 }

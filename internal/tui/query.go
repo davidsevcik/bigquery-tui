@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 	"github.com/davidsevcik/bigquery-tui/internal/export"
+	"github.com/davidsevcik/bigquery-tui/internal/favorites"
 	"github.com/davidsevcik/bigquery-tui/internal/format"
 	"github.com/davidsevcik/bigquery-tui/internal/sqlx"
 )
@@ -38,6 +40,7 @@ type promptState struct {
 
 	// params
 	specs  []api.ParamSpec
+	query  api.Favorite // the query that runs, typed by the buffer's header
 	sql    string
 	dry    bool
 	line0  int
@@ -46,10 +49,11 @@ type promptState struct {
 	armed  bool // export: the row-count warning was shown; favorites: overwrite confirmed
 
 	back    overlayKind // the overlay to return to (the picker)
-	favID   string      // favrename, savefav
-	favPath string      // favrename: the file shown when the prompt opened
+	favID   string      // savefav: the Favorite the buffer already is
 	entryID int64       // promote
 	hoItem  handoffItem // handoff: what to write
+	// favrename: the Favorite as shown (its file)
+	fav api.Favorite
 }
 
 // confirmState is a yes/no question.
@@ -57,9 +61,8 @@ type confirmState struct {
 	kind    string // run | quit | closebuf | load | favdelete
 	runID   int64
 	lines   []string
-	favID   string
-	favPath string // the file the question was asked about (favorites_dir may change meanwhile)
 	back    overlayKind
+	subject api.Favorite // favdelete: the Favorite as shown (favorites_dir may change meanwhile)
 }
 
 type (
@@ -338,7 +341,8 @@ func (m *Model) requestRun(dry bool) tea.Cmd {
 		m.toast = "the buffer is empty"
 		return nil
 	}
-	specs := m.be.QueryParams(b.ed.text(), sql)
+	q := favorites.Query(b.ed.text(), sql)
+	specs := favorites.Schema(q)
 	if len(specs) == 0 {
 		return m.startRun(b, sql, nil, dry, line0, col0)
 	}
@@ -358,7 +362,7 @@ func (m *Model) requestRun(dry bool) tea.Cmd {
 	if typed {
 		note = "types come from the -- param: header (others are guessed from the value) · null is NULL · enter runs · esc cancels"
 	}
-	m.openPrompt(promptState{kind: "params", title: "Query parameters", labels: names, specs: specs, sql: sql, dry: dry, line0: line0, col0: col0, note: note}, vals...)
+	m.openPrompt(promptState{kind: "params", title: "Query parameters", labels: names, specs: specs, query: q, sql: sql, dry: dry, line0: line0, col0: col0, note: note}, vals...)
 	return nil
 }
 
@@ -605,17 +609,25 @@ func (m *Model) promptSubmit() tea.Cmd {
 	case "handoff":
 		return m.handoffSubmit(p)
 	case "params":
-		params := make([]api.QueryParam, len(p.specs))
+		answers := map[string]string{}
 		for i, s := range p.specs {
-			qp, err := m.be.BindParam(s, p.fields[i].value())
-			if err != nil {
-				p.idx, p.note = i, sErr.Render(err.Error())
-				return nil
-			}
-			params[i] = qp
+			answers[s.Name] = p.fields[i].value()
 		}
-		for i, s := range p.specs {
-			b.params[s.Name] = p.fields[i].value()
+		params, err := favorites.Bind(p.query, favorites.Prompted(answers))
+		if err != nil {
+			var pe *favorites.ParamError
+			if errors.As(err, &pe) {
+				for i, s := range p.specs {
+					if s.Name == pe.Name {
+						p.idx = i
+					}
+				}
+			}
+			p.note = sErr.Render(err.Error())
+			return nil
+		}
+		for k, v := range answers {
+			b.params[k] = v
 		}
 		m.ov = ovNone
 		return m.startRun(b, p.sql, params, p.dry, p.line0, p.col0)
@@ -783,12 +795,13 @@ func (m *Model) confirmKey(name string) tea.Cmd {
 		switch name {
 		case "y", "Y", "enter":
 			m.ov = c.back
-			if p, err := m.be.FavoritePath(c.favID); err != nil || p != c.favPath {
+			switch err := m.be.DeleteFavorite(c.subject); {
+			case errors.Is(err, favorites.ErrMoved):
 				m.toast = "favorites_dir changed since the question: nothing was deleted"
-			} else if err := m.be.DeleteFavorite(c.favID); err != nil {
+			case err != nil:
 				m.toast = "delete: " + err.Error()
-			} else {
-				m.toast = "deleted favorite " + c.favID
+			default:
+				m.toast = "deleted favorite " + c.subject.ID
 			}
 			if m.pk != nil {
 				m.reloadFavorites()

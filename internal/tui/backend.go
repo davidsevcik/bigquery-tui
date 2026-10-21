@@ -1,6 +1,8 @@
 // Package tui is bqt's terminal frontend. It only lays out what the core
 // returns: every piece of product behaviour (search, ranking, sync, formatting)
-// comes from the engine through the Backend interface.
+// comes from the engine through the Backend interface, or, where no state is
+// involved (a Favorite's header, matching Favorites, binding parameters),
+// from the core package that owns the rule.
 package tui
 
 import (
@@ -12,6 +14,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 	"github.com/davidsevcik/bigquery-tui/internal/engine"
 	"github.com/davidsevcik/bigquery-tui/internal/export"
+	"github.com/davidsevcik/bigquery-tui/internal/favorites"
 	"github.com/davidsevcik/bigquery-tui/internal/format"
 	"github.com/davidsevcik/bigquery-tui/internal/handoff"
 	"github.com/davidsevcik/bigquery-tui/internal/runs"
@@ -82,20 +85,14 @@ type Backend interface {
 	HistoryEntry(ctx context.Context, id int64) (api.HistoryEntry, error)
 	ReopenResult(ctx context.Context, entryID int64, tag string) (int64, error)
 	PromoteHistory(ctx context.Context, entryID int64, name, description string, tags []string, overwrite bool) (string, error)
+	// The Favorites of the current favorites_dir. Parsing, matching and
+	// binding parameters need no directory: the TUI calls the favorites
+	// package for those.
 	ListFavorites() ([]api.Favorite, error)
-	MatchFavorites(favs []api.Favorite, query string) []api.FavoriteMatch
-	ReadFavorite(id string) (api.Favorite, error)
-	FavoritePath(id string) (string, error)
 	FavoriteFromID(file string) string
-	SaveFavorite(id, text string, overwrite bool) (string, error)
-	RenameFavorite(from, to string) (string, error)
-	DeleteFavorite(id string) error
-	// QueryParams is the parameter schema of the SQL that runs (body),
-	// typed by a Favorite header in the buffer text.
-	QueryParams(text, body string) []api.ParamSpec
-	ParseFavorite(text string) api.Favorite
-	RenderFavorite(f api.Favorite) string
-	BindParam(p api.ParamSpec, value string) (api.QueryParam, error)
+	SaveFavorite(r favorites.SaveRequest) (favorites.Saved, error)
+	RenameFavorite(f api.Favorite, to string) (api.Favorite, error)
+	DeleteFavorite(f api.Favorite) error
 }
 
 // Export is a running export.

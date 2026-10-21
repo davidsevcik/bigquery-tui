@@ -16,6 +16,7 @@ import (
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/engine"
+	"github.com/davidsevcik/bigquery-tui/internal/favorites"
 	"github.com/davidsevcik/bigquery-tui/internal/policy"
 )
 
@@ -249,7 +250,7 @@ func cursor(s string) (int, error) {
 }
 
 func query(sql string, params map[string]string, limit int, maxBytes int64, timeoutSec int) (engine.AgentQuery, error) {
-	ps, err := engine.BindParams(sql, nil, params)
+	ps, err := favorites.Bind(favorites.Parse(sql), favorites.Given(params))
 	if err != nil {
 		return engine.AgentQuery{}, err
 	}
