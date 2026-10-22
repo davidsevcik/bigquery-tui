@@ -43,13 +43,17 @@ type Options struct {
 	Tables func(ctx context.Context) (bq.Tables, error)
 	// Jobs builds the query client lazily.
 	Jobs func(ctx context.Context) (bq.Jobs, error)
+	// Client builds a real BigQuery client whose jobs run in exec ("": no
+	// Execution project, for listing projects only). nil uses bq.NewClient.
+	// Meta, Tables and Jobs win over it.
+	Client func(ctx context.Context, exec string) (Client, error)
 	// Source names the frontend on History entries and job labels (tui, cli, mcp).
 	Source string
-	// PinExecution reads the Execution project once, at Open (bqt mcp: a
-	// long-running server keeps the project it started with).
-	PinExecution bool
-	Now          func() time.Time
-	Log          *slog.Logger
+	// Execution, when set, fixes the Execution project for the engine's
+	// lifetime (bqt mcp keeps the one it started with: ResolveExecution).
+	Execution *PinnedExecution
+	Now       func() time.Time
+	Log       *slog.Logger
 
 	// Test overrides for the sync engine.
 	Parallelism int
@@ -68,7 +72,6 @@ type Engine struct {
 
 	execMu   gosync.Mutex
 	lastExec string // the Execution project last seen (pricing is per project)
-	pinned   *pinnedExec
 
 	cfgMu  gosync.RWMutex
 	search *search.Searcher
@@ -77,14 +80,13 @@ type Engine struct {
 	colMu    gosync.Mutex
 	colCache map[string][]api.ColumnMeta // completion's columns, per table
 
-	mu       gosync.Mutex
-	history  *store.History
-	client   *bq.Client
-	clientOf string
-	stats    map[string]statsEntry
-	infos    map[string]bq.TableInfo
-	closers  []func() error
-	closed   bool
+	mu      gosync.Mutex
+	history *store.History
+	clients map[string]Client // by Execution project ("": for listing)
+	stats   map[string]statsEntry
+	infos   map[string]bq.TableInfo
+	closers []func() error
+	closed  bool
 
 	listed   []api.ListedProject // BigQuery's projects list, once fetched
 	listedOK bool
@@ -108,10 +110,6 @@ func Open(ctx context.Context, o Options) (*Engine, error) {
 	e.search = search.New(nil)
 	e.search.Now, e.search.TTL, e.search.Recent = o.Now, o.Config.SyncTTL, e.recent
 	e.runs = runs.New(runs.Options{Jobs: e.jobs, Config: e.Config, Execution: e.execProject, Now: o.Now, Source: o.Source, Record: e.recordRun, Log: o.Log})
-	if o.PinExecution {
-		p, src := e.ExecutionProject()
-		e.pinned = &pinnedExec{p, src}
-	}
 	e.lastExec = e.execProject()
 	if o.ReadOnly {
 		cat, err := store.OpenCatalogReadOnly(e.paths.Catalog)
@@ -196,69 +194,92 @@ func (e *Engine) Close() error {
 	for _, c := range e.closers {
 		errs = append(errs, c())
 	}
-	if e.client != nil {
-		errs = append(errs, e.client.Close())
+	for _, c := range e.clients {
+		errs = append(errs, c.Close())
 	}
-	e.history, e.client, e.closers, e.closed = nil, nil, nil, true
+	e.history, e.clients, e.closers, e.closed = nil, nil, nil, true
 	return errors.Join(errs...)
+}
+
+// Client is a real BigQuery client: every port, for one Execution project.
+type Client interface {
+	bq.Metadata
+	bq.Tables
+	bq.Jobs
+	Close() error
 }
 
 func (e *Engine) meta(ctx context.Context) (bq.Metadata, error) {
 	if e.o.Meta != nil {
 		return e.o.Meta(ctx)
 	}
-	return e.realClient(ctx, true)
+	return e.execClient(ctx)
 }
 
-// lister is the metadata client for listing projects, which needs no
-// Execution project.
+// lister is the metadata client for listing projects. It needs no Execution
+// project and never uses one: the credentials' own quota project applies, so
+// an unusable Execution project cannot hide the list to pick another from.
 func (e *Engine) lister(ctx context.Context) (bq.Metadata, error) {
 	if e.o.Meta != nil {
 		return e.o.Meta(ctx)
 	}
-	return e.realClient(ctx, false)
+	return e.clientFor(ctx, "")
 }
 
 func (e *Engine) tables(ctx context.Context) (bq.Tables, error) {
 	if e.o.Tables != nil {
 		return e.o.Tables(ctx)
 	}
-	return e.realClient(ctx, true)
+	return e.execClient(ctx)
 }
 
-func (e *Engine) jobs(ctx context.Context) (bq.Jobs, error) {
+// jobs is the query client of exec (a Run keeps the project it started in).
+func (e *Engine) jobs(ctx context.Context, exec string) (bq.Jobs, error) {
 	if e.o.Jobs != nil {
 		return e.o.Jobs(ctx)
 	}
-	return e.realClient(ctx, true)
+	if exec == "" {
+		return nil, ErrNoExecution
+	}
+	return e.clientFor(ctx, exec)
 }
 
-// realClient returns the shared BigQuery client for the current Execution
-// project, rebuilding it when the project changed. needExec refuses to
-// build one without an Execution project.
-func (e *Engine) realClient(ctx context.Context, needExec bool) (*bq.Client, error) {
+// execClient is the client of the current Execution project.
+func (e *Engine) execClient(ctx context.Context) (Client, error) {
 	exec := e.execProject()
-	if exec == "" && needExec {
+	if exec == "" {
 		return nil, ErrNoExecution
 	}
 	e.noticeExecution()
+	return e.clientFor(ctx, exec)
+}
+
+// clientFor returns the shared client whose jobs run in exec, building it on
+// first use. Clients of earlier Execution projects stay open for the Runs
+// that started in them.
+func (e *Engine) clientFor(ctx context.Context, exec string) (Client, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.closed {
 		return nil, ErrClosed
 	}
-	if e.client != nil && e.clientOf == exec {
-		return e.client, nil
+	if c, ok := e.clients[exec]; ok {
+		return c, nil
 	}
-	c, err := bq.NewClient(ctx, exec, bq.Options{Log: e.o.Log})
+	newClient := e.o.Client
+	if newClient == nil {
+		newClient = func(ctx context.Context, exec string) (Client, error) {
+			return bq.NewClient(ctx, exec, bq.Options{Log: e.o.Log})
+		}
+	}
+	c, err := newClient(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
-	if e.client != nil {
-		old := e.client
-		go old.Close() // let in-flight calls on the old project finish
+	if e.clients == nil {
+		e.clients = map[string]Client{}
 	}
-	e.client, e.clientOf = c, exec
+	e.clients[exec] = c
 	return c, nil
 }
 

@@ -269,3 +269,82 @@ func TestProjectsDialogGoldenScreens(t *testing.T) {
 		e.golden("projects_error_" + name)
 	}
 }
+
+// Codex review 6, finding 4: a pasted path in a project the catalog does
+// not hold selects the project, syncs it and opens the path.
+func TestPastingAPathInAnUncachedProjectOpensItAfterItsSync(t *testing.T) {
+	r := projectsRig(t)
+	r.press("ctrl+t")
+	r.typeText("acme-new.raw.hits")
+	r.press("enter")
+	if !r.eng.Selection().Has("acme-new") {
+		t.Fatalf("not selected: %v", r.eng.Selection().IDs())
+	}
+	if s := r.m.sel(); s.path.String() != "acme-new.raw.hits" {
+		t.Fatalf("the path is not open: %+v", s.path)
+	}
+}
+
+// Codex review 6, finding 5: projects selected while a sync runs sync
+// right after it.
+func TestClosingTheDialogDuringASyncQueuesTheNewProjects(t *testing.T) {
+	r := projectsRig(t)
+	r.press("ctrl+x", "p", "j", "j", "j", "space") // select acme-new
+	r.m.syncing = true                             // another sync is running
+	r.press("esc")
+	if strings.Contains(fmt.Sprint(r.fake.CallsTo("ListDatasets")), "acme-new") {
+		t.Fatal("started a second sync")
+	}
+	r.send(syncDoneMsg{})
+	calls := r.fake.CallsTo("ListDatasets")
+	if calls[len(calls)-1].Project != "acme-new" {
+		t.Fatalf("the queued project was not synced: %+v", calls)
+	}
+}
+
+// Codex review 6, finding 9: a change from another process keeps the
+// dialog's cursor on its project.
+func TestAnOutsideChangeKeepsTheDialogCursor(t *testing.T) {
+	r := projectsRig(t)
+	r.press("ctrl+x", "p", "j", "j", "j") // acme-new
+	r.eng.SelectProjects("acme-another")  // bqt projects select, elsewhere: a row above
+	r.run(r.m.selectionChanged())
+	r.press("space")
+	if !r.eng.Selection().Has("acme-new") {
+		t.Fatalf("space hit another project: %v", r.eng.Selection().IDs())
+	}
+}
+
+// Codex review 6, finding 10: the open dialog's rows follow a sync.
+func TestTheDialogRowsFollowASync(t *testing.T) {
+	r := projectsRig(t)
+	r.press("ctrl+x", "p", "j", "j", "j", "space")
+	if l := r.row("acme-new"); !strings.Contains(l, "not synced yet") {
+		t.Fatalf("%q", l)
+	}
+	r.run(r.m.startSync(api.SyncScope{Projects: []string{"acme-new"}}, false))
+	if l := r.row("acme-new"); !strings.Contains(l, "1 dataset") || strings.Contains(l, "not synced yet") {
+		t.Fatalf("after the sync: %q", l)
+	}
+}
+
+// A change made in the dialog is not applied a second time by the tick.
+func TestADialogChangeIsNotSeenAsAnOutsideOne(t *testing.T) {
+	r := projectsRig(t)
+	r.press("ctrl+x", "p", "j", "j", "e") // a new Execution project
+	if cmd := r.m.selectionChanged(); cmd != nil {
+		t.Fatal("the tick re-applies the dialog's own change")
+	}
+}
+
+// A deselected project's sync problems are not counted: nothing refreshes it.
+func TestADeselectedProjectsProblemsAreNotShown(t *testing.T) {
+	r := projectsRig(t)
+	r.fake.Projects["acme-staging"].ListErr = bqtest.PermissionError("datasets.list")
+	r.run(r.m.startSync(api.SyncScope{Projects: []string{"acme-staging"}}, false))
+	r.run(r.m.statusCmd())
+	r.contains("sync problem")
+	r.press("ctrl+x", "p", "j", "space", "esc")
+	r.run(r.m.statusCmd())
+	r.lacks("sync problem")
+}

@@ -142,7 +142,7 @@ func (r *Run) RawRows(ctx context.Context, startIndex int64) ([]bq.Field, [][]an
 // when the statement returned no rows, Reopen fails and nothing is added.
 // The Run is not recorded in History again.
 func (m *Manager) Reopen(ctx context.Context, e api.HistoryEntry, tag string) (*Run, error) {
-	jobs, err := m.o.Jobs(ctx)
+	jobs, err := m.o.Jobs(ctx, m.o.Execution())
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (m *Manager) Reopen(ctx context.Context, e api.HistoryEntry, tag string) (*
 // another process than the one that ran it. A job BigQuery no longer has (it
 // keeps results about 24 hours) is reported as such.
 func (m *Manager) ReadResult(ctx context.Context, ref api.JobRef, start int64, n int) (bq.ResultPage, error) {
-	jobs, err := m.o.Jobs(ctx)
+	jobs, err := m.o.Jobs(ctx, m.o.Execution())
 	if err != nil {
 		return bq.ResultPage{}, err
 	}

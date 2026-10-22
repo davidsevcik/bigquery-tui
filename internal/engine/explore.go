@@ -392,7 +392,7 @@ func (e *Engine) AutoRefresh(ctx context.Context) (*SyncHandle, error) {
 
 // SetConfig swaps in a reloaded configuration. Run-related and sync-related
 // keys apply to operations started afterwards. A changed Execution project
-// takes effect on the next BigQuery call (the client is rebuilt lazily).
+// takes effect on the next BigQuery call (each project has its own client).
 // data_dir cannot change at run time; callers report it as restart-required.
 func (e *Engine) SetConfig(cfg *config.Config) {
 	e.cfgMu.Lock()

@@ -159,6 +159,10 @@ func (m *Model) searchKey(st *searchState, msg tea.KeyPressMsg, name string) tea
 			}
 			s := st.selection()
 			if s.kind == "" {
+				if st == m.jump && !m.jumpInsert && st.parsed.Path != nil {
+					// a pasted path in a project the catalog does not hold
+					return m.openUncached(*st.parsed.Path)
+				}
 				return nil
 			}
 			if st == m.jump && m.jumpInsert {

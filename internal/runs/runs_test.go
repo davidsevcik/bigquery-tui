@@ -21,17 +21,26 @@ type rig struct {
 	m       *Manager
 	mu      sync.Mutex
 	records []api.RunInfo
+	exec    string   // the Execution project now
+	asked   []string // the project each client was asked for
 }
 
+func (r *rig) setExec(p string) { r.mu.Lock(); r.exec = p; r.mu.Unlock() }
+
 func newRig(t *testing.T) *rig {
-	r := &rig{t: t, fake: bqtest.New()}
+	r := &rig{t: t, fake: bqtest.New(), exec: "exec"}
 	r.cfg = &config.Config{MaxConcurrentQueries: 2,
 		ConfirmBytes:   config.ByteLimit{Mode: config.ByteLimitAuto},
 		MaxBytesBilled: config.ByteLimit{Mode: config.ByteLimitValue, Bytes: config.DefaultMaxBytesBilled}}
 	r.m = New(Options{
-		Jobs:      func(context.Context) (bq.Jobs, error) { return r.fake, nil },
+		Jobs: func(_ context.Context, exec string) (bq.Jobs, error) {
+			r.mu.Lock()
+			r.asked = append(r.asked, exec)
+			r.mu.Unlock()
+			return r.fake, nil
+		},
 		Config:    func() *config.Config { return r.cfg },
-		Execution: func() string { return "exec" },
+		Execution: func() string { r.mu.Lock(); defer r.mu.Unlock(); return r.exec },
 		Now:       func() time.Time { return time.Unix(1700000000, 0).UTC() },
 		Record:    func(i api.RunInfo) { r.mu.Lock(); r.records = append(r.records, i); r.mu.Unlock() },
 	})
@@ -619,5 +628,51 @@ func TestReopenShowsAnEarlierResult(t *testing.T) {
 	}
 	if len(r.m.List()) != 2 {
 		t.Fatal("a failed reopen adds nothing")
+	}
+}
+
+// Codex review 6, finding 1: a Run runs in the project it recorded, even
+// when the Execution project changes before it gets its client.
+func TestARunUsesTheProjectItStartedIn(t *testing.T) {
+	r := newRig(t)
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(3) }
+	run := r.m.Start(context.Background(), Request{SQL: "select n"})
+	r.setExec("other") // the dialog, or bqt projects in another terminal
+	info := run.Wait()
+	if info.State != api.RunDone || info.ExecutionProject != "exec" {
+		t.Fatalf("%+v", info)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, p := range r.asked {
+		if p != "exec" {
+			t.Fatalf("the Run asked for a client of %q", p)
+		}
+	}
+}
+
+// Codex review 6, finding 3: a dry-run that finishes after the Execution
+// project changed does not teach the new project's pricing model.
+func TestPricingFromAnOldProjectIsDropped(t *testing.T) {
+	r := newRig(t)
+	r.cfg.Location = "EU"
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.QueryScript{ReservationID: "res"} }
+	r.fake.OnCall = func(c bqtest.Call) {
+		if c.Method == "DryRun" {
+			r.setExec("on-demand-proj")
+			r.m.ForgetPricing()
+		}
+	}
+	if err := r.m.LearnPricing(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if p := r.m.Pricing(); p.Known {
+		t.Fatalf("the old project's model was kept: %+v", p)
+	}
+	r.setExec("exec")
+	run := r.m.Start(context.Background(), Request{SQL: "select"})
+	run.Wait()
+	if p := r.m.Pricing(); p.Known {
+		t.Fatalf("a Run of the old project taught the model: %+v", p)
 	}
 }

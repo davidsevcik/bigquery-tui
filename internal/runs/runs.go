@@ -37,8 +37,9 @@ const (
 
 // Options configures a Manager.
 type Options struct {
-	// Jobs builds the BigQuery jobs client lazily.
-	Jobs   func(ctx context.Context) (bq.Jobs, error)
+	// Jobs returns the BigQuery jobs client whose jobs run in exec (built
+	// lazily). A Run uses the client of the project it started in.
+	Jobs   func(ctx context.Context, exec string) (bq.Jobs, error)
 	Config func() *config.Config
 	// Execution returns the Execution project jobs run in now.
 	Execution func() string
@@ -82,10 +83,7 @@ type Manager struct {
 	running int
 	waiting []chan struct{}
 	pricing api.PricingModel
-	// forceLearn makes learn accept a zero-byte dry-run (LearnPricing's probe,
-	// which is built so that it needs slots).
-	forceLearn bool
-	events     chan api.RunEvent
+	events  chan api.RunEvent
 	// busy counts job submissions and cancel requests in flight, so Close can
 	// wait for them before the process exits.
 	busy   int
@@ -141,13 +139,18 @@ func (m *Manager) Pricing() api.PricingModel {
 	return m.pricing
 }
 
-// learn records the pricing model a dry-run revealed. A query that scans
-// nothing and names no reservation (SELECT 1) says nothing either way:
+// learn records the pricing model a dry-run in exec revealed. A query that
+// scans nothing and names no reservation (SELECT 1) says nothing either way:
 // BigQuery reports no reservation for it even on a reservation-backed project.
-func (m *Manager) learn(dr bq.DryRunResult) {
+// A dry-run of a project that is no longer the Execution project teaches
+// nothing (the model is per project).
+func (m *Manager) learn(exec string, dr bq.DryRunResult, force bool) {
+	if exec != m.o.Execution() { // outside m.mu: it reads the selection state
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if dr.ReservationID == "" && dr.BytesProcessed == 0 && !m.forceLearn {
+	if dr.ReservationID == "" && dr.BytesProcessed == 0 && !force {
 		return
 	}
 	m.pricing = api.PricingModel{Known: true, Capacity: dr.ReservationID != "", ReservationID: dr.ReservationID, Edition: dr.Edition}
@@ -172,7 +175,8 @@ func (m *Manager) LearnPricing(ctx context.Context) error {
 	if cfg.Location == "" {
 		return nil
 	}
-	jobs, err := m.o.Jobs(ctx)
+	exec := m.o.Execution()
+	jobs, err := m.o.Jobs(ctx, exec)
 	if err != nil {
 		return err
 	}
@@ -180,13 +184,7 @@ func (m *Manager) LearnPricing(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	m.forceLearn = true
-	m.mu.Unlock()
-	m.learn(dr)
-	m.mu.Lock()
-	m.forceLearn = false
-	m.mu.Unlock()
+	m.learn(exec, dr, true)
 	return nil
 }
 
@@ -585,7 +583,7 @@ func (r *Run) fail(err error) {
 
 func (r *Run) run(cfg *config.Config) {
 	m := r.m
-	jobs, err := m.o.Jobs(r.ctx)
+	jobs, err := m.o.Jobs(r.ctx, r.exec)
 	if err != nil {
 		r.fail(err)
 		return
@@ -605,7 +603,7 @@ func (r *Run) run(cfg *config.Config) {
 		r.fail(err)
 		return
 	}
-	m.learn(dr)
+	m.learn(r.exec, dr, false)
 	est := &api.Estimate{Bytes: dr.BytesProcessed, Accuracy: dr.Accuracy, StatementType: dr.StatementType,
 		ReservationID: dr.ReservationID, Edition: dr.Edition, Capacity: dr.ReservationID != "", Columns: format.Columns(dr.Schema)}
 	if !est.Capacity {

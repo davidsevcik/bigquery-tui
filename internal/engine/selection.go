@@ -119,17 +119,33 @@ func (e *Engine) ChooseExecution(id string) error {
 // ExecutionProject returns the effective Execution project and where it comes
 // from: flag > environment > chosen > earliest Selected project > none.
 func (e *Engine) ExecutionProject() (string, api.ExecutionSource) {
-	if e.pinned != nil {
-		return e.pinned.project, e.pinned.source
+	if p := e.o.Execution; p != nil {
+		return p.Project, p.Source
 	}
-	cfg := e.Config()
+	return resolveExecution(e.Config(), e.Selection())
+}
+
+// PinnedExecution is an Execution project fixed for an engine's lifetime.
+type PinnedExecution struct {
+	Project string
+	Source  api.ExecutionSource
+}
+
+// ResolveExecution reads the effective Execution project for cfg without an
+// engine (bqt mcp resolves it once, at startup).
+func ResolveExecution(cfg *config.Config) (PinnedExecution, error) {
+	s, err := selection.Open(selectionPath(cfg.DataDir)).Load()
+	p, src := resolveExecution(cfg, s)
+	return PinnedExecution{Project: p, Source: src}, err
+}
+
+func resolveExecution(cfg *config.Config, s selection.State) (string, api.ExecutionSource) {
 	switch {
 	case cfg.ExecutionOverride != "" && cfg.ExecutionOverrideFrom == "flag":
 		return cfg.ExecutionOverride, api.ExecutionFlag
 	case cfg.ExecutionOverride != "":
 		return cfg.ExecutionOverride, api.ExecutionEnv
 	}
-	s := e.Selection()
 	if s.Execution != "" {
 		return s.Execution, api.ExecutionChosen
 	}
@@ -139,18 +155,13 @@ func (e *Engine) ExecutionProject() (string, api.ExecutionSource) {
 	return "", api.ExecutionNone
 }
 
-type pinnedExec struct {
-	project string
-	source  api.ExecutionSource
-}
-
 func (e *Engine) execProject() string {
 	p, _ := e.ExecutionProject()
 	return p
 }
 
 // noticeExecution forgets the learned pricing model when the effective
-// Execution project changed (the client is rebuilt on its next use).
+// Execution project changed.
 func (e *Engine) noticeExecution() {
 	p := e.execProject()
 	e.execMu.Lock()
@@ -240,6 +251,15 @@ func syncedAt(units []api.UnitState) (time.Time, bool) {
 	return oldest, known
 }
 
+// lastAttemptFailed reports whether a unit's latest sync attempt failed: it
+// never succeeded, or it failed after an earlier success (the cache stays).
+func lastAttemptFailed(u api.UnitState) bool {
+	if u.LastAttempt == nil || u.Status == api.UnitOK {
+		return false
+	}
+	return u.LastSuccess == nil || u.LastAttempt.After(*u.LastSuccess)
+}
+
 // AccessibleProjects lists the projects BigQuery returns for the credentials,
 // sorted by ID. The list is kept for the engine's lifetime; refresh fetches
 // it again.
@@ -307,9 +327,8 @@ func (e *Engine) ProjectInfos(ctx context.Context, listed []api.ListedProject) (
 			switch {
 			case u.Location == "" && catsync.DeniedUnit(u):
 				p.Accessible, p.Error = false, u.Error
-			case u.Location == "" && u.Status == api.UnitInaccessible,
-				u.Location != "" && u.LastSuccess == nil && u.LastAttempt != nil:
-				p.Sync, p.Error = api.ProjectFailed, u.Error
+			case u.Location == "" && u.Status == api.UnitInaccessible, u.Location != "" && lastAttemptFailed(u):
+				p.Sync, p.Error = api.ProjectFailed, u.Error // SyncedAt keeps the cache's age
 			}
 		}
 	}

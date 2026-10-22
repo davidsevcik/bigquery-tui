@@ -205,6 +205,9 @@ func (m *Model) problemCount() int {
 	}
 	n := 0
 	for _, p := range m.status.Projects {
+		if !p.Selected {
+			continue // deselected: not refreshed, so its problems are not shown
+		}
 		for _, u := range p.Units {
 			if u.Status != api.UnitOK || u.NamesOnly > 0 || u.Inaccessible > 0 {
 				n++
@@ -1048,6 +1051,9 @@ func (m *Model) problemLines(w int) []string {
 	var out []string
 	if m.status != nil {
 		for _, p := range m.status.Projects {
+			if !p.Selected {
+				continue
+			}
 			for _, u := range p.Units {
 				if u.Status == api.UnitOK && u.NamesOnly == 0 && u.Inaccessible == 0 {
 					continue

@@ -1,14 +1,17 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
+	"github.com/davidsevcik/bigquery-tui/internal/runs"
 )
 
 func syncedProjects(e *env) map[string]bool {
@@ -224,7 +227,7 @@ func TestStatusListsSelectedThenCachedProjects(t *testing.T) {
 func TestProjectInfosMergeListedSelectedAndCached(t *testing.T) {
 	e := newEnv(t, "proj-a", "proj-b")
 	e.fake.Projects["proj-a"].FriendlyName = "Project A"
-	e.fake.Projects["proj-b"].Unlisted = true // shared at dataset level
+	e.fake.Projects["proj-b"].Unlisted = true                                   // shared at dataset level
 	e.fake.Listed = []api.ListedProject{{ID: "proj-c", FriendlyName: "proj-c"}} // just the ID again
 	e.fake.AddProject("proj-d").ListErr = bqtest.PermissionError("datasets.list")
 	e.fake.AddProject("proj-e").ListErr = bqtest.TransientError("boom")
@@ -352,5 +355,108 @@ func TestAgentsSeeDeselectedCachesRankedLastWithWarnings(t *testing.T) {
 	}
 	if s.Selected || len(s.Warnings) != 1 || !strings.Contains(s.Warnings[0], "not selected") {
 		t.Fatalf("schema %+v", s)
+	}
+}
+
+type fakeClient struct{ *bqtest.Fake }
+
+func (fakeClient) Close() error { return nil }
+
+// Codex review 6, finding 7: listing projects never uses the Execution
+// project (an unusable one must not hide the list to pick another from),
+// and each Execution project gets its own client.
+func TestEachExecutionProjectHasItsOwnClient(t *testing.T) {
+	e := newEnv(t, "proj-a") // exec-proj is chosen
+	var mu sync.Mutex
+	var asked []string
+	eng, err := Open(ctx, Options{Config: e.cfg, Now: func() time.Time { return e.now },
+		Client: func(_ context.Context, exec string) (Client, error) {
+			mu.Lock()
+			asked = append(asked, exec)
+			mu.Unlock()
+			return fakeClient{e.fake}, nil
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+	if _, err := eng.AccessibleProjects(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
+	eng.runs.Start(ctx, runs.Request{SQL: "select 1"}).Wait()
+	eng.ChooseExecution("billing")
+	eng.runs.Start(ctx, runs.Request{SQL: "select 1"}).Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(asked, ",") != ",exec-proj,billing" {
+		t.Fatalf("clients built for %q", asked)
+	}
+}
+
+// Codex review 6, finding 2: bqt mcp resolves the Execution project once and
+// every engine it opens (also the one opened when the first catalog
+// appears) keeps it.
+func TestAPinnedExecutionProjectSurvivesSelectionChanges(t *testing.T) {
+	e := newEnv(t, "proj-a") // exec-proj is chosen
+	pin, err := ResolveExecution(e.cfg)
+	if err != nil || pin.Project != "exec-proj" || pin.Source != api.ExecutionChosen {
+		t.Fatalf("%+v %v", pin, err)
+	}
+	e.open(false).ChooseExecution("later-proj") // after the server started
+	eng, err := Open(ctx, Options{Config: e.cfg, ReadOnly: true, Execution: &pin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+	if p, src := eng.ExecutionProject(); p != "exec-proj" || src != api.ExecutionChosen {
+		t.Fatalf("%q %q", p, src)
+	}
+}
+
+// Codex review 6, finding 6: a refresh that fails after an earlier success
+// shows as failed, keeping the cache's age.
+func TestAFailedRefreshOfACachedProjectShowsAsFailed(t *testing.T) {
+	e := newEnv(t, "proj-a")
+	eng := e.open(false)
+	fullSync(t, eng)
+	synced := e.now
+	e.now = e.now.Add(25 * time.Hour)
+	e.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Location: "EU", Err: bqtest.TransientError("backend")})
+	fullSync(t, eng)
+	infos, err := eng.ProjectInfos(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := infos[0]
+	if a.ID != "proj-a" || a.Sync != api.ProjectFailed || a.Error == "" || a.SyncedAt == nil || !a.SyncedAt.Equal(synced) || !a.Accessible {
+		t.Fatalf("%+v", a)
+	}
+}
+
+// Codex review 6, finding 8: completion offers no names inside a
+// deselected project, except in the Execution project (where unqualified
+// dataset.table names resolve).
+func TestCompletionLeavesOutDeselectedProjects(t *testing.T) {
+	_, eng := synced(t, "proj-a", "proj-b")
+	eng.ChooseExecution("proj-a")
+	eng.DeselectProjects("proj-b")
+	labels := func(sql string) string {
+		var out []string
+		for _, c := range eng.Complete(sql, len(sql), false) {
+			out = append(out, c.Label)
+		}
+		return strings.Join(out, ",")
+	}
+	if got := labels("select * from `proj-b."); got != "" {
+		t.Fatalf("a deselected project's datasets: %s", got)
+	}
+	if got := labels("select * from `proj-b.core."); got != "" {
+		t.Fatalf("a deselected project's tables: %s", got)
+	}
+	eng.SelectProjects("proj-b")
+	eng.DeselectProjects("proj-a") // still the Execution project
+	if got := labels("select * from sales."); !strings.Contains(got, "orders") {
+		t.Fatalf("unqualified names resolve in the Execution project: %s", got)
 	}
 }

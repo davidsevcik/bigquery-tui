@@ -108,12 +108,19 @@ func (m *Model) onProjectList(msg projListMsg) {
 	pd.focus(cur)
 }
 
-// refreshProjects reloads the rows' data, keeping their order.
+// refreshProjects reloads the rows' data, keeping their order and the
+// project under the cursor.
 func (m *Model) refreshProjects() {
 	pd := m.pd
 	if pd == nil {
 		return
 	}
+	cur := pd.current()
+	defer func() {
+		if cur != "" {
+			pd.focus(cur)
+		}
+	}()
 	infos, err := m.be.ProjectInfos(m.ctx, m.listed)
 	if err != nil {
 		m.toast = "projects: " + err.Error()
@@ -413,6 +420,7 @@ func (m *Model) projectChange(change func() error, added string) tea.Cmd {
 // afterSelectionChange reloads the Explorer, searches and status after the
 // selection or the Execution project changed (here or in another process).
 func (m *Model) afterSelectionChange(execBefore string) tea.Cmd {
+	m.selSeen = selectionKey(m.be) // applied: the tick has nothing left to do
 	m.reloadBrowse()
 	cmds := []tea.Cmd{m.rerunSearches(), m.statusCmd()}
 	// the engine forgot the pricing model of the old project: learn the new one
@@ -455,10 +463,44 @@ func (m *Model) syncIfNeeded(ids []string) tea.Cmd {
 		return nil
 	}
 	if m.syncing {
-		m.toast = "a sync is running: " + strings.Join(need, ", ") + " sync with the next refresh (R syncs everything)"
+		m.syncLater = append(m.syncLater, need...)
+		m.toast = "a sync is running: " + strings.Join(need, ", ") + " sync right after it"
 		return nil
 	}
 	return m.startSync(api.SyncScope{Projects: need}, false)
+}
+
+// afterSync runs when a sync ends: the projects waiting for it sync next,
+// then a pasted path waiting for its project opens.
+func (m *Model) afterSync() tea.Cmd {
+	if ids := m.syncLater; len(ids) > 0 {
+		m.syncLater = nil
+		sort.Strings(ids)
+		return m.syncIfNeeded(ids)
+	}
+	p := m.openAfter
+	if p == nil {
+		return nil
+	}
+	m.openAfter = nil
+	if _, err := m.be.TableDetail(m.ctx, *p); err != nil {
+		m.toast = p.String() + " is not in the catalog after syncing " + p.Project
+		return nil
+	}
+	return m.reveal(*p, api.KindTable)
+}
+
+// openUncached handles a pasted path whose project the catalog does not
+// hold: it selects the project and opens the path once its sync ends.
+func (m *Model) openUncached(p api.ObjectPath) tea.Cmd {
+	if p.Table == "" || !config.ValidProjectID(p.Project) || m.be.Selection().Has(p.Project) {
+		return nil // a selected project's missing table: nothing to fetch
+	}
+	m.ov = ovNone
+	cmd := m.selectForPath(p.Project)
+	m.openAfter = &p
+	m.toast = "selected project " + p.Project + "; " + p.String() + " opens when its sync finishes"
+	return cmd
 }
 
 // selectForPath selects p for opening a pasted path in it, syncing it when
@@ -490,7 +532,6 @@ func (m *Model) selectionChanged() tea.Cmd {
 		return nil
 	}
 	before := m.selSeen[strings.LastIndex(m.selSeen, "|")+1:]
-	m.selSeen = key
 	m.refreshProjects()
 	return m.afterSelectionChange(before)
 }

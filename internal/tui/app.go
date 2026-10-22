@@ -164,7 +164,9 @@ type Model struct {
 	syncLog    []string
 	syncNeeded bool
 	syncReason string
-	syncScope  []string // the projects the running sync covers (nil: the Selected ones)
+	syncScope  []string        // the projects the running sync covers (nil: the Selected ones)
+	syncLater  []string        // projects to sync once the running sync ends
+	openAfter  *api.ObjectPath // a pasted path to open once its project's sync ends
 	status     *api.CatalogStatus
 	cfgErr     string
 	kick       chan struct{}
@@ -523,6 +525,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitSync(msg.run)
 	case syncEventMsg:
 		m.onSyncEvent(msg.ev)
+		if msg.ev.Kind == api.EventUnitDone || msg.ev.Kind == api.EventUnitFailed {
+			m.refreshProjects() // the dialog's rows follow the sync
+		}
 		return m, waitSync(m.syncRun)
 	case syncDoneMsg:
 		m.syncing, m.syncRun = false, nil
@@ -535,11 +540,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toast = fmt.Sprintf("sync finished: %d ok, %d degraded, %d failed", msg.res.UnitsOK, msg.res.UnitsDegraded, msg.res.UnitsFailed)
 		}
 		m.reloadBrowse()
+		m.refreshProjects()
 		// The config may have changed while the sync held the lock (the
 		// reconcile was skipped then), so apply it now. It is a no-op otherwise.
-		return m, tea.Batch(m.reconcileCmd(false), m.rerunSearches(), m.afterSelect())
+		return m, tea.Batch(m.reconcileCmd(false), m.rerunSearches(), m.afterSelect(), m.afterSync())
 	case catalogWait:
 		m.reloadBrowse()
+		m.refreshProjects()
 		m.details = map[string]*detailData{}
 		m.lastSel = ""
 		return m, tea.Batch(m.waitCatalog(msg.ch), m.statusCmd(), m.rerunSearches(), m.afterSelect())
