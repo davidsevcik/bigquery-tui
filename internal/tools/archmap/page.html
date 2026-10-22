@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bqt architecture</title>
+<style>
+:root {
+  --bg: #f6f6f3;
+  --surface: #ffffff;
+  --surface-2: #f0f0ec;
+  --text: #1c1c1e;
+  --muted: #6a6a70;
+  --border: #e2e2dd;
+  --edge: #b9b9c0;
+  --frontend: #7c4ddb;
+  --core: #0f8f8a;
+  --test: #8a8a90;
+  --ext: #8a8a90;
+  --out: #d9480f;
+  --in: #1c6fd1;
+  --code-bg: #f3f3ef;
+  --focus: #1c6fd1;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141416;
+    --surface: #1d1d20;
+    --surface-2: #26262a;
+    --text: #ececef;
+    --muted: #9a9aa2;
+    --border: #34343a;
+    --edge: #55555e;
+    --frontend: #a78bfa;
+    --core: #2dd4bf;
+    --test: #8e8e96;
+    --ext: #8e8e96;
+    --out: #ff8a4c;
+    --in: #5aa9ff;
+    --code-bg: #232327;
+    --focus: #5aa9ff;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141416;
+  --surface: #1d1d20;
+  --surface-2: #26262a;
+  --text: #ececef;
+  --muted: #9a9aa2;
+  --border: #34343a;
+  --edge: #55555e;
+  --frontend: #a78bfa;
+  --core: #2dd4bf;
+  --test: #8e8e96;
+  --ext: #8e8e96;
+  --out: #ff8a4c;
+  --in: #5aa9ff;
+  --code-bg: #232327;
+  --focus: #5aa9ff;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+code, pre, .mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+button { font: inherit; color: inherit; }
+
+/* Header */
+.top {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface);
+}
+.top h1 { font-size: 15px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+.top .module { color: var(--muted); font-size: 12.5px; }
+.title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.search { position: relative; margin-left: auto; width: min(420px, 100%); }
+.search input {
+  width: 100%; padding: 7px 10px 7px 30px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit;
+}
+.search input:focus { outline: 2px solid var(--focus); outline-offset: -1px; }
+.search svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+.results {
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; margin: 0; padding: 4px;
+  list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  max-height: 60vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,.18);
+}
+.results li {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: baseline;
+  padding: 6px 8px; border-radius: 6px; cursor: pointer;
+}
+.results li[aria-selected="true"], .results li:hover { background: var(--surface-2); }
+.results .rq { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.results .rp { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.results .empty { color: var(--muted); cursor: default; display: block; }
+
+/* Layout */
+.layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) clamp(360px, 36vw, 620px); }
+.graph-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.toolbar {
+  display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center;
+  padding: 8px 16px; border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.toolbar label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-left: auto; color: var(--muted); font-size: 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.ln { width: 16px; height: 0; border-top: 2px solid; display: inline-block; }
+.graph-wrap { flex: 1; min-height: 0; overflow: auto; padding: 8px 16px; display: flex; }
+#graph { display: block; flex: 1; width: 100%; height: 100%; min-width: 640px; min-height: 480px; }
+.tests { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 16px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--border); }
+.foot { margin: 0; padding: 0 16px 10px; font-size: 12px; color: var(--muted); }
+
+/* Graph */
+.edge { fill: none; stroke: var(--edge); stroke-width: 1.2; opacity: .55; transition: opacity .12s; }
+.edge.ext-edge { stroke-dasharray: 3 3; }
+.edge.hidden { display: none; }
+.edge.out { stroke: var(--out); opacity: 1; stroke-width: 1.8; }
+.edge.in { stroke: var(--in); opacity: 1; stroke-width: 1.8; }
+.has-focus .edge:not(.out):not(.in) { opacity: .07; }
+.node { cursor: pointer; transition: opacity .12s; }
+.node rect { stroke-width: 1.4; }
+.node .nm { font: 600 12.5px ui-monospace, "SF Mono", Menlo, monospace; fill: var(--text); }
+.node .sub { font-size: 10.5px; fill: var(--muted); }
+.node.frontend rect { stroke: var(--frontend); fill: color-mix(in srgb, var(--frontend) 10%, var(--surface)); }
+.node.core rect { stroke: var(--core); fill: color-mix(in srgb, var(--core) 9%, var(--surface)); }
+.node.ext rect { stroke: var(--ext); stroke-dasharray: 3 2; fill: var(--surface); }
+.node.ext .nm { font-size: 11px; font-weight: 500; }
+.node.sel rect { stroke-width: 3; }
+.node:focus-visible { outline: none; }
+.node:focus-visible rect { stroke: var(--focus); stroke-width: 3; }
+.has-focus .node:not(.hl) { opacity: .28; }
+.ext-layer.off { display: none; }
+
+/* Panel */
+.panel { border-left: 1px solid var(--border); background: var(--surface); overflow: auto; min-height: 0; padding: 16px 18px 40px; }
+.panel h2 { font: 650 17px/1.3 ui-monospace, "SF Mono", Menlo, monospace; margin: 4px 0 2px; word-break: break-all; }
+.panel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 22px 0 6px; font-weight: 650; }
+.panel .path { color: var(--muted); font-size: 12px; margin: 0 0 8px; word-break: break-all; }
+.panel .doc { margin: 8px 0; }
+.panel .muted { color: var(--muted); }
+.head-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.badge { display: inline-block; font-size: 11px; font-weight: 650; padding: 1px 7px; border-radius: 999px; border: 1px solid; text-transform: uppercase; letter-spacing: .04em; }
+.badge.frontend { color: var(--frontend); }
+.badge.core { color: var(--core); }
+.badge.test, .badge.module { color: var(--test); }
+.stats { display: flex; gap: 14px; color: var(--muted); font-size: 12.5px; margin: 6px 0 4px; }
+.stats b { color: var(--text); font-weight: 650; }
+.rel { display: grid; grid-template-columns: max-content 1fr; gap: 8px 12px; margin: 12px 0 0; }
+.rel dt { color: var(--muted); font-size: 12.5px; padding-top: 3px; }
+.rel dd { margin: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+.chip {
+  font: 12px ui-monospace, "SF Mono", Menlo, monospace; padding: 2px 7px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--surface-2); cursor: pointer;
+}
+.chip.static { cursor: default; }
+.chip.imp { border-color: color-mix(in srgb, var(--out) 45%, var(--border)); }
+.chip.by { border-color: color-mix(in srgb, var(--in) 45%, var(--border)); }
+.chip:hover:not(.static) { border-color: var(--text); }
+.linkbtn { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; font-size: 12px; cursor: pointer; color: var(--muted); }
+.linkbtn:hover { color: var(--text); border-color: var(--text); }
+
+.sym { border-bottom: 1px solid var(--border); }
+.sym > summary {
+  list-style: none; cursor: pointer; padding: 6px 2px; display: grid;
+  grid-template-columns: 74px minmax(0, 1fr); column-gap: 8px; align-items: baseline;
+}
+.sym > summary::-webkit-details-marker { display: none; }
+.sym > summary:hover { background: var(--surface-2); }
+.kind { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; text-align: right; white-space: nowrap; }
+.kind.interface { color: var(--in); }
+.kind.struct { color: var(--core); }
+.sig1 { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sig1 b { font-weight: 650; }
+.sdoc { grid-column: 2; color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sym[open] > summary .sdoc { white-space: normal; }
+.sym pre {
+  margin: 4px 0 10px; padding: 8px 10px; background: var(--code-bg); border-radius: 6px;
+  font-size: 12px; line-height: 1.5; overflow: auto; white-space: pre;
+}
+.members { margin: 0 0 8px 20px; border-left: 2px solid var(--border); padding-left: 8px; }
+.members .sym:last-child { border-bottom: 0; }
+.members .sym > summary { grid-template-columns: 56px minmax(0, 1fr); }
+.sym.flash > summary { animation: flash 1.4s ease-out; }
+@keyframes flash { from { background: color-mix(in srgb, var(--focus) 30%, transparent); } to { background: transparent; } }
+.overview-list { list-style: none; padding: 0; margin: 0; }
+.overview-list li { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 5px 4px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.overview-list li:hover { background: var(--surface-2); }
+.overview-list .on { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; display: flex; align-items: center; gap: 7px; }
+.overview-list .oc { color: var(--muted); font-size: 12px; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+  .graph-wrap { flex: none; height: 75vh; }
+  .panel { border-left: 0; border-top: 1px solid var(--border); overflow: visible; }
+  .legend { margin-left: 0; }
+  .search { width: 100%; }
+}
+@media (max-width: 520px) {
+  .sym > summary { grid-template-columns: 1fr; }
+  .kind { text-align: left; }
+  .sdoc { grid-column: 1; }
+  .members { margin-left: 4px; }
+  .members .sym > summary { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="title">
+    <h1>Architecture</h1>
+    <span class="module mono" id="module"></span>
+  </div>
+  <div class="search">
+    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    <input id="q" type="search" placeholder="Search packages and symbols ( / )" autocomplete="off" spellcheck="false" aria-label="Search packages and symbols" aria-controls="results">
+    <ul id="results" class="results" role="listbox" hidden></ul>
+  </div>
+</header>
+<main class="layout">
+  <section class="graph-pane">
+    <div class="toolbar">
+      <label><input type="checkbox" id="hideHub" checked> <span id="hubLabel">Hide edges into the most imported package</span></label>
+      <label><input type="checkbox" id="showExt"> Third-party modules</label>
+      <div class="legend" aria-label="Legend">
+        <span><i class="sw" style="background:var(--frontend)"></i>Frontend</span>
+        <span><i class="sw" style="background:var(--core)"></i>Core</span>
+        <span><i class="ln" style="border-color:var(--out)"></i>imports</span>
+        <span><i class="ln" style="border-color:var(--in)"></i>imported by</span>
+      </div>
+    </div>
+    <div class="graph-wrap"><svg id="graph" role="img" aria-label="Package import graph"></svg></div>
+    <div class="tests" id="tests"></div>
+    <p class="foot" id="foot"></p>
+  </section>
+  <aside class="panel" id="panel" aria-live="polite"></aside>
+</main>
+<script type="application/json" id="data">__ARCHMAP_DATA__</script>
+<script>
+(() => {
+  const D = JSON.parse(document.getElementById('data').textContent);
+  const L = D.layout;
+  const NS = 'http://www.w3.org/2000/svg';
+  const pkgs = new Map(D.packages.map(p => [p.short, p]));
+  const exts = new Map(D.external.map(e => [e.module, e]));
+  const svg = document.getElementById('graph');
+  const panel = document.getElementById('panel');
+
+  // DOM helpers. Text always goes in through textContent.
+  function h(tag, props, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+      if (v == null || v === false) continue;
+      if (k === 'class') n.className = v;
+      else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v === true ? '' : v);
+    }
+    for (const kid of kids.flat()) if (kid != null) n.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+    return n;
+  }
+  function s(tag, attrs, parent) {
+    const n = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+
+  document.getElementById('module').textContent = D.module;
+  document.title = D.module.split('/').pop() + ' architecture';
+  const totalSyms = D.packages.reduce((a, p) => a + p.exported, 0);
+  document.getElementById('foot').textContent =
+    `${D.packages.length} packages · ${D.edges.length} imports · ${totalSyms} exported symbols` +
+    (D.generated ? ` · generated ${D.generated}` : '') + ' · regenerate with go run ./internal/tools/archmap';
+  const hub = L.hub;
+  document.getElementById('hubLabel').textContent = '';
+  document.getElementById('hubLabel').append('Hide edges into ', h('code', {}, pkgs.get(hub)?.label || hub), ` (${L.hubImporters} importers)`);
+
+  // ---------- Graph ----------
+  const hubBox = document.getElementById('hideHub');
+  const extBox = document.getElementById('showExt');
+  const gEdges = s('g', {}, svg);
+  const gExtEdges = s('g', { class: 'ext-layer off' }, svg);
+  const gNodes = s('g', {}, svg);
+  const gExt = s('g', { class: 'ext-layer off' }, svg);
+
+  // Arrowheads, one per edge colour.
+  const defs = s('defs', {}, svg);
+  for (const [id, color] of [['a-def', 'var(--edge)'], ['a-out', 'var(--out)'], ['a-in', 'var(--in)']]) {
+    const m = s('marker', { id, viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse' }, defs);
+    s('path', { d: 'M0,0 L8,4 L0,8 z', style: `fill:${color}` }, m);
+  }
+
+  function curve(x1, y1, x2, y2) {
+    const dy = Math.max(30, (y2 - y1) / 2);
+    return `M${x1},${y1} C${x1},${y1 + dy} ${x2},${y2 - dy} ${x2},${y2}`;
+  }
+
+  // Spread edge ends along the bottom (outgoing) and top (incoming) of each
+  // box, ordered by where the other end sits, so edges do not all meet at
+  // one point.
+  function spread(list, targetW) {
+    const group = (map, k, e) => { if (!map.has(k)) map.set(k, []); map.get(k).push(e); };
+    const outs = new Map(), ins = new Map();
+    for (const e of list) { group(outs, e.from, e); group(ins, e.to, e); }
+    const cx = new Map(list.map(e => [e, [e.ax, e.bx]]));
+    for (const es of outs.values()) {
+      es.sort((a, b) => cx.get(a)[1] - cx.get(b)[1]);
+      es.forEach((e, i) => { e.ax += ((i + 1) / (es.length + 1) - 0.5) * L.nodeW * 0.8; });
+    }
+    for (const es of ins.values()) {
+      es.sort((a, b) => cx.get(a)[0] - cx.get(b)[0]);
+      es.forEach((e, i) => { e.bx += ((i + 1) / (es.length + 1) - 0.5) * targetW * 0.8; });
+    }
+  }
+  function drawEdges(list, parent, cls, targetW) {
+    spread(list, targetW);
+    for (const e of list) {
+      e.el = s('path', { class: cls, d: curve(e.ax, e.ay, e.bx, e.by), 'marker-end': 'url(#a-def)' }, parent);
+    }
+    return list;
+  }
+  const drawn = p => p && p.group !== 'test';
+  const edgeEls = drawEdges(
+    D.edges.filter(e => drawn(pkgs.get(e.from)) && drawn(pkgs.get(e.to))).map(e => {
+      const a = pkgs.get(e.from), b = pkgs.get(e.to);
+      return { from: e.from, to: e.to, ax: a.x, ay: a.y + L.nodeH / 2, bx: b.x, by: b.y - L.nodeH / 2 - 2 };
+    }),
+    gEdges, 'edge', L.nodeW);
+  const extEdgeEls = drawEdges(
+    D.external.flatMap(m => m.importers.filter(k => drawn(pkgs.get(k))).map(k => {
+      const a = pkgs.get(k);
+      return { from: k, to: 'ext:' + m.module, ax: a.x, ay: a.y + L.nodeH / 2, bx: m.x, by: m.y - L.extH / 2 - 2 };
+    })),
+    gExtEdges, 'edge ext-edge', L.extW);
+
+  const nodeEls = new Map();
+  function drawNode(key, parent, x, y, w, hgt, cls, name, sub, title) {
+    const g = s('g', { class: 'node ' + cls, transform: `translate(${x - w / 2},${y - hgt / 2})`, tabindex: 0, role: 'button', 'aria-label': title }, parent);
+    s('title', {}, g).textContent = title;
+    s('rect', { width: w, height: hgt, rx: 8 }, g);
+    const t = s('text', { class: 'nm', x: w / 2, y: sub ? 17 : hgt / 2 + 4, 'text-anchor': 'middle' }, g);
+    t.textContent = name;
+    if (sub) {
+      const st = s('text', { class: 'sub', x: w / 2, y: 32, 'text-anchor': 'middle' }, g);
+      st.textContent = sub;
+    }
+    g.addEventListener('mouseenter', () => { hovered = key; applyFocus(); });
+    g.addEventListener('mouseleave', () => { hovered = null; applyFocus(); });
+    g.addEventListener('click', () => select(key));
+    g.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); select(key); } });
+    nodeEls.set(key, g);
+  }
+  function fit(label, max) { return label.length > max ? '…' + label.slice(label.length - max + 1) : label; }
+  for (const p of D.packages) {
+    if (p.group === 'test') continue;
+    const sub = `${p.exported} exported · ${p.files} file${p.files === 1 ? '' : 's'}`;
+    drawNode(p.short, gNodes, p.x, p.y, L.nodeW, L.nodeH, p.group, fit(p.label, 19), sub, `${p.short}${p.doc ? ' — ' + p.doc : ''}`);
+  }
+  for (const m of D.external) {
+    drawNode('ext:' + m.module, gExt, m.x, m.y, L.extW, L.extH, 'ext', fit(m.module, 25), null, `${m.module} (third-party)`);
+  }
+
+  const tests = document.getElementById('tests');
+  const testPkgs = D.packages.filter(p => p.group === 'test');
+  if (testPkgs.length) {
+    tests.append('Test-only packages:', ...testPkgs.map(p => h('button', { class: 'chip', onclick: () => select(p.short) }, p.label)));
+  } else tests.remove();
+
+  function setViewBox() {
+    const height = extBox.checked ? L.heightAll : L.height;
+    svg.setAttribute('viewBox', `0 0 ${L.width} ${height}`);
+    gExt.classList.toggle('off', !extBox.checked);
+    gExtEdges.classList.toggle('off', !extBox.checked);
+  }
+
+  // ---------- Focus (hover and selection) ----------
+  let selected = null, hovered = null;
+  function neighbours(key) {
+    if (!key) return null;
+    if (key.startsWith('ext:')) {
+      const m = exts.get(key.slice(4));
+      return new Set([key, ...(m ? m.importers : [])]);
+    }
+    const p = pkgs.get(key);
+    if (!p) return new Set([key]);
+    return new Set([key, ...p.imports, ...p.importedBy, ...p.thirdParty.map(m => 'ext:' + m)]);
+  }
+  function applyFocus() {
+    const f = hovered || selected;
+    const near = neighbours(f);
+    svg.classList.toggle('has-focus', !!f);
+    for (const [key, g] of nodeEls) {
+      g.classList.toggle('hl', !!near && near.has(key));
+      g.classList.toggle('sel', key === selected);
+    }
+    for (const list of [edgeEls, extEdgeEls]) {
+      for (const e of list) {
+        const out = !!f && e.from === f, inn = !!f && e.to === f;
+        e.el.classList.toggle('out', out);
+        e.el.classList.toggle('in', inn);
+        e.el.classList.toggle('hidden', hubBox.checked && e.to === hub && !out && !inn);
+        e.el.setAttribute('marker-end', out ? 'url(#a-out)' : inn ? 'url(#a-in)' : 'url(#a-def)');
+        if (out || inn) e.el.parentNode.appendChild(e.el); // draw on top
+      }
+    }
+  }
+
+  // ---------- Panel ----------
+  const chip = (key, cls) => {
+    const p = pkgs.get(key);
+    return h('button', { class: 'chip ' + (cls || ''), onclick: () => select(key), title: p ? p.doc : '' }, p ? p.label : key);
+  };
+  const extChip = mod => h('button', { class: 'chip', onclick: () => { extBox.checked = true; setViewBox(); select('ext:' + mod); } }, mod);
+
+  function sigLine(sym) {
+    // One-line form for the summary: drop "func", the receiver and type bodies.
+    let t = sym.sig.split('\n')[0];
+    if (sym.kind === 'func' || sym.kind === 'method') {
+      t = t.replace(/^func\s+(\([^)]*\)\s*)?/, '');
+    } else if (['struct', 'interface', 'type', 'alias', 'func type'].includes(sym.kind)) {
+      t = t.replace(/\s*\{\s*$/, '').replace(/^type\s+/, '');
+    }
+    const i = t.indexOf(sym.name.split(',')[0]);
+    const frag = document.createDocumentFragment();
+    if (i >= 0 && (sym.kind === 'func' || sym.kind === 'method')) {
+      frag.append(h('b', {}, t.slice(0, i + sym.name.length)), t.slice(i + sym.name.length));
+    } else if (sym.kind === 'const' || sym.kind === 'var') {
+      frag.append(h('b', {}, sym.name.split(',').length > 3 ? sym.name.split(',').slice(0, 3).join(',') + ', …' : sym.name));
+    } else {
+      frag.append(t);
+    }
+    return frag;
+  }
+  function symEl(sym, id, members) {
+    const d = h('details', { class: 'sym', 'data-sym': id },
+      h('summary', {},
+        h('span', { class: 'kind ' + sym.kind.replace(' ', '-') }, sym.kind),
+        h('span', { class: 'sig1' }, sigLine(sym)),
+        sym.doc ? h('span', { class: 'sdoc' }, sym.doc) : null),
+      h('pre', {}, sym.sig));
+    if (members && members.length) {
+      d.append(h('div', { class: 'members' }, members.map(m => symEl(m, id + '.' + m.name.split(',')[0].trim()))));
+    }
+    return d;
+  }
+  function section(title, items, render) {
+    if (!items.length) return null;
+    return [h('h3', {}, `${title} (${items.length})`), ...items.map(render)];
+  }
+
+  // fill replaces the panel's content; sections may be arrays or null.
+  const fill = (...kids) => panel.replaceChildren(...kids.flat().filter(k => k != null));
+
+  function renderPackage(p) {
+    const a = p.api;
+    const expand = h('button', { class: 'linkbtn', onclick: () => {
+      const all = panel.querySelectorAll('details');
+      const open = [...all].some(d => !d.open);
+      all.forEach(d => { d.open = open; });
+      expand.textContent = open ? 'Collapse all' : 'Expand all';
+    } }, 'Expand all');
+    fill(
+      h('div', { class: 'head-row' }, h('span', { class: 'badge ' + p.group }, p.group), p.exported ? expand : null),
+      h('h2', {}, p.short),
+      h('p', { class: 'path' }, p.path),
+      p.doc ? h('p', { class: 'doc' }, p.doc) : h('p', { class: 'doc muted' }, 'No package comment.'),
+      h('div', { class: 'stats' },
+        h('span', {}, h('b', {}, p.files), ' files'),
+        h('span', {}, h('b', {}, p.exported), ' exported'),
+        h('span', {}, h('b', {}, p.imports.length), ' imports'),
+        h('span', {}, h('b', {}, p.importedBy.length), ' importers')),
+      h('dl', { class: 'rel' },
+        h('dt', {}, 'Imports'), h('dd', {}, p.imports.length ? p.imports.map(k => chip(k, 'imp')) : h('span', { class: 'muted' }, 'nothing in the module')),
+        h('dt', {}, 'Imported by'), h('dd', {}, p.importedBy.length ? p.importedBy.map(k => chip(k, 'by')) : h('span', { class: 'muted' }, 'nobody')),
+        p.thirdParty.length ? [h('dt', {}, 'Third-party'), h('dd', {}, p.thirdParty.map(extChip))] : null),
+      section('Types', a.types, t => symEl(t, t.name, t.members)),
+      section('Functions', a.funcs, f => symEl(f, f.name)),
+      section('Constants', a.consts, c => symEl(c, c.name.split(',')[0].trim())),
+      section('Variables', a.vars, v => symEl(v, v.name.split(',')[0].trim())),
+      p.exported ? null : h('p', { class: 'muted' }, p.group === 'test' ? 'Test-only package: no exported API.' : 'No exported API.'),
+    );
+  }
+
+  function renderModule(m) {
+    panel.replaceChildren(
+      h('div', { class: 'head-row' }, h('span', { class: 'badge module' }, 'third-party module')),
+      h('h2', {}, m.module),
+      h('dl', { class: 'rel' }, h('dt', {}, 'Imported by'), h('dd', {}, m.importers.map(k => chip(k, 'by')))),
+    );
+  }
+
+  function renderOverview() {
+    const groups = ['frontend', 'core', 'test'];
+    const sorted = [...D.packages].sort((a, b) => groups.indexOf(a.group) - groups.indexOf(b.group) || b.rank - a.rank || a.short.localeCompare(b.short));
+    panel.replaceChildren(
+      h('h2', {}, 'Packages'),
+      h('p', { class: 'doc muted' }, 'Click a package in the graph or below to see its imports and exported API. Importers sit above what they import. Press / to search.'),
+      h('ul', { class: 'overview-list' }, sorted.map(p => h('li', { onclick: () => select(p.short), title: p.doc },
+        h('span', { class: 'on' }, h('i', { class: 'sw', style: `background:var(--${p.group})` }), p.label),
+        h('span', { class: 'oc' }, `${p.exported} exported`)))),
+    );
+  }
+
+  // ---------- Selection and URL ----------
+  function select(key, symId, fromHash) {
+    selected = key || null;
+    applyFocus();
+    if (!key) renderOverview();
+    else if (key.startsWith('ext:')) { const m = exts.get(key.slice(4)); m ? renderModule(m) : renderOverview(); }
+    else { const p = pkgs.get(key); p ? renderPackage(p) : renderOverview(); }
+    if (!symId) panel.scrollTop = 0;
+    else {
+      const el = panel.querySelector(`[data-sym="${CSS.escape(symId)}"]`);
+      if (el) {
+        for (let d = el; d && d !== panel; d = d.parentElement) if (d.tagName === 'DETAILS') d.open = true;
+        el.classList.add('flash');
+        el.scrollIntoView({ block: 'center' });
+        const g = nodeEls.get(key); if (g && g.scrollIntoView) g.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    }
+    if (!fromHash) {
+      const hash = key ? '#' + encodeURIComponent(key) + (symId ? ':' + encodeURIComponent(symId) : '') : ' ';
+      history.replaceState(null, '', hash.trim() || location.pathname);
+    }
+  }
+  function fromHash() {
+    const raw = location.hash.slice(1);
+    if (!raw) return select(null, null, true);
+    const [k, sym] = raw.split(':').map(decodeURIComponent);
+    if (k.startsWith('ext')) { extBox.checked = true; setViewBox(); }
+    select(k === 'ext' ? 'ext:' + sym : k, k === 'ext' ? null : sym, true);
+  }
+
+  // ---------- Search ----------
+  const index = [];
+  for (const p of D.packages) {
+    index.push({ name: p.label, qual: p.short, kind: 'package', pkg: p.short });
+    const add = (sym, id, prefix) => index.push({ name: sym.name, qual: `${p.name}.${prefix}${sym.name}`, kind: sym.kind, pkg: p.short, id });
+    for (const t of p.api.types) {
+      add(t, t.name, '');
+      for (const m of t.members) add(m, t.name + '.' + m.name.split(',')[0].trim(), m.kind === 'method' ? t.name + '.' : '');
+    }
+    for (const f of p.api.funcs) add(f, f.name, '');
+    for (const c of [...p.api.consts, ...p.api.vars]) add(c, c.name.split(',')[0].trim(), '');
+  }
+  for (const m of D.external) index.push({ name: m.module, qual: m.module, kind: 'module', pkg: 'ext:' + m.module });
+
+  const q = document.getElementById('q');
+  const results = document.getElementById('results');
+  let hits = [], cursor = 0;
+  function score(item, needle) {
+    const n = item.name.toLowerCase(), qq = item.qual.toLowerCase();
+    if (n === needle) return 0;
+    if (n.startsWith(needle)) return 1;
+    if (n.includes(needle)) return 2;
+    if (qq.includes(needle)) return 3;
+    return -1;
+  }
+  function search() {
+    const needle = q.value.trim().toLowerCase();
+    if (!needle) { results.hidden = true; hits = []; return; }
+    hits = index.map(it => [score(it, needle), it]).filter(([sc]) => sc >= 0)
+      .sort((a, b) => a[0] - b[0] || (a[1].kind === 'package' ? -1 : 0) - (b[1].kind === 'package' ? -1 : 0) || a[1].qual.length - b[1].qual.length || a[1].qual.localeCompare(b[1].qual))
+      .slice(0, 50).map(([, it]) => it);
+    cursor = 0;
+    results.replaceChildren(...(hits.length ? hits.map((it, i) => h('li', {
+      role: 'option', 'aria-selected': i === 0 ? 'true' : 'false',
+      onmousedown: ev => { ev.preventDefault(); pick(it); },
+    }, h('span', { class: 'kind' }, it.kind), h('span', { class: 'rq' }, it.qual), h('span', { class: 'rp' }, it.pkg.startsWith('ext:') ? '' : pkgs.get(it.pkg).label)))
+      : [h('li', { class: 'empty' }, 'No matches')]));
+    results.hidden = false;
+  }
+  function moveCursor(d) {
+    if (!hits.length) return;
+    cursor = (cursor + d + hits.length) % hits.length;
+    [...results.children].forEach((li, i) => li.setAttribute('aria-selected', i === cursor ? 'true' : 'false'));
+    results.children[cursor].scrollIntoView({ block: 'nearest' });
+  }
+  function pick(it) {
+    results.hidden = true;
+    q.blur();
+    if (it.kind === 'module') { extBox.checked = true; setViewBox(); }
+    select(it.pkg, it.id);
+  }
+  q.addEventListener('input', search);
+  q.addEventListener('focus', () => { if (q.value.trim()) search(); });
+  q.addEventListener('blur', () => { results.hidden = true; });
+  q.addEventListener('keydown', ev => {
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); moveCursor(1); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); moveCursor(-1); }
+    else if (ev.key === 'Enter') { if (hits[cursor]) pick(hits[cursor]); }
+    else if (ev.key === 'Escape') { q.value = ''; results.hidden = true; q.blur(); }
+  });
+  document.addEventListener('keydown', ev => {
+    if (ev.key === '/' && document.activeElement !== q) { ev.preventDefault(); q.focus(); q.select(); }
+    else if (ev.key === 'Escape' && document.activeElement !== q) select(null);
+  });
+
+  // ---------- Toggles ----------
+  hubBox.addEventListener('change', applyFocus);
+  extBox.addEventListener('change', () => { setViewBox(); applyFocus(); });
+  svg.addEventListener('click', ev => { if (ev.target === svg) select(null); });
+  window.addEventListener('hashchange', fromHash);
+
+  setViewBox();
+  fromHash();
+})();
+</script>
+</body>
+</html>
