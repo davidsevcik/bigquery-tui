@@ -95,7 +95,7 @@ func (m *Model) milLoad(c int) {
 	var ts []api.BrowseNode
 	if d, ok := ml.at(1); ok {
 		// an open family belongs to one dataset: drop it when the dataset
-		// changed under it (a project turned off, a config reload)
+		// changed under it (a project deselected, a config reload)
 		if f := ml.family; f != nil && (f.Path.Project != d.Path.Project || f.Path.Dataset != d.Path.Dataset) {
 			ml.family = nil
 		}
@@ -638,8 +638,8 @@ func (m *Model) reveal(p api.ObjectPath, kind api.ResultKind) tea.Cmd {
 		// the flat list cannot show containers: fall back to Miller columns
 		m.layout = layoutMiller
 	}
-	// a pasted path can name a project that is turned off
-	show := m.showProject(p.Project)
+	// a pasted path can name a project that is not selected
+	show := m.selectForPath(p.Project)
 	m.locate(p, kind)
 	if kind == api.KindShards && m.layout == layoutMiller {
 		if n, ok := m.mil.at(2); ok && n.Kind == api.KindShards {

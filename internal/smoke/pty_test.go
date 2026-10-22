@@ -56,11 +56,11 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 	}
 	cfg := filepath.Join(dir, "config.toml")
 	// No projects: the UI must come up without credentials or network.
-	if err := os.WriteFile(cfg, []byte("execution_project = \"smoke-exec\"\ndata_dir = \""+filepath.Join(dir, "data")+"\"\n"), 0o600); err != nil {
+	if err := os.WriteFile(cfg, []byte("data_dir = \""+filepath.Join(dir, "data")+"\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(bin, "--config", cfg)
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "HOME="+dir)
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "HOME="+dir, "BQT_EXECUTION_PROJECT=smoke-exec")
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 90})
 	if err != nil {
 		t.Skipf("no pty available: %v", err)
@@ -79,7 +79,11 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 	}()
 
 	waitFor(t, out, "smoke-exec", 10*time.Second)
-	waitFor(t, out, "ctrl+g starts a short tutorial", 5*time.Second) // first run
+	// nothing selected: the Projects dialog opens first; closing it shows
+	// the first-run hint
+	waitFor(t, out, "space select", 5*time.Second)
+	f.Write([]byte("\x1b"))
+	waitFor(t, out, "ctrl+g starts a short tutorial", 5*time.Second)
 	f.Write([]byte("?"))
 	waitFor(t, out, "command palette", 5*time.Second)
 	f.Write([]byte("\x1b")) // esc closes the help

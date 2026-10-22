@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -45,21 +44,25 @@ func (c *Config) Editing() string {
 
 // Config is the effective, validated configuration.
 type Config struct {
-	ExecutionProject     string
-	Location             string
-	Projects             []string
-	Ignore               []string
-	DataDir              string
-	FavoritesDir         string
-	SyncTTL              time.Duration
-	ConfirmBytes         ByteLimit
-	MaxBytesBilled       ByteLimit
-	MaxConcurrentQueries int
-	HistoryRetentionDays int
-	AgentMaxBytes        int64
-	AgentTimeout         time.Duration
-	CLIAllowWrites       bool
-	TUI                  map[string]any
+	// ExecutionOverride is an Execution project given for this invocation
+	// (--execution-project or BQT_EXECUTION_PROJECT); ExecutionOverrideFrom
+	// says which ("flag" or "env"). The saved choice lives in the selection
+	// state, not here.
+	ExecutionOverride     string
+	ExecutionOverrideFrom string
+	Location              string
+	Ignore                []string
+	DataDir               string
+	FavoritesDir          string
+	SyncTTL               time.Duration
+	ConfirmBytes          ByteLimit
+	MaxBytesBilled        ByteLimit
+	MaxConcurrentQueries  int
+	HistoryRetentionDays  int
+	AgentMaxBytes         int64
+	AgentTimeout          time.Duration
+	CLIAllowWrites        bool
+	TUI                   map[string]any
 
 	// Path is the file the configuration was read from.
 	Path string
@@ -71,16 +74,14 @@ type Config struct {
 func (c *Config) Matcher() *Matcher { return c.matcher }
 
 // Filter is the part of the configuration that decides what the catalog
-// contains. Its hash decides "config changed, sync needed".
+// contains: the ignore patterns (the Selected projects decide what is synced,
+// never what is pruned). Its hash decides "config changed, sync needed".
 type Filter struct {
-	Projects []string `json:"projects"`
-	Ignore   []string `json:"ignore"`
+	Ignore []string `json:"ignore"`
 }
 
-// Filter returns the effective project/ignore filter.
+// Filter returns the effective ignore filter.
 func (c *Config) Filter() Filter {
-	ps := append([]string(nil), c.Projects...)
-	sort.Strings(ps)
 	ig := []string{}
 	for _, p := range c.Ignore {
 		p = strings.TrimSpace(p)
@@ -89,7 +90,7 @@ func (c *Config) Filter() Filter {
 		}
 		ig = append(ig, p)
 	}
-	return Filter{Projects: ps, Ignore: ig}
+	return Filter{Ignore: ig}
 }
 
 // Hash is a stable hash of the effective filter.
@@ -180,6 +181,8 @@ func ResolvePath(opts LoadOptions) string {
 }
 
 type fileConfig struct {
+	// ExecutionProject and Projects are no longer settings; they are read
+	// only to point the user at the Projects dialog.
 	ExecutionProject     *string        `toml:"execution_project"`
 	Location             *string        `toml:"location"`
 	Projects             []string       `toml:"projects"`
@@ -200,7 +203,7 @@ type fileConfig struct {
 
 // envKeys lists the keys that can be set through BQT_<UPPERCASE KEY>.
 var envKeys = []string{
-	"execution_project", "location", "projects", "data_dir", "favorites_dir",
+	"execution_project", "location", "data_dir", "favorites_dir",
 	"sync_ttl", "confirm_bytes", "max_bytes_billed", "max_concurrent_queries",
 	"history_retention_days", "agent_max_bytes", "agent_timeout", "cli_allow_writes",
 }
@@ -259,14 +262,16 @@ func Parse(raw []byte, path string, opts LoadOptions) (*Config, error) {
 	put := func(key string, v any, src string) { values[key] = layered{v: v, src: src} }
 
 	// file layer
-	if fc.ExecutionProject != nil {
-		put("execution_project", *fc.ExecutionProject, "file")
+	for _, k := range []struct {
+		key string
+		set bool
+	}{{"execution_project", fc.ExecutionProject != nil}, {"projects", fc.Projects != nil}} {
+		if k.set {
+			errs = append(errs, &Error{Key: k.key, Line: b.lineOfKey(k.key), Msg: "no longer a config setting: pick projects in the Projects dialog (ctrl+x p) or with `bqt projects`, then delete this line"})
+		}
 	}
 	if fc.Location != nil {
 		put("location", *fc.Location, "file")
-	}
-	if fc.Projects != nil {
-		put("projects", fc.Projects, "file")
 	}
 	if fc.DataDir != nil {
 		put("data_dir", *fc.DataDir, "file")
@@ -368,6 +373,10 @@ func (b *builder) lineOfValue(val string) int {
 
 var projectRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:\-]*$`)
 
+// ValidProjectID reports whether s looks like a GCP project ID (including
+// domain-scoped ones such as example.com:proj).
+func ValidProjectID(s string) bool { return projectRe.MatchString(s) }
+
 func (b *builder) build(c *Config, v map[string]layered, errs *Errors) {
 	fail := func(key, src, msg string) {
 		e := &Error{Key: key, Msg: msg}
@@ -391,14 +400,16 @@ func (b *builder) build(c *Config, v map[string]layered, errs *Errors) {
 		return strings.TrimSpace(s), true
 	}
 
-	// execution_project (required)
+	// execution_project: an override for this invocation only (flag or env)
 	if s, ok := str("execution_project"); ok {
-		if !projectRe.MatchString(s) {
-			fail("execution_project", v["execution_project"].src, fmt.Sprintf("%q is not a valid project ID", s))
+		src := v["execution_project"].src
+		if !ValidProjectID(s) {
+			fail("execution_project", src, fmt.Sprintf("%q is not a valid project ID", s))
 		}
-		c.ExecutionProject = s
-	} else if _, present := v["execution_project"]; !present {
-		*errs = append(*errs, &Error{Key: "execution_project", Msg: "required (the project query and sync jobs run in); set it in the config file, BQT_EXECUTION_PROJECT or --execution-project"})
+		c.ExecutionOverride, c.ExecutionOverrideFrom = s, "env"
+		if strings.HasPrefix(src, "flag") {
+			c.ExecutionOverrideFrom = "flag"
+		}
 	}
 
 	if s, ok := str("location"); ok {
@@ -406,30 +417,6 @@ func (b *builder) build(c *Config, v map[string]layered, errs *Errors) {
 			fail("location", v["location"].src, "must not be empty (omit the key to let BigQuery infer it)")
 		}
 		c.Location = s
-	}
-
-	if l, ok := v["projects"]; ok {
-		var list []string
-		switch x := l.v.(type) {
-		case []string:
-			list = x
-		case string:
-			list = append(list, strings.FieldsFunc(x, func(r rune) bool { return r == ',' || r == '\n' || r == ' ' })...)
-		}
-		seen := map[string]bool{}
-		for _, p := range list {
-			p = strings.TrimSpace(p)
-			if !projectRe.MatchString(p) {
-				fail("projects", l.src, fmt.Sprintf("%q is not a valid project ID", p))
-				continue
-			}
-			if seen[p] {
-				fail("projects", l.src, fmt.Sprintf("duplicate project %q", p))
-				continue
-			}
-			seen[p] = true
-			c.Projects = append(c.Projects, p)
-		}
 	}
 
 	// paths

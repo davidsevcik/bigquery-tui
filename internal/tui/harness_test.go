@@ -92,7 +92,7 @@ func newRig(t *testing.T, w, h int) *rig {
 	dir := t.TempDir()
 	r := &rig{t: t, fake: fixtureFake(), dir: dir, now: testNow}
 	r.cfg = filepath.Join(dir, "config.toml")
-	src := "execution_project = \"acme-exec\"\ndata_dir = \"" + filepath.Join(dir, "data") + "\"\nprojects = [\"acme-prod\", \"acme-staging\"]\n[tui]\nediting = \"" + rigEditing + "\"\n"
+	src := "data_dir = \"" + filepath.Join(dir, "data") + "\"\n[tui]\nediting = \"" + rigEditing + "\"\n"
 	if err := os.WriteFile(r.cfg, []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -116,6 +116,12 @@ func newRig(t *testing.T, w, h int) *rig {
 	t.Cleanup(func() { eng.Close() })
 	// first sync happened three hours before "now"
 	r.now = testNow.Add(-3 * time.Hour)
+	if err := eng.SelectProjects("acme-prod", "acme-staging"); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.ChooseExecution("acme-exec"); err != nil {
+		t.Fatal(err)
+	}
 	hd, err := eng.StartSync(context.Background(), api.SyncScope{})
 	if err != nil {
 		t.Fatal(err)

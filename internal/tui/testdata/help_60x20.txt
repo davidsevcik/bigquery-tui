@@ -1,5 +1,5 @@
  Datasets 1/4                │ Tables 1/2
-eve╭─ Help  (1-14/247) ─────────────────────────────────╮
+eve╭─ Help  (1-14/255) ─────────────────────────────────╮
 fin│ Global                                             │×4
 sal│ ctrl+q          quit (asks if Runs are in flight)  │
 us_│ ctrl+o  ctrl+w w  next zone: Explorer, Editor,     │
@@ -12,9 +12,9 @@ us_│ ctrl+o  ctrl+w w  next zone: Explorer, Editor,     │
    │ ctrl+t          jump to table (recently opened when│
    │                 empty)                             │
    │ f1              this help                          │
-   │ ctrl+x p        projects: turn them on or off in   │
-   │                 the explorer and search (one on    │
+   │ ctrl+x p        projects: choose which are synced  │
+   │                 and browsed, and where jobs run    │
    ╰────────────────────────────────────────────────────╯
                              │
- bqt exec acme-exec  miller          5 datasets · 13 tables
+ bqt exec acme-exec  miller  2 proj… 5 datasets · 13 tables
  esc close

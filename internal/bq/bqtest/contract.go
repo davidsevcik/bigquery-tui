@@ -39,6 +39,23 @@ func RunMetadataContract(t *testing.T, md bq.Metadata, o ContractOptions) {
 		o.FallbackSamples = 2
 	}
 
+	// The projects list: unique, non-empty IDs; it includes the project the
+	// contract runs on (the credentials hold a role in it).
+	projects, err := md.ListProjects(ctx)
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	ids := map[string]bool{}
+	for _, p := range projects {
+		if p.ID == "" || ids[p.ID] {
+			t.Fatalf("ListProjects: empty or duplicate ID in %+v", projects)
+		}
+		ids[p.ID] = true
+	}
+	if !ids[o.Project] {
+		t.Fatalf("ListProjects does not include %s: %+v", o.Project, projects)
+	}
+
 	list, err := md.ListDatasets(ctx, o.Project)
 	if err != nil {
 		t.Fatalf("ListDatasets: %v", err)

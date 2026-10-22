@@ -17,6 +17,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 	"github.com/davidsevcik/bigquery-tui/internal/runs"
 	"github.com/davidsevcik/bigquery-tui/internal/search"
+	"github.com/davidsevcik/bigquery-tui/internal/selection"
 	"github.com/davidsevcik/bigquery-tui/internal/store"
 	catsync "github.com/davidsevcik/bigquery-tui/internal/sync"
 )
@@ -44,8 +45,11 @@ type Options struct {
 	Jobs func(ctx context.Context) (bq.Jobs, error)
 	// Source names the frontend on History entries and job labels (tui, cli, mcp).
 	Source string
-	Now    func() time.Time
-	Log    *slog.Logger
+	// PinExecution reads the Execution project once, at Open (bqt mcp: a
+	// long-running server keeps the project it started with).
+	PinExecution bool
+	Now          func() time.Time
+	Log          *slog.Logger
 
 	// Test overrides for the sync engine.
 	Parallelism int
@@ -60,6 +64,11 @@ type Engine struct {
 	paths   store.Paths
 	catalog *store.Catalog
 	notice  string
+	sel     *selection.Store
+
+	execMu   gosync.Mutex
+	lastExec string // the Execution project last seen (pricing is per project)
+	pinned   *pinnedExec
 
 	cfgMu  gosync.RWMutex
 	search *search.Searcher
@@ -77,6 +86,9 @@ type Engine struct {
 	closers  []func() error
 	closed   bool
 
+	listed   []api.ListedProject // BigQuery's projects list, once fetched
+	listedOK bool
+
 	retainedDays int // history_retention_days last applied, and when
 	retainedAt   time.Time
 }
@@ -92,9 +104,15 @@ func Open(ctx context.Context, o Options) (*Engine, error) {
 		o.Log = slog.New(slog.DiscardHandler)
 	}
 	e := &Engine{o: o, cfg: o.Config, paths: store.PathsFor(o.Config.DataDir), stats: map[string]statsEntry{}, infos: map[string]bq.TableInfo{}}
+	e.sel = selection.Open(selectionPath(o.Config.DataDir))
 	e.search = search.New(nil)
 	e.search.Now, e.search.TTL, e.search.Recent = o.Now, o.Config.SyncTTL, e.recent
-	e.runs = runs.New(runs.Options{Jobs: e.jobs, Config: e.Config, Now: o.Now, Source: o.Source, Record: e.recordRun, Log: o.Log})
+	e.runs = runs.New(runs.Options{Jobs: e.jobs, Config: e.Config, Execution: e.execProject, Now: o.Now, Source: o.Source, Record: e.recordRun, Log: o.Log})
+	if o.PinExecution {
+		p, src := e.ExecutionProject()
+		e.pinned = &pinnedExec{p, src}
+	}
+	e.lastExec = e.execProject()
 	if o.ReadOnly {
 		cat, err := store.OpenCatalogReadOnly(e.paths.Catalog)
 		if err != nil && !errors.Is(err, store.ErrNoCatalog) {
@@ -189,27 +207,41 @@ func (e *Engine) meta(ctx context.Context) (bq.Metadata, error) {
 	if e.o.Meta != nil {
 		return e.o.Meta(ctx)
 	}
-	return e.realClient(ctx)
+	return e.realClient(ctx, true)
+}
+
+// lister is the metadata client for listing projects, which needs no
+// Execution project.
+func (e *Engine) lister(ctx context.Context) (bq.Metadata, error) {
+	if e.o.Meta != nil {
+		return e.o.Meta(ctx)
+	}
+	return e.realClient(ctx, false)
 }
 
 func (e *Engine) tables(ctx context.Context) (bq.Tables, error) {
 	if e.o.Tables != nil {
 		return e.o.Tables(ctx)
 	}
-	return e.realClient(ctx)
+	return e.realClient(ctx, true)
 }
 
 func (e *Engine) jobs(ctx context.Context) (bq.Jobs, error) {
 	if e.o.Jobs != nil {
 		return e.o.Jobs(ctx)
 	}
-	return e.realClient(ctx)
+	return e.realClient(ctx, true)
 }
 
 // realClient returns the shared BigQuery client for the current Execution
-// project, rebuilding it when the project changed.
-func (e *Engine) realClient(ctx context.Context) (*bq.Client, error) {
-	exec := e.Config().ExecutionProject
+// project, rebuilding it when the project changed. needExec refuses to
+// build one without an Execution project.
+func (e *Engine) realClient(ctx context.Context, needExec bool) (*bq.Client, error) {
+	exec := e.execProject()
+	if exec == "" && needExec {
+		return nil, ErrNoExecution
+	}
+	e.noticeExecution()
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.closed {
@@ -262,10 +294,29 @@ func (e *Engine) Status(ctx context.Context) (api.CatalogStatus, error) {
 		u.Stale = isStale(u, now, cfg.SyncTTL)
 		byProject[u.Project] = append(byProject[u.Project], u)
 	}
-	projects := append([]string(nil), cfg.Projects...)
-	sort.Strings(projects)
+	st.ExecutionProject, st.ExecutionSource = e.ExecutionProject()
+	selected := e.selected()
+	isSel := map[string]bool{}
+	for _, p := range selected {
+		isSel[p] = true
+	}
+	// Selected projects first, then the cached deselected ones.
+	projects := append([]string(nil), selected...)
+	var others []string
+	for p := range byProject {
+		if !isSel[p] {
+			others = append(others, p)
+		}
+	}
+	for _, n := range e.search.Projects() {
+		if _, ok := byProject[n.Name]; !ok && !isSel[n.Name] {
+			others = append(others, n.Name)
+		}
+	}
+	sort.Strings(others)
+	projects = append(projects, others...)
 	for _, p := range projects {
-		ps := api.ProjectStatus{Project: p, Units: byProject[p]}
+		ps := api.ProjectStatus{Project: p, Selected: isSel[p], Units: byProject[p]}
 		if ps.Units == nil {
 			ps.Units = []api.UnitState{}
 		}
@@ -296,12 +347,12 @@ func (e *Engine) Status(ctx context.Context) (api.CatalogStatus, error) {
 		}
 		st.Projects = append(st.Projects, ps)
 	}
-	if len(cfg.Projects) == 0 && !st.SyncNeeded {
-		st.SyncNeeded, st.SyncReason = true, "no projects configured"
+	if len(selected) == 0 && !st.SyncNeeded {
+		st.SyncNeeded, st.SyncReason = true, "no projects selected"
 	}
 	if !st.SyncNeeded {
 		for _, p := range st.Projects {
-			if p.SyncedAt == nil {
+			if p.Selected && p.SyncedAt == nil {
 				st.SyncNeeded, st.SyncReason = true, "project "+p.Project+" has never been synced"
 				break
 			}
@@ -421,8 +472,15 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 		return nil, ErrReadOnly
 	}
 	cfg := e.Config()
-	if len(cfg.Projects) == 0 {
+	selected := e.selected()
+	if len(scope.Projects) == 0 && len(selected) == 0 {
 		return nil, catsync.ErrNoProjects
+	}
+	if err := e.checkScope(ctx, scope, selected); err != nil {
+		return nil, err
+	}
+	if e.execProject() == "" {
+		return nil, ErrNoExecution
 	}
 	lock, err := store.TryLock(e.paths.Lock)
 	if err != nil {
@@ -440,7 +498,7 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 	h := &SyncHandle{cancel: cancel, out: make(chan api.SyncEvent), done: make(chan struct{}), wake: make(chan struct{}, 1), abandon: make(chan struct{})}
 	go h.pump()
 	s := catsync.New(catsync.Options{
-		Config: cfg, Meta: md, Catalog: e.catalog, Now: e.o.Now, Log: e.o.Log,
+		Config: cfg, Selected: selected, Meta: md, Catalog: e.catalog, Now: e.o.Now, Log: e.o.Log,
 		Parallelism: e.o.Parallelism, Retries: e.o.Retries, Backoff: e.o.Backoff,
 	})
 	go func() {

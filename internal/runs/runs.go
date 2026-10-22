@@ -40,7 +40,9 @@ type Options struct {
 	// Jobs builds the BigQuery jobs client lazily.
 	Jobs   func(ctx context.Context) (bq.Jobs, error)
 	Config func() *config.Config
-	Now    func() time.Time
+	// Execution returns the Execution project jobs run in now.
+	Execution func() string
+	Now       func() time.Time
 	// Source is recorded on History entries and as a job label: tui, cli, mcp.
 	Source string
 	// Record stores a finished real Run (History). It may be nil.
@@ -100,6 +102,9 @@ func New(o Options) *Manager {
 	}
 	if o.Source == "" {
 		o.Source = "tui"
+	}
+	if o.Execution == nil {
+		o.Execution = func() string { return "" }
 	}
 	if o.RetryDelay <= 0 {
 		o.RetryDelay = time.Second
@@ -383,13 +388,14 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 			rctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), p.Timeout)
 		}
 	}
+	exec := m.o.Execution() // outside m.mu: it reads the selection state
 	m.mu.Lock()
 	m.seq++
-	r := &Run{m: m, id: m.seq, ctx: rctx, stop: cancel, policy: pol, confirm: make(chan struct{}), done: make(chan struct{}),
+	r := &Run{m: m, id: m.seq, exec: exec, ctx: rctx, stop: cancel, policy: pol, confirm: make(chan struct{}), done: make(chan struct{}),
 		changed: make(chan struct{}), pages: map[int64]*bq.ResultPage{}}
 	r.info = api.RunInfo{ID: r.id, Tag: req.Tag, SQL: req.SQL, Params: append([]api.QueryParam(nil), req.Params...),
 		State: api.RunEstimating, DryRunOnly: req.DryRunOnly, Source: m.o.Source, Favorite: req.Favorite,
-		ExecutionProject: cfg.ExecutionProject, Location: cfg.Location, Created: m.o.Now()}
+		ExecutionProject: exec, Location: cfg.Location, Created: m.o.Now()}
 	r.version, r.first = 1, r.info
 	closed := m.closed
 	m.runs = append(m.runs, r)
@@ -407,6 +413,7 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 type Run struct {
 	m       *Manager
 	id      int64
+	exec    string          // the Execution project when the Run started
 	policy  *policy.Profile // nil outside the agent entry points
 	ctx     context.Context
 	stop    context.CancelFunc
@@ -672,7 +679,7 @@ func (r *Run) run(cfg *config.Config) {
 	if err != nil {
 		if expired {
 			// the job may exist without our knowing: stop it by its ID
-			m.cancelJob(jobs, api.JobRef{Project: cfg.ExecutionProject, Location: req.Location, ID: req.JobID}, nil)
+			m.cancelJob(jobs, api.JobRef{Project: r.exec, Location: req.Location, ID: req.JobID}, nil)
 		}
 		m.busyAdd(-1)
 		if expired && r.ctx.Err() == nil {

@@ -149,14 +149,21 @@ func (m *Model) render() []string {
 }
 
 func (m *Model) statusLine(w int) string {
-	cfg := m.be.Config()
 	b := &rb{bg: lipgloss.Color("236")}
-	b.add(" bqt ", sBold).add("exec ", sDim).add(cfg.ExecutionProject, sAcc)
+	exec, _ := m.be.ExecutionProject()
+	if exec == "" {
+		exec = "none"
+	}
+	b.add(" bqt ", sBold).add("exec ", sDim).add(exec, sAcc)
 	if m.zone == ZoneExplorer {
 		b.add("  "+layoutNames[m.layout], sDim)
 	}
-	if pi := m.projectsInfo(); pi != "" {
-		b.add("  projects ", sDim).add(pi, sAcc)
+	ps := m.projects()
+	switch len(ps) {
+	case 0:
+		b.add("  no projects selected", sWarn)
+	case 1:
+		b.add("  project ", sDim).add(ps[0].Name, sAcc)
 	}
 	if pt := pricingText(m.runs.Pricing()); pt != "" {
 		b.add("  "+pt, sDim)
@@ -181,6 +188,10 @@ func (m *Model) statusLine(w int) string {
 		if n := m.problemCount(); n > 0 {
 			b.add(fmt.Sprintf("  ⚠ %d sync problem(s) (gp)", n), sWarn)
 		}
+	}
+	if len(ps) > 1 {
+		// after the messages: a config error or a sync state matters more
+		b.add(fmt.Sprintf("  %d projects", len(ps)), sDim)
 	}
 	if m.status != nil {
 		b.addR(fmt.Sprintf("%s datasets · %s tables ", format.Count(int64(m.status.Datasets)), format.Count(int64(m.status.Tables))), sDim)
@@ -350,7 +361,7 @@ func (m *Model) millerCol(c, w, h int) []string {
 		case f.active() && ml.unfiltered[c] > 0:
 			msg = "no match for “" + f.in.value() + "”"
 		case c == 0:
-			msg = "no projects: add them with gc (open config)"
+			msg = "no projects selected: ctrl+x p picks them"
 		}
 		out = append(out, " "+sDim.Render(msg))
 		return fillTo(out, w, h)
@@ -411,7 +422,7 @@ func (m *Model) treeList(w, h int) []string {
 	}
 	out := []string{title(hdr, w, !m.zoom)}
 	if len(t.rows) == 0 {
-		msg := "no projects: add them with gc (open config)"
+		msg := "no projects selected: ctrl+x p picks them"
 		if t.f.active() {
 			msg = "no match for “" + t.f.in.value() + "”"
 		}
@@ -660,7 +671,9 @@ func (m *Model) schemaLines(s selection, w int) []string {
 			wrapAdd(n.Error, sWarn)
 		}
 		out = append(out, "")
-		wrapAdd("Queries and sync jobs run in the Execution project "+m.be.Config().ExecutionProject+", not here.", sDim)
+		if exec, _ := m.be.ExecutionProject(); exec != n.Name {
+			wrapAdd("Queries and sync jobs run in the Execution project "+exec+", not here.", sDim)
+		}
 		return out
 	case api.KindDataset:
 		add(sBold.Render(n.Path.String()) + sDim.Render("  dataset"))

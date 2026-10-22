@@ -36,7 +36,7 @@ Write table names in SQL as ` + "`project.dataset.table`" + `. A date-sharded fa
 
 Limits, enforced by bqt: only SELECT; at most the configured byte limit per query (checked on the dry-run); a timeout; up to 1000 rows per call, cells cut at 200 characters. A refusal says why; tool arguments can only lower limits. Tell the user when a query needs the bqt TUI or a config change.
 
-The catalog is only as fresh as the last sync; this server cannot sync. If catalog_status says it is stale or a table is missing, ask the user to run ` + "`bqt sync`" + `.`
+The catalog is only as fresh as the last sync; this server cannot sync. Results in projects the user has not selected are marked selected: false and come last; their catalog is never refreshed on its own. When a result carries a warning, catalog_status says it is stale, or a table is missing, ask the user to run ` + "`bqt sync`" + ` (or ` + "`bqt sync --project ID`" + ` for one project).`
 
 // Server serves the tools of one engine. When the server starts before the
 // first sync, the engine is reopened once a catalog exists.
@@ -111,7 +111,7 @@ func (s *Server) MCP(version string) *sdk.Server {
 	ro := &sdk.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(false)}
 	bq := &sdk.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(true)}
 
-	sdk.AddTool(srv, &sdk.Tool{Name: "search_catalog", Annotations: ro, Description: `Search the local catalog of projects, datasets, tables and columns. Free terms match names (prefix, then substring, then description); filters: p:project d:dataset type:table|view|... col:column desc:text label:key:value; -filter negates, a,b is OR. A pasted project.dataset.table is an exact lookup. Paged: pass next_cursor as cursor.`},
+	sdk.AddTool(srv, &sdk.Tool{Name: "search_catalog", Annotations: ro, Description: `Search the local catalog of projects, datasets, tables and columns. Free terms match names (prefix, then substring, then description); filters: p:project d:dataset type:table|view|... col:column desc:text label:key:value; -filter negates, a,b is OR. A pasted project.dataset.table is an exact lookup. Results in projects the user has not selected say selected: false and rank last; warnings name projects whose catalog is out of date. Paged: pass next_cursor as cursor.`},
 		func(ctx context.Context, _ *sdk.CallToolRequest, in searchIn) (*sdk.CallToolResult, api.CatalogHits, error) {
 			off, err := cursor(in.Cursor)
 			if err != nil {
@@ -125,7 +125,7 @@ func (s *Server) MCP(version string) *sdk.Server {
 			out, err := s.engine(ctx).Schema(ctx, in.Table)
 			return nil, out, toolErr(err)
 		})
-	sdk.AddTool(srv, &sdk.Tool{Name: "catalog_status", Annotations: ro, Description: `How fresh the local catalog is: per project the last sync and sync problems. When it is stale or a table is missing, ask the user to run bqt sync.`},
+	sdk.AddTool(srv, &sdk.Tool{Name: "catalog_status", Annotations: ro, Description: `How fresh the local catalog is: per project (selected, then cached but not selected) the last sync and sync problems. When it is stale or a table is missing, ask the user to run bqt sync.`},
 		func(ctx context.Context, _ *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, api.CatalogFreshness, error) {
 			out, err := s.engine(ctx).Freshness(ctx)
 			return nil, out, toolErr(err)

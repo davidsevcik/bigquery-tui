@@ -25,14 +25,15 @@ type rig struct {
 
 func newRig(t *testing.T) *rig {
 	r := &rig{t: t, fake: bqtest.New()}
-	r.cfg = &config.Config{ExecutionProject: "exec", MaxConcurrentQueries: 2,
+	r.cfg = &config.Config{MaxConcurrentQueries: 2,
 		ConfirmBytes:   config.ByteLimit{Mode: config.ByteLimitAuto},
 		MaxBytesBilled: config.ByteLimit{Mode: config.ByteLimitValue, Bytes: config.DefaultMaxBytesBilled}}
 	r.m = New(Options{
-		Jobs:   func(context.Context) (bq.Jobs, error) { return r.fake, nil },
-		Config: func() *config.Config { return r.cfg },
-		Now:    func() time.Time { return time.Unix(1700000000, 0).UTC() },
-		Record: func(i api.RunInfo) { r.mu.Lock(); r.records = append(r.records, i); r.mu.Unlock() },
+		Jobs:      func(context.Context) (bq.Jobs, error) { return r.fake, nil },
+		Config:    func() *config.Config { return r.cfg },
+		Execution: func() string { return "exec" },
+		Now:       func() time.Time { return time.Unix(1700000000, 0).UTC() },
+		Record:    func(i api.RunInfo) { r.mu.Lock(); r.records = append(r.records, i); r.mu.Unlock() },
 	})
 	t.Cleanup(r.m.Close)
 	return r

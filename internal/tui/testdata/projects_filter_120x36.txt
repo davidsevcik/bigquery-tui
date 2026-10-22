@@ -1,0 +1,36 @@
+ Projects 1/2            │ Datasets (4)                              │ Schema · acme-prod
+acme-prod           ✓ 3h │events                                   5 │ acme-prod  project
+acme-staging        ✓ 3h │finance                                  2 │ 4 datasets
+                         │sales                                    4 │ ✓ synced 3h ago
+                         │us_archive                               1 │
+                         │                                           │ Queries and sync jobs run in the Execution
+                         │                                           │ project acme-exec, not here.
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                  ╭─ Projects ───────────────────────────────────────────────────────────────────────╮
+                  │ Execution project: acme-exec (chosen)                                            │
+                  │ space select · o only this · e execution · / filter · r refresh · esc close      │
+                  │ 2 selected                                                                       │
+                  │ / bill                                                                           │
+                  │                                                                                  │
+                  │ [ ] acme-billing  Billing and invoicing                                          │
+                  ╰──────────────────────────────────────────────────────────────────────────────────╯
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+                         │                                           │
+ bqt exec acme-exec  miller  2 projects                                                          5 datasets · 13 tables
+ esc close

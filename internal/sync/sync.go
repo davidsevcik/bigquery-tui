@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	gosync "sync"
 	"time"
 
@@ -23,14 +24,17 @@ import (
 )
 
 // ErrNoProjects is returned when there is nothing to sync.
-var ErrNoProjects = errors.New("no projects configured: add them to `projects` in the config file")
+var ErrNoProjects = errors.New("no projects selected: pick them in the Projects dialog (ctrl+x p) or with `bqt projects select`")
 
 // Options configures a Syncer.
 type Options struct {
-	Config  *config.Config
-	Meta    bq.Metadata
-	Catalog *store.Catalog
-	Now     func() time.Time
+	Config *config.Config
+	// Selected are the Selected projects: what a full sync covers. A scope
+	// may name other projects (the caller decides which are allowed).
+	Selected []string
+	Meta     bq.Metadata
+	Catalog  *store.Catalog
+	Now      func() time.Time
 	// Parallelism bounds concurrent units (default 4).
 	Parallelism int
 	// Retries is the number of retries for transient errors (default 2).
@@ -212,25 +216,27 @@ func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.Syn
 	return res, nil
 }
 
+// resolveScope returns the projects to sync and whether they cover every
+// Selected project (a full sync clears "sync needed").
 func (s *Syncer) resolveScope(scope api.SyncScope) (projects []string, full bool, err error) {
-	configured := s.o.Config.Projects
-	if len(configured) == 0 {
-		return nil, false, ErrNoProjects
-	}
 	if len(scope.Projects) == 0 {
-		return append([]string(nil), configured...), true, nil
+		if len(s.o.Selected) == 0 {
+			return nil, false, ErrNoProjects
+		}
+		return append([]string(nil), s.o.Selected...), true, nil
 	}
 	in := map[string]bool{}
-	for _, p := range configured {
-		in[p] = true
-	}
 	for _, p := range scope.Projects {
 		if !in[p] {
-			return nil, false, fmt.Errorf("project %q is not in the configured `projects`", p)
+			in[p] = true
+			projects = append(projects, p)
 		}
-		projects = append(projects, p)
 	}
-	return projects, len(projects) == len(configured), nil
+	full = len(s.o.Selected) > 0
+	for _, p := range s.o.Selected {
+		full = full && in[p]
+	}
+	return projects, full, nil
 }
 
 // parallel runs fn(0..n-1) with the configured bound, stopping to start new
@@ -571,6 +577,14 @@ func joinNames(n []string) string {
 		out += s
 	}
 	return out
+}
+
+// DeniedUnit reports whether a unit's last failure was a permission (or
+// not found) error, as errText records it: the project is not accessible,
+// rather than failing for another reason.
+func DeniedUnit(u api.UnitState) bool {
+	return u.Status == api.UnitInaccessible &&
+		(strings.HasPrefix(u.Error, bq.KindPermission.String()+":") || strings.HasPrefix(u.Error, bq.KindNotFound.String()+":"))
 }
 
 func errText(err error) string {

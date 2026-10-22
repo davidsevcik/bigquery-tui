@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
@@ -207,4 +208,16 @@ func onlyP(fs []api.QueryFilter) []api.QueryFilter {
 		}
 	}
 	return out
+}
+
+// ProjectMatches is the Projects dialog's filter: every space-separated term
+// must occur, ignoring case, in the project ID or its friendly name.
+func ProjectMatches(id, friendlyName, query string) bool {
+	hay := strings.ToLower(id + " " + friendlyName)
+	for _, t := range strings.Fields(strings.ToLower(query)) {
+		if !strings.Contains(hay, t) {
+			return false
+		}
+	}
+	return true
 }

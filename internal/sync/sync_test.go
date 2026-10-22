@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"strings"
 	gosync "sync"
 	"sync/atomic"
 	"testing"
@@ -18,9 +20,25 @@ import (
 
 var ctx = context.Background()
 
+var projectsLine = regexp.MustCompile(`(?m)^projects = \[(.*)\]\n?`)
+
+// splitProjects takes a `projects = [...]` line (the Selected projects, as
+// these tests write them) out of a config snippet.
+func splitProjects(extra string) (selected []string, rest string) {
+	if m := projectsLine.FindStringSubmatch(extra); m != nil {
+		for _, p := range strings.Split(m[1], ",") {
+			if p = strings.Trim(strings.TrimSpace(p), `"`); p != "" {
+				selected = append(selected, p)
+			}
+		}
+	}
+	return selected, projectsLine.ReplaceAllString(extra, "")
+}
+
 func cfgFrom(t *testing.T, extra string) *config.Config {
 	t.Helper()
-	c, err := config.Parse([]byte("execution_project = \"exec-proj\"\n"+extra), "t.toml", config.LoadOptions{})
+	_, rest := splitProjects(extra)
+	c, err := config.Parse([]byte(rest), "t.toml", config.LoadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,12 +46,13 @@ func cfgFrom(t *testing.T, extra string) *config.Config {
 }
 
 type harness struct {
-	t      *testing.T
-	fake   *bqtest.Fake
-	cat    *store.Catalog
-	cfg    *config.Config
-	now    time.Time
-	events []api.SyncEvent
+	t        *testing.T
+	selected []string
+	fake     *bqtest.Fake
+	cat      *store.Catalog
+	cfg      *config.Config
+	now      time.Time
+	events   []api.SyncEvent
 }
 
 func newHarness(t *testing.T, cfgExtra string) *harness {
@@ -43,12 +62,13 @@ func newHarness(t *testing.T, cfgExtra string) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { cat.Close() })
-	return &harness{t: t, fake: bqtest.New(), cat: cat, cfg: cfgFrom(t, cfgExtra), now: time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)}
+	selected, _ := splitProjects(cfgExtra)
+	return &harness{t: t, selected: selected, fake: bqtest.New(), cat: cat, cfg: cfgFrom(t, cfgExtra), now: time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)}
 }
 
 func (h *harness) syncer() *Syncer {
 	return New(Options{
-		Config: h.cfg, Meta: h.fake, Catalog: h.cat,
+		Config: h.cfg, Selected: h.selected, Meta: h.fake, Catalog: h.cat,
 		Now:     func() time.Time { return h.now },
 		Backoff: func(int) time.Duration { return 0 },
 	})
@@ -368,7 +388,7 @@ func TestSyncCancelKeepsCommittedUnits(t *testing.T) {
 			cancel()
 		}
 	}
-	s := New(Options{Config: h.cfg, Meta: h.fake, Catalog: h.cat, Parallelism: 1, Now: func() time.Time { return h.now }, Backoff: func(int) time.Duration { return 0 }})
+	s := New(Options{Config: h.cfg, Selected: h.selected, Meta: h.fake, Catalog: h.cat, Parallelism: 1, Now: func() time.Time { return h.now }, Backoff: func(int) time.Duration { return 0 }})
 	res, err := s.Run(cctx, api.SyncScope{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -409,7 +429,7 @@ func TestSyncRespectsParallelism(t *testing.T) {
 		}
 		time.AfterFunc(10*time.Millisecond, func() { cur.Add(-1) })
 	}
-	s := New(Options{Config: h.cfg, Meta: h.fake, Catalog: h.cat, Parallelism: 3, Now: time.Now, Backoff: func(int) time.Duration { return 0 }})
+	s := New(Options{Config: h.cfg, Selected: h.selected, Meta: h.fake, Catalog: h.cat, Parallelism: 3, Now: time.Now, Backoff: func(int) time.Duration { return 0 }})
 	if _, err := s.Run(ctx, api.SyncScope{}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -448,9 +468,16 @@ func TestScopeValidation(t *testing.T) {
 	if _, err := h.syncer().Run(ctx, api.SyncScope{}, nil); !errors.Is(err, ErrNoProjects) {
 		t.Fatalf("%v", err)
 	}
+	// an explicit scope may name a project that is not selected (the
+	// engine decides which are allowed); it is not a full sync
 	h2 := newHarness(t, `projects = ["proj-a"]`)
-	if _, err := h2.syncer().Run(ctx, api.SyncScope{Projects: []string{"other"}}, nil); err == nil {
-		t.Fatal("unknown project in scope must be rejected")
+	twoProjectFake(h2.fake)
+	h2.run(api.SyncScope{Projects: []string{"proj-b"}})
+	if h2.counts().Projects != 1 {
+		t.Fatalf("%+v", h2.counts())
+	}
+	if v, _, _ := h2.cat.Meta(ctx, MetaSyncNeeded); v == "0" {
+		t.Fatal("syncing another project is not a full sync")
 	}
 }
 
@@ -504,29 +531,28 @@ ignore = ["proj-a.logs"]
 		}
 	}
 
-	// 3. remove a project -> prune, no sync needed
-	h.cfg = cfgFrom(t, "projects = [\"proj-a\"]\nignore = [\"proj-a.logs\", \"proj-a.sales\"]\n")
+	// 3. loosen ignore -> sync needed; every project keeps its data (the
+	// selection never prunes)
+	h.cfg = cfgFrom(t, "ignore = [\"proj-a.logs\"]\n")
 	r, _ = ReconcileConfig(ctx, h.cat, h.cfg)
-	if r.Pruned.Projects != 1 || r.SyncNeeded {
-		t.Fatalf("%+v", r)
-	}
-
-	// 4. loosen ignore -> sync needed
-	h.cfg = cfgFrom(t, "projects = [\"proj-a\"]\nignore = [\"proj-a.logs\"]\n")
-	r, _ = ReconcileConfig(ctx, h.cat, h.cfg)
-	if !r.SyncNeeded || r.Reason != "ignore patterns changed" || !needed() {
-		t.Fatalf("%+v", r)
-	}
-
-	// 5. add a project -> sync needed with reason
-	h.cfg = cfgFrom(t, "projects = [\"proj-a\", \"proj-b\"]\nignore = [\"proj-a.logs\"]\n")
-	r, _ = ReconcileConfig(ctx, h.cat, h.cfg)
-	if !r.SyncNeeded || r.Reason != "projects added: proj-b" {
+	if !r.SyncNeeded || r.Reason != "ignore patterns changed" || !needed() || r.Pruned.Projects != 0 || h.counts().Projects != 2 {
 		t.Fatalf("%+v", r)
 	}
 	pending, reason, _ := PendingConfigChange(ctx, h.cat, h.cfg)
 	if !pending || reason == "" {
 		t.Fatal("read-only check must report the pending sync")
+	}
+}
+
+func TestACatalogFromBeforeTheProjectsDialogNeedsNoSync(t *testing.T) {
+	h := newHarness(t, "projects = [\"proj-a\"]\nignore = [\"proj-a.logs\"]\n")
+	twoProjectFake(h.fake)
+	h.run(api.SyncScope{})
+	// the stored filter also had the old `projects` list
+	h.cat.SetMeta(ctx, MetaConfigHash, "an older hash")
+	h.cat.SetMeta(ctx, MetaFilter, `{"projects":["proj-a"],"ignore":["proj-a.logs"]}`)
+	if pending, reason, _ := PendingConfigChange(ctx, h.cat, h.cfg); pending {
+		t.Fatalf("nothing that matters changed: %s", reason)
 	}
 }
 

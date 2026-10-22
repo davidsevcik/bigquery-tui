@@ -29,12 +29,21 @@ type rig struct {
 func newRig(t *testing.T, sync bool) *rig {
 	t.Helper()
 	dir := t.TempDir()
-	cfg, err := config.Parse([]byte("execution_project = \"exec\"\ndata_dir = \""+dir+"\"\nprojects = [\"proj-a\"]\n"), "t.toml", config.LoadOptions{})
+	cfg, err := config.Parse([]byte("data_dir = \""+dir+"\"\n"), "t.toml", config.LoadOptions{Getenv: func(string) string { return "" }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := &rig{fake: bqtest.New(), cfg: cfg}
 	r.fake.AddProject("proj-a").Datasets = []bqtest.Dataset{bqtest.DS("sales", "EU", bqtest.Table("orders", "id", "amount"))}
+	r.fake.AddProject("proj-b").Datasets = []bqtest.Dataset{bqtest.DS("core", "EU", bqtest.Table("orders", "id"))}
+	r.engine(t, func(e *engine.Engine) {
+		if err := e.SelectProjects("proj-a"); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.ChooseExecution("exec"); err != nil {
+			t.Fatal(err)
+		}
+	})
 	if sync {
 		r.sync(t)
 	}
@@ -61,20 +70,34 @@ func newRig(t *testing.T, sync bool) *rig {
 	return r
 }
 
-func (r *rig) sync(t *testing.T) {
+// engine runs fn on an engine of the person's own bqt (read-only is enough
+// to change the selection, as `bqt projects` does).
+func (r *rig) engine(t *testing.T, fn func(*engine.Engine)) {
 	t.Helper()
-	eng, err := engine.Open(ctx, engine.Options{Config: r.cfg, Meta: func(context.Context) (bq.Metadata, error) { return r.fake, nil }})
+	r.open(t, true, fn)
+}
+
+func (r *rig) open(t *testing.T, readOnly bool, fn func(*engine.Engine)) {
+	t.Helper()
+	eng, err := engine.Open(ctx, engine.Options{Config: r.cfg, ReadOnly: readOnly, Meta: func(context.Context) (bq.Metadata, error) { return r.fake, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer eng.Close()
-	h, err := eng.StartSync(ctx, api.SyncScope{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := h.Wait(); err != nil {
-		t.Fatal(err)
-	}
+	fn(eng)
+}
+
+func (r *rig) sync(t *testing.T) {
+	t.Helper()
+	r.open(t, false, func(eng *engine.Engine) {
+		h, err := eng.StartSync(ctx, api.SyncScope{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.Wait(); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 // call runs a tool and decodes its structured output into out; it returns
@@ -211,5 +234,35 @@ func TestServerStartedBeforeTheFirstSync(t *testing.T) {
 			t.Fatalf("%q %+v", e, hits)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestADeselectedProjectIsSearchableWithAWarning(t *testing.T) {
+	r := newRig(t, false)
+	r.engine(t, func(e *engine.Engine) { e.SelectProjects("proj-b") })
+	r.sync(t)
+	r.engine(t, func(e *engine.Engine) { e.DeselectProjects("proj-b") })
+	var hits api.CatalogHits
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if e := r.call(t, "search_catalog", map[string]any{"query": "orders"}, &hits); e == "" && len(hits.Hits) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%+v", hits)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if hits.Hits[0].Path != "proj-a.sales.orders" || !hits.Hits[0].Selected || hits.Hits[1].Selected {
+		t.Fatalf("the Selected project ranks first: %+v", hits.Hits)
+	}
+	var s api.TableSchema
+	if e := r.call(t, "get_schema", map[string]any{"table": "proj-b.core.orders"}, &s); e != "" || s.Selected || len(s.Columns) != 1 {
+		t.Fatalf("%s %+v", e, s)
+	}
+	var st api.CatalogFreshness
+	r.call(t, "catalog_status", map[string]any{}, &st)
+	if len(st.Projects) != 2 || !st.Projects[0].Selected || st.Projects[1].Project != "proj-b" || st.Projects[1].Selected {
+		t.Fatalf("%+v", st.Projects)
 	}
 }

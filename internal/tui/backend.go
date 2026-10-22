@@ -18,6 +18,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/format"
 	"github.com/davidsevcik/bigquery-tui/internal/handoff"
 	"github.com/davidsevcik/bigquery-tui/internal/runs"
+	projsel "github.com/davidsevcik/bigquery-tui/internal/selection"
 )
 
 // SyncRun is a running sync.
@@ -35,6 +36,17 @@ type Backend interface {
 	ConfigPath() string
 	WatchConfig(ctx context.Context, kick <-chan struct{}) <-chan config.Event
 	StatePath() string
+
+	// The Selected projects and the Execution project (the Projects dialog).
+	ExecutionProject() (string, api.ExecutionSource)
+	Selection() projsel.State
+	SelectProjects(ids ...string) error
+	DeselectProjects(ids ...string) error
+	SelectOnly(id string) error
+	ChooseExecution(id string) error
+	AccessibleProjects(ctx context.Context, refresh bool) ([]api.ListedProject, error)
+	ProjectInfos(ctx context.Context, listed []api.ListedProject) ([]api.ProjectInfo, error)
+	NeedsSync(ctx context.Context, ids []string) ([]string, error)
 
 	Projects() []api.BrowseNode
 	Datasets(project string) []api.BrowseNode

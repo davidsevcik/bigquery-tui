@@ -340,3 +340,15 @@ func RowJSON(cols []api.PreviewColumn, cells []api.Cell) string {
 	b.WriteByte('}')
 	return b.String()
 }
+
+// Age renders a duration coarsely for status text: 45m, 26h, 5d.
+func Age(d time.Duration) string {
+	switch {
+	case d < time.Hour:
+		return strconv.Itoa(int(d.Minutes())) + "m"
+	case d < 48*time.Hour:
+		return strconv.Itoa(int(d.Hours())) + "h"
+	default:
+		return strconv.Itoa(int(d.Hours()/24)) + "d"
+	}
+}

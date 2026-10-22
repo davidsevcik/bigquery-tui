@@ -69,7 +69,7 @@ type filterMsg struct {
 
 // filterQuery says what a list's filter asks the core for.
 func (m *Model) filterQuery(f *listFilter) (opts api.FilterOptions, scope string) {
-	opts.Hidden = m.hiddenProjects()
+	opts.SelectedOnly = true
 	if f == &m.tree.f {
 		return opts, "" // the whole tree, every kind
 	}

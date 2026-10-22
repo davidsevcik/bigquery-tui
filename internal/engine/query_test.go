@@ -14,7 +14,7 @@ import (
 )
 
 func TestRunIsRecordedInHistoryAndPaged(t *testing.T) {
-	e, eng := synced(t, `["proj-a"]`)
+	e, eng := synced(t, "proj-a")
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(700) }
 	run := eng.StartRun(ctx, runs.Request{SQL: "select n, label from t", Params: []api.QueryParam{{Name: "p", Type: "DATE", Value: "2024-01-01"}}})
 	info := run.Wait()
@@ -48,7 +48,7 @@ func TestRunIsRecordedInHistoryAndPaged(t *testing.T) {
 }
 
 func TestExportStreamsToAFileAndCleansUpOnCancel(t *testing.T) {
-	e, eng := synced(t, `["proj-a"]`)
+	e, eng := synced(t, "proj-a")
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1203) }
 	info := eng.StartRun(ctx, runs.Request{SQL: "select"}).Wait()
 	dir := t.TempDir()
@@ -90,7 +90,7 @@ func TestExportStreamsToAFileAndCleansUpOnCancel(t *testing.T) {
 }
 
 func TestCompleteUsesTheCatalog(t *testing.T) {
-	_, eng := synced(t, `["proj-a", "proj-b"]`)
+	_, eng := synced(t, "proj-a", "proj-b")
 	labels := func(marked string) string {
 		at := strings.Index(marked, "|")
 		var out []string

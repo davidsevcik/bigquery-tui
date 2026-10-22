@@ -1,14 +1,12 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 )
@@ -24,17 +22,6 @@ func cmdInit(ctx context.Context, o *out, g *globals, args []string) error {
 		return &cmdError{exit: 1, code: "exists", msg: "config already exists at " + path + " (bqt init never overwrites)", hint: "edit it with `bqt config edit`"}
 	}
 
-	project := g.execProject
-	suggested := false
-	if project == "" && env.IsTTY(env.Stdin) && env.IsTTY(env.Stdout) && env.Gcloud != nil {
-		if p := env.Gcloud(); p != "" {
-			fmt.Fprintf(env.Stdout, "Use %q (your gcloud project) as execution_project? [y/N] ", p)
-			line, _ := bufio.NewReader(env.Stdin).ReadString('\n')
-			if a := strings.ToLower(strings.TrimSpace(line)); a == "y" || a == "yes" {
-				project, suggested = p, true
-			}
-		}
-	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -42,21 +29,17 @@ func cmdInit(ctx context.Context, o *out, g *globals, args []string) error {
 	if err != nil {
 		return err
 	}
-	_, werr := f.WriteString(config.Template(project))
+	_, werr := f.WriteString(config.Template())
 	if cerr := f.Close(); werr == nil {
 		werr = cerr
 	}
 	if werr != nil {
 		return werr
 	}
-	data := map[string]any{"path": path, "execution_project_set": project != "", "from_gcloud": suggested}
+	data := map[string]any{"path": path}
 	o.result(data, func(w io.Writer) {
 		fmt.Fprintf(w, "Created %s\n", path)
-		if project == "" {
-			fmt.Fprintln(w, "Set execution_project (required) and your projects: bqt config edit")
-		} else {
-			fmt.Fprintln(w, "Add the projects to sync: bqt config edit")
-		}
+		fmt.Fprintln(w, "Pick your projects in the TUI (ctrl+x p) or with `bqt projects`")
 	})
 	return nil
 }
@@ -81,7 +64,7 @@ func cmdConfig(ctx context.Context, o *out, g *globals, args []string) error {
 			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 				return err
 			}
-			if err := os.WriteFile(path, []byte(config.Template(g.execProject)), 0o600); err != nil {
+			if err := os.WriteFile(path, []byte(config.Template()), 0o600); err != nil {
 				return err
 			}
 			fmt.Fprintf(env.Stderr, "created %s from the template\n", path)
@@ -96,12 +79,11 @@ func cmdConfig(ctx context.Context, o *out, g *globals, args []string) error {
 		}
 		// Validate what was saved (a GUI editor may return before saving; the
 		// TUI's file watcher covers that case).
-		c, err := config.Load(g.loadOptions(env))
-		if err != nil {
+		if _, err := config.Load(g.loadOptions(env)); err != nil {
 			return err
 		}
-		o.result(map[string]any{"path": path, "valid": true, "projects": len(c.Projects)}, func(w io.Writer) {
-			fmt.Fprintf(w, "%s is valid (%d project(s))\n", path, len(c.Projects))
+		o.result(map[string]any{"path": path, "valid": true}, func(w io.Writer) {
+			fmt.Fprintf(w, "%s is valid\n", path)
 		})
 		return nil
 	}

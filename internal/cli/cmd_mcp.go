@@ -44,13 +44,13 @@ func cmdMCP(ctx context.Context, o *out, g *globals, args []string) error {
 	}
 	defer closeLog()
 	srv, err := mcp.New(ctx, func(ctx context.Context) (*engine.Engine, error) {
-		return engine.Open(ctx, engine.Options{Config: cfg, ReadOnly: true, Now: env.Now, Log: log.Logger, Source: "mcp", Jobs: env.Jobs})
+		return engine.Open(ctx, engine.Options{Config: cfg, ReadOnly: true, Now: env.Now, Log: log.Logger, Source: "mcp", Jobs: env.Jobs, PinExecution: true})
 	})
 	if err != nil {
 		return err
 	}
 	defer srv.Close()
-	log.Info("mcp server started", "execution_project", cfg.ExecutionProject)
+	log.Info("mcp server started")
 	if err := srv.Run(ctx, version.String()); err != nil && ctx.Err() == nil {
 		return err
 	}

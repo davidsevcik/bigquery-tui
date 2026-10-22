@@ -1,0 +1,24 @@
+ Projects 1/2     │ Datasets (4)                 │ Tables (2)
+acme-prod    ✓ 3h │events                      5 │T clicks
+acme-staging ✓ 3h │finance                     2 │T events_YYYYMMDD          ×4
+                  │sales                       4 │
+                  │us_archive                  1 │
+                  │                              │
+    ╭─ Projects ───────────────────────────────────────────────────────────╮
+    │ Execution project: acme-exec (chosen)                                │
+    │ space select · o only this · e execution · / filter · r refresh ·    │
+    │ esc close                                                            │
+    │ 2 selected · could not list your projects: access denied: projects.l…│
+    │                                                                      │
+    │ [x] acme-prod                                    4 datasets · 3h ago │
+    │ [x] acme-staging                                  1 dataset · 3h ago │
+    ╰──────────────────────────────────────────────────────────────────────╯
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+                  │                              │
+ bqt exec acme-exec  miller  2 projects                  5 datasets · 13 tables
+ esc close

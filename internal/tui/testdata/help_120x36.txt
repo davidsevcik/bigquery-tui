@@ -1,5 +1,5 @@
  Datasets 1/4                     │ Tables 1/2                       │ Schema · acme-prod.events.clicks
-events      ╭─ Help  (1-30/181) ───────────────────────────────────────────────────────────────────────────╮
+events      ╭─ Help  (1-30/185) ───────────────────────────────────────────────────────────────────────────╮
 finance     │ Global                                                                                       │
 sales       │ ctrl+q          quit (asks if Runs are in flight)                                            │
 us_archive  │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results                                       │
@@ -10,8 +10,8 @@ us_archive  │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results          
             │ ctrl+p          command palette                                                              │
             │ ctrl+t          jump to table (recently opened when empty)                                   │
             │ f1              this help                                                                    │
-            │ ctrl+x p        projects: turn them on or off in the explorer and search (one on hides the   │
-            │                 project column)                                                              │
+            │ ctrl+x p        projects: choose which are synced and browsed, and where jobs run (one       │
+            │                 selected hides the project column)                                           │
             │ ctrl+x f        favorites: saved queries (tab switches to History)                           │
             │ ctrl+x r        history: every query run, searchable (tab switches to Favorites)             │
             │ ctrl+g          tutorial of the navigation (while it runs: ctrl+g then n, p, r or q)         │
@@ -32,5 +32,5 @@ us_archive  │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results          
             │                 zoomed preview: show the row as a record                                     │
             ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
                                   │                                  │
- bqt exec acme-exec  miller                                                                      5 datasets · 13 tables
+ bqt exec acme-exec  miller  2 projects                                                          5 datasets · 13 tables
  esc close

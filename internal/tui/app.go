@@ -96,9 +96,12 @@ type Model struct {
 	w, h  int
 	termH int // the terminal's rows; h leaves out the tutorial panel
 
-	layout layoutKind
-	place  placement
-	hidden map[string]bool // projects turned off (ctrl+x p)
+	layout    layoutKind
+	place     placement
+	pd        *projDialog         // the Projects dialog while open
+	listed    []api.ListedProject // BigQuery's projects list, once fetched
+	selSeen   string              // the selection last applied (see tick)
+	autoProjs bool                // nothing selected at start: open the dialog
 
 	hoItems []handoffItem // the hand-off popup's entries
 	hoTop   int           // first entry line in the popup
@@ -161,6 +164,7 @@ type Model struct {
 	syncLog    []string
 	syncNeeded bool
 	syncReason string
+	syncScope  []string // the projects the running sync covers (nil: the Selected ones)
 	status     *api.CatalogStatus
 	cfgErr     string
 	kick       chan struct{}
@@ -186,6 +190,8 @@ func New(be Backend, o Options) *Model {
 	m.runs, m.grids = be.FollowRuns(), map[int64]*grid{}
 	m.loadState()
 	m.reloadBrowse()
+	m.selSeen = selectionKey(be)
+	m.autoProjs = len(be.Selection().Selected) == 0
 	if o.File != "" {
 		if err := m.openFile(o.File); err != nil {
 			m.toast = "open " + o.File + ": " + err.Error()
@@ -200,7 +206,7 @@ func New(be Backend, o Options) *Model {
 	if n := len(m.orphans); n > 0 && m.toast == "" {
 		m.toast = fmt.Sprintf("%d draft(s) from earlier sessions can be restored (ctrl+x b in the editor)", n)
 	}
-	if m.firstRun && m.toast == "" && !o.NoBackground {
+	if m.firstRun && m.toast == "" && !o.NoBackground && !m.autoProjs {
 		m.toast = "new to bqt? ctrl+g starts a short tutorial of the navigation"
 		m.saveState() // the hint shows once
 	}
@@ -218,8 +224,6 @@ type uiState struct {
 	Panes  string `json:"panes"`
 	// ZoomStacked: the zoomed detail shows schema above preview.
 	ZoomStacked bool `json:"zoom_stacked,omitempty"`
-	// Hidden lists the projects turned off (ctrl+x p).
-	Hidden []string `json:"hidden_projects,omitempty"`
 }
 
 func (m *Model) loadState() {
@@ -243,12 +247,6 @@ func (m *Model) loadState() {
 		}
 	}
 	m.zoomStacked = st.ZoomStacked
-	for _, p := range st.Hidden {
-		if m.hidden == nil {
-			m.hidden = map[string]bool{}
-		}
-		m.hidden[p] = true
-	}
 }
 
 func (m *Model) saveState() {
@@ -256,7 +254,7 @@ func (m *Model) saveState() {
 	if os.MkdirAll(filepath.Dir(p), 0o700) != nil {
 		return
 	}
-	b, _ := json.Marshal(uiState{Layout: layoutNames[m.layout], Panes: placementNames[m.place], ZoomStacked: m.zoomStacked, Hidden: sortedKeys(m.hidden)})
+	b, _ := json.Marshal(uiState{Layout: layoutNames[m.layout], Panes: placementNames[m.place], ZoomStacked: m.zoomStacked})
 	_ = os.WriteFile(p, b, 0o600)
 }
 
@@ -317,10 +315,17 @@ type (
 
 // Init starts the background work.
 func (m *Model) Init() tea.Cmd {
-	if m.o.NoBackground {
-		return tea.Batch(m.statusCmd(), m.runSearchIfFlat())
+	var open tea.Cmd
+	if m.autoProjs {
+		// nothing selected yet: the Projects dialog comes first
+		m.autoProjs = false
+		open = m.openProjects()
+		m.pd.auto = m.firstRun
 	}
-	return tea.Batch(m.runSearchIfFlat(), m.reconcileCmd(true), m.statusCmd(), m.waitCatalog(m.be.WatchCatalog(m.ctx)),
+	if m.o.NoBackground {
+		return tea.Batch(open, m.statusCmd(), m.runSearchIfFlat())
+	}
+	return tea.Batch(open, m.runSearchIfFlat(), m.reconcileCmd(true), m.statusCmd(), m.waitCatalog(m.be.WatchCatalog(m.ctx)),
 		m.waitConfig(m.be.WatchConfig(m.ctx, m.kick)), func() tea.Msg { _ = m.be.WarmSearch(m.ctx); return nil },
 		m.learnPricing(), tick())
 }
@@ -383,6 +388,7 @@ func (m *Model) startSync(scope api.SyncScope, auto bool) tea.Cmd {
 		m.toast = "a sync is already running (gs shows progress)"
 		return nil
 	}
+	m.syncScope = scope.Projects // nil: every Selected project (or the stale ones)
 	return func() tea.Msg {
 		var run SyncRun
 		var err error
@@ -457,7 +463,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the status line reads the pricing model live: redraw
 	case tickMsg:
 		m.saveDrafts()
-		return m, tick()
+		return m, tea.Batch(tick(), m.selectionChanged())
+	case projListMsg:
+		m.onProjectList(msg)
 	case handoffMsg:
 		return m, m.onHandoff(msg)
 	case clipMsg:
@@ -602,7 +610,7 @@ func (m *Model) onConfig(ev config.Event) tea.Cmd {
 		return nil
 	}
 	m.cfgErr = ""
-	relearn := m.be.Config().ExecutionProject != ev.Config.ExecutionProject || m.be.Config().Location != ev.Config.Location
+	relearn := m.be.Config().Location != ev.Config.Location
 	m.be.SetConfig(ev.Config) // forgets the pricing model when it may differ
 	if len(ev.RestartRequired) > 0 {
 		m.toast = "config: " + strings.Join(ev.RestartRequired, ", ") + " changed: restart bqt to apply"
@@ -664,6 +672,9 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	}
 	if m.ov == ovPalette {
 		return m.paletteKey(msg, name)
+	}
+	if m.ov == ovProjects && m.pd != nil && m.pd.typing {
+		return m.projectsKey(msg, name)
 	}
 	zone := m.zone
 	if m.ov != ovNone {
@@ -743,8 +754,7 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 		m.startTutorial()
 		return nil, true
 	case "projects":
-		m.openProjects()
-		return nil, true
+		return m.openProjects(), true
 	case "favorites":
 		return m.openPicker(scopeFavorites), true
 	case "history":

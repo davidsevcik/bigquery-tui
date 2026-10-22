@@ -191,8 +191,16 @@ func printSchema(w io.Writer, s api.TableSchema) {
 	if s.NamesOnly {
 		fmt.Fprintln(w, "names only: sync could not read the columns")
 	}
-	if s.Stale {
+	switch {
+	case len(s.Warnings) > 0:
+		for _, wn := range s.Warnings {
+			fmt.Fprintln(w, "warning: "+wn)
+		}
+	case s.Stale:
 		fmt.Fprintln(w, "stale: the catalog is older than sync_ttl")
+	}
+	if !s.Selected {
+		fmt.Fprintln(w, "(the project is not selected: its cached metadata is shown)")
 	}
 	width := 4
 	for _, c := range s.Columns {

@@ -65,12 +65,17 @@ func (e *Engine) Complete(text string, cursor int, forced bool) []api.Candidate 
 // completionCatalog adapts the in-memory index and the catalog to sqlx.Catalog.
 type completionCatalog struct{ e *Engine }
 
-func (c completionCatalog) DefaultProject() string { return c.e.Config().ExecutionProject }
+func (c completionCatalog) DefaultProject() string { return c.e.execProject() }
 
+// Projects offers the Selected projects that hold data (completion follows
+// the Explorer: deselected projects are not offered).
 func (c completionCatalog) Projects() []string {
+	sel := c.e.Selection()
 	var out []string
 	for _, n := range c.e.search.Projects() {
-		out = append(out, n.Name)
+		if sel.Has(n.Name) {
+			out = append(out, n.Name)
+		}
 	}
 	return out
 }

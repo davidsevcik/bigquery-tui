@@ -69,15 +69,22 @@ func printStatus(w io.Writer, st api.CatalogStatus) {
 	if st.SyncNeeded {
 		fmt.Fprintf(w, "sync needed: %s\n", st.SyncReason)
 	}
+	if st.ExecutionProject != "" {
+		fmt.Fprintf(w, "execution project: %s (%s)\n", st.ExecutionProject, st.ExecutionSource)
+	}
 	if len(st.Projects) == 0 {
-		fmt.Fprintln(w, "no projects configured (bqt config edit)")
+		fmt.Fprintln(w, "no projects selected (bqt projects select ID)")
 	}
 	for _, p := range st.Projects {
 		mark := "ok   "
 		if p.Stale {
 			mark = "stale"
 		}
-		fmt.Fprintf(w, "%s %-32s synced %s\n", mark, p.Project, ago(st.Now, p.SyncedAt))
+		note := ""
+		if !p.Selected {
+			note = "  (not selected)"
+		}
+		fmt.Fprintf(w, "%s %-32s synced %s%s\n", mark, p.Project, ago(st.Now, p.SyncedAt), note)
 		for _, u := range p.Units {
 			loc := u.Location
 			if loc == "" {
@@ -105,8 +112,6 @@ func cmdDoctor(ctx context.Context, o *out, g *globals, args []string) error {
 		rep.ConfigError = cerr.Error()
 	} else {
 		rep.ConfigOK = true
-		rep.Execution = cfg.ExecutionProject
-		rep.Projects = len(cfg.Projects)
 		p := store.PathsFor(cfg.DataDir)
 		rep.DataDir = cfg.DataDir
 		rep.LogPath = p.LogDir + string(os.PathSeparator) + logging.FileName
@@ -114,6 +119,8 @@ func cmdDoctor(ctx context.Context, o *out, g *globals, args []string) error {
 			rep.History.Exists = true
 		}
 		if eng, err := engine.Open(ctx, engine.Options{Config: cfg, ReadOnly: true, Now: env.Now}); err == nil {
+			rep.Execution, rep.ExecutionSource = eng.ExecutionProject()
+			rep.Projects = len(eng.Selection().Selected)
 			if st, err := eng.Status(ctx); err == nil {
 				rep.SyncRunning = st.SyncRunning
 				rep.Catalog = api.DoctorCatalog{Exists: eng.Catalog() != nil, Tables: st.Tables, Datasets: st.Datasets, SyncNeeded: st.SyncNeeded}
@@ -158,7 +165,13 @@ func printDoctor(w io.Writer, r api.DoctorReport) {
 		fmt.Fprintf(w, "          %s\n", r.ConfigError)
 	}
 	if r.ConfigOK {
-		fmt.Fprintf(w, "execution project: %s, %d project(s) configured\n", r.Execution, r.Projects)
+		exec := r.Execution
+		if exec == "" {
+			exec = "none (select a project: `bqt projects select ID`)"
+		} else if r.ExecutionSource != "" {
+			exec += " (" + string(r.ExecutionSource) + ")"
+		}
+		fmt.Fprintf(w, "execution project: %s, %d project(s) selected\n", exec, r.Projects)
 		fmt.Fprintf(w, "data dir: %s\nlog file: %s\n", r.DataDir, r.LogPath)
 		if r.Catalog.Exists {
 			age := "never synced"

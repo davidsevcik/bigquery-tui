@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/internal/selection"
 	"github.com/davidsevcik/bigquery-tui/internal/store"
 )
 
@@ -23,8 +25,8 @@ type sandbox struct {
 	fake    *bqtest.Fake
 	tty     bool
 	edit    func(argv []string)
-	gcloud  string
 	stdin   string
+	runs    int // each command runs a minute after the one before
 }
 
 func newSandbox(t *testing.T) *sandbox {
@@ -39,10 +41,27 @@ func newSandbox(t *testing.T) *sandbox {
 	return s
 }
 
+var projectsLine = regexp.MustCompile(`(?m)^projects = \[(.*)\]\n?`)
+
+// writeConfig writes the config. A `projects = [...]` line in extra is not
+// config: it becomes the saved selection, with exec-proj as the chosen
+// Execution project.
 func (s *sandbox) writeConfig(extra string) {
 	s.t.Helper()
 	os.MkdirAll(filepath.Dir(s.cfgPath), 0o700)
-	src := "execution_project = \"exec-proj\"\ndata_dir = \"" + filepath.Join(s.dir, "data") + "\"\n" + extra
+	if m := projectsLine.FindStringSubmatch(extra); m != nil {
+		st := selection.State{Execution: "exec-proj"}
+		for _, p := range strings.Split(m[1], ",") {
+			if p = strings.Trim(strings.TrimSpace(p), `"`); p != "" {
+				st.Select(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), p)
+			}
+		}
+		if err := selection.Save(filepath.Join(s.dir, "data", "state", "projects.json"), st); err != nil {
+			s.t.Fatal(err)
+		}
+		extra = projectsLine.ReplaceAllString(extra, "")
+	}
+	src := "data_dir = \"" + filepath.Join(s.dir, "data") + "\"\n" + extra
 	if err := os.WriteFile(s.cfgPath, []byte(src), 0o600); err != nil {
 		s.t.Fatal(err)
 	}
@@ -60,13 +79,12 @@ func (s *sandbox) run(args ...string) (code int, stdout, stderr string) {
 			return os.Getenv(k)
 		},
 		IsTTY: func(any) bool { return s.tty },
-		Now:   func() time.Time { return time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC) },
+		Now:   func() time.Time { return time.Date(2026, 10, 1, 8, s.runs, 0, 0, time.UTC) },
 		Meta:  func(context.Context) (bq.Metadata, error) { return s.fake, nil },
 		Jobs:  func(context.Context) (bq.Jobs, error) { return s.fake, nil },
 		CheckAuth: func(context.Context) (bq.AuthInfo, error) {
 			return bq.AuthInfo{Type: "authorized_user", QuotaProject: "exec-proj"}, nil
 		},
-		Gcloud:  func() string { return s.gcloud },
 		Backoff: func(int) time.Duration { return 0 },
 		RunEditor: func(ctx context.Context, argv []string, env Env) error {
 			if s.edit != nil {
@@ -75,6 +93,7 @@ func (s *sandbox) run(args ...string) (code int, stdout, stderr string) {
 			return nil
 		},
 	}
+	s.runs++
 	full := append([]string{"--config", s.cfgPath}, args...)
 	code = Run(context.Background(), full, env)
 	return code, so.String(), se.String()
@@ -118,7 +137,7 @@ func TestInvalidConfigNamesKeyAndLine(t *testing.T) {
 	s.writeConfig("ingore = [\"x\"]\n")
 	code, _, errOut := s.run("status")
 	e := errBody(t, errOut)
-	if code != api.ExitConfig || e.Code != "config" || !strings.Contains(e.Message, "ingore") || !strings.Contains(e.Message, "line 3") {
+	if code != api.ExitConfig || e.Code != "config" || !strings.Contains(e.Message, "ingore") || !strings.Contains(e.Message, "line 2") {
 		t.Fatalf("%d %+v", code, e)
 	}
 }
@@ -162,12 +181,12 @@ func TestUsageErrors(t *testing.T) {
 
 func TestInitCreatesTemplateAndNeverOverwrites(t *testing.T) {
 	s := newSandbox(t)
-	code, out, _ := s.run("init", "--execution-project", "my-exec")
-	if code != 0 {
+	code, out, _ := s.run("init", "--format", "text")
+	if code != 0 || !strings.Contains(out, "ctrl+x p") || !strings.Contains(out, "bqt projects") {
 		t.Fatalf("%d %s", code, out)
 	}
 	b, err := os.ReadFile(s.cfgPath)
-	if err != nil || !strings.Contains(string(b), `execution_project = "my-exec"`) {
+	if err != nil || strings.Contains(string(b), "execution_project =") {
 		t.Fatalf("%v %s", err, b)
 	}
 	if fi, _ := os.Stat(s.cfgPath); fi.Mode().Perm() != 0o600 {
@@ -183,31 +202,6 @@ func TestInitCreatesTemplateAndNeverOverwrites(t *testing.T) {
 	}
 }
 
-func TestInitOffersGcloudProjectOnlyWithConfirmation(t *testing.T) {
-	s := newSandbox(t)
-	s.tty, s.gcloud, s.stdin = true, "gcloud-proj", "y\n"
-	if code, _, _ := s.run("init"); code != 0 {
-		t.Fatal(code)
-	}
-	if b, _ := os.ReadFile(s.cfgPath); !strings.Contains(string(b), `execution_project = "gcloud-proj"`) {
-		t.Fatalf("confirmed suggestion is written: %s", b)
-	}
-
-	s2 := newSandbox(t)
-	s2.tty, s2.gcloud, s2.stdin = true, "gcloud-proj", "n\n"
-	s2.run("init")
-	if b, _ := os.ReadFile(s2.cfgPath); strings.Contains(string(b), "gcloud-proj") {
-		t.Fatal("declined suggestion must not be written")
-	}
-
-	s3 := newSandbox(t)
-	s3.gcloud = "gcloud-proj" // not a TTY: never asks
-	s3.run("init")
-	if b, _ := os.ReadFile(s3.cfgPath); strings.Contains(string(b), "gcloud-proj") {
-		t.Fatal("no prompt, no suggestion without a terminal")
-	}
-}
-
 func TestConfigPathAndEdit(t *testing.T) {
 	s := newSandbox(t)
 	_, out, _ := s.run("config", "path")
@@ -218,9 +212,9 @@ func TestConfigPathAndEdit(t *testing.T) {
 	var argv []string
 	s.edit = func(a []string) {
 		argv = a
-		os.WriteFile(s.cfgPath, []byte("execution_project = \"edited-proj\"\nprojects = [\"proj-a\"]\ndata_dir = \""+filepath.Join(s.dir, "data")+"\"\n"), 0o600)
+		os.WriteFile(s.cfgPath, []byte("location = \"EU\"\ndata_dir = \""+filepath.Join(s.dir, "data")+"\"\n"), 0o600)
 	}
-	code, out, errOut := s.run("config", "edit", "--execution-project", "seed-proj")
+	code, out, errOut := s.run("config", "edit")
 	if code != 0 {
 		t.Fatalf("%d %s %s", code, out, errOut)
 	}
@@ -228,7 +222,7 @@ func TestConfigPathAndEdit(t *testing.T) {
 		t.Fatalf("editor argv %v", argv)
 	}
 	data := decode(t, out).Data.(map[string]any)
-	if data["valid"] != true || data["projects"] != float64(1) {
+	if _, ok := data["projects"]; data["valid"] != true || ok {
 		t.Fatalf("%v", data)
 	}
 

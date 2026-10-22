@@ -32,5 +32,5 @@
                                                                      │
                                                                      │
                                                                      │
- bqt exec acme-exec  flat                                                                        5 datasets · 13 tables
+ bqt exec acme-exec  flat  2 projects                                                            5 datasets · 13 tables
  type to filter · enter/esc back to the list

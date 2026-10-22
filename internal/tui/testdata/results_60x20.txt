@@ -16,5 +16,5 @@
   8 7      customer-7   CZ          Brno        70
   9 8      customer-8   CZ          Brno        80
  row 3 of 40 · customer STRING
- bqt exec acme-exec  on-demand       5 datasets · 13 tables
+ bqt exec acme-exec  on-demand  2 p… 5 datasets · 13 tables
  hjkl move · enter record · / find · y copy · e export · ? …

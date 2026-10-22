@@ -20,5 +20,5 @@ acme-staging ✓ 3h │finance                     2 │T events_YYYYMMDD       
 │                                                                              │
 │ ctrl+g then: n next · p back · r restart · q quit                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- bqt exec acme-exec  miller                              5 datasets · 13 tables
+ bqt exec acme-exec  miller  2 projects                  5 datasets · 13 tables
  ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · ctrl+o zone · ctrl+p…

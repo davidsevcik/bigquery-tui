@@ -58,8 +58,15 @@ func cmdSearch(ctx context.Context, o *out, g *globals, args []string) error {
 	if eng.Catalog() == nil {
 		return &cmdError{exit: api.ExitFailure, code: "no_catalog", msg: "no catalog yet", hint: "run `bqt sync`"}
 	}
-	resp, err := eng.Search(ctx, query, api.SearchOptions{Limit: limit, Offset: offset, TablesOnly: tablesOnly, AllWhenEmpty: false})
+	resp, err := eng.Search(ctx, query, api.SearchOptions{Limit: limit, Offset: offset, TablesOnly: tablesOnly, PreferSelected: true})
 	if err != nil {
+		return err
+	}
+	var touched []string
+	for _, r := range resp.Results {
+		touched = append(touched, r.Path.Project)
+	}
+	if resp.Warnings, err = eng.StaleWarnings(ctx, touched); err != nil {
 		return err
 	}
 	next := ""
@@ -103,6 +110,9 @@ func printSearch(w io.Writer, r api.SearchResponse, next string) {
 		if x.NamesOnly {
 			line += "  names only"
 		}
+		if !x.Selected {
+			line += "  (not selected)"
+		}
 		fmt.Fprintln(w, line)
 		for _, c := range x.ColumnHits {
 			fmt.Fprintf(w, "             · %s %s\n", c.FieldPath, c.DataType)
@@ -110,6 +120,9 @@ func printSearch(w io.Writer, r api.SearchResponse, next string) {
 		if x.MoreColumns > 0 {
 			fmt.Fprintf(w, "             · +%d more columns\n", x.MoreColumns)
 		}
+	}
+	for _, wn := range r.Warnings {
+		fmt.Fprintln(w, "warning: "+wn)
 	}
 	fmt.Fprintf(w, "%d of %d result(s) in %.1f ms", len(r.Results), r.Total, r.TookMS)
 	if next != "" {

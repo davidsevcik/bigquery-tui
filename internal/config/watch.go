@@ -133,9 +133,7 @@ func Diff(a, b *Config) []string {
 			out = append(out, key)
 		}
 	}
-	add("execution_project", a.ExecutionProject, b.ExecutionProject)
 	add("location", a.Location, b.Location)
-	add("projects", a.Filter().Projects, b.Filter().Projects)
 	add("ignore", a.Filter().Ignore, b.Filter().Ignore)
 	add("data_dir", a.DataDir, b.DataDir)
 	add("favorites_dir", a.FavoritesDir, b.FavoritesDir)

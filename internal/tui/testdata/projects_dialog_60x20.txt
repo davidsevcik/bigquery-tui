@@ -1,0 +1,20 @@
+ Projects 1/2         │ Datasets (4)
+acme╭─ Projects  (1-14/38) ────────────────────────────╮  5
+acme│ Execution project: acme-exec (chosen)            │  2
+    │ space select · o only this · e execution · /     │  4
+    │ filter · r refresh · esc close                   │  1
+    │ 2 selected                                       │
+    │                                                  │
+    │ [x] acme-prod                4 datasets · 3h ago │
+    │ [x] acme-staging              1 dataset · 3h ago │
+    │ [ ] acme-billing  Billing and invoicing          │
+    │ [ ] team-00-analytics  Team analytics            │
+    │ [ ] team-01-analytics  Team analytics            │
+    │ [ ] team-02-analytics  Team analytics            │
+    │ [ ] team-03-analytics  Team analytics            │
+    │ [ ] team-04-analytics  Team analytics            │
+    │ [ ] team-05-analytics  Team analytics            │
+    ╰──────────────────────────────────────────────────╯
+                      │
+ bqt exec acme-exec  miller  2 proj… 5 datasets · 13 tables
+ esc close

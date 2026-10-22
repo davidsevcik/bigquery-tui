@@ -62,7 +62,7 @@ type SyncEvent struct {
 }
 
 // SyncScope selects what a sync covers. An empty Projects list means every
-// configured project.
+// Selected project.
 type SyncScope struct {
 	Projects []string `json:"projects,omitempty"`
 }
