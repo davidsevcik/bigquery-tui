@@ -98,3 +98,13 @@ BQT_LIVE_EXECUTION_PROJECT=... BQT_LIVE_PROJECT=... go test -tags live ./interna
 The live suite also runs a few queries that read no tables (`BQT_LIVE_LOCATION` sets their job location).
 
 Scale measurements: `BQT_SCALE=500 go test ./internal/store -run Scale -v` (catalog apply) and `BQT_SCALE=1 go test ./internal/search -run LatencyReport -v` (search latency at 50k tables). Terminal screens are golden files in `internal/tui/testdata`; regenerate with `go test ./internal/tui -update` after checking the change.
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately as described in [SECURITY.md](SECURITY.md).
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+bqt is not made, endorsed or supported by Google. BigQuery is a trademark of Google LLC.
