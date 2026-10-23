@@ -12,6 +12,12 @@ Needs Go 1.26 or newer.
 go build -o bin/bqt ./cmd/bqt
 ```
 
+To see the architecture (packages, the imports between them, and each package's exported API), generate the map from the current source:
+
+```sh
+go run ./internal/tools/archmap -open   # writes bin/architecture.html and opens it
+```
+
 ## Use
 
 ```sh
