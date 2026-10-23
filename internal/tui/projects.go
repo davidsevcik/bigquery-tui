@@ -208,42 +208,18 @@ func execText(p string, src api.ExecutionSource) string {
 	return p + " (" + why + ")"
 }
 
-func (m *Model) projectsLines(w int) []string {
+// projectsLines are the dialog's header, fitted to the h lines of the popup
+// body, and its rows.
+func (m *Model) projectsLines(w, h int) (head, rows []string) {
 	pd := m.pd
 	if pd == nil {
-		return nil
+		return nil, nil
 	}
-	exec, src := m.be.ExecutionProject()
-	out := []string{" " + sDim.Render("Execution project: ") + sAcc.Render(execText(exec, src))}
-	for _, l := range wrap("space select · o only this · e execution · s sync · S sync all · / filter · r reload list · esc close", w-2) {
-		out = append(out, " "+sDim.Render(l))
-	}
-	sel := 0
-	for _, p := range pd.infos {
-		if p.Selected {
-			sel++
-		}
-	}
-	status := fmt.Sprintf("%d selected", sel)
-	switch {
-	case pd.loading:
-		status += " · loading projects…"
-	case pd.listErr != "":
-		status += " · could not list your projects: " + pd.listErr
-	}
-	out = append(out, " "+sDim.Render(status))
-	if pd.typing || pd.filter.value() != "" {
-		b := newRB(false)
-		b.add(" / ", sAcc)
-		b.l.WriteString(pd.filter.render(api.ParsedQuery{}, pd.typing, "project ID or name"))
-		out = append(out, b.line(w))
-	}
-	out = append(out, "")
-	m.projTop = len(out)
+	head = m.projectsHead(w, h)
 	if id := pd.addRow(); id != "" {
 		r := newRB(true)
 		r.add(" + ", sAcc).add("add "+id, sBase).addR("not in your projects list ", sDim)
-		return append(out, r.line(w))
+		return head, []string{r.line(w)}
 	}
 	vis := pd.visible()
 	if len(vis) == 0 {
@@ -251,7 +227,7 @@ func (m *Model) projectsLines(w int) []string {
 		if pd.filter.value() != "" {
 			msg = "no project matches"
 		}
-		return append(out, " "+sDim.Render(msg))
+		return head, []string{" " + sDim.Render(msg)}
 	}
 	pd.sel = clamp(pd.sel, 0, len(vis)-1)
 	for i, id := range vis {
@@ -268,9 +244,54 @@ func (m *Model) projectsLines(w int) []string {
 		if right := m.projectState(p); right != "" {
 			r.addR(right+" ", sDim)
 		}
-		out = append(out, r.line(w))
+		rows = append(rows, r.line(w))
 	}
-	return out
+	return head, rows
+}
+
+// projectsHead is the header above the rows: the Execution project, the
+// keys, the selection count and the filter. Where the popup is short it
+// drops the keys first (they are in help too), always leaving a row.
+func (m *Model) projectsHead(w, h int) []string {
+	pd := m.pd
+	exec, src := m.be.ExecutionProject()
+	execLine := " " + sDim.Render("Execution project: ") + sAcc.Render(execText(exec, src))
+	var keys []string
+	for _, l := range wrap("space select · o only this · e execution · s sync · S sync all · / filter · r reload list · esc close", w-2) {
+		keys = append(keys, " "+sDim.Render(l))
+	}
+	sel := 0
+	for _, p := range pd.infos {
+		if p.Selected {
+			sel++
+		}
+	}
+	status := fmt.Sprintf("%d selected", sel)
+	switch {
+	case pd.loading:
+		status += " · loading projects…"
+	case pd.listErr != "":
+		status += " · could not list your projects: " + pd.listErr
+	}
+	tail := []string{" " + sDim.Render(status)}
+	if pd.typing || pd.filter.value() != "" {
+		b := newRB(false)
+		b.add(" / ", sAcc)
+		b.l.WriteString(pd.filter.render(api.ParsedQuery{}, pd.typing, "project ID or name"))
+		tail = append(tail, b.line(w))
+	}
+	room := h - 1 // at least one row shows
+	head := append([]string{execLine}, tail...)
+	if len(head)+len(keys) <= room {
+		head = append(append([]string{execLine}, keys...), tail...)
+	}
+	if len(head) < room {
+		head = append(head, "")
+	}
+	if len(head) > room { // a tiny popup: the status and the filter come first
+		head = head[len(head)-max(0, room):]
+	}
+	return head
 }
 
 // projectState is the right-hand text of a row.
@@ -345,7 +366,7 @@ func (m *Model) projectsOverlayAction(act string) tea.Cmd {
 		pd.sel = max(0, pd.sel-10)
 	case "filter":
 		pd.typing = true
-	case "refresh":
+	case "reloadlist":
 		pd.loading = true
 		return m.fetchProjects(true)
 	case "sync":

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -987,7 +988,9 @@ func (m *Model) jumpBox(bw, bh int) []string {
 
 func (m *Model) infoBox(bw, maxH int) []string {
 	var ttl string
-	var lines []string
+	var head, lines []string
+	body := max(1, maxH-2)
+	cur := -1 // the line the window follows; -1 scrolls freely
 	switch m.ov {
 	case ovHelp:
 		ttl, lines = "Help", helpLines(bw-2)
@@ -998,55 +1001,37 @@ func (m *Model) infoBox(bw, maxH int) []string {
 	case ovRecord:
 		ttl, lines = m.recordLines(bw - 2)
 	case ovRuns:
-		ttl, lines = "Runs", m.runsLines(bw-2)
+		ttl, lines, cur = "Runs", m.runsLines(bw-2), m.ovSel
 	case ovBuffers:
-		ttl, lines = "Buffers", m.buffersLines(bw-2)
-	case ovProjects:
-		ttl, lines = "Projects", m.projectsLines(bw-2)
-	case ovHandoff:
-		ttl, lines = "Hand-off to an agent", m.handoffLines(bw-2)
-	}
-	body := max(1, maxH-2)
-	if m.ov == ovProjects && m.pd != nil {
-		return m.projectsBox(ttl, lines, bw, body)
-	}
-	switch m.ov {
-	case ovRuns:
-		window(m.ovSel, &m.ovOff, len(lines), body)
-	case ovBuffers:
-		at := m.ovSel
-		if at >= len(m.bufs) {
-			at += 2 // the "Restore drafts" heading
+		ttl, lines, cur = "Buffers", m.buffersLines(bw-2), m.ovSel
+		if cur >= len(m.bufs) {
+			cur += 2 // the "Restore drafts" heading
 		}
-		window(at, &m.ovOff, len(lines), body)
+	case ovProjects:
+		ttl = "Projects"
+		head, lines = m.projectsLines(bw-2, body)
+		if m.pd != nil {
+			cur = m.pd.sel
+		}
 	case ovHandoff:
-		window(m.ovSel+m.hoTop, &m.ovOff, len(lines), body)
+		ttl, lines, cur = "Hand-off to an agent", m.handoffLines(bw-2), m.ovSel+m.hoTop
 	}
-	m.ovOff = clamp(m.ovOff, 0, max(0, len(lines)-body))
-	end := min(len(lines), m.ovOff+body)
-	vis := lines[m.ovOff:end]
-	if len(lines) > body {
-		ttl += fmt.Sprintf("  (%d-%d/%d)", m.ovOff+1, end, len(lines))
-	}
-	return popup(ttl, vis, bw)
+	return m.scrollBox(ttl, head, lines, cur, bw, body)
 }
 
-// projectsBox shows the Projects dialog with its header pinned: only the
-// rows scroll, following the cursor.
-func (m *Model) projectsBox(ttl string, lines []string, bw, body int) []string {
-	top := min(m.projTop, len(lines))
-	head, rows := lines[:top], lines[top:]
-	if len(head) >= body { // a tiny terminal: keep one row
-		head = head[:max(0, body-1)]
+// scrollBox is a popup of body lines: head stays put and rows scroll below
+// it, following row cur (cur < 0: scrolled by the keys alone).
+func (m *Model) scrollBox(ttl string, head, rows []string, cur, bw, body int) []string {
+	h := max(1, body-len(head))
+	if cur >= 0 {
+		window(cur, &m.ovOff, len(rows), h)
 	}
-	h := body - len(head)
-	window(m.pd.sel, &m.ovOff, len(rows), h)
 	m.ovOff = clamp(m.ovOff, 0, max(0, len(rows)-h))
 	end := min(len(rows), m.ovOff+h)
 	if len(rows) > h {
 		ttl += fmt.Sprintf("  (%d-%d/%d)", m.ovOff+1, end, len(rows))
 	}
-	return popup(ttl, append(append([]string{}, head...), rows[m.ovOff:end]...), bw)
+	return popup(ttl, append(slices.Clip(head), rows[m.ovOff:end]...), bw)
 }
 
 func (m *Model) syncLines() []string {

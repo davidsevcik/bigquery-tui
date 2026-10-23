@@ -151,7 +151,6 @@ type Model struct {
 	confirmQ   []confirmState // questions waiting for the open popup to close
 	draftErr   string         // the last draft write failed with this (retried every tick)
 	ovSel      int
-	projTop    int // lines above the list in the projects popup
 	exp        Export
 	expEv      api.ExportEvent
 	jumpInsert bool // jump-to-table was opened from the editor: enter inserts the name

@@ -172,7 +172,7 @@ var Keymap = []Binding{
 	{ZoneOverlay, []string{"o"}, "only", "projects popup: select only this project", "", ""},
 	{ZoneOverlay, []string{"e"}, "exec", "projects popup: run query and sync jobs in this project (the Execution project)", "", ""},
 	{ZoneOverlay, []string{"/"}, "filter", "projects popup: filter by project ID or name", "", ""},
-	{ZoneOverlay, []string{"r"}, "refresh", "projects popup: fetch your projects list again", "", ""},
+	{ZoneOverlay, []string{"r"}, "reloadlist", "projects popup: fetch your projects list again", "", ""},
 	{ZoneOverlay, []string{"s"}, "sync", "projects popup: sync the project now, even when its cache is fresh", "", ""},
 	{ZoneOverlay, []string{"S"}, "syncall", "projects popup: sync every selected project now", "", ""},
 	{ZoneOverlay, []string{"w"}, "write", "hand-off popup: write to a file", "", ""},

@@ -467,3 +467,18 @@ func TestClosingDuringAnOnDemandSyncPromisesNothing(t *testing.T) {
 		t.Fatalf("queued %v, toast %q", r.m.syncLater, r.m.toast)
 	}
 }
+
+// On a short terminal the key hint gives way: the status, the filter and a
+// row stay visible.
+func TestAShortDialogKeepsTheFilterAndARow(t *testing.T) {
+	r := newRig(t, 60, 12)
+	r.fake.Listed = []api.ListedProject{{ID: "acme-billing", FriendlyName: "Billing"}}
+	r.press("ctrl+x", "p", "/")
+	r.typeText("bill")
+	r.contains("2 selected", " / bill", "] acme-billing")
+	r.lacks("space select")
+	r.press("esc", "esc", "esc") // filter, then close
+	if r.m.ov != ovNone {
+		t.Fatal("the dialog stayed open")
+	}
+}
