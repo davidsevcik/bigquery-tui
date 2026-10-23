@@ -4,14 +4,14 @@ acme-staging     ✓ 3h │finance                            2
                       │sales                              4
     ╭─ Projects ───────────────────────────────────────╮  1
     │ Execution project: acme-exec (chosen)            │
-    │ space select · o only this · e execution · /     │
-    │ filter · r refresh · esc close                   │
+    │ space select · o only this · e execution · s     │
+    │ sync · S sync all · / filter · r reload list ·   │
+    │ esc close                                        │
     │ 2 selected · could not list your projects: acces…│
     │                                                  │
     │ [x] acme-prod                4 datasets · 3h ago │
     │ [x] acme-staging              1 dataset · 3h ago │
     ╰──────────────────────────────────────────────────╯
-                      │
                       │
                       │
                       │

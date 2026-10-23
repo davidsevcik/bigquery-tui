@@ -1,9 +1,10 @@
  Projects 1/2            │ Datasets (4)                              │ Schema · acme-prod
-acme-prod         ╭─ Projects  (1-30/37) ────────────────────────────────────────────────────────────╮
+acme-prod         ╭─ Projects  (1-25/33) ────────────────────────────────────────────────────────────╮
 acme-staging      │ Execution project: acme-exec (chosen)                                            │
-                  │ space select · o only this · e execution · / filter · r refresh · esc close      │
-                  │ 2 selected                                                                       │
-                  │                                                                                  │e Execution
+                  │ space select · o only this · e execution · s sync · S sync all · / filter · r    │
+                  │ reload list · esc close                                                          │
+                  │ 2 selected                                                                       │e Execution
+                  │                                                                                  │
                   │ [x] acme-prod                                                4 datasets · 3h ago │
                   │ [x] acme-staging                                              1 dataset · 3h ago │
                   │ [ ] acme-billing  Billing and invoicing                                          │
@@ -29,7 +30,6 @@ acme-staging      │ Execution project: acme-exec (chosen)                     
                   │ [ ] team-19-analytics  Team analytics                                            │
                   │ [ ] team-20-analytics  Team analytics                                            │
                   │ [ ] team-21-analytics  Team analytics                                            │
-                  │ [ ] team-22-analytics  Team analytics                                            │
                   ╰──────────────────────────────────────────────────────────────────────────────────╯
                          │                                           │
  bqt exec acme-exec  miller  2 projects                                                          5 datasets · 13 tables

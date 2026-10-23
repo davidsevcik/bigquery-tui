@@ -6,8 +6,8 @@ acme-staging ✓ 3h │finance                     2 │T events_YYYYMMDD       
                   │                              │
     ╭─ Projects ───────────────────────────────────────────────────────────╮
     │ Execution project: acme-exec (chosen)                                │
-    │ space select · o only this · e execution · / filter · r refresh ·    │
-    │ esc close                                                            │
+    │ space select · o only this · e execution · s sync · S sync all · /   │
+    │ filter · r reload list · esc close                                   │
     │ 2 selected                                                           │
     │ / bill                                                               │
     │                                                                      │

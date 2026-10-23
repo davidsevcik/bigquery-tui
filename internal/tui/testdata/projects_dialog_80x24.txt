@@ -1,8 +1,8 @@
  Projects 1/2     │ Datasets (4)                 │ Tables (2)
-acme╭─ Projects  (1-18/38) ────────────────────────────────────────────────╮
+acme╭─ Projects  (1-13/33) ────────────────────────────────────────────────╮
 acme│ Execution project: acme-exec (chosen)                                │ ×4
-    │ space select · o only this · e execution · / filter · r refresh ·    │
-    │ esc close                                                            │
+    │ space select · o only this · e execution · s sync · S sync all · /   │
+    │ filter · r reload list · esc close                                   │
     │ 2 selected                                                           │
     │                                                                      │
     │ [x] acme-prod                                    4 datasets · 3h ago │

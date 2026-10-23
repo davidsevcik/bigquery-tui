@@ -1007,6 +1007,9 @@ func (m *Model) infoBox(bw, maxH int) []string {
 		ttl, lines = "Hand-off to an agent", m.handoffLines(bw-2)
 	}
 	body := max(1, maxH-2)
+	if m.ov == ovProjects && m.pd != nil {
+		return m.projectsBox(ttl, lines, bw, body)
+	}
 	switch m.ov {
 	case ovRuns:
 		window(m.ovSel, &m.ovOff, len(lines), body)
@@ -1016,8 +1019,6 @@ func (m *Model) infoBox(bw, maxH int) []string {
 			at += 2 // the "Restore drafts" heading
 		}
 		window(at, &m.ovOff, len(lines), body)
-	case ovProjects:
-		window(m.ovSel+m.projTop, &m.ovOff, len(lines), body)
 	case ovHandoff:
 		window(m.ovSel+m.hoTop, &m.ovOff, len(lines), body)
 	}
@@ -1028,6 +1029,24 @@ func (m *Model) infoBox(bw, maxH int) []string {
 		ttl += fmt.Sprintf("  (%d-%d/%d)", m.ovOff+1, end, len(lines))
 	}
 	return popup(ttl, vis, bw)
+}
+
+// projectsBox shows the Projects dialog with its header pinned: only the
+// rows scroll, following the cursor.
+func (m *Model) projectsBox(ttl string, lines []string, bw, body int) []string {
+	top := min(m.projTop, len(lines))
+	head, rows := lines[:top], lines[top:]
+	if len(head) >= body { // a tiny terminal: keep one row
+		head = head[:max(0, body-1)]
+	}
+	h := body - len(head)
+	window(m.pd.sel, &m.ovOff, len(rows), h)
+	m.ovOff = clamp(m.ovOff, 0, max(0, len(rows)-h))
+	end := min(len(rows), m.ovOff+h)
+	if len(rows) > h {
+		ttl += fmt.Sprintf("  (%d-%d/%d)", m.ovOff+1, end, len(rows))
+	}
+	return popup(ttl, append(append([]string{}, head...), rows[m.ovOff:end]...), bw)
 }
 
 func (m *Model) syncLines() []string {

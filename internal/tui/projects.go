@@ -214,7 +214,7 @@ func (m *Model) projectsLines(w int) []string {
 	}
 	exec, src := m.be.ExecutionProject()
 	out := []string{" " + sDim.Render("Execution project: ") + sAcc.Render(execText(exec, src))}
-	for _, l := range wrap("space select · o only this · e execution · / filter · r refresh · esc close", w-2) {
+	for _, l := range wrap("space select · o only this · e execution · s sync · S sync all · / filter · r reload list · esc close", w-2) {
 		out = append(out, " "+sDim.Render(l))
 	}
 	sel := 0
@@ -347,6 +347,17 @@ func (m *Model) projectsOverlayAction(act string) tea.Cmd {
 	case "refresh":
 		pd.loading = true
 		return m.fetchProjects(true)
+	case "sync":
+		if cur == "" {
+			return nil
+		}
+		if p := pd.infos[cur]; !p.Selected && p.SyncedAt == nil {
+			m.toast = cur + " is not selected: space selects it"
+			return nil
+		}
+		return m.startSync(api.SyncScope{Projects: []string{cur}}, false)
+	case "syncall":
+		return m.startSync(api.SyncScope{}, false)
 	case "back":
 		if pd.filter.value() != "" {
 			pd.filter.set("")

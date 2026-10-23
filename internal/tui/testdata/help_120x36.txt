@@ -1,5 +1,5 @@
  Datasets 1/4                     │ Tables 1/2                       │ Schema · acme-prod.events.clicks
-events      ╭─ Help  (1-30/185) ───────────────────────────────────────────────────────────────────────────╮
+events      ╭─ Help  (1-30/187) ───────────────────────────────────────────────────────────────────────────╮
 finance     │ Global                                                                                       │
 sales       │ ctrl+q          quit (asks if Runs are in flight)                                            │
 us_archive  │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results                                       │

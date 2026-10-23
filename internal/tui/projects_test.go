@@ -348,3 +348,49 @@ func TestADeselectedProjectsProblemsAreNotShown(t *testing.T) {
 	r.run(r.m.statusCmd())
 	r.lacks("sync problem")
 }
+
+// A list longer than the dialog scrolls with the cursor; the header stays.
+func TestALongProjectsListScrolls(t *testing.T) {
+	r := projectsRig(t)
+	for i := range 40 {
+		r.fake.Listed = append(r.fake.Listed, api.ListedProject{ID: fmt.Sprintf("acme-x%02d", i)})
+	}
+	r.press("ctrl+x", "p")
+	r.lacks("acme-x39")
+	for range 43 {
+		r.press("j")
+	}
+	r.contains("acme-x39", "Execution project:", "space select")
+	if l := r.row("acme-x39"); !strings.Contains(l, "acme-x39") {
+		t.Fatalf("%q", l)
+	}
+	r.press("space")
+	if !r.eng.Selection().Has("acme-x39") {
+		t.Fatalf("space hit another project: %v", r.eng.Selection().IDs())
+	}
+	r.press("ctrl+u", "ctrl+u", "ctrl+u", "ctrl+u", "ctrl+u")
+	r.contains("] acme-prod")
+}
+
+// s syncs the project under the cursor now, even when its cache is fresh;
+// S syncs every selected project.
+func TestTheDialogSyncsOnDemand(t *testing.T) {
+	r := projectsRig(t)
+	before := len(r.fake.CallsTo("ListDatasets"))
+	r.press("ctrl+x", "p", "s") // acme-prod, synced 3h ago
+	calls := r.fake.CallsTo("ListDatasets")
+	if len(calls) != before+1 || calls[len(calls)-1].Project != "acme-prod" {
+		t.Fatalf("calls %+v", calls[before:])
+	}
+	r.contains("Projects") // the dialog stays open
+	r.press("S")
+	got := map[string]bool{}
+	for _, c := range r.fake.CallsTo("ListDatasets")[before+1:] {
+		got[c.Project] = true
+	}
+	if !got["acme-prod"] || !got["acme-staging"] || len(got) != 2 {
+		t.Fatalf("S synced %v", got)
+	}
+	r.press("j", "j", "s") // acme-billing: not selected, no cache
+	r.contains("space selects it")
+}
