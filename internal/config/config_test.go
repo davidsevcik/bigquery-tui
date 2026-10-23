@@ -40,6 +40,9 @@ func TestDefaults(t *testing.T) {
 	if c.DataDir != "/xdg/bqt" || c.FavoritesDir != "/xdg/bqt/favorites" {
 		t.Fatalf("dirs: %s %s", c.DataDir, c.FavoritesDir)
 	}
+	if c.ExportDir != "" {
+		t.Fatalf("export_dir: %q", c.ExportDir)
+	}
 	if c.SyncTTL != 24*time.Hour || c.AgentTimeout != 60*time.Second || c.MaxConcurrentQueries != 4 {
 		t.Fatalf("durations/ints: %+v", c)
 	}
@@ -60,6 +63,7 @@ location = "EU"
 ignore = ["sandbox", "!a-proj.keep"]
 data_dir = "~/bqt-data"
 favorites_dir = "$HOME/favs"
+export_dir = "$HOME/exports"
 sync_ttl = "2d"
 confirm_bytes = "5GiB"
 max_bytes_billed = "off"
@@ -79,6 +83,9 @@ editing = "plain"
 	}
 	if c.DataDir != filepath.Join(home, "bqt-data") || c.FavoritesDir != filepath.Join(home, "favs") {
 		t.Fatalf("expansion: %s %s", c.DataDir, c.FavoritesDir)
+	}
+	if c.ExportDir != filepath.Join(home, "exports") {
+		t.Fatalf("export_dir: %s", c.ExportDir)
 	}
 	if c.SyncTTL != 48*time.Hour {
 		t.Fatal(c.SyncTTL)

@@ -54,6 +54,7 @@ type Config struct {
 	Ignore                []string
 	DataDir               string
 	FavoritesDir          string
+	ExportDir             string
 	SyncTTL               time.Duration
 	ConfirmBytes          ByteLimit
 	MaxBytesBilled        ByteLimit
@@ -189,6 +190,7 @@ type fileConfig struct {
 	Ignore               []string       `toml:"ignore"`
 	DataDir              *string        `toml:"data_dir"`
 	FavoritesDir         *string        `toml:"favorites_dir"`
+	ExportDir            *string        `toml:"export_dir"`
 	SyncTTL              *string        `toml:"sync_ttl"`
 	ConfirmBytes         any            `toml:"confirm_bytes"`
 	MaxBytesBilled       any            `toml:"max_bytes_billed"`
@@ -203,7 +205,7 @@ type fileConfig struct {
 
 // envKeys lists the keys that can be set through BQT_<UPPERCASE KEY>.
 var envKeys = []string{
-	"execution_project", "location", "data_dir", "favorites_dir",
+	"execution_project", "location", "data_dir", "favorites_dir", "export_dir",
 	"sync_ttl", "confirm_bytes", "max_bytes_billed", "max_concurrent_queries",
 	"history_retention_days", "agent_max_bytes", "agent_timeout", "cli_allow_writes",
 }
@@ -278,6 +280,9 @@ func Parse(raw []byte, path string, opts LoadOptions) (*Config, error) {
 	}
 	if fc.FavoritesDir != nil {
 		put("favorites_dir", *fc.FavoritesDir, "file")
+	}
+	if fc.ExportDir != nil {
+		put("export_dir", *fc.ExportDir, "file")
 	}
 	if fc.SyncTTL != nil {
 		put("sync_ttl", *fc.SyncTTL, "file")
@@ -431,6 +436,13 @@ func (b *builder) build(c *Config, v map[string]layered, errs *Errors) {
 		c.FavoritesDir = expandPath(s, b.getenv)
 	} else {
 		c.FavoritesDir = filepath.Join(dataDir, "favorites")
+	}
+	if s, ok := str("export_dir"); ok {
+		if s == "" {
+			fail("export_dir", v["export_dir"].src, "must not be empty (omit the key to default to the working directory)")
+		} else {
+			c.ExportDir = expandPath(s, b.getenv)
+		}
 	}
 
 	// durations

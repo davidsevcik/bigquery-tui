@@ -193,9 +193,13 @@ func (h *ExportHandle) emit(ev api.ExportEvent) {
 }
 
 // DefaultExportPath is the suggested destination: bqt-<timestamp>.<ext> in
-// the working directory.
+// the configured export_dir, or the working directory if unset.
 func (e *Engine) DefaultExportPath(f export.Format) string {
-	return fmt.Sprintf("bqt-%s.%s", e.o.Now().Format("20060102-150405"), f)
+	name := fmt.Sprintf("bqt-%s.%s", e.o.Now().Format("20060102-150405"), f)
+	if dir := e.Config().ExportDir; dir != "" {
+		return filepath.Join(dir, name)
+	}
+	return name
 }
 
 // StartExport writes every row of a Run's result to path, streaming through

@@ -329,7 +329,7 @@ The core parses BigQuery's `[line:col]` into `{message, line?, col?}` (position 
 - Single-record view: `Enter` or `v` opens a popup; `n`/`p` move between records across page boundaries. The core returns a structured, indented JSON tree for the record with no truncation, columns in schema order, types preserved (INT64 and NUMERIC as exact strings, BYTES as base64, JSON columns as parsed indented JSON). Long and multi-line strings wrap. A cell over 1 MiB shows a notice and expands only on demand. Scrolling and JSON colour are TUI-only. As built: the record popup reads the row again with cells clipped at 1 MiB and says when a value was clipped; expanding such a value on demand and collapsing nested values (`space`) are not built.
 - Cell actions: copy cell value, copy row as JSON, copy column values (current page), copy field path.
 - No client-side sort or filter in v1. `/` finds text within the loaded pages and states how many pages are loaded.
-- Export: CSV, JSON array and NDJSON. Clipboard copy is TSV for the visible page or selection. Export defaults to all rows, streams through paging to a file with progress, can be cancelled, and asks above 1M rows. Destination defaults to the working directory as `bqt-<timestamp>.<ext>` with an editable path prompt.
+- Export: CSV, JSON array and NDJSON. Clipboard copy is TSV for the visible page or selection. Export defaults to all rows, streams through paging to a file with progress, can be cancelled, and asks above 1M rows. Destination defaults to `bqt-<timestamp>.<ext>` in `export_dir` (config key, default the working directory) with an editable path prompt.
 
 ## 11. History and Favorites (phase 4) [12]
 
