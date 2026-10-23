@@ -28,6 +28,11 @@ type Dataset struct {
 
 // Project is a fake project.
 type Project struct {
+	// FriendlyName is what ListProjects reports.
+	FriendlyName string
+	// Unlisted leaves the project out of ListProjects (data shared at
+	// dataset level: readable, but the projects list does not return it).
+	Unlisted bool
 	Datasets []Dataset
 	// ListErr fails ListDatasets.
 	ListErr error
@@ -40,7 +45,7 @@ type Project struct {
 
 // Failure injects an error into matching calls. Empty fields are wildcards.
 type Failure struct {
-	Method   string // "ListDatasets", "RegionSnapshot", "DatasetSnapshot", "ListTableNames"
+	Method   string // "ListProjects", "ListDatasets", "RegionSnapshot", "DatasetSnapshot", "ListTableNames"
 	Project  string
 	Location string
 	Dataset  string
@@ -63,6 +68,8 @@ type Call struct {
 type Fake struct {
 	mu       sync.Mutex
 	Projects map[string]*Project
+	// Listed are extra projects ListProjects returns that hold no data.
+	Listed   []api.ListedProject
 	Failures []*Failure
 	Calls    []Call
 	// Delay is slept (respecting ctx) at the start of every call.
@@ -187,6 +194,24 @@ func PermissionError(what string) error {
 // TransientError is a ready-made injected transient failure.
 func TransientError(what string) error {
 	return &bq.Error{Kind: bq.KindTransient, Err: fmt.Errorf("backend error: %s", what)}
+}
+
+// ListProjects implements bq.Metadata: every project not Unlisted, plus
+// Listed, sorted by ID.
+func (f *Fake) ListProjects(ctx context.Context) ([]api.ListedProject, error) {
+	if err := f.begin(ctx, Call{Method: "ListProjects"}); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := append([]api.ListedProject(nil), f.Listed...)
+	for id, p := range f.Projects {
+		if !p.Unlisted {
+			out = append(out, api.ListedProject{ID: id, FriendlyName: p.FriendlyName})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
 }
 
 // ListDatasets implements bq.Metadata.

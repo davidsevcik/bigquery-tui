@@ -40,8 +40,14 @@ type Options struct {
 
 // NewClient creates a client whose jobs run in executionProject using
 // Application Default Credentials, with executionProject as the quota project.
+// With no Execution project only ListProjects works (the credentials' own
+// quota project applies).
 func NewClient(ctx context.Context, executionProject string, o Options) (*Client, error) {
-	opts := append([]option.ClientOption{option.WithQuotaProject(executionProject)}, o.ExtraClientOptions...)
+	var opts []option.ClientOption
+	if executionProject != "" {
+		opts = append(opts, option.WithQuotaProject(executionProject))
+	}
+	opts = append(opts, o.ExtraClientOptions...)
 	c, err := bqapi.NewClient(ctx, executionProject, opts...)
 	if err != nil {
 		return nil, Wrap("create BigQuery client", err)
@@ -64,6 +70,24 @@ func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
 
 // Close releases the clients.
 func (c *Client) Close() error { return c.bq.Close() }
+
+// ListProjects implements Metadata using REST projects.list.
+func (c *Client) ListProjects(ctx context.Context) ([]api.ListedProject, error) {
+	var out []api.ListedProject
+	err := c.svc.Projects.List().MaxResults(1000).Context(ctx).Pages(ctx, func(r *bqv2.ProjectList) error {
+		for _, p := range r.Projects {
+			if p.ProjectReference == nil || p.ProjectReference.ProjectId == "" {
+				continue
+			}
+			out = append(out, api.ListedProject{ID: p.ProjectReference.ProjectId, FriendlyName: p.FriendlyName})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, Wrap("list projects", err)
+	}
+	return out, nil
+}
 
 // ListDatasets implements Metadata using REST datasets.list, which (unlike the
 // Go iterator) returns each dataset's location.

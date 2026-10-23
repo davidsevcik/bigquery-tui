@@ -32,5 +32,5 @@
  19 18     customer-18  CZ          Brno        180        long note long note long note long note… [2] a, b
  20 19     customer-19  CZ          Brno        190        long note long note long note long note… [2] a, b
  row 3 of 40 · customer STRING
- bqt exec acme-exec  on-demand                                                                   5 datasets · 13 tables
+ bqt exec acme-exec  on-demand  2 projects                                                       5 datasets · 13 tables
  ↑↓ select · enter show the result · c cancel the run · esc close

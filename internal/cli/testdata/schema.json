@@ -11,7 +11,8 @@
       }
     ],
     "location": "EU",
-    "synced_at": "2026-10-01T08:00:00Z",
+    "selected": true,
+    "synced_at": "2026-10-01T08:01:00Z",
     "table": "proj-a.sales.orders",
     "type": "table"
   },

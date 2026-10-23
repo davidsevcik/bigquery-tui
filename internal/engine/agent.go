@@ -203,8 +203,8 @@ func (e *Engine) ParsePath(s string) (api.ObjectPath, bool) {
 		return wildcard(p), true
 	}
 	parts := strings.Split(strings.Trim(s, "`"), ".")
-	if len(parts) == 2 && parts[0] != "" && parts[1] != "" && e.Config().ExecutionProject != "" {
-		return wildcard(api.ObjectPath{Project: e.Config().ExecutionProject, Dataset: parts[0], Table: parts[1]}), true
+	if exec := e.execProject(); len(parts) == 2 && parts[0] != "" && parts[1] != "" && exec != "" {
+		return wildcard(api.ObjectPath{Project: exec, Dataset: parts[0], Table: parts[1]}), true
 	}
 	return api.ObjectPath{}, false
 }
@@ -229,7 +229,10 @@ func (e *Engine) Schema(ctx context.Context, path string) (api.TableSchema, erro
 	if err != nil {
 		return api.TableSchema{}, err
 	}
-	return SchemaOf(d), nil
+	sc := SchemaOf(d)
+	sc.Selected = e.Selection().Has(d.Path.Project)
+	sc.Warnings, err = e.StaleWarnings(ctx, []string{d.Path.Project})
+	return sc, err
 }
 
 // SchemaOf is the compact schema of a table detail.
@@ -252,10 +255,12 @@ func (e *Engine) CatalogSearch(ctx context.Context, query string, limit, offset 
 	if e.catalog == nil {
 		return api.CatalogHits{}, ErrNoCatalog
 	}
-	resp, err := e.Search(ctx, query, api.SearchOptions{Limit: limit, Offset: offset})
+	resp, err := e.Search(ctx, query, api.SearchOptions{Limit: limit, Offset: offset, PreferSelected: true})
 	if err != nil {
 		return api.CatalogHits{}, err
 	}
+	sel := e.Selection()
+	var touched []string
 	out := api.CatalogHits{Hits: []api.CatalogHit{}, Total: resp.Total}
 	for _, f := range resp.Query.Filters {
 		if f.Status != api.FilterOK {
@@ -264,7 +269,8 @@ func (e *Engine) CatalogSearch(ctx context.Context, query string, limit, offset 
 	}
 	for _, r := range resp.Results {
 		h := api.CatalogHit{Path: r.Path.String(), Kind: r.Kind, Type: r.Type, Description: r.Description,
-			MoreColumns: r.MoreColumns, Stale: r.Stale}
+			MoreColumns: r.MoreColumns, Stale: r.Stale, Selected: sel.Has(r.Path.Project)}
+		touched = append(touched, r.Path.Project)
 		if r.Kind == api.KindShards && r.Shard != nil {
 			p := r.Path
 			p.Table = r.Shard.Prefix + "*"
@@ -278,6 +284,43 @@ func (e *Engine) CatalogSearch(ctx context.Context, query string, limit, offset 
 	}
 	if next := offset + len(resp.Results); next < resp.Total {
 		out.Truncated, out.NextCursor = true, strconv.Itoa(next)
+	}
+	out.Warnings, err = e.StaleWarnings(ctx, touched)
+	return out, err
+}
+
+// StaleWarnings warns about each project (once, A–Z) whose catalog is older
+// than sync_ttl, saying when it is not selected (so nothing refreshes it).
+func (e *Engine) StaleWarnings(ctx context.Context, projects []string) ([]string, error) {
+	cached, err := e.cachedProjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sel := e.Selection()
+	now, ttl := e.o.Now(), e.Config().SyncTTL
+	seen := map[string]bool{}
+	var ps []string
+	for _, p := range projects {
+		if !seen[p] {
+			seen[p] = true
+			ps = append(ps, p)
+		}
+	}
+	sort.Strings(ps)
+	var out []string
+	for _, p := range ps {
+		at, ok := syncedAt(cached[p])
+		if ok && now.Sub(at) <= ttl {
+			continue
+		}
+		msg := "catalog for " + p + " is incomplete (a sync never finished)"
+		if ok {
+			msg = fmt.Sprintf("catalog for %s is %s old (sync_ttl %s)", p, format.Age(now.Sub(at)), format.Age(ttl))
+		}
+		if !sel.Has(p) {
+			msg += "; it is not selected, so it is not refreshed"
+		}
+		out = append(out, msg+": `bqt sync --project "+p+"` refreshes it")
 	}
 	return out, nil
 }
@@ -368,8 +411,8 @@ func (e *Engine) Freshness(ctx context.Context) (api.CatalogFreshness, error) {
 		SyncTTL: st.SyncTTL, Datasets: st.Datasets, Tables: st.Tables, Projects: []api.ProjectFreshness{}}
 	stale := false
 	for _, p := range st.Projects {
-		pf := api.ProjectFreshness{Project: p.Project, SyncedAt: p.SyncedAt, Stale: p.Stale}
-		stale = stale || p.Stale
+		pf := api.ProjectFreshness{Project: p.Project, Selected: p.Selected, SyncedAt: p.SyncedAt, Stale: p.Stale}
+		stale = stale || (p.Stale && p.Selected)
 		for _, u := range p.Units {
 			if u.Status != api.UnitOK && u.Status != "" {
 				where := u.Location

@@ -32,5 +32,5 @@ us_archive                      1 │                                  │ label
                                   │                                  │
                                   │                                  │
                                   │                                  │
- bqt exec acme-exec  miller                                                                      5 datasets · 13 tables
+ bqt exec acme-exec  miller  2 projects                                                          5 datasets · 13 tables
  type to filter · enter/esc back to the list · esc there clears the filter

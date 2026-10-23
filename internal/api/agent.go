@@ -110,6 +110,11 @@ type TableSchema struct {
 	NamesOnly bool       `json:"names_only,omitempty"`
 	SyncedAt  *time.Time `json:"synced_at,omitempty"`
 	Stale     bool       `json:"stale,omitempty"`
+	// Selected is false for a table of a deselected (cached) project.
+	Selected bool `json:"selected"`
+	// Warnings say when the catalog behind the answer is older than
+	// sync_ttl, and how to refresh it.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // CatalogHit is one catalog search result.
@@ -125,6 +130,9 @@ type CatalogHit struct {
 	Columns     []string `json:"columns,omitempty"`
 	MoreColumns int      `json:"more_columns,omitempty"`
 	Stale       bool     `json:"stale,omitempty"`
+	// Selected is false for a result in a deselected (cached) project;
+	// those rank after the Selected projects' results.
+	Selected bool `json:"selected"`
 }
 
 // ShardInfo summarises a shard family in a search hit.
@@ -142,6 +150,9 @@ type CatalogHits struct {
 	Total      int      `json:"total"`
 	Truncated  bool     `json:"truncated"`
 	NextCursor string   `json:"next_cursor,omitempty"`
+	// Warnings name the projects on this page whose catalog is older than
+	// sync_ttl, and how to refresh them.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // FavoriteSummary is a Favorite in a list.
@@ -205,9 +216,11 @@ type CatalogFreshness struct {
 	Advice string `json:"advice,omitempty"`
 }
 
-// ProjectFreshness is one configured project in CatalogFreshness.
+// ProjectFreshness is one project in CatalogFreshness: a Selected one, or a
+// cached one that is not selected (never refreshed unless asked for).
 type ProjectFreshness struct {
 	Project  string     `json:"project"`
+	Selected bool       `json:"selected"`
 	SyncedAt *time.Time `json:"synced_at,omitempty"`
 	Stale    bool       `json:"stale,omitempty"`
 	// Problems lists the regions that failed to sync, with the error.

@@ -54,17 +54,17 @@ func quiet(t *testing.T, ch <-chan Event) {
 	}
 }
 
-const baseCfg = "execution_project = \"exec-a\"\nprojects = [\"p-one\"]\n"
+const baseCfg = "sync_ttl = \"2h\"\nignore = [\"p-one\"]\n"
 
 func TestWatchReportsChangedKeys(t *testing.T) {
 	path, _, ev, _ := watchSetup(t, baseCfg)
 	quiet(t, ev)
-	os.WriteFile(path, []byte("execution_project = \"exec-b\"\nprojects = [\"p-one\", \"p-two\"]\nsync_ttl = \"1h\"\n"), 0o600)
+	os.WriteFile(path, []byte("sync_ttl = \"1h\"\nignore = [\"p-one\", \"p-two\"]\nlocation = \"EU\"\n"), 0o600)
 	e := next(t, ev)
-	if e.Err != nil || e.Config.ExecutionProject != "exec-b" {
+	if e.Err != nil || e.Config.Location != "EU" {
 		t.Fatalf("%+v", e)
 	}
-	if !reflect.DeepEqual(e.Changed, []string{"execution_project", "projects", "sync_ttl"}) || len(e.RestartRequired) != 0 {
+	if !reflect.DeepEqual(e.Changed, []string{"ignore", "location", "sync_ttl"}) || len(e.RestartRequired) != 0 {
 		t.Fatalf("%v %v", e.Changed, e.RestartRequired)
 	}
 	quiet(t, ev)
@@ -135,8 +135,8 @@ func TestWatchDeletedFileIsAnError(t *testing.T) {
 }
 
 func TestDiffIgnoresCommentsAndOrder(t *testing.T) {
-	a := mustParse(t, "execution_project = \"ok-project\"\nprojects = [\"b-proj\", \"a-proj\"]\n", LoadOptions{})
-	b := mustParse(t, "# hi\nexecution_project = \"ok-project\"\nprojects = [\"a-proj\", \"b-proj\"]\n", LoadOptions{})
+	a := mustParse(t, "location = \"EU\"\nignore = [\"b-proj\"]\n", LoadOptions{})
+	b := mustParse(t, "# hi\nignore = [\"b-proj\"]\nlocation = \"EU\"\n", LoadOptions{})
 	if d := Diff(a, b); len(d) != 0 {
 		t.Fatalf("%v", d)
 	}

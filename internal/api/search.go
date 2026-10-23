@@ -105,6 +105,8 @@ type SearchResult struct {
 	NamesOnly    bool              `json:"names_only,omitempty"`
 	Stale        bool              `json:"stale,omitempty"`
 	SyncedAt     *time.Time        `json:"synced_at,omitempty"`
+	// Selected is false for a result in a deselected (cached) project.
+	Selected bool `json:"selected"`
 }
 
 // SearchOptions bounds a search.
@@ -121,9 +123,15 @@ type SearchOptions struct {
 	// ExpandShards lists shard-family members individually instead of
 	// collapsing them into one family result.
 	ExpandShards bool `json:"expand_shards,omitempty"`
-	// Hidden leaves these projects out (the projects turned off in the TUI).
+	// SelectedOnly leaves out the projects that are not selected (the TUI).
 	// A pasted path is still an exact lookup.
-	Hidden []string `json:"hidden,omitempty"`
+	SelectedOnly bool `json:"selected_only,omitempty"`
+	// PreferSelected ranks results in Selected projects first (CLI, MCP).
+	PreferSelected bool `json:"prefer_selected,omitempty"`
+	// Hidden and Prefer are what the engine derives from SelectedOnly and
+	// PreferSelected: the projects to leave out and to rank first.
+	Hidden []string `json:"-"`
+	Prefer []string `json:"-"`
 }
 
 // FilterOptions bounds a filter query (the Explorer's in-place filter).
@@ -133,8 +141,10 @@ type FilterOptions struct {
 	// Kinds lists the object kinds to return; empty returns every kind.
 	// Shard members come back as tables, their family as KindShards.
 	Kinds []ResultKind `json:"kinds,omitempty"`
-	// Hidden leaves these projects out.
-	Hidden []string `json:"hidden,omitempty"`
+	// SelectedOnly leaves out the projects that are not selected.
+	SelectedOnly bool `json:"selected_only,omitempty"`
+	// Hidden is what the engine derives from SelectedOnly.
+	Hidden []string `json:"-"`
 }
 
 // FilterMatch is one object that passes a filter.
@@ -158,6 +168,9 @@ type SearchResponse struct {
 	// Recent is set when the results are the recently opened tables.
 	Recent bool    `json:"recent,omitempty"`
 	TookMS float64 `json:"took_ms"`
+	// Warnings name the projects on this page whose catalog is older than
+	// sync_ttl (CLI only).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // BrowseNode is one row of the explorer's project / dataset / table lists.

@@ -45,8 +45,6 @@ type Env struct {
 	Jobs func(context.Context) (bq.Jobs, error)
 	// CheckAuth inspects the default credentials; nil uses the real check.
 	CheckAuth func(context.Context) (bq.AuthInfo, error)
-	// Gcloud returns `gcloud config get-value project`, or "".
-	Gcloud func() string
 	// RunEditor runs an editor command attached to the terminal.
 	RunEditor func(ctx context.Context, argv []string, env Env) error
 	// Backoff overrides sync retry waits (tests).
@@ -60,7 +58,6 @@ func DefaultEnv() Env {
 		Getenv: os.Getenv,
 		IsTTY:  isTTY,
 		Now:    time.Now,
-		Gcloud: gcloudProject,
 		RunEditor: func(ctx context.Context, argv []string, env Env) error {
 			cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 			cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -72,20 +69,6 @@ func DefaultEnv() Env {
 func isTTY(v any) bool {
 	f, ok := v.(*os.File)
 	return ok && term.IsTerminal(int(f.Fd()))
-}
-
-func gcloudProject() string {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "gcloud", "config", "get-value", "project", "--quiet").Output()
-	if err != nil {
-		return ""
-	}
-	p := strings.TrimSpace(string(out))
-	if p == "(unset)" {
-		return ""
-	}
-	return p
 }
 
 type globals struct {
@@ -101,7 +84,7 @@ func (g *globals) register(fs *flag.FlagSet) {
 	fs.StringVar(&g.configPath, "config", g.configPath, "path to the config file (default: $BQT_CONFIG or ~/.config/bqt/config.toml)")
 	fs.StringVar(&g.logLevel, "log-level", g.logLevel, "log level: debug, info, warn, error (default: $BQT_LOG or info)")
 	fs.StringVar(&g.format, "format", g.format, "output format: json or text (default: text on a terminal, json otherwise)")
-	fs.StringVar(&g.execProject, "execution-project", g.execProject, "override execution_project")
+	fs.StringVar(&g.execProject, "execution-project", g.execProject, "run jobs in this project for this command only")
 	fs.StringVar(&g.location, "location", g.location, "override location")
 	fs.StringVar(&g.dataDir, "data-dir", g.dataDir, "override data_dir")
 }
@@ -195,6 +178,10 @@ func classify(err error) *cmdError {
 	if errors.As(err, &pe) {
 		return &cmdError{exit: api.ExitOverLimit, code: pe.Refusal.Code, msg: err.Error(), hint: refusalHint(pe.Refusal)}
 	}
+	var ns *engine.NotSelectedError
+	if errors.As(err, &ns) {
+		return &cmdError{exit: api.ExitUsage, code: "not_selected", msg: err.Error(), hint: "`bqt projects select " + ns.Project + "`, then `bqt sync`"}
+	}
 	var qf *engine.QueryFailure
 	if errors.As(err, &qf) {
 		switch qf.Err.Kind {
@@ -219,7 +206,11 @@ func classify(err error) *cmdError {
 	case errors.Is(err, favorites.ErrNotFound):
 		return &cmdError{exit: api.ExitFailure, code: "not_found", msg: err.Error(), hint: "list them with `bqt favorites list`"}
 	case errors.Is(err, catsync.ErrNoProjects):
-		return &cmdError{exit: api.ExitConfig, code: "no_projects", msg: err.Error(), hint: "add projects with `bqt config edit`"}
+		return &cmdError{exit: api.ExitConfig, code: "no_projects", msg: err.Error(), hint: "list them with `bqt projects`, then `bqt projects select ID`"}
+	case errors.Is(err, engine.ErrNoExecution):
+		return &cmdError{exit: api.ExitConfig, code: "no_execution_project", msg: err.Error(), hint: "`bqt projects select ID` (the first one selected runs the jobs) or `bqt projects exec ID`"}
+	case errors.Is(err, engine.ErrLastSelected):
+		return &cmdError{exit: api.ExitUsage, code: "last_selected", msg: err.Error(), hint: "select another project first"}
 	case errors.Is(err, engine.ErrSyncRunning):
 		return &cmdError{exit: api.ExitFailure, code: "sync_running", msg: err.Error()}
 	case errors.Is(err, context.Canceled):
@@ -253,6 +244,9 @@ Commands:
   init           Create a commented config file (never overwrites)
   config path    Print the config file path
   config edit    Open the config file in $VISUAL / $EDITOR and validate it
+  projects       List your BigQuery projects: selected, cached, the Execution project
+  projects select ID... | deselect ID... | exec ID
+                 Choose what is synced and where jobs run (the TUI: ctrl+x p)
   sync           Refresh the local metadata catalog from BigQuery
   status         Show catalog freshness and sync problems
   search QUERY   Search the catalog (p: d: type: col: label: desc: filters)
@@ -272,7 +266,8 @@ Global flags:
   --config PATH            config file (default $BQT_CONFIG or ~/.config/bqt/config.toml)
   --format json|text       output format (json when stdout is not a terminal)
   --log-level LEVEL        debug, info, warn or error (default $BQT_LOG or info)
-  --execution-project ID   override execution_project
+  --execution-project ID   run jobs in this project (this command only;
+                           also BQT_EXECUTION_PROJECT)
   --location LOC           override location
   --data-dir DIR           override data_dir
 
@@ -337,6 +332,8 @@ func Run(ctx context.Context, args []string, env Env) int {
 		}
 	case "status":
 		cerr = cmdStatus(ctx, o, g, cargs)
+	case "projects", "project":
+		cerr = cmdProjects(ctx, o, g, cargs)
 	case "search":
 		cerr = cmdSearch(ctx, o, g, cargs)
 	case "tui":

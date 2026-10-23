@@ -37,10 +37,13 @@ const (
 
 // Options configures a Manager.
 type Options struct {
-	// Jobs builds the BigQuery jobs client lazily.
-	Jobs   func(ctx context.Context) (bq.Jobs, error)
+	// Jobs returns the BigQuery jobs client whose jobs run in exec (built
+	// lazily). A Run uses the client of the project it started in.
+	Jobs   func(ctx context.Context, exec string) (bq.Jobs, error)
 	Config func() *config.Config
-	Now    func() time.Time
+	// Execution returns the Execution project jobs run in now.
+	Execution func() string
+	Now       func() time.Time
 	// Source is recorded on History entries and as a job label: tui, cli, mcp.
 	Source string
 	// Record stores a finished real Run (History). It may be nil.
@@ -80,10 +83,7 @@ type Manager struct {
 	running int
 	waiting []chan struct{}
 	pricing api.PricingModel
-	// forceLearn makes learn accept a zero-byte dry-run (LearnPricing's probe,
-	// which is built so that it needs slots).
-	forceLearn bool
-	events     chan api.RunEvent
+	events  chan api.RunEvent
 	// busy counts job submissions and cancel requests in flight, so Close can
 	// wait for them before the process exits.
 	busy   int
@@ -100,6 +100,9 @@ func New(o Options) *Manager {
 	}
 	if o.Source == "" {
 		o.Source = "tui"
+	}
+	if o.Execution == nil {
+		o.Execution = func() string { return "" }
 	}
 	if o.RetryDelay <= 0 {
 		o.RetryDelay = time.Second
@@ -136,13 +139,18 @@ func (m *Manager) Pricing() api.PricingModel {
 	return m.pricing
 }
 
-// learn records the pricing model a dry-run revealed. A query that scans
-// nothing and names no reservation (SELECT 1) says nothing either way:
+// learn records the pricing model a dry-run in exec revealed. A query that
+// scans nothing and names no reservation (SELECT 1) says nothing either way:
 // BigQuery reports no reservation for it even on a reservation-backed project.
-func (m *Manager) learn(dr bq.DryRunResult) {
+// A dry-run of a project that is no longer the Execution project teaches
+// nothing (the model is per project).
+func (m *Manager) learn(exec string, dr bq.DryRunResult, force bool) {
+	if exec != m.o.Execution() { // outside m.mu: it reads the selection state
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if dr.ReservationID == "" && dr.BytesProcessed == 0 && !m.forceLearn {
+	if dr.ReservationID == "" && dr.BytesProcessed == 0 && !force {
 		return
 	}
 	m.pricing = api.PricingModel{Known: true, Capacity: dr.ReservationID != "", ReservationID: dr.ReservationID, Edition: dr.Edition}
@@ -167,7 +175,8 @@ func (m *Manager) LearnPricing(ctx context.Context) error {
 	if cfg.Location == "" {
 		return nil
 	}
-	jobs, err := m.o.Jobs(ctx)
+	exec := m.o.Execution()
+	jobs, err := m.o.Jobs(ctx, exec)
 	if err != nil {
 		return err
 	}
@@ -175,13 +184,7 @@ func (m *Manager) LearnPricing(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	m.forceLearn = true
-	m.mu.Unlock()
-	m.learn(dr)
-	m.mu.Lock()
-	m.forceLearn = false
-	m.mu.Unlock()
+	m.learn(exec, dr, true)
 	return nil
 }
 
@@ -383,13 +386,14 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 			rctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), p.Timeout)
 		}
 	}
+	exec := m.o.Execution() // outside m.mu: it reads the selection state
 	m.mu.Lock()
 	m.seq++
-	r := &Run{m: m, id: m.seq, ctx: rctx, stop: cancel, policy: pol, confirm: make(chan struct{}), done: make(chan struct{}),
+	r := &Run{m: m, id: m.seq, exec: exec, ctx: rctx, stop: cancel, policy: pol, confirm: make(chan struct{}), done: make(chan struct{}),
 		changed: make(chan struct{}), pages: map[int64]*bq.ResultPage{}}
 	r.info = api.RunInfo{ID: r.id, Tag: req.Tag, SQL: req.SQL, Params: append([]api.QueryParam(nil), req.Params...),
 		State: api.RunEstimating, DryRunOnly: req.DryRunOnly, Source: m.o.Source, Favorite: req.Favorite,
-		ExecutionProject: cfg.ExecutionProject, Location: cfg.Location, Created: m.o.Now()}
+		ExecutionProject: exec, Location: cfg.Location, Created: m.o.Now()}
 	r.version, r.first = 1, r.info
 	closed := m.closed
 	m.runs = append(m.runs, r)
@@ -407,6 +411,7 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 type Run struct {
 	m       *Manager
 	id      int64
+	exec    string          // the Execution project when the Run started
 	policy  *policy.Profile // nil outside the agent entry points
 	ctx     context.Context
 	stop    context.CancelFunc
@@ -578,7 +583,7 @@ func (r *Run) fail(err error) {
 
 func (r *Run) run(cfg *config.Config) {
 	m := r.m
-	jobs, err := m.o.Jobs(r.ctx)
+	jobs, err := m.o.Jobs(r.ctx, r.exec)
 	if err != nil {
 		r.fail(err)
 		return
@@ -598,7 +603,7 @@ func (r *Run) run(cfg *config.Config) {
 		r.fail(err)
 		return
 	}
-	m.learn(dr)
+	m.learn(r.exec, dr, false)
 	est := &api.Estimate{Bytes: dr.BytesProcessed, Accuracy: dr.Accuracy, StatementType: dr.StatementType,
 		ReservationID: dr.ReservationID, Edition: dr.Edition, Capacity: dr.ReservationID != "", Columns: format.Columns(dr.Schema)}
 	if !est.Capacity {
@@ -672,7 +677,7 @@ func (r *Run) run(cfg *config.Config) {
 	if err != nil {
 		if expired {
 			// the job may exist without our knowing: stop it by its ID
-			m.cancelJob(jobs, api.JobRef{Project: cfg.ExecutionProject, Location: req.Location, ID: req.JobID}, nil)
+			m.cancelJob(jobs, api.JobRef{Project: r.exec, Location: req.Location, ID: req.JobID}, nil)
 		}
 		m.busyAdd(-1)
 		if expired && r.ctx.Err() == nil {

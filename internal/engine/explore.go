@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"os"
-	"sort"
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
@@ -57,15 +56,43 @@ func (e *Engine) recent(ctx context.Context, n int) ([]string, error) {
 	return h.Recent(ctx, n)
 }
 
-// Search runs a catalog search (spec 8.2).
+// Search runs a catalog search (spec 8.2). SelectedOnly leaves out the
+// deselected projects' caches; PreferSelected ranks them last.
 func (e *Engine) Search(ctx context.Context, query string, o api.SearchOptions) (api.SearchResponse, error) {
-	return e.search.Search(ctx, query, o)
+	if o.SelectedOnly {
+		o.Hidden = append(o.Hidden, e.deselectedCached()...)
+	}
+	if o.PreferSelected {
+		o.Prefer = e.selected()
+	}
+	resp, err := e.search.Search(ctx, query, o)
+	sel := e.Selection()
+	for i := range resp.Results {
+		resp.Results[i].Selected = sel.Has(resp.Results[i].Path.Project)
+	}
+	return resp, err
 }
 
 // Filter lists every object that passes the Explorer's in-place filter, best
 // match first. Free terms match only an object's own name.
 func (e *Engine) Filter(ctx context.Context, query string, o api.FilterOptions) (api.FilterResponse, error) {
+	if o.SelectedOnly {
+		o.Hidden = append(o.Hidden, e.deselectedCached()...)
+	}
 	return e.search.Filter(ctx, query, o)
+}
+
+// deselectedCached are the projects in the search index that are not
+// selected.
+func (e *Engine) deselectedCached() []string {
+	sel := e.Selection()
+	var out []string
+	for _, n := range e.search.Projects() {
+		if !sel.Has(n.Name) {
+			out = append(out, n.Name)
+		}
+	}
+	return out
 }
 
 // ParseQuery parses a query without running it (for input colouring and chips).
@@ -74,24 +101,15 @@ func (e *Engine) ParseQuery(query string) api.ParsedQuery { return search.Parse(
 // WarmSearch prepares the column data used by the col: filter.
 func (e *Engine) WarmSearch(ctx context.Context) error { return e.search.WarmColumns(ctx) }
 
-// Projects lists the configured projects (synced or not) with sync health.
+// Projects lists the Selected projects (synced or not) with sync health: the
+// Explorer's project list. Deselected projects keep their cache but are not
+// browsed.
 func (e *Engine) Projects() []api.BrowseNode {
 	have := map[string]api.BrowseNode{}
 	for _, n := range e.search.Projects() {
 		have[n.Name] = n
 	}
-	cfg := e.Config()
-	names := append([]string(nil), cfg.Projects...)
-	for n := range have {
-		found := false
-		for _, c := range cfg.Projects {
-			found = found || c == n
-		}
-		if !found {
-			names = append(names, n) // still in the catalog until the next prune
-		}
-	}
-	sort.Strings(names)
+	names := e.selected()
 	out := make([]api.BrowseNode, 0, len(names))
 	for _, name := range names {
 		if n, ok := have[name]; ok {
@@ -343,25 +361,27 @@ func (e *Engine) AutoRefresh(ctx context.Context) (*SyncHandle, error) {
 	if err != nil {
 		return nil, err
 	}
-	if st.SyncRunning || len(e.Config().Projects) == 0 {
+	if st.SyncRunning || st.ExecutionProject == "" {
 		return nil, nil
 	}
+	// Selected projects that are stale or were never synced (selecting a
+	// project asks for its sync). Deselected ones are never refreshed.
 	var scope api.SyncScope
-	if st.Tables+st.Datasets > 0 || len(st.Projects) == 0 {
-		for _, p := range st.Projects {
-			// A project with no sync state at all was added to the config
-			// after the catalog was built. That is a config change, which is
-			// never synced automatically: the user sees "sync needed".
-			if p.Stale && len(p.Units) > 0 {
-				scope.Projects = append(scope.Projects, p.Project)
-			}
+	selected := 0
+	for _, p := range st.Projects {
+		if !p.Selected {
+			continue
 		}
-		if len(scope.Projects) == 0 {
-			return nil, nil
+		selected++
+		if p.Stale {
+			scope.Projects = append(scope.Projects, p.Project)
 		}
-		if len(scope.Projects) == len(st.Projects) && !st.SyncNeeded {
-			scope.Projects = nil // everything: a full sync
-		}
+	}
+	if len(scope.Projects) == 0 {
+		return nil, nil
+	}
+	if len(scope.Projects) == selected && !st.SyncNeeded {
+		scope.Projects = nil // everything: a full sync
 	}
 	h, err := e.StartSync(ctx, scope)
 	if errors.Is(err, ErrSyncRunning) {
@@ -371,17 +391,18 @@ func (e *Engine) AutoRefresh(ctx context.Context) (*SyncHandle, error) {
 }
 
 // SetConfig swaps in a reloaded configuration. Run-related and sync-related
-// keys apply to operations started afterwards. A changed execution_project
-// takes effect on the next BigQuery call (the client is rebuilt lazily).
+// keys apply to operations started afterwards. A changed Execution project
+// takes effect on the next BigQuery call (each project has its own client).
 // data_dir cannot change at run time; callers report it as restart-required.
 func (e *Engine) SetConfig(cfg *config.Config) {
 	e.cfgMu.Lock()
-	changed := e.cfg.ExecutionProject != cfg.ExecutionProject || e.cfg.Location != cfg.Location
+	changed := e.cfg.Location != cfg.Location
 	e.cfg = cfg
 	e.cfgMu.Unlock()
 	if changed {
 		e.runs.ForgetPricing()
 	}
+	e.noticeExecution()
 	e.search.SetTTL(cfg.SyncTTL)
 	e.mu.Lock()
 	e.stats, e.infos = map[string]statsEntry{}, map[string]bq.TableInfo{}

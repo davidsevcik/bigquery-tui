@@ -16,5 +16,5 @@
  no run yet: ctrl+r runs the buffer (or the selection), ctr…
 
 
- bqt exec acme-exec                  5 datasets · 13 tables
+ bqt exec acme-exec  2 projects      5 datasets · 13 tables
 

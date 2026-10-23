@@ -44,3 +44,30 @@ func TestLiveJobsContract(t *testing.T) {
 	defer c.Close()
 	bqtest.RunJobsContract(t, c, bqtest.JobsContractOptions{Location: os.Getenv("BQT_LIVE_LOCATION")})
 }
+
+// TestLiveListProjectsNeedsNoExecutionProject lists the credentials'
+// projects with a client built without an Execution project, as the
+// Projects dialog does on a fresh install.
+func TestLiveListProjectsNeedsNoExecutionProject(t *testing.T) {
+	proj := os.Getenv("BQT_LIVE_PROJECT")
+	if proj == "" {
+		t.Skip("set BQT_LIVE_PROJECT")
+	}
+	c, err := bq.NewClient(context.Background(), "", bq.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	ps, err := c.ListProjects(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, p := range ps {
+		found = found || p.ID == proj
+	}
+	if !found {
+		t.Fatalf("%s is not listed among %d projects", proj, len(ps))
+	}
+	t.Logf("%d projects listed", len(ps))
+}

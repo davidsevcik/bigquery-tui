@@ -73,7 +73,7 @@ func (m *Model) searchCmd(st *searchState, limit, offset int, appendTo bool) tea
 	ctx, cancel := context.WithCancel(m.ctx)
 	st.cancel = cancel
 	opts := st.options(limit, offset)
-	opts.Hidden = m.hiddenProjects()
+	opts.SelectedOnly = true
 	return func() tea.Msg {
 		resp, err := m.be.Search(ctx, query, opts)
 		return searchMsg{st: st, seq: seq, resp: resp, err: err, append: appendTo}
@@ -159,6 +159,10 @@ func (m *Model) searchKey(st *searchState, msg tea.KeyPressMsg, name string) tea
 			}
 			s := st.selection()
 			if s.kind == "" {
+				if st == m.jump && !m.jumpInsert && st.parsed.Path != nil {
+					// a pasted path in a project the catalog does not hold
+					return m.openUncached(*st.parsed.Path)
+				}
 				return nil
 			}
 			if st == m.jump && m.jumpInsert {

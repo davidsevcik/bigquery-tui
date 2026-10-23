@@ -1,134 +1,421 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
+	"github.com/davidsevcik/bigquery-tui/internal/config"
+	"github.com/davidsevcik/bigquery-tui/internal/engine"
+	"github.com/davidsevcik/bigquery-tui/internal/format"
+	"github.com/davidsevcik/bigquery-tui/internal/search"
 )
 
-// Projects can be turned off in the TUI (ctrl+x p): the explorer, search and
-// jump leave them out. The catalog still syncs them. The set is kept in the
-// TUI state file, so a project added to the config later starts on.
+// The Projects dialog (ctrl+x p) chooses the Selected projects (what is
+// synced and browsed) and the Execution project. Every key applies at once
+// through the engine; closing the dialog starts one sync of the projects
+// selected during the visit that have no cache or a stale one.
 
-// projects lists the projects that are turned on. When every project is off
-// (the last one on was removed from the config) all of them show.
-func (m *Model) projects() []api.BrowseNode {
-	all := m.be.Projects()
-	var on []api.BrowseNode
-	for _, p := range all {
-		if !m.hidden[p.Name] {
-			on = append(on, p)
-		}
-	}
-	if len(on) == 0 {
-		return all
-	}
-	return on
+// projDialog is the open dialog.
+type projDialog struct {
+	// group is each row's group, frozen when the dialog opened (Selected
+	// first): toggling a project changes its checkbox, never its place.
+	group   map[string]bool
+	infos   map[string]api.ProjectInfo
+	order   []string // rows: the Selected group A–Z, then the rest A–Z
+	loading bool
+	listErr string
+	added   map[string]bool // selected during this visit
+	filter  input
+	typing  bool
+	sel     int
+	auto    bool // opened by itself (nothing selected yet)
 }
 
-// hiddenProjects is the search filter matching projects().
-func (m *Model) hiddenProjects() []string {
-	all := m.be.Projects()
-	var out []string
-	for _, p := range all {
-		if m.hidden[p.Name] {
-			out = append(out, p.Name)
-		}
-	}
-	if len(out) == len(all) {
-		return nil
-	}
-	return out
+// projListMsg carries BigQuery's projects list.
+type projListMsg struct {
+	list []api.ListedProject
+	err  error
 }
 
-func (m *Model) setHidden(hidden map[string]bool) tea.Cmd {
-	m.hidden = hidden
-	m.saveState()
-	m.reloadBrowse()
-	return m.rerunSearches()
-}
+// projects lists the Selected projects (the Explorer's top level).
+func (m *Model) projects() []api.BrowseNode { return m.be.Projects() }
 
-// milFirst is the first Miller column shown: with a single project on, the
-// project column is left out.
+// milFirst is the first Miller column shown: with a single project selected,
+// the project column is left out.
 func (m *Model) milFirst() int {
-	// one project on, not one left by the projects column's filter
+	// one project selected, not one left by the projects column's filter
 	if m.mil.unfiltered[0] == 1 && len(m.mil.cols[0]) == 1 && len(m.mil.cols[1]) > 0 {
 		return 1
 	}
 	return 0
 }
 
-func (m *Model) openProjects() {
-	m.ov, m.ovSel, m.ovOff = ovProjects, 0, 0
-	for i, p := range m.be.Projects() {
-		if n, ok := m.mil.at(0); ok && n.Name == p.Name {
-			m.ovSel = i
+// openProjects opens the dialog and fetches BigQuery's projects list unless
+// this session has it already.
+func (m *Model) openProjects() tea.Cmd {
+	m.ov, m.ovOff = ovProjects, 0
+	pd := &projDialog{group: map[string]bool{}, added: map[string]bool{}}
+	m.pd = pd
+	for _, id := range m.be.Selection().IDs() {
+		pd.group[id] = true
+	}
+	m.refreshProjects()
+	pd.sel = 0
+	if n, ok := m.mil.at(0); ok {
+		for i, id := range pd.order {
+			if id == n.Name {
+				pd.sel = i
+			}
 		}
+	}
+	if m.listed != nil {
+		return nil
+	}
+	pd.loading = true
+	return m.fetchProjects(false)
+}
+
+func (m *Model) fetchProjects(refresh bool) tea.Cmd {
+	return func() tea.Msg {
+		list, err := m.be.AccessibleProjects(m.ctx, refresh)
+		return projListMsg{list, err}
 	}
 }
 
-func (m *Model) projectsLines(w int) []string {
-	all := m.be.Projects()
-	m.ovSel = clamp(m.ovSel, 0, max(0, len(all)-1))
+func (m *Model) onProjectList(msg projListMsg) {
+	if msg.err == nil {
+		if msg.list == nil {
+			msg.list = []api.ListedProject{}
+		}
+		m.listed = msg.list
+	}
+	pd := m.pd
+	if pd == nil {
+		return
+	}
+	pd.loading = false
+	pd.listErr = ""
+	if msg.err != nil {
+		pd.listErr = msg.err.Error()
+	}
+	cur := pd.current()
+	m.refreshProjects()
+	pd.focus(cur)
+}
+
+// refreshProjects reloads the rows' data, keeping their order and the
+// project under the cursor.
+func (m *Model) refreshProjects() {
+	pd := m.pd
+	if pd == nil {
+		return
+	}
+	cur := pd.current()
+	defer func() {
+		if cur != "" {
+			pd.focus(cur)
+		}
+	}()
+	infos, err := m.be.ProjectInfos(m.ctx, m.listed)
+	if err != nil {
+		m.toast = "projects: " + err.Error()
+	}
+	pd.infos = map[string]api.ProjectInfo{}
+	for _, p := range infos {
+		pd.infos[p.ID] = p
+	}
+	pd.order = pd.order[:0]
+	for id := range pd.infos {
+		pd.order = append(pd.order, id)
+	}
+	sort.Slice(pd.order, func(i, j int) bool {
+		a, b := pd.order[i], pd.order[j]
+		if pd.group[a] != pd.group[b] {
+			return pd.group[a]
+		}
+		return a < b
+	})
+}
+
+// visible are the rows the filter keeps.
+func (pd *projDialog) visible() []string {
+	q := strings.TrimSpace(pd.filter.value())
+	if q == "" {
+		return pd.order
+	}
 	var out []string
-	for _, l := range wrap("space turns a project on or off · o shows only it · a shows all · esc closes", w-2) {
-		out = append(out, " "+sDim.Render(l))
-	}
-	out = append(out, "")
-	m.projTop = len(out)
-	if len(all) == 0 {
-		return append(out, " "+sDim.Render("no projects: add them to projects in the config (g c)"))
-	}
-	shown := m.projects()
-	on := map[string]bool{}
-	for _, p := range shown {
-		on[p.Name] = true
-	}
-	for i, p := range all {
-		r := newRB(i == m.ovSel)
-		box, st := "[ ] ", sDim
-		if on[p.Name] {
-			box, st = "[x] ", sAcc
+	for _, id := range pd.order {
+		if search.ProjectMatches(id, pd.infos[id].FriendlyName, q) {
+			out = append(out, id)
 		}
-		r.add(" "+box, st).add(p.Name, sBase)
-		if p.Children > 0 {
-			unit := " datasets "
-			if p.Children == 1 {
-				unit = " dataset "
-			}
-			r.addR(fmt.Sprint(p.Children)+unit, sDim)
-		}
-		out = append(out, r.line(w))
 	}
 	return out
 }
 
-func (m *Model) projectsOverlayAction(act string) tea.Cmd {
-	all := m.be.Projects()
-	cur := ""
-	if m.ovSel < len(all) {
-		cur = all[m.ovSel].Name
+// addRow is the project ID the "add" row would select: the filter text when
+// it matches no row and looks like a project ID.
+func (pd *projDialog) addRow() string {
+	q := strings.TrimSpace(pd.filter.value())
+	if q == "" || len(pd.visible()) > 0 || !config.ValidProjectID(q) {
+		return ""
 	}
+	return q
+}
+
+func (pd *projDialog) current() string {
+	if id := pd.addRow(); id != "" {
+		return ""
+	}
+	vis := pd.visible()
+	if pd.sel >= 0 && pd.sel < len(vis) {
+		return vis[pd.sel]
+	}
+	return ""
+}
+
+func (pd *projDialog) focus(id string) {
+	for i, v := range pd.visible() {
+		if v == id {
+			pd.sel = i
+			return
+		}
+	}
+	pd.sel = clamp(pd.sel, 0, max(0, len(pd.visible())-1))
+}
+
+func (pd *projDialog) rows() int {
+	if pd.addRow() != "" {
+		return 1
+	}
+	return len(pd.visible())
+}
+
+// execText is the header naming the Execution project and why it is that one.
+func execText(p string, src api.ExecutionSource) string {
+	why := map[api.ExecutionSource]string{
+		api.ExecutionChosen: "chosen", api.ExecutionFirstSelected: "first selected",
+		api.ExecutionFlag: "--execution-project", api.ExecutionEnv: "BQT_EXECUTION_PROJECT",
+	}[src]
+	if p == "" {
+		return "none: select a project, or press e on one"
+	}
+	return p + " (" + why + ")"
+}
+
+// projectsLines are the dialog's header, fitted to the h lines of the popup
+// body, and its rows.
+func (m *Model) projectsLines(w, h int) (head, rows []string) {
+	pd := m.pd
+	if pd == nil {
+		return nil, nil
+	}
+	head = m.projectsHead(w, h)
+	if id := pd.addRow(); id != "" {
+		r := newRB(true)
+		r.add(" + ", sAcc).add("add "+id, sBase).addR("not in your projects list ", sDim)
+		return head, []string{r.line(w)}
+	}
+	vis := pd.visible()
+	if len(vis) == 0 {
+		msg := "no projects: check your credentials (`bqt doctor`)"
+		if pd.filter.value() != "" {
+			msg = "no project matches"
+		}
+		return head, []string{" " + sDim.Render(msg)}
+	}
+	pd.sel = clamp(pd.sel, 0, len(vis)-1)
+	for i, id := range vis {
+		p := pd.infos[id]
+		r := newRB(i == pd.sel)
+		box, st := "[ ] ", sDim
+		if p.Selected {
+			box, st = "[x] ", sAcc
+		}
+		r.add(" "+box, st).add(id, sBase)
+		if p.FriendlyName != "" {
+			r.add("  "+p.FriendlyName, sDim)
+		}
+		if right := m.projectState(p); right != "" {
+			r.addR(right+" ", sDim)
+		}
+		rows = append(rows, r.line(w))
+	}
+	return head, rows
+}
+
+// projectsHead is the header above the rows: the Execution project, the
+// keys, the selection count and the filter. Where the popup is short it
+// drops the keys first (they are in help too), always leaving a row.
+func (m *Model) projectsHead(w, h int) []string {
+	pd := m.pd
+	exec, src := m.be.ExecutionProject()
+	execLine := " " + sDim.Render("Execution project: ") + sAcc.Render(execText(exec, src))
+	var keys []string
+	for _, l := range wrap("space select · o only this · e execution · s sync · S sync all · / filter · r reload list · esc close", w-2) {
+		keys = append(keys, " "+sDim.Render(l))
+	}
+	sel := 0
+	for _, p := range pd.infos {
+		if p.Selected {
+			sel++
+		}
+	}
+	status := fmt.Sprintf("%d selected", sel)
+	switch {
+	case pd.loading:
+		status += " · loading projects…"
+	case pd.listErr != "":
+		status += " · could not list your projects: " + pd.listErr
+	}
+	tail := []string{" " + sDim.Render(status)}
+	if pd.typing || pd.filter.value() != "" {
+		b := newRB(false)
+		b.add(" / ", sAcc)
+		b.l.WriteString(pd.filter.render(api.ParsedQuery{}, pd.typing, "project ID or name"))
+		tail = append(tail, b.line(w))
+	}
+	room := h - 1 // at least one row shows
+	head := append([]string{execLine}, tail...)
+	if len(head)+len(keys) <= room {
+		head = append(append([]string{execLine}, keys...), tail...)
+	}
+	if len(head) < room {
+		head = append(head, "")
+	}
+	if len(head) > room { // a tiny popup: the status and the filter come first
+		head = head[len(head)-max(0, room):]
+	}
+	return head
+}
+
+// projectState is the right-hand text of a row.
+func (m *Model) projectState(p api.ProjectInfo) string {
+	var parts []string
+	if !p.Listed {
+		parts = append(parts, "not listed")
+	}
+	if !p.Accessible {
+		parts = append(parts, "not accessible")
+	}
+	switch {
+	case m.projectSyncing(p):
+		parts = append(parts, "syncing…")
+	case p.Sync == api.ProjectFailed:
+		parts = append(parts, "sync failed")
+	case p.Sync == api.ProjectNotSynced && p.Selected:
+		parts = append(parts, "not synced yet")
+	}
+	if p.SyncedAt != nil {
+		parts = append(parts, plural(p.Datasets, "dataset", "datasets"), format.Age(m.o.Now().Sub(*p.SyncedAt))+" ago")
+	}
+	return strings.Join(parts, " · ")
+}
+
+// projectSyncing reports whether this session's running sync covers p.
+func (m *Model) projectSyncing(p api.ProjectInfo) bool {
+	if !m.syncing {
+		return false
+	}
+	if m.syncScope == nil {
+		return p.Selected
+	}
+	for _, s := range m.syncScope {
+		if s == p.ID {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Model) projectsKey(msg tea.KeyPressMsg, name string) tea.Cmd {
+	pd := m.pd
+	switch keys.action(ZoneSearch, name) {
+	case "back", "open":
+		pd.typing = false
+		return nil
+	case "down":
+		pd.sel = min(pd.sel+1, max(0, pd.rows()-1))
+		return nil
+	case "up":
+		pd.sel = max(0, pd.sel-1)
+		return nil
+	}
+	if pd.filter.handle(msg) {
+		pd.sel = 0
+	}
+	return nil
+}
+
+func (m *Model) projectsOverlayAction(act string) tea.Cmd {
+	pd := m.pd
+	cur := pd.current()
 	switch act {
 	case "down":
-		m.ovSel = min(m.ovSel+1, max(0, len(all)-1))
+		pd.sel = min(pd.sel+1, max(0, pd.rows()-1))
 	case "up":
-		m.ovSel = max(0, m.ovSel-1)
-	case "back", "open":
-		m.ov = ovNone
-	case "toggle", "only", "all":
+		pd.sel = max(0, pd.sel-1)
+	case "halfdown":
+		pd.sel = min(pd.sel+10, max(0, pd.rows()-1))
+	case "halfup":
+		pd.sel = max(0, pd.sel-10)
+	case "filter":
+		pd.typing = true
+	case "reloadlist":
+		pd.loading = true
+		return m.fetchProjects(true)
+	case "sync":
 		if cur == "" {
 			return nil
 		}
-		h, ok := nextHidden(all, m.hidden, cur, act)
-		if !ok {
-			m.toast = "at least one project stays on (o shows only this one)"
+		if p := pd.infos[cur]; !p.Selected && p.SyncedAt == nil {
+			m.toast = cur + " is not selected: space selects it"
 			return nil
 		}
-		return m.setHidden(h)
+		return m.syncNow([]string{cur})
+	case "syncall":
+		return m.syncNow(nil)
+	case "back":
+		if pd.filter.value() != "" {
+			pd.filter.set("")
+			pd.focus(cur)
+			return nil
+		}
+		return m.closeProjects()
+	case "open":
+		if id := pd.addRow(); id != "" {
+			return m.projectChange(func() error { return m.be.SelectProjects(id) }, id)
+		}
+		return m.closeProjects()
+	case "toggle":
+		if id := pd.addRow(); id != "" {
+			return m.projectChange(func() error { return m.be.SelectProjects(id) }, id)
+		}
+		if cur == "" {
+			return nil
+		}
+		if pd.infos[cur].Selected {
+			return m.projectChange(func() error { return m.be.DeselectProjects(cur) }, "")
+		}
+		return m.projectChange(func() error { return m.be.SelectProjects(cur) }, cur)
+	case "only":
+		if cur == "" {
+			return nil
+		}
+		return m.projectChange(func() error { return m.be.SelectOnly(cur) }, cur)
+	case "exec":
+		if cur == "" {
+			return nil
+		}
+		if p, _ := m.be.ExecutionProject(); p == cur {
+			return nil
+		}
+		return m.projectChange(func() error { return m.be.ChooseExecution(cur) }, "")
 	default:
 		if cmd, ok := m.globalAction(act); ok {
 			return cmd
@@ -137,89 +424,203 @@ func (m *Model) projectsOverlayAction(act string) tea.Cmd {
 	return nil
 }
 
-// nextHidden applies a dialog action ("toggle" or "only" on cur, or "all")
-// to the projects that are on, as projects() shows them. Entries for
-// projects missing from the config are kept, so they come back off. ok is
-// false when the action would turn off the last project on.
-func nextHidden(all []api.BrowseNode, hidden map[string]bool, cur, act string) (map[string]bool, bool) {
-	present := map[string]bool{}
-	on := map[string]bool{}
-	for _, p := range all {
-		present[p.Name] = true
-		if !hidden[p.Name] {
-			on[p.Name] = true
-		}
-	}
-	if len(on) == 0 { // every project shows when none is on
-		for _, p := range all {
-			on[p.Name] = true
-		}
-	}
-	switch act {
-	case "toggle":
-		if on[cur] {
-			delete(on, cur)
+// projectChange applies one change at once and refreshes what depends on
+// the selection. added is a project the change selects (synced on close).
+func (m *Model) projectChange(change func() error, added string) tea.Cmd {
+	pd := m.pd
+	cur := pd.current()
+	wasSel := added != "" && pd.infos[added].Selected
+	execBefore, _ := m.be.ExecutionProject()
+	if err := change(); err != nil {
+		if errors.Is(err, engine.ErrLastSelected) {
+			m.toast = "the last selected project stays selected (o selects only another one)"
 		} else {
-			on[cur] = true
+			m.toast = "projects: " + err.Error()
 		}
-	case "only":
-		on = map[string]bool{cur: true}
-	case "all":
-		on = present
-	}
-	if len(on) == 0 {
-		return nil, false
-	}
-	out := map[string]bool{}
-	for k, v := range hidden {
-		if v && !present[k] {
-			out[k] = true
-		}
-	}
-	for _, p := range all {
-		if !on[p.Name] {
-			out[p.Name] = true
-		}
-	}
-	return out, true
-}
-
-// projectsInfo is the status line note naming the projects shown: the one
-// project when only one is on, otherwise "N of M" while some are off.
-func (m *Model) projectsInfo() string {
-	on := m.projects()
-	if len(on) == 1 {
-		return on[0].Name
-	}
-	hid := m.hiddenProjects()
-	if len(hid) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d of %d projects", len(on), len(on)+len(hid))
-}
-
-// showProject turns p on if it is off, for opening a pasted path in it.
-func (m *Model) showProject(p string) tea.Cmd {
-	if !m.hidden[p] {
 		return nil
 	}
-	h := map[string]bool{}
-	for k, v := range m.hidden {
-		if v && k != p {
-			h[k] = true
-		}
+	if added != "" && !wasSel {
+		pd.added[added] = true
 	}
-	m.toast = "turned project " + p + " on"
-	return m.setHidden(h)
+	m.refreshProjects()
+	if cur == "" {
+		cur = added
+	}
+	pd.focus(cur)
+	return m.afterSelectionChange(execBefore)
 }
 
-func sortedKeys(s map[string]bool) []string {
-	var out []string
-	for k, v := range s {
-		if v {
-			out = append(out, k)
+// afterSelectionChange reloads the Explorer, searches and status after the
+// selection or the Execution project changed (here or in another process).
+func (m *Model) afterSelectionChange(execBefore string) tea.Cmd {
+	m.selSeen = selectionKey(m.be) // applied: the tick has nothing left to do
+	m.reloadBrowse()
+	cmds := []tea.Cmd{m.rerunSearches(), m.statusCmd()}
+	// the engine forgot the pricing model of the old project: learn the new one
+	if exec, _ := m.be.ExecutionProject(); exec != execBefore && !m.o.NoBackground {
+		cmds = append(cmds, m.learnPricing())
+	}
+	return tea.Batch(cmds...)
+}
+
+// closeProjects closes the dialog and starts one sync of the projects
+// selected during the visit that have no cache or a stale one.
+func (m *Model) closeProjects() tea.Cmd {
+	pd := m.pd
+	m.ov, m.pd = ovNone, nil
+	if pd == nil {
+		return nil
+	}
+	if pd.auto && m.toast == "" {
+		m.toast = "new to bqt? ctrl+g starts a short tutorial of the navigation"
+		m.saveState() // the hint shows once
+	}
+	var ids []string
+	sel := m.be.Selection()
+	for id := range pd.added {
+		if sel.Has(id) {
+			ids = append(ids, id)
 		}
 	}
-	sort.Strings(out)
-	return out
+	sort.Strings(ids)
+	return m.syncIfNeeded(ids)
+}
+
+// syncIfNeeded starts a sync of the projects among ids that need one.
+func (m *Model) syncIfNeeded(ids []string) tea.Cmd {
+	if len(ids) == 0 {
+		return nil
+	}
+	need, err := m.be.NeedsSync(m.ctx, ids)
+	if err != nil || len(need) == 0 {
+		return nil
+	}
+	if m.syncing {
+		var wait []string
+		for _, id := range need {
+			if !m.syncComing(id) {
+				wait = append(wait, id)
+			}
+		}
+		if len(wait) == 0 {
+			return nil
+		}
+		m.syncLater = append(m.syncLater, wait...)
+		m.toast = "a sync is running: " + strings.Join(wait, ", ") + " sync right after it"
+		return nil
+	}
+	return m.startSync(api.SyncScope{Projects: need}, false)
+}
+
+// syncComing reports whether the running sync or a forced one queued behind
+// it covers project id. A running full sync does not count: it covers the
+// projects that were Selected when it started.
+func (m *Model) syncComing(id string) bool {
+	return slices.Contains(m.syncScope, id) || slices.Contains(m.forceLater, id) ||
+		(m.forceAll && m.be.Selection().Has(id))
+}
+
+// syncNow syncs ids, or every Selected project when ids is nil, however
+// fresh their caches. Behind a running sync it waits for that one to end.
+func (m *Model) syncNow(ids []string) tea.Cmd {
+	if !m.syncing {
+		return m.startSync(api.SyncScope{Projects: ids}, false)
+	}
+	if ids == nil {
+		m.forceAll = true
+		m.toast = "a sync is running: every selected project syncs right after it"
+		return nil
+	}
+	for _, id := range ids {
+		if !slices.Contains(m.forceLater, id) {
+			m.forceLater = append(m.forceLater, id)
+		}
+	}
+	m.toast = "a sync is running: " + strings.Join(ids, ", ") + " syncs right after it"
+	return nil
+}
+
+// afterSync runs when a sync ends: the forced syncs queued behind it run
+// first, then the projects waiting for it that still need a sync, then a
+// pasted path waiting for its project opens.
+func (m *Model) afterSync() tea.Cmd {
+	if all, ids := m.forceAll, m.forceLater; all || len(ids) > 0 {
+		m.forceAll, m.forceLater = false, nil
+		if all {
+			sel := m.be.Selection()
+			var extra []string // cached deselected projects asked for with s
+			for _, id := range ids {
+				if !sel.Has(id) {
+					extra = append(extra, id)
+				}
+			}
+			ids = nil // every Selected project
+			if len(extra) > 0 {
+				ids = append(sel.IDs(), extra...)
+			}
+		}
+		sort.Strings(ids)
+		return m.startSync(api.SyncScope{Projects: ids}, false)
+	}
+	if ids := m.syncLater; len(ids) > 0 {
+		m.syncLater = nil
+		sort.Strings(ids)
+		return m.syncIfNeeded(ids)
+	}
+	p := m.openAfter
+	if p == nil {
+		return nil
+	}
+	m.openAfter = nil
+	if _, err := m.be.TableDetail(m.ctx, *p); err != nil {
+		m.toast = p.String() + " is not in the catalog after syncing " + p.Project
+		return nil
+	}
+	return m.reveal(*p, api.KindTable)
+}
+
+// openUncached handles a pasted path whose project the catalog does not
+// hold: it selects the project and opens the path once its sync ends.
+func (m *Model) openUncached(p api.ObjectPath) tea.Cmd {
+	if p.Table == "" || !config.ValidProjectID(p.Project) || m.be.Selection().Has(p.Project) {
+		return nil // a selected project's missing table: nothing to fetch
+	}
+	m.ov = ovNone
+	cmd := m.selectForPath(p.Project)
+	m.openAfter = &p
+	m.toast = "selected project " + p.Project + "; " + p.String() + " opens when its sync finishes"
+	return cmd
+}
+
+// selectForPath selects p for opening a pasted path in it, syncing it when
+// its cache is missing or stale.
+func (m *Model) selectForPath(p string) tea.Cmd {
+	if p == "" || m.be.Selection().Has(p) {
+		return nil
+	}
+	execBefore, _ := m.be.ExecutionProject()
+	if err := m.be.SelectProjects(p); err != nil {
+		m.toast = "projects: " + err.Error()
+		return nil
+	}
+	m.toast = "selected project " + p
+	return tea.Batch(m.afterSelectionChange(execBefore), m.syncIfNeeded([]string{p}))
+}
+
+// selectionKey fingerprints the selection and the Execution project.
+func selectionKey(be Backend) string {
+	exec, _ := be.ExecutionProject()
+	return strings.Join(be.Selection().IDs(), ",") + "|" + exec
+}
+
+// selectionChanged applies a selection changed by another process (bqt
+// projects in another terminal). Checked once a second.
+func (m *Model) selectionChanged() tea.Cmd {
+	key := selectionKey(m.be)
+	if key == m.selSeen {
+		return nil
+	}
+	before := m.selSeen[strings.LastIndex(m.selSeen, "|")+1:]
+	m.refreshProjects()
+	return m.afterSelectionChange(before)
 }

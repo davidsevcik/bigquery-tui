@@ -10,6 +10,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
+	"github.com/davidsevcik/bigquery-tui/internal/selection"
 )
 
 var ctx = context.Background()
@@ -22,16 +23,21 @@ type env struct {
 	cfg  *config.Config
 }
 
-func newEnv(t *testing.T, projects string) *env {
+// newEnv builds an engine environment over a fake with proj-a and proj-b.
+// The given projects start selected, with exec-proj as the chosen Execution
+// project; with none, nothing is selected or chosen.
+func newEnv(t *testing.T, selected ...string) *env {
 	t.Helper()
 	dir := t.TempDir()
 	e := &env{t: t, dir: dir, fake: bqtest.New(), now: time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)}
-	src := "execution_project = \"exec-proj\"\ndata_dir = \"" + dir + "\"\nsync_ttl = \"24h\"\nprojects = " + projects + "\n"
-	cfg, err := config.Parse([]byte(src), "t.toml", config.LoadOptions{})
-	if err != nil {
-		t.Fatal(err)
+	e.cfg = e.config("")
+	if len(selected) > 0 {
+		st := selection.State{Execution: "exec-proj"}
+		st.Select(e.now.Add(-time.Hour), selected...)
+		if err := selection.Save(selectionPath(dir), st); err != nil {
+			t.Fatal(err)
+		}
 	}
-	e.cfg = cfg
 	a := e.fake.AddProject("proj-a")
 	a.Datasets = []bqtest.Dataset{
 		bqtest.DS("sales", "EU", bqtest.Table("orders", "id", "amount")),
@@ -39,6 +45,16 @@ func newEnv(t *testing.T, projects string) *env {
 	}
 	e.fake.AddProject("proj-b").Datasets = []bqtest.Dataset{bqtest.DS("core", "EU", bqtest.Table("t", "c"))}
 	return e
+}
+
+// config parses a config for this environment's data_dir plus extra lines.
+func (e *env) config(extra string) *config.Config {
+	e.t.Helper()
+	cfg, err := config.Parse([]byte("data_dir = \""+e.dir+"\"\n"+extra), "t.toml", config.LoadOptions{Getenv: func(string) string { return "" }})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return cfg
 }
 
 func (e *env) open(readOnly bool) *Engine {
@@ -57,7 +73,7 @@ func (e *env) open(readOnly bool) *Engine {
 }
 
 func TestStatusBeforeAnyCatalog(t *testing.T) {
-	e := newEnv(t, `["proj-a"]`)
+	e := newEnv(t, "proj-a")
 	eng := e.open(true)
 	st, err := eng.Status(ctx)
 	if err != nil {
@@ -69,7 +85,7 @@ func TestStatusBeforeAnyCatalog(t *testing.T) {
 }
 
 func TestSyncThenStatusAndStaleness(t *testing.T) {
-	e := newEnv(t, `["proj-a", "proj-b"]`)
+	e := newEnv(t, "proj-a", "proj-b")
 	rw := e.open(false)
 	h, err := rw.StartSync(ctx, api.SyncScope{})
 	if err != nil {
@@ -118,13 +134,14 @@ func TestSyncThenStatusAndStaleness(t *testing.T) {
 }
 
 func TestStatusReportsConfigChange(t *testing.T) {
-	e := newEnv(t, `["proj-a"]`)
+	e := newEnv(t, "proj-a")
+	e.cfg = e.config(`ignore = ["proj-a.us_data"]`)
 	rw := e.open(false)
 	h, _ := rw.StartSync(ctx, api.SyncScope{})
 	h.Wait()
 
-	// the user adds a project
-	e.cfg, _ = config.Parse([]byte("execution_project = \"exec-proj\"\ndata_dir = \""+e.dir+"\"\nprojects = [\"proj-a\", \"proj-b\"]\n"), "t.toml", config.LoadOptions{})
+	// the user removes an ignore pattern
+	e.cfg = e.config("")
 	ro := e.open(true)
 	st, _ := ro.Status(ctx)
 	if !st.SyncNeeded || st.SyncReason == "" {
@@ -133,7 +150,7 @@ func TestStatusReportsConfigChange(t *testing.T) {
 }
 
 func TestSecondSyncIsRefusedWhileRunning(t *testing.T) {
-	e := newEnv(t, `["proj-a"]`)
+	e := newEnv(t, "proj-a")
 	e.fake.Delay = 150 * time.Millisecond
 	one := e.open(false)
 	h, err := one.StartSync(ctx, api.SyncScope{})
@@ -159,7 +176,7 @@ func TestSecondSyncIsRefusedWhileRunning(t *testing.T) {
 }
 
 func TestWaitWithoutReadingEvents(t *testing.T) {
-	e := newEnv(t, `["proj-a", "proj-b"]`)
+	e := newEnv(t, "proj-a", "proj-b")
 	eng := e.open(false)
 	h, _ := eng.StartSync(ctx, api.SyncScope{})
 	done := make(chan struct{})
@@ -172,7 +189,7 @@ func TestWaitWithoutReadingEvents(t *testing.T) {
 }
 
 func TestCancelThroughHandle(t *testing.T) {
-	e := newEnv(t, `["proj-a", "proj-b"]`)
+	e := newEnv(t, "proj-a", "proj-b")
 	e.fake.Delay = 2 * time.Second
 	eng := e.open(false)
 	h, _ := eng.StartSync(ctx, api.SyncScope{})
@@ -188,12 +205,12 @@ func TestCancelThroughHandle(t *testing.T) {
 }
 
 func TestReadOnlyAndNoProjects(t *testing.T) {
-	e := newEnv(t, `["proj-a"]`)
+	e := newEnv(t, "proj-a")
 	e.open(false) // creates the catalog
 	if _, err := e.open(true).StartSync(ctx, api.SyncScope{}); !errors.Is(err, ErrReadOnly) {
 		t.Fatalf("%v", err)
 	}
-	e2 := newEnv(t, `[]`)
+	e2 := newEnv(t)
 	if _, err := e2.open(false).StartSync(ctx, api.SyncScope{}); err == nil {
 		t.Fatal("no projects must be an error")
 	}

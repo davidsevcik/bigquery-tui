@@ -15,7 +15,7 @@ import (
 )
 
 func TestHistorySearchPromoteAndReopen(t *testing.T) {
-	e, eng := synced(t, `["proj-a"]`)
+	e, eng := synced(t, "proj-a")
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(30) }
 	eng.StartRun(ctx, runs.Request{SQL: "select n from orders where d >= @start",
 		Params: []api.QueryParam{{Name: "start", Type: "DATE", Value: "2024-01-01"}, {Name: "x", Null: true, Type: "STRING"}}}).Wait()
@@ -89,7 +89,7 @@ func TestHistorySearchPromoteAndReopen(t *testing.T) {
 }
 
 func TestHistoryRetention(t *testing.T) {
-	e, eng := synced(t, `["proj-a"]`)
+	e, eng := synced(t, "proj-a")
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
 	eng.StartRun(ctx, runs.Request{SQL: "select old"}).Wait()
 	e.now = e.now.Add(10 * 24 * time.Hour)
@@ -111,7 +111,7 @@ func TestHistoryRetention(t *testing.T) {
 }
 
 func TestRunCarriesItsFavorite(t *testing.T) {
-	e, eng := synced(t, `["proj-a"]`)
+	e, eng := synced(t, "proj-a")
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
 	eng.StartRun(ctx, runs.Request{SQL: "select 1", Favorite: "a/b.sql"}).Wait()
 	page, _ := eng.SearchHistory(ctx, "", 1, 0)
@@ -123,7 +123,7 @@ func TestRunCarriesItsFavorite(t *testing.T) {
 // Codex review 4, finding 9, and the stacked-header defect: promoting a
 // Run from a Favorite's buffer replaces its header; NULL stays NULL.
 func TestPromoteKeepsOneHeaderAndNull(t *testing.T) {
-	e, eng := synced(t, `["proj-a"]`)
+	e, eng := synced(t, "proj-a")
 	e.cfg.FavoritesDir = filepath.Join(e.dir, "favs")
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
 	sql := "-- description: old\n-- tags: a\n-- param: d DATE = 2024-01-01\nselect @d, @p, @n"

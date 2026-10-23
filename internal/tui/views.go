@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -149,14 +150,21 @@ func (m *Model) render() []string {
 }
 
 func (m *Model) statusLine(w int) string {
-	cfg := m.be.Config()
 	b := &rb{bg: lipgloss.Color("236")}
-	b.add(" bqt ", sBold).add("exec ", sDim).add(cfg.ExecutionProject, sAcc)
+	exec, _ := m.be.ExecutionProject()
+	if exec == "" {
+		exec = "none"
+	}
+	b.add(" bqt ", sBold).add("exec ", sDim).add(exec, sAcc)
 	if m.zone == ZoneExplorer {
 		b.add("  "+layoutNames[m.layout], sDim)
 	}
-	if pi := m.projectsInfo(); pi != "" {
-		b.add("  projects ", sDim).add(pi, sAcc)
+	ps := m.projects()
+	switch len(ps) {
+	case 0:
+		b.add("  no projects selected", sWarn)
+	case 1:
+		b.add("  project ", sDim).add(ps[0].Name, sAcc)
 	}
 	if pt := pricingText(m.runs.Pricing()); pt != "" {
 		b.add("  "+pt, sDim)
@@ -182,6 +190,10 @@ func (m *Model) statusLine(w int) string {
 			b.add(fmt.Sprintf("  ⚠ %d sync problem(s) (gp)", n), sWarn)
 		}
 	}
+	if len(ps) > 1 {
+		// after the messages: a config error or a sync state matters more
+		b.add(fmt.Sprintf("  %d projects", len(ps)), sDim)
+	}
 	if m.status != nil {
 		b.addR(fmt.Sprintf("%s datasets · %s tables ", format.Count(int64(m.status.Datasets)), format.Count(int64(m.status.Tables))), sDim)
 	}
@@ -194,6 +206,9 @@ func (m *Model) problemCount() int {
 	}
 	n := 0
 	for _, p := range m.status.Projects {
+		if !p.Selected {
+			continue // deselected: not refreshed, so its problems are not shown
+		}
 		for _, u := range p.Units {
 			if u.Status != api.UnitOK || u.NamesOnly > 0 || u.Inaccessible > 0 {
 				n++
@@ -350,7 +365,7 @@ func (m *Model) millerCol(c, w, h int) []string {
 		case f.active() && ml.unfiltered[c] > 0:
 			msg = "no match for “" + f.in.value() + "”"
 		case c == 0:
-			msg = "no projects: add them with gc (open config)"
+			msg = "no projects selected: ctrl+x p picks them"
 		}
 		out = append(out, " "+sDim.Render(msg))
 		return fillTo(out, w, h)
@@ -411,7 +426,7 @@ func (m *Model) treeList(w, h int) []string {
 	}
 	out := []string{title(hdr, w, !m.zoom)}
 	if len(t.rows) == 0 {
-		msg := "no projects: add them with gc (open config)"
+		msg := "no projects selected: ctrl+x p picks them"
 		if t.f.active() {
 			msg = "no match for “" + t.f.in.value() + "”"
 		}
@@ -660,7 +675,9 @@ func (m *Model) schemaLines(s selection, w int) []string {
 			wrapAdd(n.Error, sWarn)
 		}
 		out = append(out, "")
-		wrapAdd("Queries and sync jobs run in the Execution project "+m.be.Config().ExecutionProject+", not here.", sDim)
+		if exec, _ := m.be.ExecutionProject(); exec != n.Name {
+			wrapAdd("Queries and sync jobs run in the Execution project "+exec+", not here.", sDim)
+		}
 		return out
 	case api.KindDataset:
 		add(sBold.Render(n.Path.String()) + sDim.Render("  dataset"))
@@ -971,7 +988,9 @@ func (m *Model) jumpBox(bw, bh int) []string {
 
 func (m *Model) infoBox(bw, maxH int) []string {
 	var ttl string
-	var lines []string
+	var head, lines []string
+	body := max(1, maxH-2)
+	cur := -1 // the line the window follows; -1 scrolls freely
 	switch m.ov {
 	case ovHelp:
 		ttl, lines = "Help", helpLines(bw-2)
@@ -982,36 +1001,37 @@ func (m *Model) infoBox(bw, maxH int) []string {
 	case ovRecord:
 		ttl, lines = m.recordLines(bw - 2)
 	case ovRuns:
-		ttl, lines = "Runs", m.runsLines(bw-2)
+		ttl, lines, cur = "Runs", m.runsLines(bw-2), m.ovSel
 	case ovBuffers:
-		ttl, lines = "Buffers", m.buffersLines(bw-2)
-	case ovProjects:
-		ttl, lines = "Projects", m.projectsLines(bw-2)
-	case ovHandoff:
-		ttl, lines = "Hand-off to an agent", m.handoffLines(bw-2)
-	}
-	body := max(1, maxH-2)
-	switch m.ov {
-	case ovRuns:
-		window(m.ovSel, &m.ovOff, len(lines), body)
-	case ovBuffers:
-		at := m.ovSel
-		if at >= len(m.bufs) {
-			at += 2 // the "Restore drafts" heading
+		ttl, lines, cur = "Buffers", m.buffersLines(bw-2), m.ovSel
+		if cur >= len(m.bufs) {
+			cur += 2 // the "Restore drafts" heading
 		}
-		window(at, &m.ovOff, len(lines), body)
 	case ovProjects:
-		window(m.ovSel+m.projTop, &m.ovOff, len(lines), body)
+		ttl = "Projects"
+		head, lines = m.projectsLines(bw-2, body)
+		if m.pd != nil {
+			cur = m.pd.sel
+		}
 	case ovHandoff:
-		window(m.ovSel+m.hoTop, &m.ovOff, len(lines), body)
+		ttl, lines, cur = "Hand-off to an agent", m.handoffLines(bw-2), m.ovSel+m.hoTop
 	}
-	m.ovOff = clamp(m.ovOff, 0, max(0, len(lines)-body))
-	end := min(len(lines), m.ovOff+body)
-	vis := lines[m.ovOff:end]
-	if len(lines) > body {
-		ttl += fmt.Sprintf("  (%d-%d/%d)", m.ovOff+1, end, len(lines))
+	return m.scrollBox(ttl, head, lines, cur, bw, body)
+}
+
+// scrollBox is a popup of body lines: head stays put and rows scroll below
+// it, following row cur (cur < 0: scrolled by the keys alone).
+func (m *Model) scrollBox(ttl string, head, rows []string, cur, bw, body int) []string {
+	h := max(1, body-len(head))
+	if cur >= 0 {
+		window(cur, &m.ovOff, len(rows), h)
 	}
-	return popup(ttl, vis, bw)
+	m.ovOff = clamp(m.ovOff, 0, max(0, len(rows)-h))
+	end := min(len(rows), m.ovOff+h)
+	if len(rows) > h {
+		ttl += fmt.Sprintf("  (%d-%d/%d)", m.ovOff+1, end, len(rows))
+	}
+	return popup(ttl, append(slices.Clip(head), rows[m.ovOff:end]...), bw)
 }
 
 func (m *Model) syncLines() []string {
@@ -1035,6 +1055,9 @@ func (m *Model) problemLines(w int) []string {
 	var out []string
 	if m.status != nil {
 		for _, p := range m.status.Projects {
+			if !p.Selected {
+				continue
+			}
 			for _, u := range p.Units {
 				if u.Status == api.UnitOK && u.NamesOnly == 0 && u.Inaccessible == 0 {
 					continue

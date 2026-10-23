@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 	"github.com/davidsevcik/bigquery-tui/internal/store"
@@ -26,12 +25,12 @@ type Reconciliation struct {
 	Reason     string
 }
 
-// ReconcileConfig brings a catalog in line with the effective project/ignore
-// filter without any BigQuery call. If the filter hash changed, everything
-// the new filter excludes is pruned locally. A sync is flagged as needed when
-// a project was added or the ignore list was loosened (anything other than
-// appending ignore rules), since the catalog may then be incomplete. The
-// caller must hold the sync lock.
+// ReconcileConfig brings a catalog in line with the effective ignore filter
+// without any BigQuery call. If the filter hash changed, everything the new
+// filter excludes is pruned locally. A sync is flagged as needed when the
+// ignore list was loosened (anything other than appending ignore rules),
+// since the catalog may then be incomplete. Selection never prunes: a
+// deselected project keeps its cache. The caller must hold the sync lock.
 func ReconcileConfig(ctx context.Context, cat *store.Catalog, cfg *config.Config) (Reconciliation, error) {
 	var r Reconciliation
 	cur := cfg.Filter()
@@ -56,32 +55,16 @@ func ReconcileConfig(ctx context.Context, cat *store.Catalog, cfg *config.Config
 		if raw, ok, _ := cat.Meta(ctx, MetaFilter); ok {
 			_ = json.Unmarshal([]byte(raw), &oldFilter)
 		}
-		allowed := map[string]bool{}
-		for _, p := range cfg.Projects {
-			allowed[p] = true
-		}
 		m := cfg.Matcher()
-		r.Pruned, err = cat.Prune(ctx, allowed, m.Ignored)
+		r.Pruned, err = cat.Prune(ctx, nil, m.Ignored)
 		if err != nil {
 			return r, err
 		}
-		oldProj := map[string]bool{}
-		for _, p := range oldFilter.Projects {
-			oldProj[p] = true
-		}
-		var added []string
-		for _, p := range cur.Projects {
-			if !oldProj[p] {
-				added = append(added, p)
-			}
-		}
 		switch {
-		case len(added) > 0:
-			r.SyncNeeded, r.Reason = true, "projects added: "+strings.Join(added, ", ")
 		case !config.Tightening(oldFilter.Ignore, cur.Ignore):
 			r.SyncNeeded, r.Reason = true, "ignore patterns changed"
 		default:
-			// pure tightening or project removal: pruning is enough; keep any
+			// pure tightening: pruning is enough; keep any
 			// earlier "sync needed" flag.
 			needed, reason, err := syncNeeded(ctx, cat)
 			if err != nil {
@@ -134,8 +117,8 @@ func PendingConfigChange(ctx context.Context, cat *store.Catalog, cfg *config.Co
 	if !ok {
 		return true, "catalog is empty", nil
 	}
-	if old != cfg.Filter().Hash() {
-		return true, "config changed (projects or ignore patterns)", nil
+	if old != cfg.Filter().Hash() && !sameIgnore(ctx, cat, cfg.Filter()) {
+		return true, "config changed (ignore patterns)", nil
 	}
 	needed, reason, err := syncNeeded(ctx, cat)
 	if err != nil {
@@ -145,6 +128,30 @@ func PendingConfigChange(ctx context.Context, cat *store.Catalog, cfg *config.Co
 		return true, reason, nil
 	}
 	return false, "", nil
+}
+
+// sameIgnore reports whether the catalog was built with cur's ignore
+// patterns. Catalogs from before the Projects dialog also stored the old
+// `projects` list in the filter, so their hash differs although nothing that
+// still matters changed.
+func sameIgnore(ctx context.Context, cat *store.Catalog, cur config.Filter) bool {
+	raw, ok, err := cat.Meta(ctx, MetaFilter)
+	if err != nil || !ok {
+		return false
+	}
+	var old config.Filter
+	if json.Unmarshal([]byte(raw), &old) != nil {
+		return false
+	}
+	if len(old.Ignore) != len(cur.Ignore) {
+		return false
+	}
+	for i := range old.Ignore {
+		if old.Ignore[i] != cur.Ignore[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (r Reconciliation) String() string {

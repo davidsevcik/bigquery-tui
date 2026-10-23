@@ -16,5 +16,5 @@
   3 2      customer-2   CZ          Brno        20
   4 3      customer-3   CZ          Brno        30
  row 1 of 40 · id INTEGER
- bqt exec acme-exec  on-demand       5 datasets · 13 tables
+ bqt exec acme-exec  on-demand  2 p… 5 datasets · 13 tables
  ctrl+r run · ctrl+d dry-run · tab complete · ctrl+x b buff…

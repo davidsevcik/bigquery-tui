@@ -34,7 +34,7 @@ func (e *env) agent(source string) *Engine {
 }
 
 func TestAgentQueryReturnsAPageAndAResultID(t *testing.T) {
-	e, _ := synced(t, `["proj-a"]`)
+	e, _ := synced(t, "proj-a")
 	e.fake.OnQuery = func(string) bqtest.QueryScript {
 		s := bqtest.Numbers(250)
 		s.Rows[3][1] = strings.Repeat("x", 300)
@@ -76,7 +76,7 @@ func TestAgentQueryReturnsAPageAndAResultID(t *testing.T) {
 }
 
 func TestAgentLimitsAndRefusals(t *testing.T) {
-	e, _ := synced(t, `["proj-a"]`)
+	e, _ := synced(t, "proj-a")
 	eng := e.agent("mcp")
 	e.fake.OnQuery = func(sql string) bqtest.QueryScript {
 		if strings.HasPrefix(sql, "delete") {
@@ -120,7 +120,7 @@ func TestAgentLimitsAndRefusals(t *testing.T) {
 }
 
 func TestAgentQueryCancelledByTheCaller(t *testing.T) {
-	e, _ := synced(t, `["proj-a"]`)
+	e, _ := synced(t, "proj-a")
 	eng := e.agent("cli")
 	block := make(chan struct{})
 	defer close(block)
@@ -148,7 +148,7 @@ func TestResultIDRoundTrip(t *testing.T) {
 }
 
 func TestSchemaSearchAndPaths(t *testing.T) {
-	e, _ := synced(t, `["proj-a"]`)
+	e, _ := synced(t, "proj-a")
 	eng := e.agent("mcp")
 	s, err := eng.Schema(ctx, "`proj-a.sales.orders`")
 	if err != nil || s.Table != "proj-a.sales.orders" || len(s.Columns) != 2 || s.Columns[0].Name != "id" || s.Location != "EU" {
@@ -157,7 +157,9 @@ func TestSchemaSearchAndPaths(t *testing.T) {
 	if s, err := eng.Schema(ctx, "proj-a.sales.events_*"); err != nil || s.Shard == nil || s.Table != "proj-a.sales.events_20240102" {
 		t.Fatalf("a shard family answers with its newest member: %v %+v", err, s)
 	}
-	e.cfg.ExecutionProject = "proj-a"
+	if err := eng.ChooseExecution("proj-a"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := eng.Schema(ctx, "sales.orders"); err != nil {
 		t.Fatalf("dataset.table in the Execution project: %v", err)
 	}
@@ -179,7 +181,7 @@ func TestSchemaSearchAndPaths(t *testing.T) {
 }
 
 func TestFavoriteList(t *testing.T) {
-	e, _ := synced(t, `["proj-a"]`)
+	e, _ := synced(t, "proj-a")
 	eng := e.agent("cli")
 	dir := eng.Config().FavoritesDir
 	os.MkdirAll(filepath.Join(dir, "team"), 0o755)
@@ -196,7 +198,7 @@ func TestFavoriteList(t *testing.T) {
 }
 
 func TestHistoryListCountsTheGroups(t *testing.T) {
-	e, _ := synced(t, `["proj-a"]`)
+	e, _ := synced(t, "proj-a")
 	eng := e.agent("cli")
 	for _, sql := range []string{"select 1", "select 2", "select 3", "select 1"} {
 		if _, err := eng.RunAgentQuery(ctx, AgentQuery{SQL: sql}); err != nil {
@@ -210,7 +212,7 @@ func TestHistoryListCountsTheGroups(t *testing.T) {
 }
 
 func TestRowReadingIsBoundedByTheTimeout(t *testing.T) {
-	e, _ := synced(t, `["proj-a"]`)
+	e, _ := synced(t, "proj-a")
 	eng := e.agent("mcp")
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1200) }
 	calls := 0 // the first page is read inside the Run; slow down the second
@@ -230,7 +232,7 @@ func TestRowReadingIsBoundedByTheTimeout(t *testing.T) {
 }
 
 func TestRunSampleKeepsRawValues(t *testing.T) {
-	e, eng := synced(t, `["proj-a"]`)
+	e, eng := synced(t, "proj-a")
 	e.fake.OnQuery = func(string) bqtest.QueryScript {
 		s := bqtest.Numbers(25)
 		s.Rows[0][1] = "a\nb\tc"

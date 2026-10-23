@@ -16,5 +16,5 @@
 
 
 
- bqt exec acme-exec  flat            5 datasets · 13 tables
+ bqt exec acme-exec  flat  2 projec… 5 datasets · 13 tables
  ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · …

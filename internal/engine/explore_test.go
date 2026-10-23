@@ -9,7 +9,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
-	"github.com/davidsevcik/bigquery-tui/internal/config"
 )
 
 func (e *env) openWithTables(readOnly bool) *Engine {
@@ -29,9 +28,9 @@ func (e *env) openWithTables(readOnly bool) *Engine {
 	return eng
 }
 
-func synced(t *testing.T, projects string) (*env, *Engine) {
+func synced(t *testing.T, selected ...string) (*env, *Engine) {
 	t.Helper()
-	e := newEnv(t, projects)
+	e := newEnv(t, selected...)
 	view := bqtest.Table("v_orders")
 	view.Type, view.ViewSQL = api.TypeView, "SELECT * FROM orders"
 	e.fake.Projects["proj-a"].Datasets[0].Tables = append(e.fake.Projects["proj-a"].Datasets[0].Tables, view,
@@ -57,7 +56,7 @@ func synced(t *testing.T, projects string) (*env, *Engine) {
 }
 
 func TestSearchAndBrowseAfterSync(t *testing.T) {
-	_, eng := synced(t, `["proj-a", "proj-b", "proj-never"]`)
+	_, eng := synced(t, "proj-a", "proj-b", "proj-never")
 	e2 := eng
 	r, err := e2.Search(ctx, "orders", api.SearchOptions{TablesOnly: true})
 	if err != nil || len(r.Results) != 2 || r.Results[0].Path.String() != "proj-a.sales.orders" {
@@ -88,7 +87,7 @@ func TestSearchAndBrowseAfterSync(t *testing.T) {
 }
 
 func TestTableDetailStatsAndPreview(t *testing.T) {
-	e, eng := synced(t, `["proj-a"]`)
+	e, eng := synced(t, "proj-a")
 	p := api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "orders"}
 	d, err := eng.TableDetail(ctx, p)
 	if err != nil {
@@ -131,7 +130,7 @@ func TestTableDetailStatsAndPreview(t *testing.T) {
 }
 
 func TestRecentsFeedTheEmptyQuery(t *testing.T) {
-	_, eng := synced(t, `["proj-a"]`)
+	_, eng := synced(t, "proj-a")
 	r, _ := eng.Search(ctx, "", api.SearchOptions{})
 	if !r.Recent || len(r.Results) != 0 {
 		t.Fatalf("%+v", r)
@@ -146,7 +145,7 @@ func TestRecentsFeedTheEmptyQuery(t *testing.T) {
 }
 
 func TestWatchCatalogReloadsAfterAnotherProcessSyncs(t *testing.T) {
-	e := newEnv(t, `["proj-a"]`)
+	e := newEnv(t, "proj-a")
 	reader := e.openWithTables(false)
 	wctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -171,19 +170,20 @@ func TestWatchCatalogReloadsAfterAnotherProcessSyncs(t *testing.T) {
 }
 
 func TestReconcilePrunesWithoutBigQuery(t *testing.T) {
-	e, eng := synced(t, `["proj-a", "proj-b"]`)
+	e, eng := synced(t, "proj-a", "proj-b")
+	eng.DeselectProjects("proj-b")
 	calls := len(e.fake.Calls)
-	cfg, _ := config.Parse([]byte("execution_project = \"exec-proj\"\ndata_dir = \""+e.dir+"\"\nprojects = [\"proj-a\"]\nignore = [\"proj-a.us_data\"]\n"), "t.toml", config.LoadOptions{})
-	eng.SetConfig(cfg)
+	eng.SetConfig(e.config(`ignore = ["proj-a.us_data"]`))
 	rec, skipped, err := eng.Reconcile(ctx)
-	if err != nil || skipped || !rec.Changed || rec.Pruned.Projects != 1 || rec.Pruned.Datasets != 1 {
+	// only the ignore pattern prunes: the deselected project keeps its cache
+	if err != nil || skipped || !rec.Changed || rec.Pruned.Projects != 0 || rec.Pruned.Datasets != 1 {
 		t.Fatalf("%+v skipped=%v err=%v", rec, skipped, err)
 	}
 	if len(e.fake.Calls) != calls {
 		t.Fatal("pruning must not call BigQuery")
 	}
-	if ps := eng.Projects(); len(ps) != 1 {
-		t.Fatalf("index must follow the prune: %+v", ps)
+	if _, err := eng.TableDetail(ctx, api.ObjectPath{Project: "proj-b", Dataset: "core", Table: "t"}); err != nil {
+		t.Fatalf("the deselected project lost its cache: %v", err)
 	}
 	if ds := eng.Datasets("proj-a"); len(ds) != 1 {
 		t.Fatalf("%+v", ds)
@@ -191,7 +191,7 @@ func TestReconcilePrunesWithoutBigQuery(t *testing.T) {
 }
 
 func TestAutoRefresh(t *testing.T) {
-	e := newEnv(t, `["proj-a", "proj-b"]`)
+	e := newEnv(t, "proj-a", "proj-b")
 	eng := e.openWithTables(false)
 	// empty catalog: full sync
 	h, err := eng.AutoRefresh(ctx)
@@ -225,51 +225,44 @@ func TestAutoRefresh(t *testing.T) {
 }
 
 func TestSetConfigChangesTTL(t *testing.T) {
-	e, eng := synced(t, `["proj-a"]`)
+	e, eng := synced(t, "proj-a")
 	e.now = e.now.Add(2 * time.Hour)
 	if eng.Projects()[0].Stale {
 		t.Fatal("fresh at a 24h TTL")
 	}
-	cfg, _ := config.Parse([]byte("execution_project = \"exec-proj\"\ndata_dir = \""+e.dir+"\"\nprojects = [\"proj-a\"]\nsync_ttl = \"1h\"\n"), "t.toml", config.LoadOptions{})
-	eng.SetConfig(cfg)
+	eng.SetConfig(e.config(`sync_ttl = "1h"`))
 	if !eng.Projects()[0].Stale {
 		t.Fatal("stale once the TTL drops to 1h")
 	}
 }
 
-func TestAutoRefreshNeverSyncsNewlyAddedProjects(t *testing.T) {
-	e := newEnv(t, `["proj-a"]`)
+func TestAutoRefreshSyncsANewlySelectedProject(t *testing.T) {
+	e := newEnv(t, "proj-a")
 	eng := e.openWithTables(false)
 	h, _ := eng.AutoRefresh(ctx)
 	h.Wait()
-	// the user adds a project; the catalog goes stale as well
-	cfg, _ := config.Parse([]byte("execution_project = \"exec-proj\"\ndata_dir = \""+e.dir+"\"\nprojects = [\"proj-a\", \"proj-b\"]\n"), "t.toml", config.LoadOptions{})
-	eng.SetConfig(cfg)
-	if _, _, err := eng.Reconcile(ctx); err != nil {
+	// the user selects another project: background refresh syncs just it
+	if err := eng.SelectProjects("proj-b"); err != nil {
 		t.Fatal(err)
 	}
 	e.fake.Calls = nil
-	if h, err := eng.AutoRefresh(ctx); err != nil || h != nil {
-		t.Fatalf("a config change alone must not sync: %v %v", h, err)
-	}
-	e.now = e.now.Add(25 * time.Hour)
 	h, err := eng.AutoRefresh(ctx)
 	if err != nil || h == nil {
 		t.Fatalf("%v %v", h, err)
 	}
 	h.Wait()
 	for _, c := range e.fake.CallsTo("ListDatasets") {
-		if c.Project == "proj-b" {
-			t.Fatal("the added project must wait for an explicit sync")
+		if c.Project != "proj-b" {
+			t.Fatalf("only the new project is synced: %+v", c)
 		}
 	}
-	if st, _ := eng.Status(ctx); !st.SyncNeeded {
-		t.Fatal("the banner must stay until the user syncs")
+	if st, _ := eng.Status(ctx); st.SyncNeeded {
+		t.Fatalf("both projects are synced: %+v", st)
 	}
 }
 
 func TestUnreadSyncEventsDoNotLeakThePump(t *testing.T) {
-	e := newEnv(t, `["proj-a", "proj-b"]`)
+	e := newEnv(t, "proj-a", "proj-b")
 	eng := e.openWithTables(false)
 	h, _ := eng.StartSync(ctx, api.SyncScope{})
 	if _, err := h.Wait(); err != nil {
@@ -288,7 +281,7 @@ func TestUnreadSyncEventsDoNotLeakThePump(t *testing.T) {
 }
 
 func TestOperationsAfterCloseFailCleanly(t *testing.T) {
-	e := newEnv(t, `["proj-a"]`)
+	e := newEnv(t, "proj-a")
 	eng := e.openWithTables(false)
 	eng.Close()
 	if err := eng.TouchRecent(ctx, api.ObjectPath{Project: "p", Dataset: "d", Table: "t"}); !errors.Is(err, ErrClosed) {
@@ -297,7 +290,7 @@ func TestOperationsAfterCloseFailCleanly(t *testing.T) {
 }
 
 func TestDetailRejectsAStaleIndexEntry(t *testing.T) {
-	e, eng := synced(t, `["proj-a"]`)
+	e, eng := synced(t, "proj-a")
 	// the table disappears from BigQuery and the catalog, but this engine's
 	// index is deliberately left stale
 	e.fake.Projects["proj-a"].Datasets[1].Tables = nil

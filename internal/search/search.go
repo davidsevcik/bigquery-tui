@@ -374,7 +374,33 @@ func (s *Searcher) rank(ctx context.Context, x *Index, c *compiled, o api.Search
 	}
 
 	sortHits(out, len(terms) > 0)
+	if len(o.Prefer) > 0 {
+		x.preferProjects(out, o.Prefer)
+	}
 	return out
+}
+
+// preferProjects moves the hits in the preferred projects ahead of the rest,
+// keeping each group's order.
+func (x *Index) preferProjects(hits []hit, prefer []string) {
+	want := map[string]bool{}
+	for _, p := range prefer {
+		want[p] = true
+	}
+	first := func(h hit) bool { return want[x.hitProject(h)] }
+	sort.SliceStable(hits, func(i, j int) bool { return first(hits[i]) && !first(hits[j]) })
+}
+
+// hitProject is the project a hit belongs to.
+func (x *Index) hitProject(h hit) string {
+	switch h.kind {
+	case api.KindProject:
+		return x.projects[h.i].name
+	case api.KindDataset:
+		return x.projects[x.datasets[h.i].proj].name
+	default: // tables and shard families index a table
+		return x.projects[x.datasets[x.tables[h.i].ds].proj].name
+	}
 }
 
 // sortHits orders hits by tier when the query has free terms (ties: shorter

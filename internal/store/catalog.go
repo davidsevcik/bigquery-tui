@@ -721,10 +721,11 @@ func (c *Catalog) Prune(ctx context.Context, allowed map[string]bool, ignored fu
 	}
 	rows.Close()
 	for _, p := range projects {
-		// Only the allowlist removes a whole project. An ignored project can
-		// still hold re-included datasets ("p", "!p.keep"), so ignore rules are
-		// applied per dataset and per table, exactly as sync applies them.
-		if !allowed[p.name] {
+		// Only the allowlist removes a whole project (nil keeps every
+		// project). An ignored project can still hold re-included datasets
+		// ("p", "!p.keep"), so ignore rules are applied per dataset and per
+		// table, exactly as sync applies them.
+		if allowed != nil && !allowed[p.name] {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", p.id); err != nil {
 				return st, err
 			}

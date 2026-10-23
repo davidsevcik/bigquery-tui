@@ -29,9 +29,9 @@ func TestLiveReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	cfg := &config.Config{ExecutionProject: exec, Location: os.Getenv("BQT_LIVE_LOCATION"), MaxConcurrentQueries: 1,
+	cfg := &config.Config{Location: os.Getenv("BQT_LIVE_LOCATION"), MaxConcurrentQueries: 1,
 		ConfirmBytes: config.ByteLimit{Mode: config.ByteLimitAuto}, MaxBytesBilled: config.ByteLimit{Mode: config.ByteLimitValue, Bytes: 10 << 20}}
-	opts := Options{Jobs: func(context.Context) (bq.Jobs, error) { return c, nil }, Config: func() *config.Config { return cfg }}
+	opts := Options{Jobs: func(context.Context, string) (bq.Jobs, error) { return c, nil }, Config: func() *config.Config { return cfg }, Execution: func() string { return exec }}
 	m := New(opts)
 	defer m.Close()
 	info := m.Start(ctx, Request{SQL: "SELECT x, CONCAT('row ', CAST(x AS STRING)) AS label FROM UNNEST(GENERATE_ARRAY(1, 1200)) AS x ORDER BY x"}).Wait()

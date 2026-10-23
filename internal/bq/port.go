@@ -34,6 +34,11 @@ type DatasetRequest struct {
 // Metadata reads catalog metadata. Implementations must set an explicit job
 // location on every query and label their jobs.
 type Metadata interface {
+	// ListProjects lists the projects the credentials hold a project-level
+	// role in (REST projects.list), with their friendly names. It needs no
+	// Execution project.
+	ListProjects(ctx context.Context) ([]api.ListedProject, error)
+
 	// ListDatasets enumerates a project's datasets with their locations (REST
 	// datasets.list). It is the only way to discover which regions to query.
 	ListDatasets(ctx context.Context, project string) (DatasetList, error)

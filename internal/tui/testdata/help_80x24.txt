@@ -1,5 +1,5 @@
  Projects 1/2     │ Datasets 1/4                 │ Tables 1/2
-acm╭─ Help  (1-18/200) ─────────────────────────────────────────────────────╮
+acm╭─ Help  (1-18/207) ─────────────────────────────────────────────────────╮
 acm│ Global                                                                 │×4
    │ ctrl+q          quit (asks if Runs are in flight)                      │
    │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results                 │
@@ -10,8 +10,8 @@ acm│ Global                                                                 �
    │ ctrl+p          command palette                                        │
    │ ctrl+t          jump to table (recently opened when empty)             │
    │ f1              this help                                              │
-   │ ctrl+x p        projects: turn them on or off in the explorer and      │
-   │                 search (one on hides the project column)               │
+   │ ctrl+x p        projects: choose which are synced and browsed, and     │
+   │                 where jobs run (one selected hides the project column) │
    │ ctrl+x f        favorites: saved queries (tab switches to History)     │
    │ ctrl+x r        history: every query run, searchable (tab switches to  │
    │                 Favorites)                                             │
@@ -20,5 +20,5 @@ acm│ Global                                                                 �
    │ ctrl+c          cancel the export, the focused Run, or the sync        │
    ╰────────────────────────────────────────────────────────────────────────╯
                   │                              │
- bqt exec acme-exec  miller                              5 datasets · 13 tables
+ bqt exec acme-exec  miller  2 projects                  5 datasets · 13 tables
  esc close

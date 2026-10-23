@@ -340,15 +340,15 @@ func TestConfigReloadEvents(t *testing.T) {
 	r.contains("config error (using the last good config)", "ingore")
 	r.contains("acme-staging") // still running on the last good config
 
-	src := "execution_project = \"other-exec\"\ndata_dir = \"" + r.dir + "/data\"\nprojects = [\"acme-prod\"]\n"
+	src := "data_dir = \"" + r.dir + "/data\"\nignore = [\"acme-staging\"]\n"
 	os.WriteFile(r.cfg, []byte(src), 0o600)
 	cfg, err := config.Load(config.LoadOptions{Path: r.cfg, Getenv: func(string) string { return "" }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.send(configWait{ev: config.Event{Config: cfg, Changed: []string{"execution_project", "projects"}}, ch: closed})
-	r.lacks("config error", "acme-staging")
-	r.contains("exec other-exec")
+	r.send(configWait{ev: config.Event{Config: cfg, Changed: []string{"ignore"}}, ch: closed})
+	r.lacks("config error")
+	r.contains("config reloaded: ignore")
 	if len(r.fake.CallsTo("ListDatasets")) != 2 {
 		t.Fatal("a config change prunes locally; it must not sync on its own")
 	}
@@ -372,15 +372,10 @@ func TestTinyTerminal(t *testing.T) {
 func TestEnterOnEmptyContainersInTreeDoesNotRecurse(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.fake.AddProject("acme-empty")
-	src := "execution_project = \"acme-exec\"\ndata_dir = \"" + r.dir + "/data\"\nprojects = [\"acme-empty\", \"acme-prod\", \"acme-staging\"]\n"
-	os.WriteFile(r.cfg, []byte(src), 0o600)
-	cfg, err := config.Load(config.LoadOptions{Path: r.cfg, Getenv: func(string) string { return "" }})
-	if err != nil {
+	if err := r.eng.SelectProjects("acme-empty"); err != nil {
 		t.Fatal(err)
 	}
-	closed := make(chan config.Event)
-	close(closed)
-	r.send(configWait{ev: config.Event{Config: cfg, Changed: []string{"projects"}}, ch: closed})
+	r.m.reloadBrowse()
 	r.press("L") // tree
 	r.press("g", "g")
 	if r.m.sel().path.Project != "acme-empty" {

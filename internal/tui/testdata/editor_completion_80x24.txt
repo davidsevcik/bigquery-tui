@@ -20,5 +20,5 @@
  no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimates it
 
 
- bqt exec acme-exec                                      5 datasets · 13 tables
+ bqt exec acme-exec  2 projects                          5 datasets · 13 tables
  tab accept · ↑↓ select · esc dismiss · enter is a new line

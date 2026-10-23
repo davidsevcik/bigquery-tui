@@ -44,7 +44,7 @@ func cmdSync(ctx context.Context, o *out, g *globals, args []string) (int, error
 	var projects stringList
 	var progress bool
 	fs := commandFlags("sync", g)
-	fs.Var(&projects, "project", "sync only this configured project (repeatable)")
+	fs.Var(&projects, "project", "sync only this project: a selected one, or a deselected one to refresh its cache (repeatable)")
 	fs.BoolVar(&progress, "progress", false, "stream progress to stderr (default on a terminal)")
 	if err := parse(fs, args); err != nil {
 		return 0, err

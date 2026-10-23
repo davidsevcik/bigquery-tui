@@ -65,17 +65,33 @@ func (e *Engine) Complete(text string, cursor int, forced bool) []api.Candidate 
 // completionCatalog adapts the in-memory index and the catalog to sqlx.Catalog.
 type completionCatalog struct{ e *Engine }
 
-func (c completionCatalog) DefaultProject() string { return c.e.Config().ExecutionProject }
+func (c completionCatalog) DefaultProject() string { return c.e.execProject() }
 
+// Projects offers the Selected projects that hold data (completion follows
+// the Explorer: deselected projects are not offered).
 func (c completionCatalog) Projects() []string {
+	sel := c.e.Selection()
 	var out []string
 	for _, n := range c.e.search.Projects() {
-		out = append(out, n.Name)
+		if sel.Has(n.Name) {
+			out = append(out, n.Name)
+		}
 	}
 	return out
 }
 
+// offered reports whether completion offers the names inside project: a
+// Selected project, or the Execution project (unqualified dataset.table
+// names resolve there, selected or not). The columns of a table the query
+// names are offered in any cached project: the user wrote that table.
+func (c completionCatalog) offered(project string) bool {
+	return c.e.Selection().Has(project) || project == c.e.execProject()
+}
+
 func (c completionCatalog) Datasets(project string) []string {
+	if !c.offered(project) {
+		return nil
+	}
 	var out []string
 	for _, n := range c.e.search.Datasets(project) {
 		out = append(out, n.Name)
@@ -84,6 +100,9 @@ func (c completionCatalog) Datasets(project string) []string {
 }
 
 func (c completionCatalog) Tables(project, dataset string) []sqlx.TableName {
+	if !c.offered(project) {
+		return nil
+	}
 	var out []sqlx.TableName
 	for _, n := range c.e.search.Tables(project, dataset) {
 		name := n.Name

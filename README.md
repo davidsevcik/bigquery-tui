@@ -22,9 +22,11 @@ go run ./internal/tools/archmap -open   # writes bin/architecture.html and opens
 
 ```sh
 gcloud auth application-default login   # Application Default Credentials only
-bin/bqt init --execution-project my-gcp-project
-bin/bqt config edit                      # add the projects to sync
-bin/bqt                                  # the interactive UI (syncs in the background)
+bin/bqt init                             # a commented config (optional settings)
+bin/bqt                                  # the interactive UI: pick your projects first (ctrl+x p)
+bin/bqt projects                         # or list them from the command line…
+bin/bqt projects select my-proj other    # …and choose what is synced
+bin/bqt projects exec billing-proj       # where query and sync jobs run (default: the first one selected)
 bin/bqt path/to/query.sql                # the UI with that file open in the editor
 bin/bqt sync                             # or fill the local catalog from a script or cron
 bin/bqt search 'orders p:prod -d:tmp'    # search the catalog from the command line
@@ -32,7 +34,7 @@ bin/bqt status                           # freshness and sync problems
 bin/bqt doctor                           # paths, versions, auth, catalog age
 ```
 
-In the explorer: `hjkl` or the arrows move, `/` filters the list in place (the focused Miller column, the whole tree, or the flat list; `esc` clears it), `ctrl+t` jumps to a table, `ctrl+p` opens the command palette, `L` cycles the layout (Miller columns, tree, flat list), `p` previews rows, `?` lists every key. `ctrl+x p` turns projects on or off; with one project on, the Miller view starts at its datasets. `ctrl+g` starts an interactive tutorial of the navigation.
+In the explorer: `hjkl` or the arrows move, `/` filters the list in place (the focused Miller column, the whole tree, or the flat list; `esc` clears it), `ctrl+t` jumps to a table, `ctrl+p` opens the command palette, `L` cycles the layout (Miller columns, tree, flat list), `p` previews rows, `?` lists every key. `ctrl+x p` opens the Projects dialog: it lists every BigQuery project your credentials can reach; `space` selects what is synced and browsed (a deselected project stops syncing but keeps its cached metadata), `e` picks the Execution project, `s` syncs the project under the cursor now (`S` all selected), `/` filters (and adds a project BigQuery does not list by its ID). With one project selected, the Miller view starts at its datasets. `ctrl+g` starts an interactive tutorial of the navigation.
 
 **Writing and running queries.** `ctrl+o` cycles the three zones: Explorer, Editor, Results (`ctrl+w` then `h`/`l`/`j` goes straight to one; `ctrl+w w` / `W` cycle as in vim).
 
