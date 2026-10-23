@@ -3,8 +3,10 @@ package tui
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -349,31 +351,49 @@ func TestADeselectedProjectsProblemsAreNotShown(t *testing.T) {
 	r.lacks("sync problem")
 }
 
-// A list longer than the dialog scrolls with the cursor; the header stays.
+// A list longer than the dialog scrolls with the cursor at every size; the
+// header, the filter row included, stays.
 func TestALongProjectsListScrolls(t *testing.T) {
-	r := projectsRig(t)
-	for i := range 40 {
-		r.fake.Listed = append(r.fake.Listed, api.ListedProject{ID: fmt.Sprintf("acme-x%02d", i)})
+	for _, sz := range [][2]int{{120, 36}, {80, 24}, {60, 20}} {
+		t.Run(fmt.Sprintf("%dx%d", sz[0], sz[1]), func(t *testing.T) {
+			r := newRig(t, sz[0], sz[1])
+			for i := range 40 {
+				r.fake.Listed = append(r.fake.Listed, api.ListedProject{ID: fmt.Sprintf("acme-x%02d", i)})
+			}
+			r.press("ctrl+x", "p")
+			r.lacks("acme-x39")
+			for range 43 {
+				r.press("j")
+			}
+			if cur := r.m.pd.current(); cur != "acme-x39" {
+				t.Fatalf("cursor on %q", cur)
+			}
+			r.contains("] acme-x39", "Execution project:", "space select")
+			r.press("space")
+			if !r.eng.Selection().Has("acme-x39") {
+				t.Fatalf("space hit another project: %v", r.eng.Selection().IDs())
+			}
+			r.press("ctrl+u", "ctrl+u", "ctrl+u", "ctrl+u", "ctrl+u")
+			r.contains("] acme-prod")
+
+			// filtered: the filter row stays above the scrolled rows
+			r.press("/")
+			r.typeText("acme-x")
+			r.press("enter")
+			for range 39 {
+				r.press("j")
+			}
+			if cur := r.m.pd.current(); cur != "acme-x39" {
+				t.Fatalf("filtered: cursor on %q", cur)
+			}
+			r.contains("] acme-x39", "Execution project:", " / acme-x")
+			r.lacks("] acme-x00")
+		})
 	}
-	r.press("ctrl+x", "p")
-	r.lacks("acme-x39")
-	for range 43 {
-		r.press("j")
-	}
-	r.contains("acme-x39", "Execution project:", "space select")
-	if l := r.row("acme-x39"); !strings.Contains(l, "acme-x39") {
-		t.Fatalf("%q", l)
-	}
-	r.press("space")
-	if !r.eng.Selection().Has("acme-x39") {
-		t.Fatalf("space hit another project: %v", r.eng.Selection().IDs())
-	}
-	r.press("ctrl+u", "ctrl+u", "ctrl+u", "ctrl+u", "ctrl+u")
-	r.contains("] acme-prod")
 }
 
-// s syncs the project under the cursor now, even when its cache is fresh;
-// S syncs every selected project.
+// s syncs the project under the cursor now, even when its cache is fresh
+// (a deselected one too, when cached); S syncs every Selected project.
 func TestTheDialogSyncsOnDemand(t *testing.T) {
 	r := projectsRig(t)
 	before := len(r.fake.CallsTo("ListDatasets"))
@@ -384,13 +404,66 @@ func TestTheDialogSyncsOnDemand(t *testing.T) {
 	}
 	r.contains("Projects") // the dialog stays open
 	r.press("S")
+	if got := syncedSince(r, before+1); got != "acme-prod,acme-staging" {
+		t.Fatalf("S synced %s", got)
+	}
+	r.press("j", "space") // deselect acme-staging: cached
+	n := len(r.fake.CallsTo("ListDatasets"))
+	r.press("s")
+	if got := syncedSince(r, n); got != "acme-staging" {
+		t.Fatalf("s on a cached deselected project synced %q", got)
+	}
+	r.press("j", "s") // acme-billing: not selected, no cache
+	r.contains("space selects it")
+}
+
+// syncedSince lists the projects synced after the first n ListDatasets calls.
+func syncedSince(r *rig, n int) string {
 	got := map[string]bool{}
-	for _, c := range r.fake.CallsTo("ListDatasets")[before+1:] {
+	for _, c := range r.fake.CallsTo("ListDatasets")[n:] {
 		got[c.Project] = true
 	}
-	if !got["acme-prod"] || !got["acme-staging"] || len(got) != 2 {
-		t.Fatalf("S synced %v", got)
+	ids := slices.Sorted(maps.Keys(got))
+	return strings.Join(ids, ",")
+}
+
+// s and S while a sync runs are not dropped: they run right after it, however
+// fresh the caches are by then.
+func TestSyncKeysWaitForARunningSync(t *testing.T) {
+	r := projectsRig(t)
+	r.press("ctrl+x", "p")
+	before := len(r.fake.CallsTo("ListDatasets"))
+	r.m.syncing = true // another sync is running
+	r.press("s")
+	if !strings.Contains(r.m.toast, "acme-prod syncs right after it") {
+		t.Fatalf("toast %q", r.m.toast)
 	}
-	r.press("j", "j", "s") // acme-billing: not selected, no cache
-	r.contains("space selects it")
+	r.send(syncDoneMsg{})
+	if got := syncedSince(r, before); got != "acme-prod" {
+		t.Fatalf("queued s synced %q", got)
+	}
+
+	before = len(r.fake.CallsTo("ListDatasets"))
+	r.m.syncing = true
+	r.press("S")
+	if !strings.Contains(r.m.toast, "every selected project syncs right after it") {
+		t.Fatalf("toast %q", r.m.toast)
+	}
+	r.send(syncDoneMsg{})
+	if got := syncedSince(r, before); got != "acme-prod,acme-staging" {
+		t.Fatalf("queued S synced %q", got)
+	}
+}
+
+// Closing the dialog while s syncs a newly selected project does not
+// promise it a second sync.
+func TestClosingDuringAnOnDemandSyncPromisesNothing(t *testing.T) {
+	r := projectsRig(t)
+	r.press("ctrl+x", "p", "j", "j", "j", "space")          // select acme-new
+	r.m.syncing, r.m.syncScope = true, []string{"acme-new"} // s is syncing it
+	r.m.toast = ""
+	r.press("esc")
+	if len(r.m.syncLater) != 0 || strings.Contains(r.m.toast, "right after it") {
+		t.Fatalf("queued %v, toast %q", r.m.syncLater, r.m.toast)
+	}
 }

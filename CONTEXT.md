@@ -29,5 +29,5 @@ A project the user chose in the Projects dialog or with `bqt projects select`. O
 _Avoid_: Storage project, data project, configured project, project that is on
 
 **Cached project**:
-A project that has metadata in the catalog. A deselected project stays cached: the CLI and MCP still read it (with a warning once it is older than `sync_ttl`), but nothing refreshes it except an explicit `bqt sync --project`.
+A project that has metadata in the catalog. A deselected project stays cached: the CLI and MCP still read it (with a warning once it is older than `sync_ttl`), but nothing refreshes it except an explicit request: `bqt sync --project`, or `s` on its row in the Projects dialog.
 _Avoid_: Stale project, archived project

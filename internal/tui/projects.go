@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -355,9 +356,9 @@ func (m *Model) projectsOverlayAction(act string) tea.Cmd {
 			m.toast = cur + " is not selected: space selects it"
 			return nil
 		}
-		return m.startSync(api.SyncScope{Projects: []string{cur}}, false)
+		return m.syncNow([]string{cur})
 	case "syncall":
-		return m.startSync(api.SyncScope{}, false)
+		return m.syncNow(nil)
 	case "back":
 		if pd.filter.value() != "" {
 			pd.filter.set("")
@@ -474,16 +475,72 @@ func (m *Model) syncIfNeeded(ids []string) tea.Cmd {
 		return nil
 	}
 	if m.syncing {
-		m.syncLater = append(m.syncLater, need...)
-		m.toast = "a sync is running: " + strings.Join(need, ", ") + " sync right after it"
+		var wait []string
+		for _, id := range need {
+			if !m.syncComing(id) {
+				wait = append(wait, id)
+			}
+		}
+		if len(wait) == 0 {
+			return nil
+		}
+		m.syncLater = append(m.syncLater, wait...)
+		m.toast = "a sync is running: " + strings.Join(wait, ", ") + " sync right after it"
 		return nil
 	}
 	return m.startSync(api.SyncScope{Projects: need}, false)
 }
 
-// afterSync runs when a sync ends: the projects waiting for it sync next,
-// then a pasted path waiting for its project opens.
+// syncComing reports whether the running sync or a forced one queued behind
+// it covers project id. A running full sync does not count: it covers the
+// projects that were Selected when it started.
+func (m *Model) syncComing(id string) bool {
+	return slices.Contains(m.syncScope, id) || slices.Contains(m.forceLater, id) ||
+		(m.forceAll && m.be.Selection().Has(id))
+}
+
+// syncNow syncs ids, or every Selected project when ids is nil, however
+// fresh their caches. Behind a running sync it waits for that one to end.
+func (m *Model) syncNow(ids []string) tea.Cmd {
+	if !m.syncing {
+		return m.startSync(api.SyncScope{Projects: ids}, false)
+	}
+	if ids == nil {
+		m.forceAll = true
+		m.toast = "a sync is running: every selected project syncs right after it"
+		return nil
+	}
+	for _, id := range ids {
+		if !slices.Contains(m.forceLater, id) {
+			m.forceLater = append(m.forceLater, id)
+		}
+	}
+	m.toast = "a sync is running: " + strings.Join(ids, ", ") + " syncs right after it"
+	return nil
+}
+
+// afterSync runs when a sync ends: the forced syncs queued behind it run
+// first, then the projects waiting for it that still need a sync, then a
+// pasted path waiting for its project opens.
 func (m *Model) afterSync() tea.Cmd {
+	if all, ids := m.forceAll, m.forceLater; all || len(ids) > 0 {
+		m.forceAll, m.forceLater = false, nil
+		if all {
+			sel := m.be.Selection()
+			var extra []string // cached deselected projects asked for with s
+			for _, id := range ids {
+				if !sel.Has(id) {
+					extra = append(extra, id)
+				}
+			}
+			ids = nil // every Selected project
+			if len(extra) > 0 {
+				ids = append(sel.IDs(), extra...)
+			}
+		}
+		sort.Strings(ids)
+		return m.startSync(api.SyncScope{Projects: ids}, false)
+	}
 	if ids := m.syncLater; len(ids) > 0 {
 		m.syncLater = nil
 		sort.Strings(ids)

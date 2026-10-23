@@ -166,6 +166,8 @@ type Model struct {
 	syncReason string
 	syncScope  []string        // the projects the running sync covers (nil: the Selected ones)
 	syncLater  []string        // projects to sync once the running sync ends
+	forceLater []string        // projects to sync once it ends, however fresh (s in the Projects dialog)
+	forceAll   bool            // every Selected project too, however fresh (S)
 	openAfter  *api.ObjectPath // a pasted path to open once its project's sync ends
 	status     *api.CatalogStatus
 	cfgErr     string
