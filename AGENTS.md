@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues are local markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+Issues and specs are GitHub Issues on `davidsevcik/bigquery-tui`, managed with `gh`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
