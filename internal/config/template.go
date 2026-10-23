@@ -31,6 +31,10 @@ const template = `# bqt configuration. Unknown keys are errors, so typos do not 
 # Where Favorite .sql files live (can point into a git repository).
 # favorites_dir = "~/.local/share/bqt/favorites"
 
+# Where exported results are suggested to go (the export prompt stays editable,
+# and the directory is created on export). Unset means the working directory.
+# export_dir = "~/bqt-exports"
+
 # Refresh a project in the background when its last sync is older than this.
 # sync_ttl = "24h"
 

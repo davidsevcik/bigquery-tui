@@ -299,3 +299,35 @@ func TestRetentionDaysBound(t *testing.T) {
 		t.Fatal(c.HistoryRetentionDays)
 	}
 }
+
+func TestExportDir(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	getenv := env(map[string]string{"HOME": home})
+	if c := mustParse(t, `location = "EU"`, LoadOptions{Getenv: getenv}); c.ExportDir != "" {
+		t.Fatalf("unset: %q", c.ExportDir)
+	}
+	c := mustParse(t, "export_dir = \"~/out\"\n", LoadOptions{Getenv: getenv})
+	if c.ExportDir != filepath.Join(home, "out") {
+		t.Fatalf("file: %q", c.ExportDir)
+	}
+	c = mustParse(t, "export_dir = \"rel/out\"\n", LoadOptions{Getenv: getenv})
+	if c.ExportDir != "rel/out" {
+		t.Fatalf("relative stays relative: %q", c.ExportDir)
+	}
+	c = mustParse(t, "export_dir = \"~/out\"\n", LoadOptions{Getenv: env(map[string]string{"HOME": home, "BQT_EXPORT_DIR": "$HOME/env-out"})})
+	if c.ExportDir != filepath.Join(home, "env-out") {
+		t.Fatalf("env beats file: %q", c.ExportDir)
+	}
+	es := parseErrs(t, "location = \"EU\"\nexport_dir = \"\"\n", LoadOptions{})
+	if len(es) != 1 || es[0].Key != "export_dir" || es[0].Line != 2 {
+		t.Fatalf("empty: %v", es)
+	}
+	es = parseErrs(t, "export_dir = 5\n", LoadOptions{})
+	if len(es) != 1 || es[0].Line != 1 || !strings.Contains(es[0].Msg, "ExportDir") {
+		t.Fatalf("type: %v", es)
+	}
+	a, b := mustParse(t, `location = "EU"`, LoadOptions{}), mustParse(t, "export_dir = \"x\"\nlocation = \"EU\"\n", LoadOptions{})
+	if d := Diff(a, b); len(d) != 1 || d[0] != "export_dir" {
+		t.Fatalf("live key: %v", d)
+	}
+}

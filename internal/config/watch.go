@@ -137,6 +137,7 @@ func Diff(a, b *Config) []string {
 	add("ignore", a.Filter().Ignore, b.Filter().Ignore)
 	add("data_dir", a.DataDir, b.DataDir)
 	add("favorites_dir", a.FavoritesDir, b.FavoritesDir)
+	add("export_dir", a.ExportDir, b.ExportDir)
 	add("sync_ttl", a.SyncTTL, b.SyncTTL)
 	add("confirm_bytes", a.ConfirmBytes, b.ConfirmBytes)
 	add("max_bytes_billed", a.MaxBytesBilled, b.MaxBytesBilled)

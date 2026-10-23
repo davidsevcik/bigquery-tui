@@ -109,3 +109,31 @@ func TestCompleteUsesTheCatalog(t *testing.T) {
 		t.Fatalf("a wildcard table has its newest shard's columns: %s", got)
 	}
 }
+
+func TestDefaultExportPathFollowsExportDir(t *testing.T) {
+	e, eng := synced(t, "proj-a")
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(5) }
+	plain := eng.DefaultExportPath(export.NDJSON)
+	if filepath.Dir(plain) != "." || !strings.HasPrefix(plain, "bqt-") || !strings.HasSuffix(plain, ".ndjson") {
+		t.Fatalf("unset keeps the working directory: %q", plain)
+	}
+
+	dir := filepath.Join(t.TempDir(), "not", "yet")
+	eng.Config().ExportDir = dir
+	path := eng.DefaultExportPath(export.JSON)
+	if filepath.Dir(path) != dir || !strings.HasPrefix(filepath.Base(path), "bqt-") || !strings.HasSuffix(path, ".json") {
+		t.Fatalf("set: %q", path)
+	}
+	info := eng.StartRun(ctx, runs.Request{SQL: "select"}).Wait()
+	h, err := eng.StartExport(ctx, info.ID, path, export.JSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev := h.Wait(); ev.Error != "" || ev.Rows != 5 {
+		t.Fatalf("%+v", ev)
+	}
+	ents, _ := os.ReadDir(dir)
+	if len(ents) != 1 || ents[0].Name() != filepath.Base(path) {
+		t.Fatalf("only the finished export is in export_dir: %v", ents)
+	}
+}
