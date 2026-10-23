@@ -310,6 +310,10 @@ func TestExportDir(t *testing.T) {
 	if c.ExportDir != filepath.Join(home, "out") {
 		t.Fatalf("file: %q", c.ExportDir)
 	}
+	c = mustParse(t, "export_dir = \"  ~/out  \"\n", LoadOptions{Getenv: getenv})
+	if c.ExportDir != filepath.Join(home, "out") {
+		t.Fatalf("whitespace is trimmed: %q", c.ExportDir)
+	}
 	c = mustParse(t, "export_dir = \"rel/out\"\n", LoadOptions{Getenv: getenv})
 	if c.ExportDir != "rel/out" {
 		t.Fatalf("relative stays relative: %q", c.ExportDir)

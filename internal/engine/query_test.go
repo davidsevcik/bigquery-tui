@@ -110,21 +110,33 @@ func TestCompleteUsesTheCatalog(t *testing.T) {
 	}
 }
 
+func setExportDir(eng *Engine, dir string) {
+	cfg := *eng.Config()
+	cfg.ExportDir = dir
+	eng.SetConfig(&cfg) // the path a live reload takes
+}
+
 func TestDefaultExportPathFollowsExportDir(t *testing.T) {
 	e, eng := synced(t, "proj-a")
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(5) }
-	plain := eng.DefaultExportPath(export.NDJSON)
-	if filepath.Dir(plain) != "." || !strings.HasPrefix(plain, "bqt-") || !strings.HasSuffix(plain, ".ndjson") {
-		t.Fatalf("unset keeps the working directory: %q", plain)
+	for _, f := range export.Formats {
+		p := eng.DefaultExportPath(f)
+		if filepath.Dir(p) != "." || !strings.HasPrefix(p, "bqt-") || !strings.HasSuffix(p, "."+string(f)) {
+			t.Fatalf("unset keeps the working directory: %q", p)
+		}
 	}
 
 	dir := filepath.Join(t.TempDir(), "not", "yet")
-	eng.Config().ExportDir = dir
-	path := eng.DefaultExportPath(export.JSON)
-	if filepath.Dir(path) != dir || !strings.HasPrefix(filepath.Base(path), "bqt-") || !strings.HasSuffix(path, ".json") {
-		t.Fatalf("set: %q", path)
+	setExportDir(eng, dir)
+	for _, f := range export.Formats {
+		p := eng.DefaultExportPath(f)
+		if filepath.Dir(p) != dir || !strings.HasPrefix(filepath.Base(p), "bqt-") || !strings.HasSuffix(p, "."+string(f)) {
+			t.Fatalf("set, %s: %q", f, p)
+		}
 	}
+
 	info := eng.StartRun(ctx, runs.Request{SQL: "select"}).Wait()
+	path := eng.DefaultExportPath(export.JSON)
 	h, err := eng.StartExport(ctx, info.ID, path, export.JSON)
 	if err != nil {
 		t.Fatal(err)
@@ -135,5 +147,36 @@ func TestDefaultExportPathFollowsExportDir(t *testing.T) {
 	ents, _ := os.ReadDir(dir)
 	if len(ents) != 1 || ents[0].Name() != filepath.Base(path) {
 		t.Fatalf("only the finished export is in export_dir: %v", ents)
+	}
+
+	// a cancelled export leaves nothing behind in export_dir
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1203) }
+	big := eng.StartRun(ctx, runs.Request{SQL: "select many"}).Wait()
+	h, err = eng.StartExport(ctx, big.ID, filepath.Join(dir, "cancelled.ndjson"), export.NDJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Cancel()
+	if ev := h.Wait(); ev.Error != "" {
+		if left, _ := filepath.Glob(filepath.Join(dir, "*cancelled*")); len(left) != 0 {
+			t.Fatalf("partial files left: %v", left)
+		}
+	}
+}
+
+func TestExportDirThatIsAFileFailsTheExport(t *testing.T) {
+	e, eng := synced(t, "proj-a")
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(5) }
+	blocker := filepath.Join(t.TempDir(), "taken")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setExportDir(eng, blocker)
+	info := eng.StartRun(ctx, runs.Request{SQL: "select"}).Wait()
+	if _, err := eng.StartExport(ctx, info.ID, eng.DefaultExportPath(export.CSV), export.CSV); err == nil {
+		t.Fatal("exporting into a path under a regular file must fail")
+	}
+	if b, _ := os.ReadFile(blocker); string(b) != "x" {
+		t.Fatalf("the file was touched: %q", b)
 	}
 }
