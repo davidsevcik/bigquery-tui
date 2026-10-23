@@ -28,10 +28,16 @@ func watchSetupStability(t *testing.T, src string, stability time.Duration) (pat
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	kick = make(chan struct{}, 1)
-	events = Watch(ctx, cur, WatchOptions{Load: opts, Interval: 10 * time.Millisecond, Stability: stability, Kick: kick})
-	return
+	ch := Watch(ctx, cur, WatchOptions{Load: opts, Interval: 10 * time.Millisecond, Stability: stability, Kick: kick})
+	// Wait for the watcher to stop (it closes the channel): a later test
+	// swaps readFile, which a watcher still running would race with.
+	t.Cleanup(func() {
+		cancel()
+		for range ch {
+		}
+	})
+	return path, cur, ch, kick
 }
 
 func next(t *testing.T, ch <-chan Event) Event {
@@ -54,12 +60,28 @@ func quiet(t *testing.T, ch <-chan Event) {
 	}
 }
 
+// save replaces the config the way most editors do, writing a temp file and
+// renaming it over the target, so the watcher never sees it half-written.
+// os.WriteFile truncates first: a writer stalled after the truncate (a busy
+// CI runner) leaves an empty, valid config that can look stable. The
+// half-written case has its own test (TestWatchWaitsForStability).
+func save(t *testing.T, path, src string) {
+	t.Helper()
+	tmp := path + ".save"
+	if err := os.WriteFile(tmp, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatal(err)
+	}
+}
+
 const baseCfg = "sync_ttl = \"2h\"\nignore = [\"p-one\"]\n"
 
 func TestWatchReportsChangedKeys(t *testing.T) {
 	path, _, ev, _ := watchSetup(t, baseCfg)
 	quiet(t, ev)
-	os.WriteFile(path, []byte("sync_ttl = \"1h\"\nignore = [\"p-one\", \"p-two\"]\nlocation = \"EU\"\n"), 0o600)
+	save(t, path, "sync_ttl = \"1h\"\nignore = [\"p-one\", \"p-two\"]\nlocation = \"EU\"\n")
 	e := next(t, ev)
 	if e.Err != nil || e.Config.Location != "EU" {
 		t.Fatalf("%+v", e)
@@ -72,19 +94,19 @@ func TestWatchReportsChangedKeys(t *testing.T) {
 
 func TestWatchInvalidThenFixed(t *testing.T) {
 	path, _, ev, _ := watchSetup(t, baseCfg)
-	os.WriteFile(path, []byte("ingore = 1\n"), 0o600)
+	save(t, path, "ingore = 1\n")
 	e := next(t, ev)
 	if e.Err == nil || e.Config != nil {
 		t.Fatalf("invalid config must come as an error event: %+v", e)
 	}
 	// restoring the original content clears the error with no changed keys
-	os.WriteFile(path, []byte(baseCfg), 0o600)
+	save(t, path, baseCfg)
 	e = next(t, ev)
 	if e.Err != nil || len(e.Changed) != 0 {
 		t.Fatalf("%+v", e)
 	}
 	// a later change is diffed against the last good config
-	os.WriteFile(path, []byte(baseCfg+"location = \"EU\"\n"), 0o600)
+	save(t, path, baseCfg+"location = \"EU\"\n")
 	e = next(t, ev)
 	if !reflect.DeepEqual(e.Changed, []string{"location"}) {
 		t.Fatalf("%v", e.Changed)
