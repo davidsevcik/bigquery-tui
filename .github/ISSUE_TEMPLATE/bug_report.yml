@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in bqt does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a security problem, do not open an issue. See SECURITY.md.
+        Please remove project names, table names and data you do not want public.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. bqt ...
+        2. press ...
+  - type: input
+    id: version
+    attributes:
+      label: bqt version
+      description: Output of `bqt version`
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS and terminal
+      placeholder: macOS 26, iTerm2, inside tmux
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or `bqt doctor` output
+      render: text
