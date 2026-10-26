@@ -84,13 +84,13 @@ func unescape(s string) (string, int) {
 		}
 	case 'u':
 		if len(s) >= 5 {
-			if n, err := strconv.ParseUint(s[1:5], 16, 32); err == nil {
+			if n, err := strconv.ParseUint(s[1:5], 16, 16); err == nil {
 				return string(rune(n)), 5
 			}
 		}
 	case 'U':
 		if len(s) >= 9 {
-			if n, err := strconv.ParseUint(s[1:9], 16, 32); err == nil {
+			if n, err := strconv.ParseUint(s[1:9], 16, 32); err == nil && n <= utf8.MaxRune && (n < 0xD800 || n > 0xDFFF) {
 				return string(rune(n)), 9
 			}
 		}
