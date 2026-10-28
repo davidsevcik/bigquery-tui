@@ -63,7 +63,7 @@ Rules:
 
 Core versus frontend-only:
 
-- Core: config and its watcher, store, sync and its events, search parsing and ranking, shard families, preview fetching, runs (dry-run, estimate, confirmation, errors with position, paging, cell formatting, record trees), export, History and Favorites operations and the parameter schema, tokenizer, highlight spans, completion, the safety policy, hand-off text formats.
+- Core: config and its watcher, store, sync and its events, search parsing and ranking, shard families, Sample fetching (`tabledata.list`), runs (dry-run, estimate, confirmation, errors with position, paging, cell formatting, record trees), export, History and Favorites operations and the parameter schema, tokenizer, highlight spans, completion, the safety policy, hand-off text formats.
 - Frontend-only: layouts, panes, keys, focus and `esc` handling, the forked textarea and its popup, chips and colours, clipboard and file prompts, `$EDITOR` suspension, the remembered layout.
 
 ## 4. Configuration [05]
@@ -140,7 +140,7 @@ In `data_dir`:
 | `catalog.db` | Metadata index | Disposable; rebuilt by sync |
 | `history.db` | History entries and `recent_objects` | Durable; the file that matters |
 | `drafts/<frontend>/<buffer-id>.sql` | Autosaved editor buffers, one file per buffer, held under an advisory lock by the owning instance (`drafts/tui/`) | Local state |
-| `state/<frontend>.json` | Frontend-only state such as the last layout; shared by instances, last writer wins, nothing critical | Local state |
+| `state/<frontend>.json` | Frontend-only state such as the Layout and the Explorer style; shared by instances, last writer wins, nothing critical | Local state |
 | `state/projects.json` | The Selected projects (with when each was selected) and the chosen Execution project; shared by every frontend and process, written atomically, last writer wins | Durable user choice |
 | `bqt.lock` | Advisory lockfile for the single sync writer | Runtime |
 | `logs/bqt.log` | Structured log, rotated at 5 MB, 3 files | Local state |
@@ -191,7 +191,7 @@ Both SQLite files use `modernc.org/sqlite`, WAL, `busy_timeout`, `synchronous=NO
 
 - Discover regions first: REST `datasets.list` per project, through the generated service (Go's `DatasetIterator` discards `location`), which also returns `unreachable[]` (surfaced as warnings).
 - Apply `ignore` to datasets right after `datasets.list`.
-- Group datasets by `(project, location)`. For each group, run region-qualified `INFORMATION_SCHEMA` queries (`` `proj`.`region-X`.INFORMATION_SCHEMA.* ``) as jobs on the Execution project with `Location` set explicitly: `SCHEMATA_OPTIONS` (dataset descriptions, friendly names and labels; region scope only, so the dataset-scope fallback has no dataset descriptions), `TABLES`, `TABLE_OPTIONS`, `VIEWS` (view SQL; materialized-view definitions are not captured yet), `COLUMNS` and `COLUMN_FIELD_PATHS`. That is 6 queries per `(project, region)` unit, run concurrently within the unit, roughly 20 to 90 per full sync, against 4,000 or more per-dataset queries. Large regions are dominated by BigQuery's own execution time (see section 17 item 13).
+- Group datasets by `(project, location)`. For each group, run region-qualified `INFORMATION_SCHEMA` queries (`` `proj`.`region-X`.INFORMATION_SCHEMA.* ``) as jobs on the Execution project with `Location` set explicitly: `SCHEMATA_OPTIONS` (dataset descriptions, friendly names and labels; region scope only, so the dataset-scope fallback has no dataset descriptions), `TABLES`, `TABLE_OPTIONS` (description, labels, expiry and `require_partition_filter`; the last is planned with ADR 0002 and reads as false until a unit's next sync), `VIEWS` (view SQL; materialized-view definitions are not captured yet), `COLUMNS` and `COLUMN_FIELD_PATHS`. That is 6 queries per `(project, region)` unit, run concurrently within the unit, roughly 20 to 90 per full sync, against 4,000 or more per-dataset queries. Large regions are dominated by BigQuery's own execution time (see section 17 item 13).
 - Filter region results to the `datasets.list` set (deleted-in-time-travel and temp datasets can leak into region views). Apply `ignore` to tables locally.
 - Corrections to the seed: `TABLES` has no last-modified time, `COLUMNS` has no descriptions (use `COLUMN_FIELD_PATHS` and `TABLE_OPTIONS`), regions must be found through REST, and there is no cheap delta signal. The baseline is a full re-snapshot per unit plus a local diff, deleting by absence.
 - Compute shard families after each unit's table snapshot.
@@ -207,15 +207,25 @@ Both SQLite files use `modernc.org/sqlite`, WAL, `busy_timeout`, `synchronous=NO
 
 ## 8. Explorer and search (phase 2) [08, 09]
 
-### 8.1 Layouts (TUI-only)
+### 8.1 Explorer styles and Layouts (TUI-only)
 
-Three layouts: Miller columns (project | dataset | table; the default), tree, and flat list with a scoped filter. `L` cycles them and selection carries across. The last layout is remembered in `state/tui.json`. All lists are virtualized.
+> **Planned (ADR 0002, 2026-10-28).** The Layout paragraphs below, the Schema pane and Sample (8.4), the Sample in the Results (10.4), the `s` shortcut (9.1) and the keys in section 15 describe the target design, built in four phases (#17: #18 to #21). Until each phase lands, the TUI behaves as the previous text of these sections in git history: two screens, a detail pane with schema and preview, and "layout" for the Explorer style. The research is in `docs/research/flexible-layout.md`.
 
-`/` filters the list in place in every layout; it never opens a separate view. In the Miller columns it filters the focused column: each column has its own filter, shown in its title with the matched count (`Tables 2/3 of 4 ▸ ord`), and moving left clears the filter of the column left behind. In the tree it filters the whole tree: matches are shown with their ancestors, which open by themselves; a project or dataset found by its own name opens to all its children; clearing the filter gives back the rows the user had opened. The flat list is the ranked, catalog-wide filter. Typing narrows the list on every keystroke and moves the cursor to the best match; `enter` or `esc` goes back to the list with the filter kept, and `esc` there clears it. Each layout keeps its own filter for the session; jumping to an object (or carrying the selection across `L`) clears a filter that would hide it. Jump-to-table (`ctrl+t`) is the quick search.
+Three Explorer styles: `columns` (Miller columns, project | dataset | table; the default), `tree`, and `list` (a flat list with a scoped filter). `L` cycles them ("Cycle explorer style" in the palette) and the selection carries across. The last style is remembered in `state/tui.json` under its own key; the old `"layout"` key with the values `miller`, `tree` and `flat` is still read. All lists are virtualized.
 
-The Projects dialog (`ctrl+x p`; vim Normal: `space p`, or the palette's "Projects") chooses the Selected projects and the Execution project (ADR 0001). It lists the union of the projects BigQuery's projects list returns for the credentials (fetched on first open, kept for the session, `r` fetches again), the Selected ones and the cached ones: Selected first, then the rest, each A–Z; rows keep their place while the dialog is open. The header names the Execution project and why (`chosen`, `first selected`, `--execution-project`, `BQT_EXECUTION_PROJECT`); rows show the ID, the friendly name and, for cached projects, the dataset count and the time since the last sync, or `syncing…`, `not synced yet`, `sync failed`, `not listed` (added by ID), `not accessible` (a permission error). `space` selects or deselects, `o` selects only this one, `e` makes it the Execution project (any listed project; a chosen one can be replaced, not cleared), `s` syncs the project under the cursor now, even when its cache is fresh (a deselected one only when cached), `S` syncs every Selected project now, `/` filters by ID and name and offers "add <id>" for a valid ID that matches nothing, `esc`/`enter` close. A list longer than the dialog scrolls under a fixed header; on a short terminal the header leaves out the key hint, keeping the selection count and the filter. Every key applies at once; the last Selected project cannot be deselected. Closing starts one sync of the projects selected in that visit that have no cache or one older than `sync_ttl`. Only Selected projects are synced and shown in the explorer, search, jump-to-table and SQL completion (completion still offers names inside the Execution project, where unqualified `dataset.table` resolves, and the columns of a table the query names); a deselected project keeps its cache (the CLI and MCP still read it, marked `selected: false`, ranked last, with a warning when stale). A pasted `project.dataset.table` in a deselected project selects it (syncing it when stale) and opens it; in a project the catalog does not hold at all, it selects the project and opens the path once its sync finishes. Projects selected while another sync runs sync right after it. With a single project selected, the Miller layout leaves out the project column and starts at the datasets; the status line names the project (or "N projects"). The TUI notices a selection changed by another process within a second.
+`/` filters the list in place in every Explorer style; it never opens a separate view. In the columns style it filters the focused column: each column has its own filter, shown in its title with the matched count (`Tables 2/3 of 4 ▸ ord`), and moving left clears the filter of the column left behind. In the tree it filters the whole tree: matches are shown with their ancestors, which open by themselves; a project or dataset found by its own name opens to all its children; clearing the filter gives back the rows the user had opened. The flat list is the ranked, catalog-wide filter. Typing narrows the list on every keystroke and moves the cursor to the best match; `enter` or `esc` goes back to the list with the filter kept, and `esc` there clears it. Each Explorer style keeps its own filter for the session; jumping to an object (or carrying the selection across `L`) clears a filter that would hide it. Jump-to-table (`ctrl+t`) is the quick search.
 
-Detail panes (schema and preview): to the right at 100 columns or more, at the bottom from 70 to 99 columns, collapsed below 70 (where `Enter` zooms the detail and `esc` returns). The bottom pane defaults to hidden below 30 rows. The list keeps focus; `ctrl+e` and `ctrl+y` scroll the detail pane. `esc` always backs out exactly one level (zoom, then results, then filter). `z` zooms the detail to the full screen. While zoomed, the movement keys act on the detail (scroll the schema, move the preview row cursor), left or `esc` leaves the zoom, and `P` switches schema and preview between side by side and stacked (remembered in the state file). Search results are one line each, and the selected result expands to show its description and column hits. Footer hints must be readable (`↑↓←→/hjkl move`).
+The Projects dialog (`ctrl+x p`; vim Normal: `space p`, or the palette's "Projects") chooses the Selected projects and the Execution project (ADR 0001). It lists the union of the projects BigQuery's projects list returns for the credentials (fetched on first open, kept for the session, `r` fetches again), the Selected ones and the cached ones: Selected first, then the rest, each A–Z; rows keep their place while the dialog is open. The header names the Execution project and why (`chosen`, `first selected`, `--execution-project`, `BQT_EXECUTION_PROJECT`); rows show the ID, the friendly name and, for cached projects, the dataset count and the time since the last sync, or `syncing…`, `not synced yet`, `sync failed`, `not listed` (added by ID), `not accessible` (a permission error). `space` selects or deselects, `o` selects only this one, `e` makes it the Execution project (any listed project; a chosen one can be replaced, not cleared), `s` syncs the project under the cursor now, even when its cache is fresh (a deselected one only when cached), `S` syncs every Selected project now, `/` filters by ID and name and offers "add <id>" for a valid ID that matches nothing, `esc`/`enter` close. A list longer than the dialog scrolls under a fixed header; on a short terminal the header leaves out the key hint, keeping the selection count and the filter. Every key applies at once; the last Selected project cannot be deselected. Closing starts one sync of the projects selected in that visit that have no cache or one older than `sync_ttl`. Only Selected projects are synced and shown in the explorer, search, jump-to-table and SQL completion (completion still offers names inside the Execution project, where unqualified `dataset.table` resolves, and the columns of a table the query names); a deselected project keeps its cache (the CLI and MCP still read it, marked `selected: false`, ranked last, with a warning when stale). A pasted `project.dataset.table` in a deselected project selects it (syncing it when stale) and opens it; in a project the catalog does not hold at all, it selects the project and opens the path once its sync finishes. Projects selected while another sync runs sync right after it. With a single project selected, the columns style leaves out the project column and starts at the datasets; the status line names the project (or "N projects"). The TUI notices a selection changed by another process within a second.
+
+**Layouts.** The four Panes (Explorer, Schema, Editor, Results) are arranged by a Layout: an n-ary split tree whose leaves are the Panes, each split with a direction and child weights (ADR 0002). One pure function turns the tree and the terminal size into a rectangle per Pane; drawing and key handling both use it, and every Pane draws exactly its rectangle.
+
+- **Presets.** `classic` (the default): Explorer over Schema on the left (about 35%), Editor over Results on the right. `query`: a narrow Explorer, Editor over Results, Schema hidden. `browse`: Explorer and Schema side by side on top, Editor and Results below. `tall`: one column, an Explorer|Schema row, then Editor, then Results. `focus`: one Pane at a time, with a one-line pane bar. (`wide` and `results-right`, for 160 and 180 columns, may follow.)
+- **Editing.** The `ctrl+w` window commands (section 15) move, swap, rotate and resize Panes; the result is `custom` (from its preset), and "Reset layout" returns to that preset. Hiding (`ctrl+w c`) is a flag on the Pane, which keeps its slot; maximising (`ctrl+w z`) is a zoom flag on the tree, as in tmux. The last visible Pane cannot be hidden.
+- **Focus.** `ctrl+w h/j/k/l` moves to the neighbouring rectangle in that direction; when several qualify, the most recently focused wins, then the best aligned. `ctrl+o`, `ctrl+w w` and `ctrl+w W` cycle Explorer, Schema, Editor, Results, skipping hidden Panes. Choosing a hidden Pane by name (the palette's "Show <pane>") shows it. An action that sends content to a hidden or off-screen Pane brings it back (a Sample to the Results, `s` to the Editor). Starting a Run while a Pane is maximised restores the Layout.
+- **Small terminals.** Each preset steps down at render time: the Schema Pane hides first, and below 70 columns the `focus` Layout applies. The step-down is never saved; the chosen Layout returns when the terminal grows.
+- **State.** The Layout, its edits and its source preset are remembered in `state/tui.json`. There is no config key for it. The status line shows `layout: <name>` or `layout: custom`.
+
+`esc` always backs out exactly one level (maximise, then results, then filter). Search results are one line each, and the selected result expands to show its description and column hits. Footer hints must be readable (`↑↓←→/hjkl move`).
 
 ### 8.2 Search syntax and ranking (core)
 
@@ -228,20 +238,22 @@ Detail panes (schema and preview): to the right at 100 columns or more, at the b
 - An empty query shows recently opened tables from `recent_objects`; this is also what `ctrl+t` shows before typing.
 - Implementation: an in-memory index of every project, dataset and table (names, descriptions, labels, shard family) is scored in Go in parallel chunks; dataset- and project-level scores are computed once per term and dataset. The index is rebuilt when the catalog changes (a `PRAGMA data_version` poll on a pinned connection, which also sees other processes) and at the end of the process's own sync. The `col:` filter scans one in-memory string of all lower-cased `path\0description` records. Spans and column hits are computed only for the returned page.
 - Result shape: `{kind, path, matched_field, tier, spans[], column_hits[≤3], more, freshness, stale, names_only, shard_family?}`. Spans are offsets for several fields at once (table, dataset, project, each column hit, description), never highlighted strings.
-- The Explorer filter (Miller columns and tree) uses the same syntax with one difference: free terms match only an object's own name, never descriptions and never through a parent, because a filter that kept every table of a dataset whose name matched would not narrow the list. Table filters (`type:`, `col:`, `label:`, `desc:`) keep a table that passes them and a project or dataset that holds one; `p:` and `d:` narrow by path; a shard family passes when one of its members does. The core's filter query returns every matching path in rank order, without spans or paging, within the same latency budget.
-- Actions in the core: open schema, copy the qualified name, copy as backticked, fetch a preview, insert into the editor (the frontend decides how). Project and dataset results offer select only.
+- The Explorer filter (columns and tree styles) uses the same syntax with one difference: free terms match only an object's own name, never descriptions and never through a parent, because a filter that kept every table of a dataset whose name matched would not narrow the list. Table filters (`type:`, `col:`, `label:`, `desc:`) keep a table that passes them and a project or dataset that holds one; `p:` and `d:` narrow by path; a shard family passes when one of its members does. The core's filter query returns every matching path in rank order, without spans or paging, within the same latency budget.
+- Actions in the core: open schema, copy the qualified name, copy as backticked, fetch a Sample, insert into the editor (the frontend decides how). Project and dataset results offer select only.
 - Latency: p95 ≤ 30 ms per keystroke at 50k tables and 1.25M columns. Search runs off the UI thread and a new keystroke cancels the stale query. Measured on the synthetic 50k-table catalog: name and filter queries p50 6 ms, p95 23 ms; `col:` queries p50 20 ms, p95 66 ms once the column data is in memory (about 1 s and 23 MB to build for 1.3M field paths). On the real 9,500-table catalog queries take 1 to 4 ms. A CI smoke guard fails above 150 ms.
 - Sync ignore patterns play no part in search.
 
 ### 8.3 Shard families (core)
 
-Two or more tables in one dataset sharing a prefix and an 8-digit date suffix (`events_YYYYMMDD`) form a family, computed and stored at sync. It shows as one row, `events_YYYYMMDD ×2,303 (2022-01-01 → 2024-06-30)`, in all three layouts and in search, and `Enter` expands it. The schema pane shows the latest shard. Inserting a family into the editor inserts `` `proj.ds.events_*` `` with a `_TABLE_SUFFIX` hint.
+Two or more tables in one dataset sharing a prefix and an 8-digit date suffix (`events_YYYYMMDD`) form a family, computed and stored at sync. It shows as one row, `events_YYYYMMDD ×2,303 (2022-01-01 → 2024-06-30)`, in all three Explorer styles and in search, and `Enter` expands it. The Schema pane shows the latest shard, and a Sample reads it. Inserting a family into the editor inserts `` `proj.ds.events_*` `` with a `_TABLE_SUFFIX` hint.
 
-### 8.4 Schema pane and preview
+### 8.4 Schema pane and Sample
 
-- Schema pane fields. Table: qualified name, kind, location, rows and bytes (fetched live with `tables.get` when a table is selected, cached for five minutes, omitted silently on failure, since the catalog does not store them), partition and clustering, view SQL, labels, expiry, description, freshness and status with error text, field list (path, depth, type, description), "names only" notice. Dataset: location, table count, status, description. Project: dataset count, status and error, Execution project note.
+- Schema pane fields. Table: qualified name, kind, location, rows and bytes (fetched live with `tables.get` when a table is selected, cached for five minutes, omitted silently on failure, since the catalog does not store them), partition and clustering (with `partition filter required` when the table requires one), view SQL, labels, expiry, description, freshness and status with error text, field list (path, depth, type, description), "names only" notice. For a view the field list comes right after the short header (name, kind, location), before the view SQL, labels and description, so the columns are in sight while writing a query. Dataset: location, table count, status, description. Project: dataset count, status and error, Execution project note.
+- The Schema pane always shows the Explorer's selection. It is a Pane of its own: it takes focus (Explorer `Enter` on a table moves there; in the `focus` Layout it switches to it), and the movement keys scroll it. `ctrl+e` and `ctrl+y` scroll it from the Explorer.
 - The schema pane flags `REQUIRED` fields. The catalog stores the mode of top-level columns (`COLUMNS.is_nullable`, excluding `ARRAY` columns, which the view also reports as not nullable), so they are flagged at once and offline. The metadata views carry no mode for nested fields (checked live); those are flagged from the same lazy `tables.get` as the row and byte counts.
-- Preview is an explicit fetch (`p`). The first press loads 20 rows through `tabledata.list` (free); each further press appends the next 20, up to 1,000, after which the pane says to run a query. Views and external tables show "needs a query". Cells use the results formatting (section 10.4); The preview has a row cursor (`ctrl+e` / `ctrl+y`, or the movement keys while zoomed; moving past the last loaded row loads the next page). `J` (or `Enter` on a zoomed preview) opens the record popup for that row: one field per line, nested and JSON values indented, long text wrapped, `n` / `N` for the next and previous loaded row. A row with clipped cells is read again without truncation.
+- **Sample (`p`).** From the Explorer or the Schema pane, `p` reads the selected table's rows through `tabledata.list` (free; no job, no History entry) and shows them in the Results pane (section 10.4). Focus stays where it was. A shard family is sampled from its newest shard. Views and external tables have no Sample: `p` shows `views have no free sample; press s for a SELECT (billed)` and runs nothing.
+- **SELECT (`s`).** From the Explorer or the Schema pane, `s` opens a new buffer named after the table (section 9.1).
 
 ### 8.5 Navigation
 
@@ -281,6 +293,16 @@ Vim keys (`hjkl`, `gg`/`G`, `ctrl+d`/`ctrl+u`), `/` to filter (8.1), the command
 - **Drafts:** each buffer autosaves to `<data_dir>/drafts/tui/<buffer-id>.sql` (random ID), held under an advisory lock by the owning instance, so several `bqt` instances (for example in tmux panes) never overwrite each other. On startup an instance restores only unlocked drafts (orphans from a crash or a closed pane), listed as "restore drafts" in the buffer list rather than all opened. Orphaned drafts older than 30 days are deleted at startup.
 - `bqt path/to/query.sql` opens that file as a buffer and saves back to it with `ctrl+s`. A file buffer has no draft. `ctrl+s` in a scratch buffer asks for a file name and turns it into a file buffer.
 - The Explorer's `i` inserts the selected table's backticked name at the editor cursor (a shard family as a wildcard table), and jump-to-table (`ctrl+t`) opened from the editor inserts instead of navigating.
+- The Explorer's and the Schema pane's `s` always opens a new buffer, named after the table (`orders`, then `orders 2`), moves focus to the Editor and never runs it (in vim mode the buffer starts in Normal mode). The cursor lands on the condition after `WHERE`. Each clause is on its own line:
+
+  ```sql
+  SELECT *
+  FROM `proj.ds.orders`
+  WHERE true
+  LIMIT 100
+  ```
+
+  The name is quoted as `i` quotes it. A table that requires a partition filter gets a one-day filter typed to its partition column in place of `true`: `d >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)` for DATE, `TIMESTAMP_SUB(CURRENT_TIMESTAMP(), …)` for TIMESTAMP, `DATETIME_SUB(CURRENT_DATETIME(), …)` for DATETIME, `_PARTITIONTIME >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY)` for ingestion-time partitioning, and `n BETWEEN 0 AND 0  -- set the range` for integer ranges. Other partitioned tables keep `WHERE true`; the dry-run and `confirm_bytes` show the full cost. A shard family reads `` `proj.ds.events_*` `` with `WHERE _TABLE_SUFFIX = '<newest>'`.
 - The `$EDITOR` hand-off stays as an escape hatch on `ctrl+x e` (`tea.ExecProcess` and a temp `.sql` file).
 
 ### 9.2 Language intelligence (core, pure functions)
@@ -325,6 +347,7 @@ The core parses BigQuery's `[line:col]` into `{message, line?, col?}` (position 
 ### 10.4 Results
 
 - Paging through REST `getQueryResults` in pages of 500 rows, an LRU of 10 pages, every page addressed by `StartIndex` (no page tokens are kept). No row cap in the viewer (paging is server-side). Do not enable the Storage Read client for the interactive table. Re-opening results from a History entry (about 24 hours, via the stored job) is built in phase 4 (section 11).
+- **Sample.** The Results pane has a second source besides Runs: a Sample (section 8.4), drawn by the same grid through a row source that pages `tabledata.list` on demand through the whole table. Its title reads `Sample · free read, no query job`. It replaces what the pane shows; the Run's result stays one keypress away (the run list, or switching back), and a Sample never enters History or the run list. The record view works as for Runs; export is not offered for a Sample.
 - Cell values are formatted by the core: NULL, grid truncation at about 200 characters (a parameter the frontend passes), JSON and STRUCT as compact JSON.
 - Grid (TUI): column widths from the first page (min 4, max 40 characters), a cell cursor moved with `h`/`l` with whole-column scrolling, `f` freezes the first column, `H` hides the cursor's column for the session, headers with a type badge, NULL dim. Nested cells: STRUCT or JSON as compact one-line JSON with an ellipsis, ARRAY as `[3] first, second…`.
 - Single-record view: `Enter` or `v` opens a popup; `n`/`p` move between records across page boundaries. The core returns a structured, indented JSON tree for the record with no truncation, columns in schema order, types preserved (INT64 and NUMERIC as exact strings, BYTES as base64, JSON columns as parsed indented JSON). Long and multi-line strings wrap. A cell over 1 MiB shows a notice and expands only on demand. Scrolling and JSON colour are TUI-only. As built: the record popup reads the row again with cells clipped at 1 MiB and says when a value was clipped; expanding such a value on demand and collapsing nested values (`space`) are not built.
@@ -362,7 +385,7 @@ As built (phase 4, 2026-10-16):
 
 ## 12. TUI zones and keys [17]
 
-See section 15 for the table. Principles: three zones (Explorer, Editor, Results) plus overlays; the editor is modeless so printable keys type there; Explorer and Results use vim-style plain keys; globals use `ctrl+` keys or the palette. One keymap registry generates the help overlay, the palette and the footer hints.
+See section 15 for the table. Principles: four Panes (Explorer, Schema, Editor, Results) arranged by a Layout (section 8.1, ADR 0002) plus overlays; the editor is modeless so printable keys type there; Explorer and Results use vim-style plain keys; globals use `ctrl+` keys or the palette. One keymap registry generates the help overlay, the palette and the footer hints.
 
 ## 13. Platform, logging, diagnostics [18]
 
@@ -418,9 +441,9 @@ Palette commands (plus keys for the common ones): copy schema (a compact markdow
 
 ## 15. Keybindings [08, 10, 11, 15, 17]
 
-Zones: Explorer, Editor, Results, overlays. Zone switching: `ctrl+o` (or vim's `ctrl+w w`) cycles to the next zone and `ctrl+w W` to the previous one; `ctrl+w` then `h`/`j`/`k`/`l` moves directionally. (F6 was dropped on the user's request, 2026-10-15: function keys are awkward on a laptop keyboard. `ctrl+o` is free in every zone and in vim's Insert mode, since vim's `ctrl+o` is not built.) As built, the Explorer is one screen and the Editor above the Results is another (the focused pane gets the larger share); `ctrl+w h` goes to the Explorer, `ctrl+w l` or `k` to the Editor, `ctrl+w j` to the Results.
+Panes: Explorer, Schema, Editor, Results, plus overlays. Focus: `ctrl+o` (or vim's `ctrl+w w`) cycles to the next Pane and `ctrl+w W` to the previous one, skipping hidden Panes; `ctrl+w` then `h`/`j`/`k`/`l` moves to the neighbouring Pane in that direction (section 8.1). (F6 was dropped on the user's request, 2026-10-15: function keys are awkward on a laptop keyboard. `ctrl+o` is free in every Pane and in vim's Insert mode, since vim's `ctrl+o` is not built.) The `ctrl+w` window commands work in every Pane and every vim mode.
 
-Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks a panel under the screen that teaches the navigation in 17 steps: Explorer movement, in and out, search, jump, layouts, the detail pane and zoom, the palette, help, zones, writing (vim or plain), running, Results, record view, Favorites and History. The UI works as usual meanwhile; each step watches the model (a selection change, an overlay opened and closed, a zone reached, a Run started) and opens the next step when its task is done. While it runs, `ctrl+g` is a prefix for the tutorial's own keys in every zone and popup: `n` next (skip), `p` back, `r` restart, `q` quit. The panel's rows are taken from the app's height. The first start without a UI state file shows a one-time hint about `ctrl+g`.
+Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks a panel under the screen that teaches the navigation in 17 steps: Explorer movement, in and out, search, jump, Explorer styles, Layouts and the Schema pane, the palette, help, zones, writing (vim or plain), running, Results, record view, Favorites and History. The UI works as usual meanwhile; each step watches the model (a selection change, an overlay opened and closed, a zone reached, a Run started) and opens the next step when its task is done. While it runs, `ctrl+g` is a prefix for the tutorial's own keys in every zone and popup: `n` next (skip), `p` back, `r` restart, `q` quit. The panel's rows are taken from the app's height. The first start without a UI state file shows a one-time hint about `ctrl+g`.
 
 | Zone | Key | Action |
 |---|---|---|
@@ -431,15 +454,21 @@ Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks
 | Global | `F1`, `?` (outside editor) | Help overlay |
 | Global | `ctrl+o`, `ctrl+w w`, `ctrl+w W` | Next zone, next zone, previous zone |
 | Global | `ctrl+g` | Tutorial of the navigation (see below) |
+| Global | `ctrl+w h` `j` `k` `l` | Focus the Pane in that direction |
+| Global | `ctrl+w space` | Next Layout preset |
+| Global | `ctrl+w H` `J` `K` `L` | Move the focused Pane to the far left, bottom, top or right |
+| Global | `ctrl+w x`, `ctrl+w r` | Swap with the next Pane in its split; rotate the split |
+| Global | `ctrl+w <` `>` `+` `-` `=` | Narrower, wider, taller, shorter; equalise |
+| Global | `ctrl+w z`, `ctrl+w c` | Maximise or restore the focused Pane; hide it |
 | Explorer | `h` `j` `k` `l`, arrows | Move, collapse/expand, enter column |
 | Explorer | `gg`, `G`, `ctrl+d`, `ctrl+u` | Top, bottom, half page |
 | Explorer | `/` | Filter the focused column, the tree or the flat list in place; `:` opens the palette |
-| Explorer | `L`, `P` | Cycle layout; cycle pane placement |
-| Explorer | `p`, `J` | Fetch more preview rows; record JSON |
-| Explorer | `ctrl+e`, `ctrl+y` | Scroll detail pane |
+| Explorer | `L` | Cycle Explorer style |
+| Explorer, Schema | `p`, `s` | Sample into the Results (free); `SELECT` into a new buffer |
+| Explorer | `ctrl+e`, `ctrl+y` | Scroll the Schema pane |
 | Explorer | `r`, `R`, `gp` | Refresh project, refresh all, sync problems |
-| Explorer | `Enter` | Expand shard family; zoom detail if collapsed |
-| Explorer | `z` | Zoom the detail; zoomed: movement keys scroll it, left/`esc` leave, `P` side by side or stacked, `Enter` record |
+| Explorer | `Enter` | Expand shard family; on a table, focus the Schema pane |
+| Schema | movement keys, `esc` | Scroll; back to the Explorer |
 | Explorer | `i`, `gr` | Insert the table's name into the editor; run list |
 | Explorer | `esc` | Back out one level |
 | Editor | printable keys | Type (plain editing, and vim's Insert mode) |
@@ -467,6 +496,7 @@ Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks
 | Results | `e` | Export (Tab cycles CSV, JSON, NDJSON) |
 | Results | `0`, `$`, `gg`, `G`, `ctrl+d`, `ctrl+u` | First and last column, first and last row, half page |
 | Results | `esc` | Clear the find text, then back to the editor |
+| Results | `[`, `]` | Switch between the Sample and the Run's result |
 | Results | `gr` | Run list |
 
 `ctrl+a` and `ctrl+b` stay with the textarea; move them if the user's tmux prefix is one of them. The registry is checked by a test that finds duplicate bindings within a zone.
@@ -518,8 +548,8 @@ The requirement: a GUI may be added beside the TUI later. It is not built or des
 | Core types are plain JSON-serializable data; the JSON CLI types double as GUI wire types | Holds | Section 14.1 makes the CLI contract the serialization of `api` types. |
 | Long operations expose progress, state and cancellation through `context` and structured events | Holds | Sync, Runs, paging and export all use a handle plus an event channel. |
 | Editor intelligence is in the core (`Tokenize`, `Complete`) | Holds | Only the textarea fork and popup are TUI-specific. |
-| Search, explorer and results behaviour (filter parsing, ranking, shapes, cell formatting, paging) are core | Holds | Layouts, keys and focus are frontend-only; shard families and preview paging are core. |
-| Config, store and Favorites contain no TUI-only assumptions; TUI settings in `[tui]` | Holds | Plus `state/<frontend>.json` for remembered layout. |
+| Search, explorer and results behaviour (filter parsing, ranking, shapes, cell formatting, paging) are core | Holds | Layouts, keys and focus are frontend-only; shard families and Sample paging are core. |
+| Config, store and Favorites contain no TUI-only assumptions; TUI settings in `[tui]` | Holds | Plus `state/<frontend>.json` for the remembered Layout. |
 | Store allows several processes at once | Holds, with one gap | WAL and the sync lockfile work; section 6.4 adds a `CatalogChanged` poll so a second process notices another's sync. |
 | No interactive prompts in the core; no terminal-only hand-offs as the only path | Holds | Confirmations are `NeedsConfirmation` results. `$EDITOR` is an escape hatch and the in-TUI editor is the default. |
 
@@ -566,6 +596,7 @@ Each phase keeps the build green with the fakes; the live suite runs before a ph
 | Results viewer details | `issues/15-results-viewer-details.md` |
 | Testing strategy | `issues/16-testing-strategy.md` |
 | Keybindings and help | `issues/17-keybindings-and-help.md` |
+| Flexible Layout, Sample, `SELECT` shortcut (2026-10-28) | ADR 0002, `docs/research/flexible-layout.md`, #17 (phases #18–#21) |
 | Platform and diagnostics | `issues/18-platform-and-diagnostics.md` |
 
 Research notes with measurements and citations are in `.scratch/bqt/research/`. The throwaway explorer prototype is in `.scratch/bqt/prototype/explorer/`. Both are gitignored; this spec is self-contained for the decisions, and the tickets are the place for the reasoning.

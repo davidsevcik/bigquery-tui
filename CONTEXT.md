@@ -31,3 +31,19 @@ _Avoid_: Storage project, data project, configured project, project that is on
 **Cached project**:
 A project that has metadata in the catalog. A deselected project stays cached: the CLI and MCP still read it (with a warning once it is older than `sync_ttl`), but nothing refreshes it except an explicit request: `bqt sync --project`, or `s` on its row in the Projects dialog.
 _Avoid_: Stale project, archived project
+
+**Pane**:
+One of the four areas of the TUI: Explorer, Schema, Editor and Results. Overlays (the palette, pickers, popups) are not Panes.
+_Avoid_: Zone (the old word, still used in code), window, view (a BigQuery table type)
+
+**Layout**:
+How the four Panes are arranged on screen: a split tree, either one of the named presets (`classic`, `query`, `browse`, `tall`, `focus`) or the user's edit of one (`custom`). Switched inside the TUI and remembered in its state file, never set in the config (ADR 0002).
+_Avoid_: Screen, arrangement; "layout" for the Explorer's columns/tree/list drawing (that is the Explorer style)
+
+**Explorer style**:
+How the Explorer draws the catalog: `columns` (Miller columns), `tree` or `list`. Cycled with `L`.
+_Avoid_: Layout, view, mode
+
+**Sample**:
+Rows of a stored table read free through `tabledata.list` and shown in the Results Pane. A Sample is not a Run: it starts no job, costs nothing and never becomes a History entry. Views and external tables have no Sample.
+_Avoid_: Preview, query result, peek
