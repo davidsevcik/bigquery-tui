@@ -15,7 +15,7 @@ V v_orders                                │~
                                           │~
                                           │~
                                           │~
- Schema  Preview  tab · acme-prod.sales.v…│ Results
+ Schema · acme-prod.sales.v_customers     │ Results
  acme-prod.sales.v_customers              │ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
  view · EU · 0 rows · 0 B                 │
                                           │
@@ -33,4 +33,4 @@ V v_orders                                │~
                                           │
                                           │
  bqt exec acme-exec  layout: classic  columns  2 projects                                        5 datasets · 14 tables
- ↑↓←→/hjkl move · / filter · L style · ? help · ctrl+o pane · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · ctrl+o pane · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial

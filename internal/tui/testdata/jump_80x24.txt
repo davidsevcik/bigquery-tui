@@ -9,16 +9,16 @@ T ev│ ⌕ ev                                                     1/2 · 0.0ms 
     │                                                                      │
     │                                                                      │
     │                                                                      │
+    │                                                                      │ale…
     │                                                                      │
-    │                                                                      │ect…
     │                                                                      │
     │                                                                      │
     │                                                                      │
     │                                                                      │
     │                                                                      │
     ╰──────────────────────────────────────────────────────────────────────╯
-                            │
-                            │
-                            │
+                            │  7 17     cust-h          NULL
+                            │  8 18     cust-i          19.99
+                            │ row 1 of 45 · id INTEGER
  bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
  type to search · ↑↓ select · enter open · esc close

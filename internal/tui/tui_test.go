@@ -62,9 +62,12 @@ func TestGoldenScreens(t *testing.T) {
 		r.golden(name("columns_projects"))
 		r.press("l", "j", "j", "l")
 		r.golden(name("columns_table"))
-		r.press("p")
-		r.golden(name("columns_preview"))
-		r.press("L")
+		r.press("j", "j", "p") // orders
+		r.golden(name("sample"))
+		if r.m.zone == ZoneResults { // the focus fallback shows one Pane: p went to the Results
+			r.press("ctrl+o")
+		}
+		r.press("k", "k", "L")
 		r.golden(name("tree"))
 		r.press("L")
 		r.golden(name("list"))
@@ -88,7 +91,7 @@ func TestGoldenScreens(t *testing.T) {
 }
 
 func TestMillerNavigationAndDetail(t *testing.T) {
-	r := newRig(t, 120, 30)
+	r := newRig(t, 120, 32)
 	r.contains("Projects 1/2", "acme-prod", "✓ 3h", "↑↓←→/hjkl move")
 	r.press("l") // datasets
 	r.contains("Datasets 1/4")
@@ -318,25 +321,6 @@ func TestListStyleFilterScopeAndEsc(t *testing.T) {
 	}
 }
 
-func TestPreviewPagesAndStops(t *testing.T) {
-	r := newRig(t, 120, 40)
-	r.press("l", "j", "j", "l", "j", "j", "p")
-	r.contains("20 of 45 rows", "p loads more", "cust-")
-	r.press("p")
-	r.contains("40 of 45 rows")
-	r.press("p")
-	r.contains("45 of 45 rows")
-	r.lacks("p loads more")
-	calls := len(r.fake.CallsTo("ListRows"))
-	r.press("p")
-	if len(r.fake.CallsTo("ListRows")) != calls {
-		t.Fatal("no request once every row is loaded")
-	}
-	// a view cannot be previewed
-	r.press("j", "p")
-	r.contains("needs a query")
-}
-
 func TestSyncFromTheUI(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.fake.AddProject("acme-prod").Datasets[2].Tables = append(r.fake.Projects["acme-prod"].Datasets[2].Tables, nested("ledger"))
@@ -445,42 +429,6 @@ func TestListStyleRestoredAtStartupIsNotEmpty(t *testing.T) {
 	r2.contains("filter ▸", "1/10", "customers")
 }
 
-func TestPreviewContinuesAfterAShortPage(t *testing.T) {
-	r := newRig(t, 120, 40)
-	r.press("l", "j", "j", "l", "j", "j")
-	key := r.m.sel().detailKey()
-	// BigQuery returned only 7 of the 20 requested rows (wide rows), 45 exist
-	page := api.PreviewPage{Columns: []api.PreviewColumn{{Name: "id"}}, TotalRows: 45}
-	for i := 0; i < 7; i++ {
-		page.Rows = append(page.Rows, []api.Cell{{Text: "x"}})
-	}
-	r.send(previewMsg{key: key, page: page})
-	if r.m.details[key].prevEnd {
-		t.Fatal("a short page is not the end while the total says more rows exist")
-	}
-	r.press("z") // schema and preview side by side
-	r.contains("7 of 45 rows", "p loads more")
-}
-
-func TestPreviewScrollsIndependentlyOfTheSchema(t *testing.T) {
-	r := newRig(t, 120, 30) // schema and preview both visible, preview is short
-	r.press("l", "j", "j", "l", "j", "j", "p", "p", "p")
-	r.contains("45 of 45 rows")
-	first := r.screen()
-	for i := 0; i < 30; i++ {
-		r.press("ctrl+e")
-	}
-	if r.screen() == first {
-		t.Fatal("the preview did not move")
-	}
-	if r.m.prevRow != 30 || r.m.prevOff == 0 {
-		t.Fatalf("ctrl+e must move the preview cursor after p focused it, and the pane follows: row=%d off=%d", r.m.prevRow, r.m.prevOff)
-	}
-	if r.m.detOff != 0 {
-		t.Fatal("the schema keeps its own offset")
-	}
-}
-
 // wideRefunds gives finance.refunds rows with a long text and a nested value.
 func wideRefunds(r *rig) {
 	rows := [][]any{}
@@ -497,35 +445,6 @@ func wideRefunds(r *rig) {
 			{Name: "address", Type: "RECORD", Fields: []bq.Field{{Name: "city", Type: "STRING"}, {Name: "tags", Type: "STRING", Mode: "REPEATED"}}},
 		}},
 		Rows: rows,
-	}
-}
-
-func TestRecordPopupShowsTheFullRow(t *testing.T) {
-	r := newRig(t, 120, 40)
-	wideRefunds(r)
-	r.press("l", "j", "l", "j")
-	if s := r.m.sel(); s.path.Table != "refunds" {
-		t.Fatalf("precondition: %+v", s)
-	}
-	r.press("J")
-	r.contains("load a preview first")
-	if r.m.ov != ovNone {
-		t.Fatal("no popup without a preview")
-	}
-	r.press("p")
-	r.lacks("THE-END") // the preview clips long values
-	r.press("J")
-	// the clipped value was read again in full, the nested value is indented
-	r.contains("Record 1 of 3 · refunds", "THE-END", `"city": "Brno"`, `"tags": [`)
-	r.press("n")
-	r.contains("Record 2 of 3")
-	r.press("n", "n")
-	r.contains("Record 3 of 3", "last loaded row")
-	r.press("N")
-	r.contains("Record 2 of 3")
-	r.press("esc")
-	if r.m.ov != ovNone || r.m.prevRow != 1 {
-		t.Fatalf("esc closes and the preview cursor follows the popup: ov=%v row=%d", r.m.ov, r.m.prevRow)
 	}
 }
 

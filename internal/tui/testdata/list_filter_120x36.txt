@@ -15,22 +15,22 @@
                                           │~
                                           │~
                                           │~
- Schema  Preview  tab · acme-prod.sales.o…│ Results
- p loads the first 20 rows                │ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
- (read directly: free, no query job)      │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
+ Schema · acme-prod.sales.orders ↓1       │ Sample · free read, no query job · acme-prod.sales.orders · 45 rows
+ acme-prod.sales.orders                   │    id INT customer_id STR amount NUM
+ table · EU · 45 rows · 5.0 MiB           │  1 11     cust-b          19.99
+ partition created_at                     │  2 12     cust-c          19.99
+ partition filter required                │  3 13     cust-d          19.99
+ labels team:sales                        │  4 14     cust-e          19.99
+ ✓ synced 3h ago                          │  5 15     cust-f          19.99
+ All customer orders, one row per order   │  6 16     cust-g          19.99
+                                          │  7 17     cust-h          NULL
+ ── schema · 8 fields ──                  │  8 18     cust-i          19.99
+ id          INT64          required Orde…│  9 19     cust-j          19.99
+ customer_id STRING                       │ 10 10     cust-k          19.99
+ amount      STRING                       │ 11 11     cust-l          19.99
+ address     STRUCT<…>                    │ 12 12     cust-m          19.99
+   city      STRING                       │ 13 13     cust-n          19.99
+   geo       STRING                       │ 14 14     cust-o          NULL
+     lat     STRING                       │ row 1 of 45 · id INTEGER
  bqt exec acme-exec  layout: classic  list  2 projects                                           5 datasets · 13 tables
  type to filter · enter/esc back to the list

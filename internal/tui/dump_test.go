@@ -17,7 +17,7 @@ func TestDump(t *testing.T) {
 	r.press("l", "l")
 	show("miller on a table", r)
 	r.press("p")
-	show("after preview", r)
+	show("after sample", r)
 	r.press("L")
 	show("tree", r)
 	r.press("L")

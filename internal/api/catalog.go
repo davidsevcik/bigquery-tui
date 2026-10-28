@@ -104,7 +104,10 @@ type TableMeta struct {
 	ExpiresAt   *time.Time        `json:"expires_at,omitempty"`
 	ViewSQL     string            `json:"view_sql,omitempty"`
 	NamesOnly   bool              `json:"names_only,omitempty"`
-	Columns     []ColumnMeta      `json:"columns,omitempty"`
+	// RequirePartitionFilter is the require_partition_filter table option:
+	// queries must filter on the partition column. Unknown reads false.
+	RequirePartitionFilter bool         `json:"require_partition_filter,omitempty"`
+	Columns                []ColumnMeta `json:"columns,omitempty"`
 	// Shard is set by sync when the table belongs to a shard family.
 	Shard *ShardFamily `json:"shard,omitempty"`
 }

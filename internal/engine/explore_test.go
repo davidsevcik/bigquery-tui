@@ -3,12 +3,15 @@ package engine
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/internal/format"
 )
 
 func (e *env) openWithTables(readOnly bool) *Engine {
@@ -113,19 +116,99 @@ func TestTableDetailStatsAndPreview(t *testing.T) {
 		t.Fatalf("stats are cached, got %d calls", n)
 	}
 
-	page, err := eng.Preview(ctx, p, 0, 2, 10)
+	page, err := eng.Preview(ctx, p, 0, 2, format.Options{MaxChars: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if page.TotalRows != 3 || len(page.Rows) != 2 || page.Columns[0].Name != "id" || page.Rows[0][0].Text != "1" || !page.Rows[1][1].Null {
 		t.Fatalf("%+v", page)
 	}
-	page, _ = eng.Preview(ctx, p, 2, 20, 10)
+	page, _ = eng.Preview(ctx, p, 2, 20, format.Options{MaxChars: 10})
 	if len(page.Rows) != 1 || page.StartIndex != 2 || !page.Rows[0][1].Truncated || page.Rows[0][1].Text != "a very lon" {
 		t.Fatalf("paging and truncation: %+v", page)
 	}
-	if _, err := eng.Preview(ctx, api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "v_orders"}, 0, 5, 0); !errors.Is(err, bq.ErrNeedsQuery) {
+	if _, err := eng.Preview(ctx, api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "v_orders"}, 0, 5, format.Options{}); !errors.Is(err, bq.ErrNeedsQuery) {
 		t.Fatalf("views need a query: %v", err)
+	}
+}
+
+func TestPreviewFormatsCellsLikeARun(t *testing.T) {
+	e, eng := synced(t, "proj-a")
+	e.fake.TableData["proj-a.sales.orders"] = bqtest.TableData{
+		Info: bq.TableInfo{Type: api.TypeTable, Schema: []bq.Field{{Name: "note", Type: "STRING"}, {Name: "tags", Type: "STRING", Mode: "REPEATED"}}},
+		Rows: [][]any{{"one\ntwo", []any{map[string]any{"v": "a"}, map[string]any{"v": "b"}}}},
+	}
+	p := api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "orders"}
+	grid, err := eng.Preview(ctx, p, 0, 1, format.Options{MaxChars: 200, ArraySummary: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, err := eng.Preview(ctx, p, 0, 1, format.Options{MaxChars: 1 << 20, KeepNewlines: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, f := grid.Rows[0], full.Rows[0]; strings.Contains(g[0].Text, "\n") || f[0].Text != "one\ntwo" || g[1].Text == f[1].Text {
+		t.Fatalf("the options reach the cells: grid %+v, record %+v", g, f)
+	}
+}
+
+func TestPreviewReadsPastShortPages(t *testing.T) {
+	e, eng := synced(t, "proj-a")
+	var rows [][]any
+	for i := range 10 {
+		rows = append(rows, []any{strconv.Itoa(i + 1), "x"})
+	}
+	td := e.fake.TableData["proj-a.sales.orders"]
+	td.Rows = rows
+	e.fake.TableData["proj-a.sales.orders"] = td
+	e.fake.ListRowsLimit = 3 // BigQuery cuts responses of wide rows short
+	p := api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "orders"}
+	page, err := eng.Preview(ctx, p, 1, 5, format.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Rows) != 5 || page.Rows[0][0].Text != "2" || page.Rows[4][0].Text != "6" || page.StartIndex != 1 || page.TotalRows != 10 {
+		t.Fatalf("the requested rows, in order: %+v", page)
+	}
+	before := len(e.fake.CallsTo("ListRows"))
+	page, _ = eng.Preview(ctx, p, 6, 50, format.Options{})
+	if len(page.Rows) != 4 || page.Rows[3][0].Text != "10" {
+		t.Fatalf("the rest of the table: %+v", page)
+	}
+	if n := len(e.fake.CallsTo("ListRows")) - before; n != 2 {
+		t.Fatalf("rows 7-10 take two calls of 3, and the total ends it without a third: %d calls", n)
+	}
+}
+
+func TestPreviewOfAShardFamilyReadsTheNewestShard(t *testing.T) {
+	e, eng := synced(t, "proj-a")
+	e.fake.TableData["proj-a.sales.events_20240102"] = bqtest.TableData{
+		Info: bq.TableInfo{Type: api.TypeTable, Schema: []bq.Field{{Name: "u", Type: "STRING"}}},
+		Rows: [][]any{{"newest"}},
+	}
+	page, err := eng.Preview(ctx, api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "events_YYYYMMDD"}, 0, 10, format.Options{})
+	if err != nil || len(page.Rows) != 1 || page.Rows[0][0].Text != "newest" {
+		t.Fatalf("%+v %v", page, err)
+	}
+}
+
+func TestTableDetailCarriesTheRequiredPartitionFilter(t *testing.T) {
+	e := newEnv(t, "proj-a")
+	tb := bqtest.Table("strict", "day")
+	tb.RequirePartitionFilter = true
+	e.fake.Projects["proj-a"].Datasets[0].Tables = append(e.fake.Projects["proj-a"].Datasets[0].Tables, tb)
+	eng := e.openWithTables(false)
+	fullSync(t, eng)
+	if err := eng.ReloadIndex(ctx); err != nil {
+		t.Fatal(err)
+	}
+	d, err := eng.TableDetail(ctx, api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "strict"})
+	if err != nil || !d.Table.RequirePartitionFilter {
+		t.Fatalf("%+v %v", d.Table, err)
+	}
+	d, _ = eng.TableDetail(ctx, api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "orders"})
+	if d.Table.RequirePartitionFilter {
+		t.Fatal("a table without the option")
 	}
 }
 

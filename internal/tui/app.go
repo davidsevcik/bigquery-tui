@@ -16,7 +16,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 	"github.com/davidsevcik/bigquery-tui/internal/format"
 	"github.com/davidsevcik/bigquery-tui/internal/runs"
@@ -51,12 +50,7 @@ const (
 	ovHandoff
 )
 
-const (
-	previewPage  = 20
-	previewMax   = 1000
-	previewChars = 200
-	searchPage   = 300
-)
+const searchPage = 300
 
 // Options configures the model.
 type Options struct {
@@ -112,11 +106,12 @@ type Model struct {
 	details map[string]*detailData
 	lastSel string
 	detOff  int // schema pane scroll
-	prevOff int // preview pane scroll
-	prevRow int // preview row cursor (the row J shows)
 	rec     *recordData
-	tab     int // the Schema pane's half: 0 schema, 1 preview
 	statSeq int
+
+	sample     *sample // the Sample slot (one per session)
+	showSample bool    // the Results show the Sample, not the buffer's Run
+	sampleSeq  int
 
 	tut      *tutorial
 	firstRun bool // no UI state file yet
@@ -289,11 +284,6 @@ type (
 		key   string
 		stats api.TableStats
 		err   error
-	}
-	previewMsg struct {
-		key  string
-		page api.PreviewPage
-		err  error
 	}
 	searchMsg struct {
 		st     *searchState
@@ -523,8 +513,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			st := msg.stats
 			d.stats = &st
 		}
-	case previewMsg:
-		m.onPreview(msg)
+	case sampleMsg:
+		return m, m.onSample(msg)
+	case selectDetailMsg:
+		m.onSelectDetail(msg)
 	case recordMsg:
 		m.onRecord(msg)
 	case syncStartedMsg:
@@ -880,18 +872,16 @@ func (m *Model) explorerAction(act string) tea.Cmd {
 		m.setStyle((m.style + 1) % 3)
 		m.saveState()
 		return m.runSearchIfFlat()
-	case "tab":
-		m.tab = 1 - m.tab
 	case "zoom":
 		m.focusSchema(true)
 	case "detaildown":
 		return m.scrollDetail(1)
 	case "detailup":
 		return m.scrollDetail(-1)
-	case "preview":
-		return m.previewMore()
-	case "record":
-		return m.openRecord()
+	case "sample":
+		return m.sampleAction()
+	case "select":
+		return m.selectAction()
 	case "scope":
 		if m.style == styleList {
 			m.cycleScope()
@@ -941,18 +931,8 @@ func (m *Model) openConfig() tea.Cmd {
 	return tea.ExecProcess(exec.Command(argv[0], argv[1:]...), func(err error) tea.Msg { return editorDoneMsg{err} })
 }
 
-// scrollDetail moves within the pane that tab last selected: it scrolls the
-// schema, or moves the row cursor of the preview once rows are loaded (p
-// switches to it). Moving down from the last loaded row loads the next page.
+// scrollDetail scrolls the Schema pane.
 func (m *Model) scrollDetail(d int) tea.Cmd {
-	if _, p := m.previewRows(); p != nil && m.tab == 1 {
-		last := len(p.Rows) - 1
-		if d > 0 && m.prevRow >= last {
-			return m.previewMore()
-		}
-		m.prevRow = clamp(m.prevRow+d, 0, last)
-		return nil
-	}
 	m.detOff = clamp(m.detOff+d, 0, 1<<30)
 	return nil
 }
@@ -1049,10 +1029,6 @@ type detailData struct {
 	detErr   string
 	stats    *api.TableStats
 	statsErr bool
-	prev     *api.PreviewPage
-	prevErr  string
-	prevBusy bool
-	prevEnd  bool
 }
 
 func (m *Model) detail(key string) *detailData {
@@ -1074,7 +1050,7 @@ func (m *Model) afterSelect() tea.Cmd {
 	if key == m.lastSel {
 		return nil
 	}
-	m.lastSel, m.detOff, m.prevOff, m.prevRow = key, 0, 0, 0
+	m.lastSel, m.detOff = key, 0
 	if key == "" {
 		return nil
 	}
@@ -1107,60 +1083,6 @@ func (m *Model) statsCmd(key string) tea.Cmd {
 	return func() tea.Msg {
 		st, err := m.be.TableStats(m.ctx, p)
 		return statsMsg{key, st, err}
-	}
-}
-
-func (m *Model) previewMore() tea.Cmd {
-	s := m.sel()
-	key := s.detailKey()
-	if key == "" {
-		m.toast = "select a table to preview"
-		return nil
-	}
-	d := m.detail(key)
-	if d.prevBusy || d.prevEnd {
-		return nil
-	}
-	var start int64
-	if d.prev != nil {
-		start = int64(len(d.prev.Rows))
-	}
-	if start >= previewMax {
-		m.toast = fmt.Sprintf("preview stops at %d rows: run a query for more", previewMax)
-		return nil
-	}
-	d.prevBusy = true
-	m.tab = 1
-	p := s.path
-	return func() tea.Msg {
-		page, err := m.be.Preview(m.ctx, p, start, previewPage, previewChars)
-		return previewMsg{key, page, err}
-	}
-}
-
-func (m *Model) onPreview(msg previewMsg) {
-	d := m.detail(msg.key)
-	d.prevBusy = false
-	if msg.err != nil {
-		if errors.Is(msg.err, bq.ErrNeedsQuery) {
-			d.prevErr = "needs a query: views and external tables cannot be read directly"
-		} else {
-			d.prevErr = msg.err.Error()
-		}
-		return
-	}
-	d.prevErr = ""
-	if d.prev == nil {
-		page := msg.page
-		d.prev = &page
-	} else {
-		d.prev.Rows = append(d.prev.Rows, msg.page.Rows...)
-		d.prev.TotalRows = msg.page.TotalRows
-	}
-	// A page can be shorter than requested when rows are wide (response size
-	// limit), so only an empty page or the reported total ends the preview.
-	if len(msg.page.Rows) == 0 || int64(len(d.prev.Rows)) >= d.prev.TotalRows {
-		d.prevEnd = true
 	}
 }
 

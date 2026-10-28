@@ -1,7 +1,8 @@
- Schema  Preview  tab · acme-prod.sales.orders
+ Schema · acme-prod.sales.orders
  acme-prod.sales.orders
  table · EU · 45 rows · 5.0 MiB
  partition created_at
+ partition filter required
  labels team:sales
  ✓ synced 3h ago
  All customer orders, one row per order
@@ -19,6 +20,5 @@
 
 
 
-
  bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
- ↑↓/jk scroll · tab schema/preview · p rows · J record · z maximise · esc back
+ ↑↓/jk scroll · p sample · z maximise · esc back

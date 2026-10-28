@@ -279,7 +279,7 @@ func (m *Model) paneLines(z Zone, w, h int) []string {
 	case ZoneExplorer:
 		return m.explorerPane(w, h)
 	case ZoneSchema:
-		return m.detailBlock(w, h, m.sel())
+		return m.schemaPane(m.sel(), w, h)
 	case ZoneEditor:
 		return m.editorPane(w, h)
 	case ZoneResults:
@@ -603,58 +603,8 @@ func (m *Model) resultRows(st *searchState, i int, selected bool, w int, expande
 
 // --- the Schema pane
 
-// detailBlock draws the Schema pane. Its shape decides what it shows: with a
-// table selected and room for both, the schema and the preview side by side
-// (100 columns) or stacked (26 rows); otherwise one of them, switched by tab.
-func (m *Model) detailBlock(w, h int, s selection) []string {
-	table := s.detailKey() != ""
-	switch {
-	case table && w >= 100:
-		lw := w / 2
-		rw := w - lw - 1
-		l, r, sep := m.schemaPane(s, lw, h, false), m.previewPane(s, rw, h, false), vsep(h)
-		out := make([]string, h)
-		for i := range out {
-			out[i] = l[i] + sep[i] + r[i]
-		}
-		return out
-	case table && h >= 26:
-		sh := h * 58 / 100
-		return append(m.schemaPane(s, w, sh, false), m.previewPane(s, w, h-sh, false)...)
-	case m.tab == 0 || !table:
-		return m.schemaPane(s, w, h, table)
-	}
-	return m.previewPane(s, w, h, true)
-}
-
-func (m *Model) paneTitle(w, which int, tabs bool, name string) string {
-	focused := m.zone == ZoneSchema
-	if !tabs {
-		lbl := " Schema "
-		if which == 1 {
-			lbl = " Preview "
-		}
-		// the highlighted title is the half the movement keys (and ctrl+e /
-		// ctrl+y) scroll, while the Schema pane has focus
-		return title(lbl+"· "+name, w, focused && which == m.tab)
-	}
-	act := sTitleN.Bold(true)
-	if focused {
-		act = lipgloss.NewStyle().Background(lipgloss.Color("60")).Foreground(lipgloss.Color("255")).Bold(true)
-	}
-	a, b := " Schema ", " Preview "
-	left := act.Render(a) + sTitleN.Render(b)
-	if which == 1 {
-		left = sTitleN.Render(a) + act.Render(b)
-	}
-	rest := w - wid(a) - wid(b)
-	if rest < 4 {
-		return left
-	}
-	return left + sTitleN.Render(fit(" tab · "+name, rest))
-}
-
-func (m *Model) schemaPane(s selection, w, h int, tabs bool) []string {
+// schemaPane draws the Schema pane: the Explorer's selection, scrolled.
+func (m *Model) schemaPane(s selection, w, h int) []string {
 	lines := m.schemaLines(s, w)
 	body := h - 1
 	m.detOff = clamp(m.detOff, 0, max(0, len(lines)-body))
@@ -662,7 +612,7 @@ func (m *Model) schemaPane(s selection, w, h int, tabs bool) []string {
 	if more := len(lines) - body - m.detOff; more > 0 {
 		name += fmt.Sprintf(" ↓%d", more)
 	}
-	out := []string{m.paneTitle(w, 0, tabs, name)}
+	out := []string{title(" Schema · "+name, w, m.zone == ZoneSchema)}
 	for i := m.detOff; i < len(lines) && len(out) < h; i++ {
 		out = append(out, fit(lines[i], w))
 	}
@@ -762,6 +712,9 @@ func (m *Model) schemaLines(s selection, w int) []string {
 				l += "cluster " + strings.Join(clus, ", ")
 			}
 			add(sDim.Render(l))
+		}
+		if t.RequirePartitionFilter {
+			add(sWarn.Render("partition filter required"))
 		}
 		if len(t.Labels) > 0 {
 			var ls []string
@@ -896,91 +849,6 @@ func sortStrings(s []string) []string {
 		}
 	}
 	return s
-}
-
-func (m *Model) previewPane(s selection, w, h int, tabs bool) []string {
-	out := []string{m.paneTitle(w, 1, tabs, s.path.String())}
-	add := func(l string) { out = append(out, fit(l, w)) }
-	d := m.details[s.detailKey()]
-	switch {
-	case s.detailKey() == "":
-		add(sDim.Render(" select a table"))
-	case d != nil && d.prevErr != "":
-		for _, l := range wrap(d.prevErr, w-2) {
-			add(" " + sWarn.Render(l))
-		}
-	case d == nil || d.prev == nil:
-		if d != nil && d.prevBusy {
-			add(sDim.Render(" loading rows…"))
-		} else {
-			add(sDim.Render(" p loads the first 20 rows"))
-			add(sFaint.Render(" (read directly: free, no query job)"))
-		}
-	default:
-		p := d.prev
-		if len(p.Rows) == 0 {
-			add(sDim.Render(" the table is empty"))
-			break
-		}
-		widths := make([]int, 0, len(p.Columns))
-		used, shown := 1, 0
-		for ci, c := range p.Columns {
-			cw := wid(c.Name)
-			for _, r := range p.Rows {
-				if ci < len(r) {
-					cw = max(cw, wid(cellText(r[ci])))
-				}
-			}
-			cw = clamp(cw, 4, 24)
-			if used+cw+1 > w && shown > 0 {
-				break
-			}
-			widths = append(widths, cw)
-			used += cw + 1
-			shown++
-		}
-		var hb strings.Builder
-		hb.WriteString(" ")
-		for i := 0; i < shown; i++ {
-			hb.WriteString(sBold.Render(fit(p.Columns[i].Name, widths[i])) + " ")
-		}
-		add(hb.String())
-		m.prevRow = clamp(m.prevRow, 0, len(p.Rows)-1)
-		start, end := window(m.prevRow, &m.prevOff, len(p.Rows), h-3)
-		for ri := start; ri < end; ri++ {
-			// the cursor row (the one J shows) is marked while the preview is the active pane
-			b := newRB(ri == m.prevRow && m.tab == 1)
-			b.add(" ", sBase)
-			for i := 0; i < shown; i++ {
-				st := sBase
-				if i < len(p.Rows[ri]) && p.Rows[ri][i].Null {
-					st = sFaint
-				}
-				var c api.Cell
-				if i < len(p.Rows[ri]) {
-					c = p.Rows[ri][i]
-				}
-				b.add(fit(cellText(c), widths[i])+" ", st)
-			}
-			add(b.line(w))
-		}
-		foot := fmt.Sprintf(" %s of %s rows", format.Count(int64(len(p.Rows))), format.Count(p.TotalRows))
-		if shown < len(p.Columns) {
-			foot += fmt.Sprintf(" · +%d columns not shown", len(p.Columns)-shown)
-		}
-		switch {
-		case d.prevBusy:
-			foot += " · loading…"
-		case !d.prevEnd:
-			foot += " · p loads more"
-		}
-		if m.tab == 1 {
-			foot += " · J record"
-		}
-		out = fillTo(out, w, h-1)
-		out = append(out, sFaint.Render(fit(foot, w)))
-	}
-	return fillTo(out, w, h)
 }
 
 func cellText(c api.Cell) string {

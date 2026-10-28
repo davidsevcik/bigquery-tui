@@ -12,12 +12,11 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/format"
 )
 
-// recordData is the row shown in the record popup: a preview row of the
-// explorer, or a result row of a Run. Grids hold clipped cells, so the row is
-// read again in full.
+// recordData is the row shown in the record popup: a row of the grid the
+// Results show (a Run's or the Sample's). Grids hold clipped cells, so the
+// row is read again in full through the grid's row source.
 type recordData struct {
-	key   string // preview: the table's detail key
-	runID int64  // result: the Run
+	g     *grid
 	row   int64
 	total int64 // rows n/N can reach
 	name  string
@@ -28,11 +27,10 @@ type recordData struct {
 }
 
 type recordMsg struct {
-	key   string
-	runID int64
-	row   int64
-	page  api.PreviewPage
-	err   error
+	g    *grid
+	row  int64
+	page api.PreviewPage
+	err  error
 }
 
 // recordCellMax is the size above which a value is clipped in the record view.
@@ -40,67 +38,23 @@ const recordCellMax = 1 << 20
 
 var recordFormat = format.Options{MaxChars: recordCellMax, KeepNewlines: true}
 
-// previewRows returns the loaded preview of the selected table.
-func (m *Model) previewRows() (string, *api.PreviewPage) {
-	key := m.sel().detailKey()
-	if d := m.details[key]; key != "" && d != nil && d.prev != nil && len(d.prev.Rows) > 0 {
-		return key, d.prev
-	}
-	return key, nil
-}
-
-// openRecord shows the selected preview row as a full record.
-func (m *Model) openRecord() tea.Cmd {
-	if _, p := m.previewRows(); p == nil {
-		m.toast = "load a preview first (p): J then shows the selected row as a full record"
-		return nil
-	}
-	m.ov, m.tab = ovRecord, 1
-	return m.loadRecord()
-}
-
-func (m *Model) loadRecord() tea.Cmd {
-	key, p := m.previewRows()
-	if p == nil {
-		m.ov = ovNone
-		return nil
-	}
-	m.prevRow = clamp(m.prevRow, 0, len(p.Rows)-1)
-	row := m.prevRow
-	m.rec, m.ovOff = &recordData{key: key, row: int64(row), total: int64(len(p.Rows)), name: m.sel().path.Table, cols: p.Columns, cells: p.Rows[row]}, 0
-	clipped := false
-	for _, c := range p.Rows[row] {
-		clipped = clipped || c.Truncated
-	}
-	if !clipped {
-		return nil
-	}
-	m.rec.busy = true
-	path := m.sel().path
-	return func() tea.Msg {
-		page, err := m.be.Preview(m.ctx, path, p.StartIndex+int64(row), 1, recordCellMax)
-		return recordMsg{key: key, row: int64(row), page: page, err: err}
-	}
-}
-
-// openRunRecord shows the grid's cursor row as a full record.
-func (m *Model) openRunRecord() tea.Cmd {
-	g := m.grid()
+// openGridRecord shows the grid's cursor row as a full record.
+func (m *Model) openGridRecord(g *grid) tea.Cmd {
 	if g == nil || g.total == 0 {
 		return nil
 	}
 	m.ov, m.ovOff = ovRecord, 0
-	m.rec = &recordData{runID: g.run, row: g.row, total: g.total, name: fmt.Sprintf("run #%d", g.run), cols: g.cols, cells: g.cells(g.row), busy: true}
-	id, row := g.run, g.row
+	m.rec = &recordData{g: g, row: g.row, total: g.total, name: g.name, cols: g.cols, cells: g.cells(g.row), busy: true}
+	row := g.row
 	return func() tea.Msg {
-		page, err := m.be.RunRows(m.ctx, id, row, 1, recordFormat)
-		return recordMsg{runID: id, row: row, page: page, err: err}
+		page, err := g.src(m.ctx, row, 1, recordFormat)
+		return recordMsg{g: g, row: row, page: page, err: err}
 	}
 }
 
 func (m *Model) onRecord(msg recordMsg) {
 	r := m.rec
-	if r == nil || r.key != msg.key || r.runID != msg.runID || r.row != msg.row {
+	if r == nil || r.g != msg.g || r.row != msg.row {
 		return
 	}
 	r.busy = false
@@ -114,31 +68,16 @@ func (m *Model) onRecord(msg recordMsg) {
 
 // recordStep moves the popup to the next or previous row.
 func (m *Model) recordStep(d int) tea.Cmd {
-	if m.rec != nil && m.rec.runID != 0 {
-		g := m.grids[m.rec.runID]
-		if g == nil {
-			return nil
-		}
-		before := g.row
-		g.moveRow(int64(d))
-		if g.row == before {
-			return nil
-		}
-		return tea.Batch(m.openRunRecord(), m.gridEnsure())
-	}
-	_, p := m.previewRows()
-	if p == nil {
+	if m.rec == nil || m.rec.g == nil || !m.kept(m.rec.g) {
 		return nil
 	}
-	next := clamp(m.prevRow+d, 0, len(p.Rows)-1)
-	if next == m.prevRow {
-		if d > 0 {
-			m.toast = "last loaded row: close and press p to load more"
-		}
+	g := m.rec.g
+	before := g.row
+	g.moveRow(int64(d))
+	if g.row == before {
 		return nil
 	}
-	m.prevRow = next
-	return m.loadRecord()
+	return tea.Batch(m.openGridRecord(g), m.gridEnsure())
 }
 
 func (m *Model) recordLines(w int) (string, []string) {

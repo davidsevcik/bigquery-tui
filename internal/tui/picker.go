@@ -329,6 +329,7 @@ func (m *Model) onReopen(msg reopenMsg) tea.Cmd {
 		b = m.buf()
 	}
 	b.viewID = msg.id
+	m.showRun()
 	m.setZone(ZoneResults)
 	m.toast = ""
 	return m.followRun(msg.id)

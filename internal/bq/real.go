@@ -292,6 +292,8 @@ func mergeSnapshot(dsOpts []dsOptRow, tables []tableRow, opts []optRow, views []
 			if ts, ok := parseTimestampOption(r.val); ok {
 				t.ExpiresAt = &ts
 			}
+		case "require_partition_filter":
+			t.RequirePartitionFilter = parseBoolOption(r.val)
 		}
 	}
 	for _, r := range views {

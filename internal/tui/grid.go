@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -23,11 +24,17 @@ const (
 
 var gridFormat = format.Options{MaxChars: gridCellChar, ArraySummary: true}
 
-// grid is the results viewer of one Run: a window over server-side pages
-// with a cell cursor. It never sorts or filters; the result is as BigQuery
-// returned it.
+// rowSource reads n formatted rows from start: a Run's result (RunRows) or a
+// table's rows (Preview, the Sample).
+type rowSource func(ctx context.Context, start int64, n int, o format.Options) (api.PreviewPage, error)
+
+// grid is the results viewer of a Run or of the Sample: a window over pages
+// read through its row source, with a cell cursor. It never sorts or
+// filters; the rows are as BigQuery returned them.
 type grid struct {
-	run   int64
+	run   int64  // the Run (0 for the Sample)
+	name  string // what the record view calls it
+	src   rowSource
 	cols  []api.PreviewColumn
 	total int64
 
@@ -47,16 +54,28 @@ type grid struct {
 	find string
 }
 
+// pageMsg is a page read for a grid; it is dropped when the grid is no
+// longer kept (a replaced Sample, a dropped Run grid).
 type pageMsg struct {
-	run   int64
+	g     *grid
 	start int64
 	page  api.PreviewPage
 	err   error
 }
 
-func newGrid(info api.RunInfo) *grid {
-	return &grid{run: info.ID, cols: info.Columns, total: info.TotalRows, hidden: map[int]bool{},
+func newGrid(name string, cols []api.PreviewColumn, total int64, src rowSource) *grid {
+	return &grid{name: name, src: src, cols: cols, total: total, hidden: map[int]bool{},
 		pages: map[int64][][]api.Cell{}, loading: map[int64]bool{}}
+}
+
+// runGrid is the grid of a Run's result.
+func (m *Model) runGrid(info api.RunInfo) *grid {
+	id := info.ID
+	g := newGrid(fmt.Sprintf("run #%d", id), info.Columns, info.TotalRows, func(ctx context.Context, start int64, n int, o format.Options) (api.PreviewPage, error) {
+		return m.be.RunRows(ctx, id, start, n, o)
+	})
+	g.run = id
+	return g
 }
 
 func pageOf(row int64) int64 { return row - row%gridPage }
@@ -394,11 +413,24 @@ func (g *grid) view(w, h int, focused bool) []string {
 
 // --- model side
 
+// grid is the grid the Results pane shows: the Sample's while it is shown,
+// else the buffer's Run's.
 func (m *Model) grid() *grid {
+	if m.sampleShown() {
+		return m.sample.g
+	}
 	if len(m.bufs) == 0 {
 		return nil
 	}
 	return m.grids[m.buf().viewID]
+}
+
+// kept reports whether the model still holds g (pages for others are dropped).
+func (m *Model) kept(g *grid) bool {
+	if m.sample != nil && m.sample.g == g {
+		return true
+	}
+	return g.run != 0 && m.grids[g.run] == g
 }
 
 // shownRun is the Run the results pane shows.
@@ -412,10 +444,9 @@ func (m *Model) shownRun() (api.RunInfo, bool) {
 
 func (m *Model) fetchPage(g *grid, start int64) tea.Cmd {
 	g.loading[start] = true
-	id := g.run
 	return func() tea.Msg {
-		page, err := m.be.RunRows(m.ctx, id, start, gridPage, gridFormat)
-		return pageMsg{id, start, page, err}
+		page, err := g.src(m.ctx, start, gridPage, gridFormat)
+		return pageMsg{g, start, page, err}
 	}
 }
 
@@ -433,8 +464,11 @@ func (m *Model) gridEnsure() tea.Cmd {
 }
 
 func (m *Model) onPage(msg pageMsg) {
-	g := m.grids[msg.run]
-	if g == nil {
+	g := msg.g
+	if !m.kept(g) {
+		// not shown now, but it may be again (a Sample restored after the
+		// next one failed): it must not wait for this page for ever
+		delete(g.loading, msg.start)
 		return
 	}
 	if msg.err != nil {

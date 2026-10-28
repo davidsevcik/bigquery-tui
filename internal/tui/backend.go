@@ -59,7 +59,7 @@ type Backend interface {
 
 	TableDetail(ctx context.Context, p api.ObjectPath) (api.TableDetail, error)
 	TableStats(ctx context.Context, p api.ObjectPath) (api.TableStats, error)
-	Preview(ctx context.Context, p api.ObjectPath, startIndex int64, rows, maxChars int) (api.PreviewPage, error)
+	Preview(ctx context.Context, p api.ObjectPath, startIndex int64, rows int, o format.Options) (api.PreviewPage, error)
 	TouchRecent(ctx context.Context, p api.ObjectPath) error
 
 	Status(ctx context.Context) (api.CatalogStatus, error)

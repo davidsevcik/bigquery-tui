@@ -9,16 +9,16 @@ us_archive                1 │~
                             │~
                             │~
                             │~
-                            │ Results
-                            │ no run yet: ctrl+r runs the buffer (or the select…
-                            │
-                            │
-                            │
-                            │
-                            │
-                            │
-                            │
-                            │
-                            │
+                            │ Sample · free read, no query job · acme-prod.sale…
+                            │    id INT customer_id STR amount NUM
+                            │  1 11     cust-b          19.99
+                            │  2 12     cust-c          19.99
+                            │  3 13     cust-d          19.99
+                            │  4 14     cust-e          19.99
+                            │  5 15     cust-f          19.99
+                            │  6 16     cust-g          19.99
+                            │  7 17     cust-h          NULL
+                            │  8 18     cust-i          19.99
+                            │ row 1 of 45 · id INTEGER
  bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L style · ? help · ctrl+o pane · ctrl+p cmds · ctr…
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · ctrl+o pane · ctrl+p…

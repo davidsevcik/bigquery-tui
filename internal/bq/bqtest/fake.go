@@ -86,6 +86,9 @@ type Fake struct {
 	// PageLimit caps the rows one QueryRows call returns, the way BigQuery
 	// cuts a response of wide rows short. 0 means no cap.
 	PageLimit int
+	// ListRowsLimit caps the rows one ListRows call returns, the same way.
+	// 0 means no cap.
+	ListRowsLimit int
 
 	queries []QueryCall
 	jobs    map[string]*fakeJob
@@ -410,7 +413,11 @@ func (f *Fake) ListRows(ctx context.Context, ref bq.TableRef, startIndex int64, 
 	}
 	f.mu.Lock()
 	rows := f.TableData[ref.String()].Rows
+	limit := f.ListRowsLimit
 	f.mu.Unlock()
+	if limit > 0 {
+		maxRows = min(maxRows, limit)
+	}
 	page := bq.RawPage{TotalRows: int64(len(rows))}
 	lo := min(int(startIndex), len(rows))
 	hi := min(lo+maxRows, len(rows))

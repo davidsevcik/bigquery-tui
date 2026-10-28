@@ -17,3 +17,25 @@ func TestMergeSnapshotMarksRequiredTopLevelColumns(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 }
+
+func TestMergeSnapshotReadsTheRequiredPartitionFilterOption(t *testing.T) {
+	var tables []tableRow
+	var opts []optRow
+	for name, val := range map[string]string{"lower": "true", "upper": "TRUE", "padded": " true ", "off": "false"} {
+		k := tkey{"d", name}
+		tables = append(tables, tableRow{key: k, typ: "BASE TABLE"})
+		opts = append(opts, optRow{k, "require_partition_filter", val})
+	}
+	tables = append(tables, tableRow{key: tkey{"d", "none"}, typ: "BASE TABLE"})
+	snap := mergeSnapshot(nil, tables, opts, nil, nil, nil)
+	got := map[string]bool{}
+	for _, tb := range snap.Tables {
+		got[tb.Name] = tb.RequirePartitionFilter
+	}
+	want := map[string]bool{"lower": true, "upper": true, "padded": true, "off": false, "none": false}
+	for n, w := range want {
+		if got[n] != w {
+			t.Errorf("%s: got %v want %v", n, got[n], w)
+		}
+	}
+}

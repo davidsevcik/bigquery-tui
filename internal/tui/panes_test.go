@@ -33,7 +33,7 @@ func TestEnterOnATableGoesToTheSchemaPane(t *testing.T) {
 	if r.m.zone != ZoneSchema || r.m.maxed != "" {
 		t.Fatalf("enter focuses the Schema pane in place: %s %q", r.m.zone, r.m.maxed)
 	}
-	r.contains("↑↓/jk scroll · tab schema/preview · p rows · J record · z maximise · esc back")
+	r.contains("↑↓/jk scroll · p sample · z maximise · esc back")
 	r.press("j", "j")
 	if r.m.detOff != 2 {
 		t.Fatalf("j scrolls the schema: %d", r.m.detOff)
@@ -56,18 +56,10 @@ func TestEnterOnATableGoesToTheSchemaPane(t *testing.T) {
 	if r.m.detOff != 2 || r.m.zone != ZoneExplorer {
 		t.Fatalf("ctrl+e scrolls the Schema from the Explorer: %d %s", r.m.detOff, r.m.zone)
 	}
-	// h and left go back too, and the preview keys work in the pane
+	// h and left go back too
 	r.press("enter", "h")
 	if r.m.zone != ZoneExplorer {
 		t.Fatalf("h: %s", r.m.zone)
-	}
-	r.press("enter", "p")
-	r.contains("20 of 45 rows")
-	r.press("j", "j", "J")
-	r.contains("Record 3 of 20 · orders")
-	r.press("esc", "tab")
-	if r.m.tab != 0 {
-		t.Fatal("tab switches back to the schema")
 	}
 }
 
@@ -84,7 +76,7 @@ func TestEnterShowsTheSchemaInTheFocusLayout(t *testing.T) {
 
 func TestEnterShowsASteppedDownSchemaMaximised(t *testing.T) {
 	r := newRig(t, 80, 24)
-	r.lacks("Schema ·", " Preview ")
+	r.lacks("Schema ·")
 	r.onOrders()
 	r.press("enter")
 	if r.m.zone != ZoneSchema || r.m.maxed != ZoneSchema {
@@ -115,8 +107,8 @@ func TestZMaximisesAndRestoresTheSchemaPane(t *testing.T) {
 		t.Fatalf("z maximises: pane %s maxed %q", r.m.zone, r.m.maxed)
 	}
 	r.lacks("Tables 3/4", "SQL · query 1")
-	if s, p := r.line(" Schema "), r.line(" Preview "); s < 0 || s != p {
-		t.Fatalf("maximised at 120 columns, schema and preview are side by side:\n%s", r.screen())
+	if r.line(" Schema · acme-prod.sales.orders") != 0 {
+		t.Fatalf("maximised, the Schema pane fills the screen:\n%s", r.screen())
 	}
 	r.press("z")
 	if r.m.zone != ZoneSchema || r.m.maxed != "" {

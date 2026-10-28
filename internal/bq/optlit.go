@@ -168,3 +168,9 @@ func parseTimestampOption(v string) (time.Time, bool) {
 	}
 	return time.Time{}, false
 }
+
+// parseBoolOption reads a BOOL option value (`true`, `TRUE`, `false`).
+// Anything but true reads false: "unknown = false".
+func parseBoolOption(v string) bool {
+	return strings.EqualFold(strings.TrimSpace(v), "true")
+}

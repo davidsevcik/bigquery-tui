@@ -15,14 +15,14 @@ T events_YYY│ Global                                                          
             │                 selected hides the project column)                                           │
             │ ctrl+x f        favorites: saved queries (tab switches to History)                           │
             │ ctrl+x r        history: every query run, searchable (tab switches to Favorites)             │
- Schema  Pre│ ctrl+g          tutorial of the navigation (while it runs: ctrl+g then n, p, r or q)         │
- p loads the│ ctrl+c          cancel the export, the focused Run, or the sync                              │ly estimate…
- (read direc│ ctrl+x y        hand-off to an agent: the selected table's schema, the focused Run's error,  │
-            │                 result sample or summary, to the clipboard or a file                         │
+ Schema · ac│ ctrl+g          tutorial of the navigation (while it runs: ctrl+g then n, p, r or q)         │ows
+ acme-prod.e│ ctrl+c          cancel the export, the focused Run, or the sync                              │
+ table · EU │ ctrl+x y        hand-off to an agent: the selected table's schema, the focused Run's error,  │
+ ✓ synced 3h│                 result sample or summary, to the clipboard or a file                         │
             │                                                                                              │
-            │ Explorer                                                                                     │
-            │ j  down         move down                                                                    │
-            │ k  up           move up                                                                      │
+ ── schema ·│ Explorer                                                                                     │
+ user_id  ST│ j  down         move down                                                                    │
+ url      ST│ k  up           move up                                                                      │
             │ h  left         parent column / collapse                                                     │
             │ l  right        child column / expand                                                        │
             │ g g  home       first row                                                                    │
@@ -31,6 +31,6 @@ T events_YYY│ Global                                                          
             │ ctrl+u  pgup    half page up                                                                 │
             │ enter           expand a shard family; on a table, go to the Schema pane                     │
             ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
-                                          │
+                                          │ row 1 of 45 · id INTEGER
  bqt exec acme-exec  layout: classic  columns  2 projects                                        5 datasets · 13 tables
  esc close

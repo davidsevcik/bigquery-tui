@@ -15,22 +15,22 @@ us_archive                              1 │~
                                           │~
                                           │~
                                           │~
- Schema · acme-prod.sales                 │ Results
- acme-prod.sales  dataset                 │ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
- EU · 4 tables                            │
- ✓ synced 3h ago                          │
- dataset sales                            │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
+ Schema · acme-prod.sales                 │ Sample · free read, no query job · acme-prod.sales.orders · 45 rows
+ acme-prod.sales  dataset                 │    id INT customer_id STR amount NUM
+ EU · 4 tables                            │  1 11     cust-b          19.99
+ ✓ synced 3h ago                          │  2 12     cust-c          19.99
+ dataset sales                            │  3 13     cust-d          19.99
+                                          │  4 14     cust-e          19.99
+                                          │  5 15     cust-f          19.99
+                                          │  6 16     cust-g          19.99
+                                          │  7 17     cust-h          NULL
+                                          │  8 18     cust-i          19.99
+                                          │  9 19     cust-j          19.99
+                                          │ 10 10     cust-k          19.99
+                                          │ 11 11     cust-l          19.99
+                                          │ 12 12     cust-m          19.99
+                                          │ 13 13     cust-n          19.99
+                                          │ 14 14     cust-o          NULL
+                                          │ row 1 of 45 · id INTEGER
  bqt exec acme-exec  layout: classic  columns  2 projects                                        5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L style · ? help · ctrl+o pane · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · ctrl+o pane · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial
