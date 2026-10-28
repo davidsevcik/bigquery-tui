@@ -1,8 +1,8 @@
- Projects 1/2     │ Datasets 3/4                 │ Tables 1/4
+ Projects 1/2     │ Datasets 2/3 of 4 ▸ s        │ Tables (4)
 acme-prod    ✓ 3h │events                      5 │T customers
-acme-staging ✓ 3h │finance                     2 │T order_items
-                  │sales                       4 │T orders
-                  │us_archive                  1 │V v_orders
+acme-staging ✓ 3h │sales                       4 │T order_items
+                  │us_archive                  1 │T orders
+                  │                              │V v_orders
                   │                              │
                   │                              │
                   │                              │
@@ -20,5 +20,5 @@ acme-staging ✓ 3h │finance                     2 │T order_items
                   │                              │
                   │                              │
                   │                              │
- bqt exec acme-exec  miller  2 projects                  5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · ctrl+o zone · ctrl+p…
+ bqt exec acme-exec  columns  2 projects                 5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · P panes · ? help · ctrl+o zone · ctrl+p …

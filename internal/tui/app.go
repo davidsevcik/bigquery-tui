@@ -21,15 +21,15 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/runs"
 )
 
-type layoutKind int
+type explorerStyle int
 
 const (
-	layoutMiller layoutKind = iota
-	layoutTree
-	layoutFlat
+	styleColumns explorerStyle = iota
+	styleTree
+	styleList
 )
 
-var layoutNames = []string{"miller", "tree", "flat"}
+var styleNames = []string{"columns", "tree", "list"}
 
 type placement int
 
@@ -96,7 +96,8 @@ type Model struct {
 	w, h  int
 	termH int // the terminal's rows; h leaves out the tutorial panel
 
-	layout    layoutKind
+	style     explorerStyle // how the Explorer draws the catalog
+	preset    string        // the chosen Layout preset (classic, focus)
 	place     placement
 	pd        *projDialog         // the Projects dialog while open
 	listed    []api.ListedProject // BigQuery's projects list, once fetched
@@ -185,7 +186,7 @@ func New(be Backend, o Options) *Model {
 		o.Location = time.Local
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30, termH: 30}
+	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30, termH: 30, preset: presetClassic}
 	m.jump = &searchState{typing: true, tablesOnly: true}
 	m.flat = &searchState{all: true}
 	m.tree.open = map[string]bool{}
@@ -222,11 +223,32 @@ func (m *Model) Close() {
 	m.cancel()
 }
 
+// uiState is state/tui.json. Older bqt instances share the file and read
+// "layout" as the Explorer style (miller, tree, flat), so it is read but never
+// written, and the new keys are separate.
 type uiState struct {
-	Layout string `json:"layout"`
-	Panes  string `json:"panes"`
-	// ZoomStacked: the zoomed detail shows schema above preview.
-	ZoomStacked bool `json:"zoom_stacked,omitempty"`
+	ExplorerStyle string `json:"explorer_style"`
+	// PaneLayout is an object so that a custom tree can join the preset later;
+	// it is decoded on its own, so a bad value does not lose the style.
+	PaneLayout json.RawMessage `json:"pane_layout,omitempty"`
+	Layout     string          `json:"layout,omitempty"` // legacy: the Explorer style
+}
+
+type paneLayoutState struct {
+	Preset string `json:"preset"`
+}
+
+// legacyStyles maps the old "layout" values to Explorer styles.
+var legacyStyles = map[string]explorerStyle{"miller": styleColumns, "tree": styleTree, "flat": styleList}
+
+func parseStyle(s string) (explorerStyle, bool) {
+	for i, n := range styleNames {
+		if n == s {
+			return explorerStyle(i), true
+		}
+	}
+	st, ok := legacyStyles[s]
+	return st, ok
 }
 
 func (m *Model) loadState() {
@@ -239,25 +261,26 @@ func (m *Model) loadState() {
 	if json.Unmarshal(b, &st) != nil {
 		return
 	}
-	for i, n := range layoutNames {
-		if n == st.Layout {
-			m.layout = layoutKind(i)
-		}
+	if s, ok := parseStyle(st.ExplorerStyle); ok {
+		m.style = s
+	} else if s, ok := parseStyle(st.Layout); ok {
+		m.style = s
 	}
-	for i, n := range placementNames {
-		if n == st.Panes {
-			m.place = placement(i)
-		}
+	var pl paneLayoutState
+	if json.Unmarshal(st.PaneLayout, &pl) == nil && knownPreset(pl.Preset) {
+		m.preset = pl.Preset
 	}
-	m.zoomStacked = st.ZoomStacked
 }
 
+// saveState writes the chosen Explorer style and Layout preset; the
+// step-down and the maximised Pane are never saved.
 func (m *Model) saveState() {
 	p := m.be.StatePath()
 	if os.MkdirAll(filepath.Dir(p), 0o700) != nil {
 		return
 	}
-	b, _ := json.Marshal(uiState{Layout: layoutNames[m.layout], Panes: placementNames[m.place], ZoomStacked: m.zoomStacked})
+	pl, _ := json.Marshal(paneLayoutState{Preset: m.preset})
+	b, _ := json.Marshal(uiState{ExplorerStyle: styleNames[m.style], PaneLayout: pl})
 	_ = os.WriteFile(p, b, 0o600)
 }
 
@@ -651,7 +674,7 @@ func (m *Model) typingState() *searchState {
 	switch {
 	case m.ov == ovJump:
 		return m.jump
-	case m.ov == ovNone && m.zone == ZoneExplorer && m.layout == layoutFlat && m.flat.typing:
+	case m.ov == ovNone && m.zone == ZoneExplorer && m.style == styleList && m.flat.typing:
 		return m.flat
 	}
 	return nil
@@ -874,16 +897,16 @@ func (m *Model) explorerAction(act string) tea.Cmd {
 		return m.back()
 	case "filter":
 		m.setZone(ZoneExplorer) // the palette runs it from any zone
-		if m.layout == layoutFlat {
+		if m.style == styleList {
 			m.flat.typing = true
 			return nil
 		}
-		if f := m.layoutFilter(); f != nil {
+		if f := m.styleFilter(); f != nil {
 			f.typing = true
 		}
 		return nil
-	case "layout":
-		m.setLayout((m.layout + 1) % 3)
+	case "style":
+		m.setStyle((m.style + 1) % 3)
 		m.saveState()
 		return m.runSearchIfFlat()
 	case "panes":
@@ -903,7 +926,7 @@ func (m *Model) explorerAction(act string) tea.Cmd {
 	case "record":
 		return m.openRecord()
 	case "scope":
-		if m.layout == layoutFlat {
+		if m.style == styleList {
 			m.cycleScope()
 			return m.runSearch(m.flat)
 		}
@@ -1007,7 +1030,7 @@ func (m *Model) scrollDetail(d int) tea.Cmd {
 }
 
 func (m *Model) moreIfFlat() tea.Cmd {
-	if m.layout == layoutFlat {
+	if m.style == styleList {
 		return m.maybeMore(m.flat)
 	}
 	return nil
@@ -1018,15 +1041,15 @@ func (m *Model) back() tea.Cmd {
 	switch {
 	case m.zoom:
 		m.zoom = false
-	case m.layout == layoutFlat && m.flat.in.value() != "":
+	case m.style == styleList && m.flat.in.value() != "":
 		m.flat.in.set("")
 		m.flat.cur, m.flat.off = 0, 0
 		m.flat.expandShards = false
 		return m.runSearch(m.flat)
-	case m.layout == layoutMiller && m.mil.family != nil:
+	case m.style == styleColumns && m.mil.family != nil:
 		m.milCollapseFamily()
-	case m.layoutFilter() != nil && m.layoutFilter().active():
-		f := m.layoutFilter()
+	case m.styleFilter() != nil && m.styleFilter().active():
+		f := m.styleFilter()
 		f.clear()
 		return m.refilter(f)
 	}

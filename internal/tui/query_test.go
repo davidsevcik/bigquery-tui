@@ -562,7 +562,7 @@ func TestQueryGoldenScreens(t *testing.T) {
 	}
 }
 
-func TestFlatExplorerLayoutDoesNotStealEditorKeys(t *testing.T) {
+func TestListStyleDoesNotStealEditorKeys(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.press("L", "L") // flat list
 	r.press("/")      // its filter is now taking keys

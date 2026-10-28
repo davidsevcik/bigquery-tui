@@ -1,8 +1,8 @@
- Datasets 3/4                │ Tables 1/4
-events                     5 │T customers
-finance                    2 │T order_items
-sales                      4 │T orders
-us_archive                 1 │V v_orders
+ Datasets 3/4                │ Tables 2/3 of 4 ▸ ord
+events                     5 │T order_items
+finance                    2 │T orders
+sales                      4 │V v_orders
+us_archive                 1 │
                              │
                              │
                              │
@@ -16,5 +16,5 @@ us_archive                 1 │V v_orders
                              │
                              │
                              │
- bqt exec acme-exec  miller  2 proj… 5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · …
+ bqt exec acme-exec  columns  2 pro… 5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · P panes · ? help · c…

@@ -125,7 +125,7 @@ func TestJumpClearsTheFiltersThatHideTheTarget(t *testing.T) {
 	r.lacks("orders_2019")
 }
 
-func TestEachLayoutKeepsItsOwnFilter(t *testing.T) {
+func TestEachExplorerStyleKeepsItsOwnFilter(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.press("l", "/", "s", "enter") // Miller datasets: on sales
 	r.press("L")                    // tree, unfiltered, on sales too
@@ -162,7 +162,7 @@ func TestTypingAFilterNeverTriggersCommands(t *testing.T) {
 	if f := r.m.typingFilter(); f == nil || f.in.value() != "qLPrRy?gg" {
 		t.Fatalf("printable keys must type: %+v", f)
 	}
-	if r.m.syncing || r.m.layout != layoutMiller || r.m.ov != ovNone {
+	if r.m.syncing || r.m.style != styleColumns || r.m.ov != ovNone {
 		t.Fatal("no command may run while typing")
 	}
 }

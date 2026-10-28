@@ -14,11 +14,11 @@ acme-staging ✓ 3h │finance                     2 │T events_YYYYMMDD       
                   │                              │
                   │                              │
 ╭─ Tutorial 3/17 · In and out ─────────────────────────────────────────────────╮
-│ l or → opens the selected project or dataset (in the tree layout:            │
-│ expands it); h or ← goes back out. Go in once and back out once.             │
+│ l or → opens the selected project or dataset (in the tree style: expands     │
+│ it); h or ← goes back out. Go in once and back out once.                     │
 │                                                                              │
 │                                                                              │
 │ ctrl+g then: n next · p back · r restart · q quit                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- bqt exec acme-exec  miller  2 projects                  5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · ctrl+o zone · ctrl+p…
+ bqt exec acme-exec  columns  2 projects                 5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · P panes · ? help · ctrl+o zone · ctrl+p …

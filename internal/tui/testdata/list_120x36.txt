@@ -32,5 +32,5 @@
                                                                      │
                                                                      │
                                                                      │
- bqt exec acme-exec  flat  2 projects                                                            5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · ctrl+o zone · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial
+ bqt exec acme-exec  list  2 projects                                                            5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · P panes · ? help · ctrl+o zone · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial

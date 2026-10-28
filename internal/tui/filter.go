@@ -10,7 +10,7 @@ import (
 )
 
 // listFilter narrows one Explorer list in place: a Miller column or the tree.
-// The flat layout keeps its own searchState.
+// The list style keeps its own searchState.
 type listFilter struct {
 	in     input
 	parsed api.ParsedQuery
@@ -229,18 +229,18 @@ func (m *Model) typingFilter() *listFilter {
 	if m.ov != ovNone || m.zone != ZoneExplorer {
 		return nil
 	}
-	if f := m.layoutFilter(); f != nil && f.typing {
+	if f := m.styleFilter(); f != nil && f.typing {
 		return f
 	}
 	return nil
 }
 
-// layoutFilter is the filter `/` edits in the current layout (nil in flat).
-func (m *Model) layoutFilter() *listFilter {
-	switch m.layout {
-	case layoutMiller:
+// styleFilter is the filter `/` edits in the current Explorer style (nil in the list style).
+func (m *Model) styleFilter() *listFilter {
+	switch m.style {
+	case styleColumns:
 		return &m.mil.f[m.mil.col]
-	case layoutTree:
+	case styleTree:
 		return &m.tree.f
 	}
 	return nil
@@ -323,12 +323,12 @@ func plural(n int, one, many string) string {
 	return itoa(n) + " " + many
 }
 
-// filterActive reports whether the current layout's list is filtered.
+// filterActive reports whether the current Explorer style's list is filtered.
 func (m *Model) filterActive() bool {
-	switch m.layout {
-	case layoutFlat:
+	switch m.style {
+	case styleList:
 		return m.flat.in.value() != ""
-	case layoutMiller:
+	case styleColumns:
 		for c := range m.mil.f {
 			if m.mil.f[c].active() {
 				return true
@@ -362,13 +362,13 @@ func (m *Model) treeSelectNearest(p api.ObjectPath) {
 	}
 }
 
-// filterOn reports whether the current layout's list is filtered (or its
+// filterOn reports whether the current Explorer style's list is filtered (or its
 // filter input is open).
 func (m *Model) filterOn() bool {
-	if m.layout == layoutFlat {
+	if m.style == styleList {
 		return m.flat.typing || m.flat.in.value() != ""
 	}
-	if m.layout == layoutMiller {
+	if m.style == styleColumns {
 		for c := range m.mil.f {
 			if m.mil.f[c].active() || m.mil.f[c].typing {
 				return true

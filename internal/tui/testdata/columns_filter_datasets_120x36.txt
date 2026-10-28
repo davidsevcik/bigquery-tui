@@ -1,10 +1,8 @@
- Projects 1/2            │ Datasets (4)                              │ Schema · acme-prod
-acme-prod           ✓ 3h │events                                   5 │ acme-prod  project
-acme-staging        ✓ 3h │finance                                  2 │ 4 datasets
-                         │sales                                    4 │ ✓ synced 3h ago
-                         │us_archive                               1 │
-                         │                                           │ Queries and sync jobs run in the Execution
-                         │                                           │ project acme-exec, not here.
+ Projects 1/2            │ Datasets 2/3 of 4 ▸ s                     │ Schema · acme-prod.sales
+acme-prod           ✓ 3h │events                                   5 │ acme-prod.sales  dataset
+acme-staging        ✓ 3h │sales                                    4 │ EU · 4 tables
+                         │us_archive                               1 │ ✓ synced 3h ago
+                         │                                           │ dataset sales
                          │                                           │
                          │                                           │
                          │                                           │
@@ -32,5 +30,7 @@ acme-staging        ✓ 3h │finance                                  2 │ 4 d
                          │                                           │
                          │                                           │
                          │                                           │
- bqt exec acme-exec  miller  2 projects                                                          5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · ctrl+o zone · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial
+                         │                                           │
+                         │                                           │
+ bqt exec acme-exec  columns  2 projects                                                         5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · P panes · ? help · ctrl+o zone · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial

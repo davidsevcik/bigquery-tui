@@ -32,5 +32,5 @@ us_archive  │ ⌕ ev                                                          
                                   │                                  │
                                   │                                  │
                                   │                                  │
- bqt exec acme-exec  miller  2 projects                                                          5 datasets · 13 tables
+ bqt exec acme-exec  columns  2 projects                                                         5 datasets · 13 tables
  type to search · ↑↓ select · enter open · esc close

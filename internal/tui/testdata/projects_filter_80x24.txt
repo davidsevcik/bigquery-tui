@@ -20,5 +20,5 @@ acme-staging ✓ 3h │finance                     2 │T events_YYYYMMDD       
                   │                              │
                   │                              │
                   │                              │
- bqt exec acme-exec  miller  2 projects                  5 datasets · 13 tables
+ bqt exec acme-exec  columns  2 projects                 5 datasets · 13 tables
  esc close

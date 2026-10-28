@@ -16,5 +16,5 @@ us_archive                 1 │V v_orders
                              │
                              │
                              │
- bqt exec acme-exec  miller  2 proj… 5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · …
+ bqt exec acme-exec  columns  2 pro… 5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · P panes · ? help · c…

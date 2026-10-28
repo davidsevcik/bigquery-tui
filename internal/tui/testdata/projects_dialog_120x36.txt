@@ -32,5 +32,5 @@ acme-staging      │ Execution project: acme-exec (chosen)                     
                   │ [ ] team-21-analytics  Team analytics                                            │
                   ╰──────────────────────────────────────────────────────────────────────────────────╯
                          │                                           │
- bqt exec acme-exec  miller  2 projects                                                          5 datasets · 13 tables
+ bqt exec acme-exec  columns  2 projects                                                         5 datasets · 13 tables
  esc close

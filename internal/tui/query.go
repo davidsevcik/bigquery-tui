@@ -1,8 +1,8 @@
 package tui
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"

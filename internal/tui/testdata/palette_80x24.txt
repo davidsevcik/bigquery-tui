@@ -20,5 +20,5 @@ acme-s│ > sync                                                           │  
                   │                              │
                   │                              │
                   │                              │
- bqt exec acme-exec  miller  2 projects                  5 datasets · 13 tables
+ bqt exec acme-exec  columns  2 projects                 5 datasets · 13 tables
  esc close

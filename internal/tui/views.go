@@ -94,17 +94,17 @@ func (m *Model) render() []string {
 	switch {
 	case m.zone != ZoneExplorer:
 		body = m.queryBody(w, bodyH)
-	case m.layout == layoutFlat:
+	case m.style == styleList:
 		body = m.searchBody(m.flat, w, bodyH, " filter ▸ ")
-	case m.layout == layoutTree:
+	case m.style == styleTree:
 		body = m.withDetail(w, bodyH, m.treeList)
 	default:
 		body = m.withDetail(w, bodyH, m.millerList)
 	}
-	if f := m.typingFilter(); f != nil && m.layout != layoutFlat && bodyH > 4 {
+	if f := m.typingFilter(); f != nil && m.style != styleList && bodyH > 4 {
 		hdr := m.filterHeader(f, w, m.filterWhat())
 		list := m.treeList
-		if m.layout == layoutMiller {
+		if m.style == styleColumns {
 			list = m.millerList
 		}
 		body = append(hdr, m.withDetail(w, bodyH-len(hdr), list)...)
@@ -157,7 +157,7 @@ func (m *Model) statusLine(w int) string {
 	}
 	b.add(" bqt ", sBold).add("exec ", sDim).add(exec, sAcc)
 	if m.zone == ZoneExplorer {
-		b.add("  "+layoutNames[m.layout], sDim)
+		b.add("  "+styleNames[m.style], sDim)
 	}
 	ps := m.projects()
 	switch len(ps) {
@@ -263,7 +263,7 @@ func (m *Model) footerLine(w int) string {
 		hint = footerHints(ZoneOverlay)
 	case m.zoom:
 		hint = "↑↓/jk scroll · tab schema/preview · P split · p rows · J record · ←/esc back"
-	case m.layout == layoutFlat && m.flat.typing:
+	case m.style == styleList && m.flat.typing:
 		hint = "type to filter · enter/esc back to the list"
 	case m.typingFilter() != nil:
 		hint = "type to filter · enter/esc back to the list · esc there clears the filter"
@@ -456,7 +456,7 @@ func (m *Model) treeList(w, h int) []string {
 
 // filterWhat names the list the filter line narrows.
 func (m *Model) filterWhat() string {
-	if m.layout == layoutTree {
+	if m.style == styleTree {
 		return "tree"
 	}
 	return []string{"projects", "datasets", "tables"}[m.mil.col]

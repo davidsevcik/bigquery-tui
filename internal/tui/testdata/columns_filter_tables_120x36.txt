@@ -1,5 +1,3 @@
- filter tables ▸ ord                                                                                          3 matches
- “ord”
  Datasets 3/4                     │ Tables 2/3 of 4 ▸ ord            │ Schema · acme-prod.sales.orders
 events                          5 │T order_items                     │ acme-prod.sales.orders
 finance                         2 │T orders                          │ table · EU · 45 rows · 5.0 MiB
@@ -18,6 +16,7 @@ us_archive                      1 │                                  │ label
                                   │                                  │     lat     STRING
                                   │                                  │ created_at  TIMESTAMP
                                   │                                  │
+                                  │                                  │
                                   │                                  │ Preview · acme-prod.sales.orders
                                   │                                  │ p loads the first 20 rows
                                   │                                  │ (read directly: free, no query job)
@@ -32,5 +31,6 @@ us_archive                      1 │                                  │ label
                                   │                                  │
                                   │                                  │
                                   │                                  │
- bqt exec acme-exec  miller  2 projects                                                          5 datasets · 13 tables
- type to filter · enter/esc back to the list · esc there clears the filter
+                                  │                                  │
+ bqt exec acme-exec  columns  2 projects                                                         5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · P panes · ? help · ctrl+o zone · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial

@@ -11,7 +11,7 @@ import (
 // ctrl+g starts it; while it runs, ctrl+g is a chord prefix for the
 // tutorial's own keys (n next, p back, q quit).
 
-// tutorialRows is the panel's fixed height, so the layout does not jump
+// tutorialRows is the panel's fixed height, so the screen does not jump
 // between steps.
 const tutorialRows = 7
 
@@ -36,20 +36,20 @@ type tutorial struct {
 	seenOv   map[overlayKind]bool
 	zoomed   bool
 	inserts  bool // vim Insert mode was entered
-	layouts  bool
+	styles   bool
 	filtered bool // an Explorer filter was set
 }
 
 type tutSnap struct {
-	zone   Zone
-	sel    string
-	layout layoutKind
-	runs   int
-	text   string
+	zone  Zone
+	sel   string
+	style explorerStyle
+	runs  int
+	text  string
 }
 
 func (m *Model) tutSnap() tutSnap {
-	return tutSnap{zone: m.zone, sel: m.sel().path.String() + "\x00" + string(m.sel().kind), layout: m.layout, runs: len(m.runs.List()), text: m.buf().ed.text()}
+	return tutSnap{zone: m.zone, sel: m.sel().path.String() + "\x00" + string(m.sel().kind), style: m.style, runs: len(m.runs.List()), text: m.buf().ed.text()}
 }
 
 func plain(s string) func(*Model) string { return func(*Model) string { return s } }
@@ -75,16 +75,16 @@ var tutSteps = []tutStep{
 		func(m *Model, t *tutorial) bool {
 			return m.zone == ZoneExplorer && m.tutSnap().sel != t.start.sel
 		}},
-	{"In and out", plain("`l` or `→` opens the selected project or dataset (in the tree layout: expands it); `h` or `←` goes back out. Go in once and back out once."),
+	{"In and out", plain("`l` or `→` opens the selected project or dataset (in the tree style: expands it); `h` or `←` goes back out. Go in once and back out once."),
 		func(m *Model, t *tutorial) bool {
 			return t.pressed("l", "right", "enter") && t.pressed("h", "left", "esc")
 		}},
-	{"Filter the Explorer", plain("`/` filters the list you are in: the focused column in the Miller layout, the whole tree in the tree layout. Type part of a name; `enter` or `esc` goes back to the list with the filter kept, and `esc` there clears it. Filter once, then clear it."),
+	{"Filter the Explorer", plain("`/` filters the list you are in: the focused column in the columns style, the whole tree in the tree style. Type part of a name; `enter` or `esc` goes back to the list with the filter kept, and `esc` there clears it. Filter once, then clear it."),
 		func(m *Model, t *tutorial) bool { return t.filtered && !m.filterOn() }},
 	{"Jump to a table", plain("`ctrl+t` jumps to a table from any zone: type, then `enter`. Empty, it lists the tables you opened lately. From the Editor it inserts the name instead. Try it, then close it."),
 		closedAfter(ovJump)},
-	{"Layouts", plain("`L` cycles the Explorer layout: Miller columns, tree, flat list. bqt remembers your choice, so press it until you are back at the one you like."),
-		func(m *Model, t *tutorial) bool { return t.layouts }},
+	{"Explorer styles", plain("`L` cycles the Explorer style: columns, tree, list. bqt remembers your choice, so press it until you are back at the one you like."),
+		func(m *Model, t *tutorial) bool { return t.styles }},
 	{"The detail pane", plain("On a table, the detail pane shows the schema. `tab` switches to the preview (`p` loads rows), `P` moves the pane. `z` zooms it; `esc` or `←` leaves the zoom. Zoom in and out once."),
 		func(m *Model, t *tutorial) bool { return t.zoomed && !m.zoom }},
 	{"Command palette", plain("`ctrl+p` (or `:` in the Explorer) lists every command by name, with its key. Type to filter, `enter` runs one, `esc` closes. Open it and close it."),
@@ -140,7 +140,7 @@ func (m *Model) tutGo(step int) {
 	t := m.tut
 	t.step = clamp(step, 0, len(tutSteps)-1)
 	t.keys, t.seenOv = map[string]bool{}, map[overlayKind]bool{}
-	t.zoomed, t.inserts, t.layouts, t.filtered = false, false, false, false
+	t.zoomed, t.inserts, t.styles, t.filtered = false, false, false, false
 	t.start = m.tutSnap()
 	m.fitHeight()
 }
@@ -219,8 +219,8 @@ func (m *Model) tutorialObserve() {
 	if m.filterActive() {
 		t.filtered = true
 	}
-	if m.layout != t.start.layout {
-		t.layouts = true
+	if m.style != t.start.style {
+		t.styles = true
 	}
 	if m.vimOn() && m.buf().vim.mode == vimInsert {
 		t.inserts = true

@@ -8,7 +8,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// selection is what the cursor is on, in any layout.
+// selection is what the cursor is on, in any Explorer style.
 type selection struct {
 	kind api.ResultKind // "" when nothing is selected
 	path api.ObjectPath
@@ -297,7 +297,7 @@ func (m *Model) rerunSearches() tea.Cmd {
 	if m.tree.f.active() {
 		cmds = append(cmds, m.refilter(&m.tree.f))
 	}
-	if m.layout == layoutFlat {
+	if m.style == styleList {
 		cmds = append(cmds, m.runSearch(m.flat))
 	}
 	if st := m.typingState(); st != nil && st != m.flat {
@@ -307,7 +307,7 @@ func (m *Model) rerunSearches() tea.Cmd {
 }
 
 func (m *Model) runSearchIfFlat() tea.Cmd {
-	if m.layout == layoutFlat {
+	if m.style == styleList {
 		return m.runSearch(m.flat)
 	}
 	return nil
@@ -317,12 +317,12 @@ func (m *Model) sel() selection {
 	if st := m.activeResults(); st != nil {
 		return st.selection()
 	}
-	switch m.layout {
-	case layoutMiller:
+	switch m.style {
+	case styleColumns:
 		if n, ok := m.mil.at(m.mil.col); ok {
 			return selection{kind: n.Kind, path: n.Path, node: n}
 		}
-	case layoutTree:
+	case styleTree:
 		if m.tree.cur < len(m.tree.rows) {
 			n := m.tree.rows[m.tree.cur].node
 			return selection{kind: n.Kind, path: n.Path, node: n}
@@ -336,7 +336,7 @@ func (m *Model) activeResults() *searchState {
 	switch {
 	case m.ov == ovJump:
 		return m.jump
-	case m.ov == ovNone && m.layout == layoutFlat:
+	case m.ov == ovNone && m.style == styleList:
 		return m.flat
 	}
 	return nil
@@ -345,8 +345,8 @@ func (m *Model) activeResults() *searchState {
 func (m *Model) listHeight() int { return max(1, m.h-4) }
 
 func (m *Model) move(d int) {
-	switch m.layout {
-	case layoutMiller:
+	switch m.style {
+	case styleColumns:
 		ml := &m.mil
 		c := ml.col
 		old := ml.cur[c]
@@ -358,15 +358,15 @@ func (m *Model) move(d int) {
 			ml.family = nil
 			m.milLoad(c + 1)
 		}
-	case layoutTree:
+	case styleTree:
 		m.tree.cur = clamp(m.tree.cur+d, 0, max(0, len(m.tree.rows)-1))
-	case layoutFlat:
+	case styleList:
 		m.flat.move(d)
 	}
 }
 
 func (m *Model) bottom() tea.Cmd {
-	if m.layout == layoutFlat {
+	if m.style == styleList {
 		if m.flat.total > len(m.flat.results) {
 			m.flat.wantEnd = true
 			return m.fetchAll(m.flat)
@@ -377,15 +377,15 @@ func (m *Model) bottom() tea.Cmd {
 }
 
 func (m *Model) left() {
-	switch m.layout {
-	case layoutMiller:
+	switch m.style {
+	case styleColumns:
 		ml := &m.mil
 		if ml.col == 2 && ml.family != nil {
 			m.milCollapseFamily()
 			return
 		}
 		ml.col = max(m.milFirst(), ml.col-1)
-	case layoutTree:
+	case styleTree:
 		t := &m.tree
 		if t.cur >= len(t.rows) {
 			return
@@ -406,8 +406,8 @@ func (m *Model) left() {
 }
 
 func (m *Model) right() tea.Cmd {
-	switch m.layout {
-	case layoutMiller:
+	switch m.style {
+	case styleColumns:
 		ml := &m.mil
 		if ml.col < 2 && len(ml.cols[ml.col+1]) > 0 {
 			ml.col++
@@ -416,7 +416,7 @@ func (m *Model) right() tea.Cmd {
 		if ml.col == 2 {
 			return m.open()
 		}
-	case layoutTree:
+	case styleTree:
 		t := &m.tree
 		if t.cur >= len(t.rows) {
 			return nil
@@ -437,7 +437,7 @@ func (m *Model) right() tea.Cmd {
 			return nil
 		}
 		return m.open()
-	case layoutFlat:
+	case styleList:
 		return m.open()
 	}
 	return nil
@@ -449,10 +449,10 @@ func (m *Model) open() tea.Cmd {
 	s := m.sel()
 	switch s.kind {
 	case api.KindProject, api.KindDataset:
-		switch m.layout {
-		case layoutFlat:
+		switch m.style {
+		case styleList:
 			return m.reveal(s.path, s.kind)
-		case layoutTree:
+		case styleTree:
 			m.tree.setOpen(s.node, !m.tree.isOpen(s.node))
 			m.treeBuild()
 			return nil
@@ -462,8 +462,8 @@ func (m *Model) open() tea.Cmd {
 		}
 		return nil
 	case api.KindShards:
-		switch m.layout {
-		case layoutMiller:
+		switch m.style {
+		case styleColumns:
 			ml := &m.mil
 			if ml.col < 2 {
 				ml.col = 2
@@ -473,17 +473,17 @@ func (m *Model) open() tea.Cmd {
 			ml.family, ml.famIdx = &fam, ml.cur[2]
 			ml.cur[2], ml.off[2] = 0, 0
 			m.milLoad(2)
-		case layoutTree:
+		case styleTree:
 			m.tree.setOpen(s.node, !m.tree.isOpen(s.node))
 			m.treeBuild()
-		case layoutFlat:
+		case styleList:
 			m.flat.in.set("d:" + s.path.Dataset + " p:" + s.path.Project + " " + strings.TrimSuffix(s.path.Table, "YYYYMMDD"))
 			m.flat.expand, m.flat.expandShards = true, true
 			m.flat.cur, m.flat.off = 0, 0
 			return m.runSearch(m.flat)
 		}
 	case api.KindTable:
-		if m.layout == layoutMiller && m.mil.col < 2 {
+		if m.style == styleColumns && m.mil.col < 2 {
 			m.mil.col = 2
 			return nil
 		}
@@ -497,19 +497,19 @@ func (m *Model) open() tea.Cmd {
 	return nil
 }
 
-func (m *Model) setLayout(l layoutKind) {
+func (m *Model) setStyle(l explorerStyle) {
 	s := m.sel()
-	m.layout = l
+	m.style = l
 	m.zoom = false
 	if s.kind != "" {
 		m.locate(s.path, s.kind)
 	}
 }
 
-// locate moves the current layout's cursor to an object.
+// locate moves the current Explorer style's cursor to an object.
 func (m *Model) locate(p api.ObjectPath, kind api.ResultKind) {
-	switch m.layout {
-	case layoutMiller:
+	switch m.style {
+	case styleColumns:
 		ml := &m.mil
 		ml.family = nil
 		m.milDropHiding(p, kind)
@@ -552,7 +552,7 @@ func (m *Model) locate(p api.ObjectPath, kind api.ResultKind) {
 				m.milLoad(2)
 			}
 		}
-	case layoutTree:
+	case styleTree:
 		t := &m.tree
 		if t.f.active() && (!t.filtering() || !m.treeLocateFiltered(p, kind)) {
 			// the filter hides the target: drop it
@@ -591,7 +591,7 @@ func (m *Model) locate(p api.ObjectPath, kind api.ResultKind) {
 		m.treeBuild()
 		kind = api.KindTable
 		find()
-	case layoutFlat:
+	case styleList:
 		m.flat.pending = &p
 	}
 }
@@ -634,14 +634,14 @@ func (m *Model) treeLocateFiltered(p api.ObjectPath, kind api.ResultKind) bool {
 // reveal closes any overlay and shows the object in the explorer.
 func (m *Model) reveal(p api.ObjectPath, kind api.ResultKind) tea.Cmd {
 	m.ov = ovNone
-	if m.layout == layoutFlat {
-		// the flat list cannot show containers: fall back to Miller columns
-		m.layout = layoutMiller
+	if m.style == styleList {
+		// the list style cannot show containers: fall back to the columns style
+		m.style = styleColumns
 	}
 	// a pasted path can name a project that is not selected
 	show := m.selectForPath(p.Project)
 	m.locate(p, kind)
-	if kind == api.KindShards && m.layout == layoutMiller {
+	if kind == api.KindShards && m.style == styleColumns {
 		if n, ok := m.mil.at(2); ok && n.Kind == api.KindShards {
 			fam := n
 			m.mil.family, m.mil.famIdx = &fam, m.mil.cur[2]

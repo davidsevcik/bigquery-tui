@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -58,25 +59,25 @@ func TestGoldenScreens(t *testing.T) {
 	for _, sz := range sizes {
 		name := func(s string) string { return s + "_" + itoa(sz.w) + "x" + itoa(sz.h) }
 		r := newRig(t, sz.w, sz.h)
-		r.golden(name("miller_projects"))
+		r.golden(name("columns_projects"))
 		r.press("l", "j", "j", "l")
-		r.golden(name("miller_table"))
+		r.golden(name("columns_table"))
 		r.press("p")
-		r.golden(name("miller_preview"))
+		r.golden(name("columns_preview"))
 		r.press("L")
 		r.golden(name("tree"))
 		r.press("L")
-		r.golden(name("flat"))
-		r.press("L", "/", "ord") // Miller again, in the tables of sales
-		r.golden(name("miller_filter_typing"))
+		r.golden(name("list"))
+		r.press("L", "/", "ord") // columns again, in the tables of sales
+		r.golden(name("columns_filter_typing"))
 		r.press("enter")
-		r.golden(name("miller_filter_tables"))
+		r.golden(name("columns_filter_tables"))
 		r.press("h", "/", "s", "enter")
-		r.golden(name("miller_filter_datasets"))
+		r.golden(name("columns_filter_datasets"))
 		r.press("esc", "L", "/", "ord", "enter")
 		r.golden(name("tree_filter"))
 		r.press("esc", "L", "/", "ord col:amount")
-		r.golden(name("flat_filter"))
+		r.golden(name("list_filter"))
 		r.press("esc", "esc", "L", "ctrl+t", "ev")
 		r.golden(name("jump"))
 		r.press("esc", "?")
@@ -133,16 +134,16 @@ func TestShardFamilyExpandsAndCollapses(t *testing.T) {
 	}
 }
 
-func TestLayoutCycleKeepsSelection(t *testing.T) {
+func TestExplorerStyleCycleKeepsSelection(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.press("l", "j", "j", "l", "j", "j") // acme-prod.sales.orders
 	want := "acme-prod.sales.orders"
-	for _, layout := range []string{"tree", "flat", "miller"} {
+	for _, style := range []string{"tree", "list", "columns"} {
 		r.press("L")
 		if got := r.m.sel().path.String(); got != want {
-			t.Fatalf("after switching to %s the selection is %q", layout, got)
+			t.Fatalf("after switching to %s the selection is %q", style, got)
 		}
-		r.contains(" " + layout)
+		r.contains("  " + style)
 	}
 	// a shard member survives the round trip as well
 	r.press("h", "k", "k", "l", "j", "enter", "j")
@@ -156,13 +157,70 @@ func TestLayoutCycleKeepsSelection(t *testing.T) {
 	}
 }
 
-func TestLayoutIsRemembered(t *testing.T) {
+func TestExplorerStyleIsRemembered(t *testing.T) {
 	r := newRig(t, 120, 30)
-	r.press("L", "P")
+	r.press("L")
 	m2 := New(r.m.be, Options{NoBackground: true})
 	defer m2.Close()
-	if m2.layout != layoutTree || m2.place != placeRight {
-		t.Fatalf("layout %v panes %v", m2.layout, m2.place)
+	if m2.style != styleTree {
+		t.Fatalf("style %v", m2.style)
+	}
+}
+
+// writeState replaces state/tui.json and starts a second model on it.
+func (r *rig) restartWith(state string) *Model {
+	r.t.Helper()
+	p := r.m.be.StatePath()
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		r.t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(state), 0o600); err != nil {
+		r.t.Fatal(err)
+	}
+	m2 := New(r.m.be, Options{NoBackground: true})
+	r.t.Cleanup(m2.Close)
+	return m2
+}
+
+func TestLegacyStateFileKeepsTheExplorerStyle(t *testing.T) {
+	r := newRig(t, 120, 30)
+	m2 := r.restartWith(`{"layout":"flat","panes":"bottom","zoom_stacked":true}`)
+	if m2.style != styleList || m2.preset != "classic" {
+		t.Fatalf("style %v layout %q", styleNames[m2.style], m2.preset)
+	}
+	for legacy, want := range map[string]explorerStyle{"miller": styleColumns, "tree": styleTree, "list": styleList, "nonsense": styleColumns} {
+		if m := r.restartWith(`{"layout":"` + legacy + `"}`); m.style != want {
+			t.Errorf("%s: %s", legacy, styleNames[m.style])
+		}
+	}
+	if m := r.restartWith(`{"explorer_style":"tree","layout":"flat"}`); m.style != styleTree {
+		t.Errorf("explorer_style wins over the legacy key: %s", styleNames[m.style])
+	}
+}
+
+func TestMalformedPaneLayoutKeepsTheExplorerStyle(t *testing.T) {
+	r := newRig(t, 120, 30)
+	for _, pl := range []string{`"focus"`, `{"preset":42}`, `{"preset":"nonsense"}`, `[1]`} {
+		m2 := r.restartWith(`{"explorer_style":"list","pane_layout":` + pl + `}`)
+		if m2.style != styleList || m2.preset != "classic" {
+			t.Errorf("%s: style %s layout %q", pl, styleNames[m2.style], m2.preset)
+		}
+	}
+	m2 := r.restartWith(`{"explorer_style":"tree","pane_layout":{"preset":"focus","tree":{"later":true}}}`)
+	if m2.style != styleTree || m2.preset != "focus" {
+		t.Fatalf("members a later bqt adds are ignored: style %s layout %q", styleNames[m2.style], m2.preset)
+	}
+}
+
+func TestSavedStateHasOnlyTheNewKeys(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.press("L", "L", "L")
+	b, err := os.ReadFile(r.m.be.StatePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(b); got != `{"explorer_style":"columns","pane_layout":{"preset":"classic"}}` {
+		t.Fatalf("state file %s", got)
 	}
 }
 
@@ -181,14 +239,14 @@ func TestTreeExpandCollapse(t *testing.T) {
 	r.lacks("clicks")
 }
 
-func TestSlashFiltersInPlaceInEveryLayout(t *testing.T) {
+func TestSlashFiltersInPlaceInEveryExplorerStyle(t *testing.T) {
 	r := newRig(t, 120, 30)
-	for _, layout := range []string{"miller", "tree", "flat"} {
+	for _, style := range []string{"columns", "tree", "list"} {
 		r.press("/")
 		if r.m.ov != ovNone || !r.m.filterOn() {
-			t.Fatalf("%s: / opens a popup (%v) or no filter input", layout, r.m.ov)
+			t.Fatalf("%s: / opens a popup (%v) or no filter input", style, r.m.ov)
 		}
-		r.contains(" "+layout, "filter ")
+		r.contains("  "+style, "filter ")
 		r.lacks("search ▸")
 		r.press("esc", "L")
 	}
@@ -208,7 +266,7 @@ func TestJumpListsRecentlyOpenedTables(t *testing.T) {
 	}
 }
 
-func TestFlatChipsAndColumnHits(t *testing.T) {
+func TestListStyleChipsAndColumnHits(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.press("L", "L", "/", "type:foo d: -p:staging col:amount")
 	r.contains("[type:foo]", "[d:…]", "[-p:staging]", "[col:amount]")
@@ -224,7 +282,7 @@ func TestTypingInTheJumpPopupNeverTriggersCommands(t *testing.T) {
 	if r.m.ov != ovJump || r.m.jump.in.value() != "qLPrRy?gg" {
 		t.Fatalf("printable keys must type: ov=%v text=%q", r.m.ov, r.m.jump.in.value())
 	}
-	if r.m.syncing || r.m.layout != layoutMiller {
+	if r.m.syncing || r.m.style != styleColumns {
 		t.Fatal("no command may run while typing")
 	}
 }
@@ -244,7 +302,7 @@ func TestStaleSearchResultsAreDropped(t *testing.T) {
 	}
 }
 
-func TestFlatLayoutFilterScopeAndEsc(t *testing.T) {
+func TestListStyleFilterScopeAndEsc(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.press("L", "L")
 	r.contains("filter ▸", "1/10")
@@ -388,7 +446,7 @@ func TestEnterOnEmptyContainersInTreeDoesNotRecurse(t *testing.T) {
 	}
 }
 
-func TestFlatLayoutExpandsShardFamilies(t *testing.T) {
+func TestListStyleExpandsShardFamilies(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.press("L", "L", "/", "events_", "enter")
 	if s := r.m.sel(); s.kind != api.KindShards {
@@ -403,9 +461,9 @@ func TestFlatLayoutExpandsShardFamilies(t *testing.T) {
 	r.contains("events_YYYYMMDD", "1/10")
 }
 
-func TestFlatLayoutRestoredAtStartupIsNotEmpty(t *testing.T) {
+func TestListStyleRestoredAtStartupIsNotEmpty(t *testing.T) {
 	r := newRig(t, 120, 30)
-	r.press("L", "L") // saves "flat"
+	r.press("L", "L") // saves "list"
 	m2 := New(r.m.be, Options{NoBackground: true, StableOutput: true, Now: func() time.Time { return r.now }})
 	defer m2.Close()
 	r2 := &rig{t: t, m: m2, fake: r.fake, now: r.now}
@@ -592,12 +650,6 @@ func TestZoomSplitSwitchesBetweenSideBySideAndStacked(t *testing.T) {
 	}
 	if r.m.place != place || !r.m.zoom {
 		t.Fatal("P in the zoom leaves the normal pane placement alone")
-	}
-	// remembered across restarts
-	m2 := New(r.m.be, Options{NoBackground: true, StableOutput: true, Now: func() time.Time { return r.now }})
-	defer m2.Close()
-	if !m2.zoomStacked {
-		t.Fatal("the zoom split is saved in the state file")
 	}
 	r.press("P")
 	if line(" Schema ") != line(" Preview ") {

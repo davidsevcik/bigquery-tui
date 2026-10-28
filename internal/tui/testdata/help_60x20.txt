@@ -16,5 +16,5 @@ us_│ ctrl+o  ctrl+w w  next zone: Explorer, Editor,     │
    │                 and browsed, and where jobs run    │
    ╰────────────────────────────────────────────────────╯
                              │
- bqt exec acme-exec  miller  2 proj… 5 datasets · 13 tables
+ bqt exec acme-exec  columns  2 pro… 5 datasets · 13 tables
  esc close
