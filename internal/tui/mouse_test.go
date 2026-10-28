@@ -5,10 +5,12 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
+	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 )
 
@@ -417,4 +419,281 @@ func TestAClickThatReachesTheEditorAdvancesTheTutorial(t *testing.T) {
 	r.tutStep(panes)
 	r.click(r.center(ZoneEditor))
 	r.tutStep(panes + 1)
+}
+
+func TestTheWheelMovesTheExplorerUnderThePointer(t *testing.T) {
+	r := newRig(t, 120, 36)
+	r.press("L", "l", "j", "j", "j", "l", "g", "g") // the tree, acme-prod and sales open
+	r.press("ctrl+w", "l")
+	r.mouseOn()
+	x, y := r.center(ZoneExplorer)
+	r.wheel(x, y, tea.MouseWheelDown)
+	r.selected("acme-prod.sales")
+	r.wheel(x, y, tea.MouseWheelDown)
+	r.selected("acme-prod.sales.orders")
+	if r.m.zone != ZoneEditor {
+		t.Fatalf("the wheel moved the focus to %s", r.m.zone)
+	}
+	r.contains("Schema · acme-prod.sales.orders", "partition filter required")
+	r.wheel(x, y, tea.MouseWheelUp)
+	r.wheel(x, y, tea.MouseWheelUp)
+	r.selected("acme-prod")
+	before := r.pin()
+	r.wheel(x, y, tea.MouseWheelUp)
+	r.unchanged("the wheel at the first row", before)
+	for range 10 {
+		r.wheel(x, y, tea.MouseWheelDown)
+	}
+	r.selected("acme-staging")
+	before = r.pin()
+	r.wheel(x, y, tea.MouseWheelDown)
+	r.unchanged("the wheel at the last row", before)
+}
+
+func TestTheWheelMovesTheColumnUnderThePointer(t *testing.T) {
+	r := newRig(t, 120, 36)
+	r.onOrders()
+	r.press("ctrl+w", "z") // the Explorer maximised: all three columns
+	r.mouseOn()
+	// the datasets column is the middle one, after the projects column
+	header := strings.Split(r.screen(), "\n")[1]
+	cell := func(sub string) int {
+		i := strings.Index(header, sub)
+		if i < 0 {
+			t.Fatalf("no %s column: %q", sub, header)
+		}
+		return utf8.RuneCountInString(header[:i])
+	}
+	x := cell("Datasets")
+	r.wheel(x, 6, tea.MouseWheelUp)
+	if r.m.mil.col != 2 || r.m.zone != ZoneExplorer {
+		t.Fatalf("the focused column changed: column %d, zone %s", r.m.mil.col, r.m.zone)
+	}
+	if got := r.m.sel().path; got.Dataset != "events" {
+		t.Fatalf("the tables column follows the dataset: %s", got)
+	}
+	// the wheel over the focused column moves its cursor
+	r.wheel(cell("Tables")+2, 6, tea.MouseWheelDown)
+	if r.m.mil.cur[2] != 1 || r.m.sel().path.Dataset != "events" {
+		t.Fatalf("tables cursor %d, selection %s", r.m.mil.cur[2], r.m.sel().path)
+	}
+}
+
+func TestTheWheelLoadsTheNextPageOfTheList(t *testing.T) {
+	r := newRig(t, 120, 36)
+	var many []api.TableMeta
+	for i := range searchPage + 50 {
+		many = append(many, bqtest.Table(fmt.Sprintf("t%04d", i), "id"))
+	}
+	p := r.fake.AddProject("acme-prod")
+	p.Datasets = append(p.Datasets, bqtest.DS("wide", "EU", many...))
+	r.press("R")
+	r.press("L", "L") // the list
+	r.press("ctrl+w", "l")
+	r.mouseOn()
+	if n, total := len(r.m.flat.results), r.m.flat.total; n != searchPage || total <= n {
+		t.Fatalf("precondition: %d of %d results loaded", n, total)
+	}
+	x, y := r.center(ZoneExplorer)
+	for range searchPage / wheelStep {
+		r.wheel(x, y, tea.MouseWheelDown)
+	}
+	if n, total := len(r.m.flat.results), r.m.flat.total; n != total {
+		t.Fatalf("%d of %d results loaded after wheeling to the end", n, total)
+	}
+	if r.m.zone != ZoneEditor {
+		t.Fatalf("focus %s", r.m.zone)
+	}
+}
+
+func TestTheWheelScrollsTheSchemaPane(t *testing.T) {
+	r := newRig(t, 120, 24)
+	r.onOrders()
+	r.mouseOn()
+	x, y := r.center(ZoneSchema)
+	r.wheel(x, y, tea.MouseWheelDown)
+	if r.m.detOff != 3 || r.m.zone != ZoneExplorer {
+		t.Fatalf("offset %d, zone %s", r.m.detOff, r.m.zone)
+	}
+	r.wheel(x, y, tea.MouseWheelUp)
+	r.wheel(x, y, tea.MouseWheelUp)
+	if r.m.detOff != 0 {
+		t.Fatalf("offset %d at the top", r.m.detOff)
+	}
+	for range 30 {
+		r.wheel(x, y, tea.MouseWheelDown)
+	}
+	end := r.m.detOff
+	r.lacks("orders ↓")
+	r.wheel(x, y, tea.MouseWheelUp)
+	if end == 0 || r.m.detOff != end-3 {
+		t.Fatalf("one step up from the end (%d) is at %d", end, r.m.detOff)
+	}
+}
+
+func TestTheWheelScrollsTheEditorWithoutEditing(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	r.mouseOn()
+	var lines []string
+	for i := range 60 {
+		lines = append(lines, fmt.Sprintf("select %d", i))
+	}
+	r.typeText(strings.Join(lines, "\n") + "\nselect * from `acme-p")
+	if !r.m.comp.open {
+		t.Fatal("precondition: the completion popup is open")
+	}
+	e := r.m.buf().ed
+	h := r.m.editorRows()
+	text, undo, version := r.text(), len(e.undo), e.version
+	r.screen() // the view follows the cursor when drawn
+	top := e.top
+	x, y := r.center(ZoneEditor)
+	r.wheel(x, y, tea.MouseWheelUp)
+	r.screen()
+	if e.top != top-3 || r.m.comp.open {
+		t.Fatalf("top %d (was %d), completion open %v", e.top, top, r.m.comp.open)
+	}
+	if e.row < e.top || e.row >= e.top+h {
+		t.Fatalf("the cursor row %d left the view [%d, %d)", e.row, e.top, e.top+h)
+	}
+	if r.text() != text || len(e.undo) != undo || e.version != version {
+		t.Fatal("the wheel edited the buffer")
+	}
+	// unfocused, the cursor stays where it is while it is in view
+	r.press("ctrl+w", "h")
+	for range 30 {
+		r.wheel(x, y, tea.MouseWheelUp)
+	}
+	r.screen()
+	if e.top != 0 || e.row != h-1 || r.m.zone != ZoneExplorer {
+		t.Fatalf("top %d row %d zone %s", e.top, e.row, r.m.zone)
+	}
+	r.wheel(x, y, tea.MouseWheelDown)
+	r.screen()
+	if e.top != 3 || e.row != h-1 {
+		t.Fatalf("top %d row %d: the cursor moved while in view", e.top, e.row)
+	}
+	for range 40 {
+		r.wheel(x, y, tea.MouseWheelDown)
+	}
+	r.screen()
+	if want := len(e.lines) - h; e.top != want {
+		t.Fatalf("top %d, want %d at the end", e.top, want)
+	}
+}
+
+func TestTheWheelMovesTheResultsUnderThePointer(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(gridPage + 100) }
+	r.typeText("select many")
+	r.press("ctrl+r")
+	r.settle()
+	r.mouseOn()
+	x, y := r.center(ZoneResults)
+	r.wheel(x, y, tea.MouseWheelUp)
+	g := r.m.grid()
+	if g.row != 0 {
+		t.Fatalf("row %d after the wheel at the first row", g.row)
+	}
+	r.wheel(x, y, tea.MouseWheelDown)
+	if g.row != 3 || r.m.zone != ZoneEditor {
+		t.Fatalf("row %d, zone %s", g.row, r.m.zone)
+	}
+	for range gridPage / wheelStep {
+		r.wheel(x, y, tea.MouseWheelDown)
+	}
+	if _, ok := g.pages[gridPage]; !ok {
+		t.Fatal("the next page was not loaded")
+	}
+	r.contains(fmt.Sprintf("row %d of", g.row+1))
+	r.wheel(x, y, tea.MouseWheelRight)
+	if g.col != 1 {
+		t.Fatalf("column %d after the sideways wheel", g.col)
+	}
+	r.wheel(x, y, tea.MouseWheelLeft)
+	r.wheel(x, y, tea.MouseWheelLeft)
+	if g.col != 0 {
+		t.Fatalf("column %d", g.col)
+	}
+}
+
+func TestTheWheelPagesThroughASample(t *testing.T) {
+	r := newRig(t, 120, 30)
+	var rows [][]any
+	for i := range gridPage + 100 {
+		rows = append(rows, []any{fmt.Sprint(i + 1), "x"})
+	}
+	r.fake.TableData["acme-prod.sales.customers"] = bqtest.TableData{
+		Info: bq.TableInfo{Type: api.TypeTable, Schema: []bq.Field{{Name: "id", Type: "INTEGER"}, {Name: "email", Type: "STRING"}}},
+		Rows: rows,
+	}
+	r.onSalesTable(0, "acme-prod.sales.customers")
+	r.press("p")
+	r.mouseOn()
+	before := r.calls("ListRows")
+	x, y := r.center(ZoneResults)
+	for range gridPage/wheelStep + 1 {
+		r.wheel(x, y, tea.MouseWheelDown)
+	}
+	if n := r.calls("ListRows") - before; n != 1 {
+		t.Fatalf("%d page reads, want the next page once", n)
+	}
+	r.contains(fmt.Sprintf("row %d of 600", (gridPage/wheelStep+1)*wheelStep+1))
+	if r.m.zone != ZoneExplorer {
+		t.Fatalf("focus %s", r.m.zone)
+	}
+}
+
+func TestTheWheelIsQuietWhereItHasNothingToDo(t *testing.T) {
+	r := newRig(t, 120, 36)
+	r.mouseOn()
+	r.press("j") // clears the toast
+	before := r.pin()
+	x, y := r.center(ZoneResults)
+	r.wheel(x, y, tea.MouseWheelDown)
+	r.wheel(x, y, tea.MouseWheelRight)
+	r.unchanged("the wheel over empty Results", before)
+	if r.m.toast != "" {
+		t.Fatalf("toast %q", r.m.toast)
+	}
+	sep := r.m.arr().seps[0]
+	r.wheel(sep.x, sep.y+2, tea.MouseWheelDown)
+	r.wheel(3, r.m.termH-1, tea.MouseWheelDown)
+	r.unchanged("the wheel on a separator or the footer", before)
+	// off, or behind a popup
+	ex, ey := r.center(ZoneExplorer)
+	r.press("f1")
+	r.wheel(ex, ey, tea.MouseWheelDown)
+	r.press("esc")
+	r.unchanged("the wheel behind a popup", before)
+	r.palette("Mouse: on/off")
+	r.wheel(ex, ey, tea.MouseWheelDown)
+	r.unchanged("the wheel with the mouse off", before)
+}
+
+func TestTheWheelKeepsVimsCursorOnACharacter(t *testing.T) {
+	rigEditing = "vim"
+	defer func() { rigEditing = "plain" }()
+	r := newRig(t, 120, 30)
+	r.mouseOn()
+	r.press("ctrl+w", "l")
+	var lines []string
+	for i := range 60 {
+		lines = append(lines, fmt.Sprintf("select %d", i))
+	}
+	r.send(tea.PasteMsg{Content: strings.Join(lines, "\n")})
+	r.press("v") // a Visual selection follows the cursor
+	r.screen()
+	x, y := r.center(ZoneEditor)
+	for range 5 {
+		r.wheel(x, y, tea.MouseWheelUp)
+	}
+	r.screen()
+	e := r.m.buf().ed
+	if r.m.buf().vim.mode != vimVisual || e.row != e.top+r.m.editorRows()-1 || e.col > len(e.lines[e.row])-1 {
+		t.Fatalf("mode %v, cursor %d:%d, top %d", r.m.buf().vim.mode, e.row, e.col, e.top)
+	}
+	if sel := e.selection(); strings.Count(sel, "\n") != 59-e.row || !strings.HasSuffix(sel, "select 59") {
+		t.Fatalf("the Visual selection does not follow the cursor: %q", sel)
+	}
 }

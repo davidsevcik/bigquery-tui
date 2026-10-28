@@ -536,6 +536,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, m.afterSelect())
 	case tea.MouseClickMsg:
 		return m, tea.Batch(m.mouseClick(tea.Mouse(msg)), m.afterSelect())
+	case tea.MouseWheelMsg:
+		return m, tea.Batch(m.mouseWheel(tea.Mouse(msg)), m.afterSelect())
 	case searchMsg:
 		m.onSearch(msg)
 		return m, m.afterSelect()

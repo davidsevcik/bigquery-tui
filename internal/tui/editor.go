@@ -602,6 +602,19 @@ func (e *editor) scroll(w, h int) {
 	}
 }
 
+// scrollView scrolls an h-line view by d lines without editing. The cursor
+// stays while it is in view, else it moves to the nearest visible line at
+// the column it wants, as a plain up or down would; a selection follows it.
+func (e *editor) scrollView(d, h int) {
+	h = max(1, h)
+	e.top = clamp(e.top+d, 0, max(0, len(e.lines)-h))
+	if row := clamp(e.row, e.top, min(len(e.lines)-1, e.top+h-1)); row != e.row {
+		e.row = row
+		e.col = clamp(e.want, 0, len(e.lines[row]))
+		e.typing = false
+	}
+}
+
 // highlight caches the token kind of every rune.
 func (e *editor) highlight(tokenize func(string) []api.Token) {
 	if e.hlVersion == e.version && e.hl != nil {
