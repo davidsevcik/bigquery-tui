@@ -1,9 +1,9 @@
+ Explorer  Schema  [Editor]  Results   ctrl+o next
  SQL · query 1   4:28
  1  -- orders by customer
- 2  SELECT o.customer_id, SUM(o.amount) AS total
- 3  ╭─ Query parameters ───────────────────────────────╮
- 4  │ @since                                    STRING │
-~   │                                                  │
+ 2  ╭─ Query parameters ───────────────────────────────╮
+ 3  │ @since                                    STRING │
+ 4  │                                                  │
 ~   │ the type is guessed from the value; force it     │
 ~   │ with a prefix such as STRING:42 · enter runs ·   │
 ~   │ esc cancels                                      │
@@ -12,9 +12,9 @@
 ~
 ~
 ~
- Results
- no run yet: ctrl+r runs the buffer (or the selection), ctr…
-
-
- bqt exec acme-exec  2 projects      5 datasets · 13 tables
+~
+~
+~
+~
+ bqt exec acme-exec  layout: classi… 5 datasets · 13 tables
 

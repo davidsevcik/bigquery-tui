@@ -1,3 +1,4 @@
+ [Explorer]  Schema  Editor  Results   ctrl+o next
  filter tables ▸ ord                              3 matches
  “ord”
  Datasets 3/4                │ Tables 2/3 of 4 ▸ ord
@@ -15,6 +16,5 @@ us_archive                 1 │
                              │
                              │
                              │
-                             │
- bqt exec acme-exec  columns  2 pro… 5 datasets · 13 tables
+ bqt exec acme-exec  layout: classi… 5 datasets · 13 tables
  type to filter · enter/esc back to the list · esc there cl…

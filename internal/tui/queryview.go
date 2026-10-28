@@ -11,33 +11,16 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/format"
 )
 
-// queryLayout splits the body between the editor and the results pane. The
-// focused pane gets the larger share; without a Run the results pane is a stub.
-func (m *Model) queryLayout() (edH, resH int) {
-	h := max(4, m.h-2)
-	_, has := m.shownRun()
-	switch {
-	case !has:
-		resH = min(4, h/3)
-	case m.zone == ZoneResults:
-		resH = h * 68 / 100
-	default:
-		resH = h * 42 / 100
-	}
-	resH = clamp(resH, 3, h-3)
-	return h - resH, resH
-}
-
-// editorRows is the number of text lines the editor shows.
+// editorRows is the number of text lines the editor shows: its Pane less
+// the title.
 func (m *Model) editorRows() int {
-	edH, _ := m.queryLayout()
-	return max(1, edH-1)
+	return max(1, m.paneRect(ZoneEditor).h-1)
 }
 
-// gridRows is the number of result rows the grid shows.
+// gridRows is the number of result rows the grid shows: its Pane less the
+// title, the column header and the status line.
 func (m *Model) gridRows() int {
-	_, resH := m.queryLayout()
-	return max(1, resH-3)
+	return max(1, m.paneRect(ZoneResults).h-3)
 }
 
 func stateStyle(s api.RunState) lipgloss.Style {
@@ -114,9 +97,9 @@ func (m *Model) runSummary(r api.RunInfo) string {
 	return strings.Join(parts, " · ")
 }
 
-// queryBody draws the editor above the results.
-func (m *Model) queryBody(w, h int) []string {
-	edH, resH := m.queryLayout()
+// editorPane draws the Editor: its title and the buffer's text. It records
+// where it drew the cursor, relative to the Pane, for the completion popup.
+func (m *Model) editorPane(w, h int) []string {
 	b := m.buf()
 
 	name := b.title()
@@ -162,21 +145,32 @@ func (m *Model) queryBody(w, h int) []string {
 	}
 	ttl += fmt.Sprintf("   %d:%d", b.ed.row+1, b.ed.col+1)
 	out := []string{title(ttl, w, m.zone == ZoneEditor)}
-	lines, cx, cy := b.ed.view(w, edH-1, m.zone == ZoneEditor && m.ov == ovNone, m.be.Tokenize, placeholder)
+	lines, cx, cy := b.ed.view(w, h-1, m.zone == ZoneEditor && m.ov == ovNone, m.be.Tokenize, placeholder)
 	m.edX, m.edY = cx, cy+1
 	out = append(out, lines...)
-	out = append(out, m.resultsPane(w, resH)...)
-	out = fillTo(out, w, h)
-	if m.comp.open && m.zone == ZoneEditor && m.ov == ovNone {
-		box := m.completionBox(w)
-		y := m.edY + 1
-		if y+len(box) > edH+resH {
-			y = max(0, m.edY-len(box))
-		}
-		x := clamp(m.edX-2, 0, max(0, w-wid(box[0])))
-		out = overlay(out, box, x, y, w)
+	for i := range out {
+		out[i] = fit(out[i], w)
 	}
-	return out
+	return fillTo(out, w, h)
+}
+
+// withCompletion draws the completion popup over the composed body, at the
+// Editor's cursor; it may overlap a neighbouring Pane.
+func (m *Model) withCompletion(body []string, ed rect, w int) []string {
+	if !m.comp.open || m.zone != ZoneEditor || m.ov != ovNone {
+		return body
+	}
+	box := m.completionBox(w)
+	if len(box) == 0 {
+		return body
+	}
+	cx, cy := ed.x+m.edX, ed.y+m.edY
+	y := cy + 1
+	if y+len(box) > len(body) {
+		y = max(0, cy-len(box))
+	}
+	x := clamp(cx-2, 0, max(0, w-wid(box[0])))
+	return overlay(body, box, x, y, w)
 }
 
 func (m *Model) resultsPane(w, h int) []string {

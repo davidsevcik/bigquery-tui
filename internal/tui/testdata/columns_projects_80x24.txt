@@ -1,24 +1,24 @@
- Projects 1/2     │ Datasets (4)                 │ Tables (2)
-acme-prod    ✓ 3h │events                      5 │T clicks
-acme-staging ✓ 3h │finance                     2 │T events_YYYYMMDD          ×4
-                  │sales                       4 │
-                  │us_archive                  1 │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
- bqt exec acme-exec  columns  2 projects                 5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L style · P panes · ? help · ctrl+o zone · ctrl+p …
+ Projects 1/2               │ SQL · query 1   1:1
+acme-prod              ✓ 3h │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · ta…
+acme-staging           ✓ 3h │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │ Results
+                            │ no run yet: ctrl+r runs the buffer (or the select…
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+ bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · ? help · ctrl+o pane · ctrl+p cmds · ctr…

@@ -1,18 +1,18 @@
- Projects 1/2     │ Datasets (4)                 │ Tables (2)
-acme-prod    ✓ 3h │events                      5 │T clicks
-acme-staging ✓ 3h │finance                     2 │T events_YYYYMMDD          ×4
-                  │sales                       4 │
-                  │us_archive                  1 │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
+ Projects 1/2               │ NORMAL · query 1   1:1
+acme-prod              ✓ 3h │ 1   i inserts · enter runs · space d dry-runs · :…
+acme-staging           ✓ 3h │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │ Results
+                            │ no run yet: enter in Normal mode runs the buffer …
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
 ╭─ Tutorial 3/17 · In and out ─────────────────────────────────────────────────╮
 │ l or → opens the selected project or dataset (in the tree style: expands     │
 │ it); h or ← goes back out. Go in once and back out once.                     │
@@ -20,5 +20,5 @@ acme-staging ✓ 3h │finance                     2 │T events_YYYYMMDD       
 │                                                                              │
 │ ctrl+g then: n next · p back · r restart · q quit                            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- bqt exec acme-exec  columns  2 projects                 5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L style · P panes · ? help · ctrl+o zone · ctrl+p …
+ bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · ? help · ctrl+o pane · ctrl+p cmds · ctr…

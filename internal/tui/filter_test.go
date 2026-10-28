@@ -10,7 +10,7 @@ func (r *rig) selected(want string) {
 }
 
 func TestMillerFilterNarrowsTheFocusedColumn(t *testing.T) {
-	r := newRig(t, 120, 30)
+	r := newRig(t, 140, 30)     // an Explorer wide enough for two columns
 	r.press("l", "j", "j", "l") // the tables of acme-prod.sales
 	r.press("/", "ord")
 	r.contains("filter tables ▸", "order_items", "v_orders")
@@ -27,7 +27,7 @@ func TestMillerFilterNarrowsTheFocusedColumn(t *testing.T) {
 }
 
 func TestMillerColumnFiltersAndTheLeftRule(t *testing.T) {
-	r := newRig(t, 120, 30)
+	r := newRig(t, 140, 30)             // an Explorer wide enough for two columns
 	r.press("l", "/", "s", "enter")     // datasets with an s: events, sales, us_archive
 	r.contains("Datasets 2/3 of 4 ▸ s") // on sales, the prefix match
 	r.lacks("finance")
@@ -53,6 +53,7 @@ func TestMillerColumnFiltersAndTheLeftRule(t *testing.T) {
 
 func TestMillerFilterKeepsShardFamiliesByTheirMembers(t *testing.T) {
 	r := newRig(t, 160, 30)
+	r.press("ctrl+p", "Layout: focus", "enter") // the Explorer over the whole width
 	r.press("l", "l", "/", "20240102", "enter") // the tables of acme-prod.events
 	r.contains("Tables 1/1 of 2 ▸ 20240102", "events_YYYYMMDD")
 	r.lacks("clicks")
@@ -126,7 +127,7 @@ func TestJumpClearsTheFiltersThatHideTheTarget(t *testing.T) {
 }
 
 func TestEachExplorerStyleKeepsItsOwnFilter(t *testing.T) {
-	r := newRig(t, 120, 30)
+	r := newRig(t, 140, 30)         // an Explorer wide enough for two columns
 	r.press("l", "/", "s", "enter") // Miller datasets: on sales
 	r.press("L")                    // tree, unfiltered, on sales too
 	r.selected("acme-prod.sales")
@@ -213,9 +214,12 @@ func TestClearingTheTreeFilterRestoresTheExpansionExactly(t *testing.T) {
 func TestEscLeavesTheZoomBeforeClearingTheFilter(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.press("l", "j", "j", "l", "/", "ord", "enter", "z")
+	if r.m.zone != ZoneSchema || r.m.maxed != ZoneSchema {
+		t.Fatalf("z maximises the Schema pane: %s %q", r.m.zone, r.m.maxed)
+	}
 	r.press("esc")
-	if r.m.zoom || !r.m.mil.f[2].active() {
-		t.Fatalf("first esc leaves the zoom only (zoom %v)", r.m.zoom)
+	if r.m.zone != ZoneExplorer || r.m.maxed != "" || !r.m.mil.f[2].active() {
+		t.Fatalf("first esc leaves the Schema pane only (pane %s, maxed %q)", r.m.zone, r.m.maxed)
 	}
 	r.press("esc")
 	if r.m.mil.f[2].active() {

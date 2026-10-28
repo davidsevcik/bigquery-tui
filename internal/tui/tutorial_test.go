@@ -62,16 +62,18 @@ func TestTutorialWalkthrough(t *testing.T) {
 	r.tutStep(5)
 	r.press("L")
 	r.tutStep(6)
-	r.press("L", "L") // back to Miller columns, on the orders table
-	r.press("z")
-	if !r.m.zoom {
-		t.Fatal("z zooms the detail pane")
+	r.press("L", "L") // back to the columns style, on the orders table
+	r.press("enter")
+	if r.m.zone != ZoneSchema {
+		t.Fatal("enter on a table goes to the Schema pane")
 	}
-	r.press("esc")
+	r.press("j", "esc")
 	r.tutStep(7)
 	r.press("ctrl+p", "esc")
 	r.tutStep(8)
 	r.press("?", "esc")
+	r.tutStep(9)
+	r.press("ctrl+o") // the Schema pane comes first
 	r.tutStep(9)
 	r.press("ctrl+o")
 	r.tutStep(10)
@@ -91,7 +93,9 @@ func TestTutorialWalkthrough(t *testing.T) {
 	}
 	r.press("esc")
 	r.tutStep(14)
-	r.press("ctrl+w", "h")
+	r.press("ctrl+w", "h") // the Schema pane, left of the Results
+	r.tutStep(14)
+	r.press("ctrl+w", "k")
 	r.tutStep(15)
 	r.press("ctrl+x", "r", "esc")
 	r.tutStep(16)
@@ -117,7 +121,7 @@ func TestTutorialKeys(t *testing.T) {
 	r.press("ctrl+g", "r")
 	r.tutStep(0)
 	// ctrl+g works while a popup takes the keys, and in Insert mode
-	r.press("ctrl+o", "i", "ctrl+g", "n")
+	r.press("ctrl+w", "l", "i", "ctrl+g", "n")
 	r.tutStep(1)
 	if r.text() != "" {
 		t.Fatalf("the tutorial keys do not type: %q", r.text())
@@ -139,7 +143,7 @@ func TestTutorialKeys(t *testing.T) {
 func TestTutorialWaitsForAPopupQuestion(t *testing.T) {
 	r := tutorialRig(t, 100, 30)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.QueryScript{StatementType: "DROP_TABLE"} }
-	r.press("ctrl+o")
+	r.press("ctrl+w", "l")
 	r.typeText("iDROP TABLE x")
 	r.press("esc", "enter") // a non-SELECT statement asks first
 	if r.m.ov != ovConfirm {

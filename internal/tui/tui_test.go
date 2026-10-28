@@ -267,7 +267,7 @@ func TestJumpListsRecentlyOpenedTables(t *testing.T) {
 }
 
 func TestListStyleChipsAndColumnHits(t *testing.T) {
-	r := newRig(t, 120, 30)
+	r := newRig(t, 140, 30) // an Explorer wide enough for the chips
 	r.press("L", "L", "/", "type:foo d: -p:staging col:amount")
 	r.contains("[type:foo]", "[d:…]", "[-p:staging]", "[col:amount]")
 	r.press("ctrl+u", "col:amount")
@@ -337,33 +337,6 @@ func TestPreviewPagesAndStops(t *testing.T) {
 	r.contains("needs a query")
 }
 
-func TestNarrowTerminalCollapsesAndZooms(t *testing.T) {
-	r := newRig(t, 60, 20)
-	r.lacks("Schema ·")
-	r.press("l", "j", "j", "l", "j", "j", "enter")
-	if !r.m.zoom {
-		t.Fatal("enter zooms the detail when the pane is collapsed")
-	}
-	r.contains("schema · 8 fields")
-	r.press("esc")
-	if r.m.zoom {
-		t.Fatal("esc leaves the zoom")
-	}
-	r.contains("Tables 3/4")
-}
-
-func TestPanePlacementByWidth(t *testing.T) {
-	for _, c := range []struct {
-		w, h int
-		want placement
-	}{{120, 30, placeRight}, {100, 24, placeRight}, {90, 30, placeBottom}, {90, 24, placeHidden}, {60, 40, placeHidden}} {
-		r := newRig(t, c.w, c.h)
-		if got := r.m.effPlacement(); got != c.want {
-			t.Errorf("%dx%d: %v, want %v", c.w, c.h, placementNames[got], placementNames[c.want])
-		}
-	}
-}
-
 func TestSyncFromTheUI(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.fake.AddProject("acme-prod").Datasets[2].Tables = append(r.fake.Projects["acme-prod"].Datasets[2].Tables, nested("ledger"))
@@ -390,7 +363,7 @@ type errFake string
 func (e errFake) Error() string { return string(e) }
 
 func TestConfigReloadEvents(t *testing.T) {
-	r := newRig(t, 120, 30)
+	r := newRig(t, 160, 30) // room for the error in the status line
 	closed := make(chan config.Event)
 	close(closed)
 	bad := config.Event{Err: errFake("line 3: ingore: unknown key")}
@@ -485,6 +458,7 @@ func TestPreviewContinuesAfterAShortPage(t *testing.T) {
 	if r.m.details[key].prevEnd {
 		t.Fatal("a short page is not the end while the total says more rows exist")
 	}
+	r.press("z") // schema and preview side by side
 	r.contains("7 of 45 rows", "p loads more")
 }
 
@@ -555,36 +529,6 @@ func TestRecordPopupShowsTheFullRow(t *testing.T) {
 	}
 }
 
-func TestZoomMovementKeysStayInTheDetailPane(t *testing.T) {
-	r := newRig(t, 80, 14)
-	r.press("l", "j", "j", "l", "j", "j")
-	sel := r.m.sel()
-	if sel.path.Table != "orders" {
-		t.Fatalf("precondition: %+v", sel)
-	}
-	r.press("z", "j", "j", "down")
-	if !r.m.zoom || r.m.sel().path != sel.path || r.m.detOff != 3 {
-		t.Fatalf("down scrolls the zoomed schema: zoom=%v sel=%+v off=%d", r.m.zoom, r.m.sel(), r.m.detOff)
-	}
-	r.press("right", "l")
-	if !r.m.zoom || r.m.sel().path != sel.path {
-		t.Fatal("right does nothing in the zoom")
-	}
-	r.press("left")
-	if r.m.zoom || r.m.sel().path != sel.path {
-		t.Fatalf("left leaves the zoom and keeps the table selected: zoom=%v sel=%+v", r.m.zoom, r.m.sel())
-	}
-	// zoomed preview: the keys move the row cursor, enter shows the record
-	r.press("z", "p", "j", "j", "enter")
-	r.contains("Record 3 of 20 · orders")
-	r.press("esc", "G", "j")
-	r.contains("40 of 45 rows") // moving past the last loaded row loads the next page
-	r.press("esc")
-	if r.m.zoom || r.m.sel().path != sel.path {
-		t.Fatal("esc leaves the zoom")
-	}
-}
-
 func TestSchemaFlagsRequiredColumns(t *testing.T) {
 	r := newRig(t, 120, 30)
 	wideRefunds(r)
@@ -626,33 +570,5 @@ func TestSchemaFlagsColumnsStoredAsRequiredWithoutTheLiveTable(t *testing.T) {
 	r.contains("required")
 	if d := r.m.details[s.detailKey()]; d == nil || d.stats != nil {
 		t.Fatalf("precondition: the flag must come from the catalog, not the live table: %+v %+v", s, d)
-	}
-}
-
-func TestZoomSplitSwitchesBetweenSideBySideAndStacked(t *testing.T) {
-	r := newRig(t, 120, 30)
-	r.press("l", "j", "j", "l", "j", "j", "z")
-	line := func(sub string) int {
-		for i, l := range strings.Split(r.screen(), "\n") {
-			if strings.Contains(l, sub) {
-				return i
-			}
-		}
-		return -1
-	}
-	if line(" Schema ") != line(" Preview ") {
-		t.Fatalf("side by side first:\n%s", r.screen())
-	}
-	place := r.m.place
-	r.press("P")
-	if s, p := line(" Schema "), line(" Preview "); s < 0 || p <= s {
-		t.Fatalf("P stacks the schema above the preview:\n%s", r.screen())
-	}
-	if r.m.place != place || !r.m.zoom {
-		t.Fatal("P in the zoom leaves the normal pane placement alone")
-	}
-	r.press("P")
-	if line(" Schema ") != line(" Preview ") {
-		t.Fatal("P again puts them side by side")
 	}
 }

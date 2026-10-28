@@ -1,9 +1,9 @@
- Datasets 1/4                │ Tables 1/2
-events╭─ Commands ───────────────────────────────────╮
-financ│ > sync                                       │   ×4
-sales │ Show sync problems                       g p │
-us_arc│ Show sync progress                       g s │
-      ╰──────────────────────────────────────────────╯
+ [Explorer]  Schema  Editor  Results   ctrl+o next
+ Datas╭─ Commands ───────────────────────────────────╮
+events│ > sync                                       │
+financ│ Show sync problems                       g p │   ×4
+sales │ Show sync progress                       g s │
+us_arc╰──────────────────────────────────────────────╯
                              │
                              │
                              │
@@ -16,5 +16,5 @@ us_arc│ Show sync progress                       g s │
                              │
                              │
                              │
- bqt exec acme-exec  columns  2 pro… 5 datasets · 13 tables
+ bqt exec acme-exec  layout: classi… 5 datasets · 13 tables
  esc close

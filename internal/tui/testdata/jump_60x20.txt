@@ -1,9 +1,9 @@
- Datasets 1/4                │ Tables 1/2
-even╭─ Jump to table ──────────────────────────────────╮
-fina│ ⌕ ev                                 1/2 · 0.0ms │ ×4
-sale│ “ev”                                             │
-us_a│▌T events_YYYYMMDD ×4  acme-prod.events prefix 3h │
-    │ T clicks  acme-prod.events     dataset·prefix 3h │
+ [Explorer]  Schema  Editor  Results   ctrl+o next
+ Dat╭─ Jump to table ──────────────────────────────────╮
+even│ ⌕ ev                                 1/2 · 0.0ms │
+fina│ “ev”                                             │ ×4
+sale│▌T events_YYYYMMDD ×4  acme-prod.events prefix 3h │
+us_a│ T clicks  acme-prod.events     dataset·prefix 3h │
     │                                                  │
     │                                                  │
     │                                                  │
@@ -16,5 +16,5 @@ us_a│▌T events_YYYYMMDD ×4  acme-prod.events prefix 3h │
                              │
                              │
                              │
- bqt exec acme-exec  columns  2 pro… 5 datasets · 13 tables
+ bqt exec acme-exec  layout: classi… 5 datasets · 13 tables
  type to search · ↑↓ select · enter open · esc close

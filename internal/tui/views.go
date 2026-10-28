@@ -58,31 +58,6 @@ func (m *Model) health(n api.BrowseNode, long bool) (string, lipgloss.Style) {
 	return "✓ " + a, sOk
 }
 
-func (m *Model) effPlacement() placement {
-	w, h := m.w, m.h-2
-	switch m.place {
-	case placeHidden:
-		return placeHidden
-	case placeRight:
-		if w >= 70 {
-			return placeRight
-		}
-		return placeHidden
-	case placeBottom:
-		if h >= 14 {
-			return placeBottom
-		}
-		return placeHidden
-	}
-	switch {
-	case w >= 100:
-		return placeRight
-	case w >= 70 && m.h >= 30:
-		return placeBottom
-	}
-	return placeHidden
-}
-
 // render builds the whole screen as lines.
 func (m *Model) render() []string {
 	w, h := m.w, m.h
@@ -90,26 +65,7 @@ func (m *Model) render() []string {
 		return []string{"bqt needs a larger terminal"}
 	}
 	bodyH := h - 2
-	var body []string
-	switch {
-	case m.zone != ZoneExplorer:
-		body = m.queryBody(w, bodyH)
-	case m.style == styleList:
-		body = m.searchBody(m.flat, w, bodyH, " filter ▸ ")
-	case m.style == styleTree:
-		body = m.withDetail(w, bodyH, m.treeList)
-	default:
-		body = m.withDetail(w, bodyH, m.millerList)
-	}
-	if f := m.typingFilter(); f != nil && m.style != styleList && bodyH > 4 {
-		hdr := m.filterHeader(f, w, m.filterWhat())
-		list := m.treeList
-		if m.style == styleColumns {
-			list = m.millerList
-		}
-		body = append(hdr, m.withDetail(w, bodyH-len(hdr), list)...)
-	}
-	body = fillTo(body, w, bodyH)
+	body := m.panesBody(w, bodyH)
 
 	switch m.ov {
 	case ovPicker:
@@ -156,6 +112,10 @@ func (m *Model) statusLine(w int) string {
 		exec = "none"
 	}
 	b.add(" bqt ", sBold).add("exec ", sDim).add(exec, sAcc)
+	b.add("  layout: "+m.preset, sDim)
+	if m.arr().stepped {
+		b.add(" (small terminal)", sDim)
+	}
 	if m.zone == ZoneExplorer {
 		b.add("  "+styleNames[m.style], sDim)
 	}
@@ -249,7 +209,7 @@ func (m *Model) footerLine(w int) string {
 			case vimInsert:
 				hint = "esc normal mode · ctrl+r run · ctrl+d dry-run · tab complete · ctrl+n force completion"
 			case vimNormal:
-				hint = "i insert · enter run · space d dry-run · v select · / find · u undo · : commands · ? help · ctrl+o zone"
+				hint = "i insert · enter run · space d dry-run · v select · / find · u undo · : commands · ? help · ctrl+o pane"
 			default:
 				hint = "enter run the selection · d delete · y yank · c change · > < indent · esc normal mode"
 			}
@@ -261,8 +221,8 @@ func (m *Model) footerLine(w int) string {
 		hint = footerHints(ZoneResults) + " · " + footerHints(ZoneGlobal)
 	case m.ov != ovNone:
 		hint = footerHints(ZoneOverlay)
-	case m.zoom:
-		hint = "↑↓/jk scroll · tab schema/preview · P split · p rows · J record · ←/esc back"
+	case m.zone == ZoneSchema:
+		hint = footerHints(ZoneSchema)
 	case m.style == styleList && m.flat.typing:
 		hint = "type to filter · enter/esc back to the list"
 	case m.typingFilter() != nil:
@@ -276,30 +236,92 @@ func (m *Model) footerLine(w int) string {
 	return fit(" "+sFaint.Render(hint), w)
 }
 
-// withDetail lays a list out next to (or above) the detail panes.
-func (m *Model) withDetail(w, h int, list func(w, h int) []string) []string {
-	s := m.sel()
-	if m.zoom {
-		return m.detailBlock(w, h, s, "zoom")
+// panesBody draws every Pane of the arrangement into its rectangle, with the
+// separators and the pane bar, and joins them row by row.
+func (m *Model) panesBody(w, h int) []string {
+	a := m.arr()
+	type piece struct {
+		r     rect
+		lines []string
 	}
-	switch m.effPlacement() {
-	case placeRight:
-		dw := clamp(w*42/100, 36, 72)
-		lw := w - dw - 1
-		l, d, sep := fillTo(list(lw, h), lw, h), m.detailBlock(dw, h, s, "right"), vsep(h)
-		out := make([]string, h)
-		for i := range out {
-			out[i] = fit(l[i], lw) + sep[i] + d[i]
+	var pieces []piece
+	for _, z := range paneOrder {
+		if r, ok := a.rects[z]; ok {
+			pieces = append(pieces, piece{r, fillTo(m.paneLines(z, r.w, r.h), r.w, r.h)})
 		}
-		return out
-	case placeBottom:
-		dh := clamp(h*45/100, 7, 18)
-		lh := h - dh - 1
-		out := fillTo(list(w, lh), w, lh)
-		out = append(out, sFaint.Render(strings.Repeat("─", w)))
-		return append(out, fillTo(m.detailBlock(w, dh, s, "bottom"), w, dh)...)
+	}
+	for _, s := range a.seps {
+		pieces = append(pieces, piece{s, vsep(s.h)})
+	}
+	if a.bar != nil {
+		pieces = append(pieces, piece{*a.bar, []string{m.paneBar(a.bar.w)}})
+	}
+	slices.SortFunc(pieces, func(p, q piece) int { return p.r.x - q.r.x })
+	out := make([]string, h)
+	for y := range out {
+		var sb strings.Builder
+		for _, p := range pieces {
+			if y >= p.r.y && y < p.r.y+p.r.h {
+				sb.WriteString(fit(p.lines[y-p.r.y], p.r.w))
+			}
+		}
+		out[y] = sb.String()
+	}
+	if r, ok := a.rects[ZoneEditor]; ok {
+		out = m.withCompletion(out, r, w)
+	}
+	return out
+}
+
+// paneLines draws one Pane in exactly w×h cells.
+func (m *Model) paneLines(z Zone, w, h int) []string {
+	switch z {
+	case ZoneExplorer:
+		return m.explorerPane(w, h)
+	case ZoneSchema:
+		return m.detailBlock(w, h, m.sel())
+	case ZoneEditor:
+		return m.editorPane(w, h)
+	case ZoneResults:
+		return m.resultsPane(w, h)
+	}
+	return nil
+}
+
+// explorerPane draws the Explorer in its style, with the filter header while
+// a filter is being typed.
+func (m *Model) explorerPane(w, h int) []string {
+	list := m.millerList
+	switch m.style {
+	case styleList:
+		return m.searchBody(m.flat, w, h, " filter ▸ ")
+	case styleTree:
+		list = m.treeList
+	}
+	if f := m.typingFilter(); f != nil && h > 4 {
+		hdr := m.filterHeader(f, w, m.filterWhat())
+		return append(hdr, list(w, h-len(hdr))...)
 	}
 	return list(w, h)
+}
+
+// paneBar is the focus Layout's top row: the four Panes, the shown one in
+// brackets.
+func (m *Model) paneBar(w int) string {
+	b := &rb{bg: lipgloss.Color("236")}
+	b.add(" ", sDim)
+	for i, z := range paneOrder {
+		if i > 0 {
+			b.add("  ", sDim)
+		}
+		if z == m.zone {
+			b.add("["+string(z)+"]", sTitleF)
+		} else {
+			b.add(string(z), sDim)
+		}
+	}
+	b.add("   ctrl+o next", sFaint)
+	return b.line(w)
 }
 
 // --- lists
@@ -349,7 +371,7 @@ func (m *Model) millerCol(c, w, h int) []string {
 		name = ml.family.Name
 	}
 	cur := ml.cur[c]
-	focused := c == ml.col && !m.zoom
+	focused := c == ml.col && m.zone == ZoneExplorer
 	hdr := fmt.Sprintf(" %s %s/%s", name, format.Count(int64(min(cur+1, total))), format.Count(int64(total)))
 	f := &ml.f[c]
 	if f.active() {
@@ -424,7 +446,7 @@ func (m *Model) treeList(w, h int) []string {
 			hdr += " · " + plural(t.f.count, "match", "matches")
 		}
 	}
-	out := []string{title(hdr, w, !m.zoom)}
+	out := []string{title(hdr, w, m.zone == ZoneExplorer)}
 	if len(t.rows) == 0 {
 		msg := "no projects selected: ctrl+x p picks them"
 		if t.f.active() {
@@ -475,7 +497,7 @@ func (m *Model) searchBody(st *searchState, w, h int, prompt string) []string {
 	b.l.WriteString(st.in.render(st.parsed, st.typing, "type a name, or p:prod d:events type:view col:user.id"))
 	b.addR(m.searchInfo(st)+" ", sDim)
 	hdr := []string{b.line(w), fit(" "+chips(st.parsed, w-1, scopeLabel(st)), w)}
-	return append(hdr, m.withDetail(w, h-2, func(lw, lh int) []string { return m.resultsList(st, lw, lh, true) })...)
+	return append(hdr, m.resultsList(st, w, h-2, true)...)
 }
 
 func (m *Model) searchInfo(st *searchState) string {
@@ -579,29 +601,15 @@ func (m *Model) resultRows(st *searchState, i int, selected bool, w int, expande
 	return rows
 }
 
-// --- detail panes
+// --- the Schema pane
 
-func (m *Model) detailBlock(w, h int, s selection, mode string) []string {
-	both := false
-	switch mode {
-	case "right":
-		both = h >= 26
-	case "bottom":
-		both = w >= 90
-	case "zoom":
-		both = w >= 100
-		if m.zoomStacked {
-			both = h >= 20
-		}
-	}
-	if s.detailKey() == "" {
-		both = false
-	}
-	if both {
-		if mode == "right" || (mode == "zoom" && m.zoomStacked) {
-			sh := h * 58 / 100
-			return append(m.schemaPane(s, w, sh, false), m.previewPane(s, w, h-sh, false)...)
-		}
+// detailBlock draws the Schema pane. Its shape decides what it shows: with a
+// table selected and room for both, the schema and the preview side by side
+// (100 columns) or stacked (26 rows); otherwise one of them, switched by tab.
+func (m *Model) detailBlock(w, h int, s selection) []string {
+	table := s.detailKey() != ""
+	switch {
+	case table && w >= 100:
 		lw := w / 2
 		rw := w - lw - 1
 		l, r, sep := m.schemaPane(s, lw, h, false), m.previewPane(s, rw, h, false), vsep(h)
@@ -610,23 +618,30 @@ func (m *Model) detailBlock(w, h int, s selection, mode string) []string {
 			out[i] = l[i] + sep[i] + r[i]
 		}
 		return out
-	}
-	if m.tab == 0 || s.detailKey() == "" {
-		return m.schemaPane(s, w, h, s.detailKey() != "")
+	case table && h >= 26:
+		sh := h * 58 / 100
+		return append(m.schemaPane(s, w, sh, false), m.previewPane(s, w, h-sh, false)...)
+	case m.tab == 0 || !table:
+		return m.schemaPane(s, w, h, table)
 	}
 	return m.previewPane(s, w, h, true)
 }
 
 func (m *Model) paneTitle(w, which int, tabs bool, name string) string {
+	focused := m.zone == ZoneSchema
 	if !tabs {
 		lbl := " Schema "
 		if which == 1 {
 			lbl = " Preview "
 		}
-		// the highlighted title is the pane ctrl+e / ctrl+y scroll
-		return title(lbl+"· "+name, w, which == m.tab)
+		// the highlighted title is the half the movement keys (and ctrl+e /
+		// ctrl+y) scroll, while the Schema pane has focus
+		return title(lbl+"· "+name, w, focused && which == m.tab)
 	}
-	act := lipgloss.NewStyle().Background(lipgloss.Color("60")).Foreground(lipgloss.Color("255")).Bold(true)
+	act := sTitleN.Bold(true)
+	if focused {
+		act = lipgloss.NewStyle().Background(lipgloss.Color("60")).Foreground(lipgloss.Color("255")).Bold(true)
+	}
 	a, b := " Schema ", " Preview "
 	left := act.Render(a) + sTitleN.Render(b)
 	if which == 1 {
@@ -721,47 +736,54 @@ func (m *Model) schemaLines(s selection, w int) []string {
 		meta += sFaint.Render(" · …")
 	}
 	add(meta)
-	var part, clus []string
-	for _, c := range t.Columns {
-		if c.Partitioning {
-			part = append(part, c.FieldPath)
-		}
-	}
-	for ord := 1; ord <= 4; ord++ {
+	info := func(descFirst bool) {
+		var part, clus []string
 		for _, c := range t.Columns {
-			if c.ClusteringOrdinal == ord {
-				clus = append(clus, c.FieldPath)
+			if c.Partitioning {
+				part = append(part, c.FieldPath)
 			}
 		}
-	}
-	if len(part)+len(clus) > 0 {
-		l := ""
-		if len(part) > 0 {
-			l += "partition " + strings.Join(part, ", ")
-		}
-		if len(clus) > 0 {
-			if l != "" {
-				l += "  "
+		for ord := 1; ord <= 4; ord++ {
+			for _, c := range t.Columns {
+				if c.ClusteringOrdinal == ord {
+					clus = append(clus, c.FieldPath)
+				}
 			}
-			l += "cluster " + strings.Join(clus, ", ")
 		}
-		add(sDim.Render(l))
-	}
-	if len(t.Labels) > 0 {
-		var ls []string
-		for k, v := range t.Labels {
-			ls = append(ls, k+":"+v)
+		if len(part)+len(clus) > 0 {
+			l := ""
+			if len(part) > 0 {
+				l += "partition " + strings.Join(part, ", ")
+			}
+			if len(clus) > 0 {
+				if l != "" {
+					l += "  "
+				}
+				l += "cluster " + strings.Join(clus, ", ")
+			}
+			add(sDim.Render(l))
 		}
-		add(sAcc.Render("labels " + strings.Join(sortStrings(ls), " ")))
+		if len(t.Labels) > 0 {
+			var ls []string
+			for k, v := range t.Labels {
+				ls = append(ls, k+":"+v)
+			}
+			add(sAcc.Render("labels " + strings.Join(sortStrings(ls), " ")))
+		}
+		if t.ExpiresAt != nil {
+			add(sWarn.Render("expires " + t.ExpiresAt.Format("2006-01-02 15:04 UTC")))
+		}
+		fresh := api.BrowseNode{SyncedAt: det.SyncedAt, Stale: det.Stale, UnitStatus: det.Status}
+		ft, fs := m.health(fresh, true)
+		if descFirst {
+			wrapAdd(t.Description, sDim)
+			add(fs.Render(ft))
+		} else {
+			add(fs.Render(ft))
+			wrapAdd(t.Description, sDim)
+		}
 	}
-	if t.ExpiresAt != nil {
-		add(sWarn.Render("expires " + t.ExpiresAt.Format("2006-01-02 15:04 UTC")))
-	}
-	fresh := api.BrowseNode{SyncedAt: det.SyncedAt, Stale: det.Stale, UnitStatus: det.Status}
-	ft, fs := m.health(fresh, true)
-	add(fs.Render(ft))
-	wrapAdd(t.Description, sDim)
-	if t.ViewSQL != "" {
+	viewSQL := func() {
 		out = append(out, "")
 		add(sFaint.Render("── view SQL ──"))
 		for i, l := range strings.Split(strings.TrimSpace(t.ViewSQL), "\n") {
@@ -772,14 +794,34 @@ func (m *Model) schemaLines(s selection, w int) []string {
 			add(strings.ReplaceAll(l, "\t", "  "))
 		}
 	}
-	out = append(out, "")
+	if t.ViewSQL != "" {
+		// a view lists its fields before its SQL, so they are in sight while
+		// writing a query
+		m.fieldLines(&out, d, t, det.NamesOnly, w)
+		viewSQL()
+		out = append(out, "")
+		info(true)
+		return out
+	}
+	info(false)
+	m.fieldLines(&out, d, t, det.NamesOnly, w)
+	return out
+}
+
+// fieldLines appends the field list of a table (or the notice that it has
+// none) to out, after a blank line.
+func (m *Model) fieldLines(out *[]string, d *detailData, t api.TableMeta, namesOnly bool, w int) {
+	add := func(l string) { *out = append(*out, " "+l) }
+	*out = append(*out, "")
 	if len(t.Columns) == 0 {
-		if det.NamesOnly || t.NamesOnly {
-			wrapAdd("names only: columns are not available without metadata access.", sWarn)
+		if namesOnly || t.NamesOnly {
+			for _, l := range wrap("names only: columns are not available without metadata access.", w-3) {
+				add(sWarn.Render(l))
+			}
 		} else {
 			add(sDim.Render("no columns"))
 		}
-		return out
+		return
 	}
 	add(sFaint.Render(fmt.Sprintf("── schema · %d fields ──", len(t.Columns))))
 	type row struct {
@@ -816,9 +858,8 @@ func (m *Model) schemaLines(s selection, w int) []string {
 		if r.desc != "" {
 			b.add(" "+r.desc, sFaint)
 		}
-		out = append(out, b.line(w))
+		*out = append(*out, b.line(w))
 	}
-	return out
 }
 
 // orderColumns arranges field paths depth-first so nested fields follow their parent.

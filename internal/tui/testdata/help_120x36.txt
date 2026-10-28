@@ -1,12 +1,13 @@
- Datasets 1/4                     │ Tables 1/2                       │ Schema · acme-prod.events.clicks
-events      ╭─ Help  (1-30/187) ───────────────────────────────────────────────────────────────────────────╮
-finance     │ Global                                                                                       │
-sales       │ ctrl+q          quit (asks if Runs are in flight)                                            │
-us_archive  │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results                                       │
-            │ ctrl+w W        previous zone                                                                │
-            │ ctrl+w h        go to the Explorer                                                           │
-            │ ctrl+w l  ctrl+w k  go to the Editor                                                         │
-            │ ctrl+w j        go to the Results                                                            │
+ Tables 1/2                               │ SQL · query 1   1:1
+T clicks    ╭─ Help  (1-30/202) ───────────────────────────────────────────────────────────────────────────╮
+T events_YYY│ Global                                                                                       │
+            │ ctrl+q          quit (asks if Runs are in flight)                                            │
+            │ ctrl+o  ctrl+w w  next pane: Explorer, Schema, Editor, Results                               │
+            │ ctrl+w W        previous pane                                                                │
+            │ ctrl+w h        go to the pane on the left                                                   │
+            │ ctrl+w j        go to the pane below                                                         │
+            │ ctrl+w k        go to the pane above                                                         │
+            │ ctrl+w l        go to the pane on the right                                                  │
             │ ctrl+p          command palette                                                              │
             │ ctrl+t          jump to table (recently opened when empty)                                   │
             │ f1              this help                                                                    │
@@ -14,9 +15,9 @@ us_archive  │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results          
             │                 selected hides the project column)                                           │
             │ ctrl+x f        favorites: saved queries (tab switches to History)                           │
             │ ctrl+x r        history: every query run, searchable (tab switches to Favorites)             │
-            │ ctrl+g          tutorial of the navigation (while it runs: ctrl+g then n, p, r or q)         │
-            │ ctrl+c          cancel the export, the focused Run, or the sync                              │
-            │ ctrl+x y        hand-off to an agent: the selected table's schema, the focused Run's error,  │
+ Schema  Pre│ ctrl+g          tutorial of the navigation (while it runs: ctrl+g then n, p, r or q)         │
+ p loads the│ ctrl+c          cancel the export, the focused Run, or the sync                              │ly estimate…
+ (read direc│ ctrl+x y        hand-off to an agent: the selected table's schema, the focused Run's error,  │
             │                 result sample or summary, to the clipboard or a file                         │
             │                                                                                              │
             │ Explorer                                                                                     │
@@ -28,9 +29,8 @@ us_archive  │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results          
             │ G  end          last row                                                                     │
             │ ctrl+d  pgdown  half page down                                                               │
             │ ctrl+u  pgup    half page up                                                                 │
-            │ enter           expand a shard family, open a table, zoom the detail when it is collapsed;   │
-            │                 zoomed preview: show the row as a record                                     │
+            │ enter           expand a shard family; on a table, go to the Schema pane                     │
             ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
-                                  │                                  │
- bqt exec acme-exec  columns  2 projects                                                         5 datasets · 13 tables
+                                          │
+ bqt exec acme-exec  layout: classic  columns  2 projects                                        5 datasets · 13 tables
  esc close

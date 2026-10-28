@@ -1,15 +1,16 @@
- Projects 1/2     │ Datasets 1/4                 │ Tables 1/2
-acm╭─ Help  (1-18/207) ─────────────────────────────────────────────────────╮
-acm│ Global                                                                 │×4
+ Tables 1/2                 │ SQL · query 1   1:1
+T c╭─ Help  (1-18/224) ─────────────────────────────────────────────────────╮ta…
+T e│ Global                                                                 │
    │ ctrl+q          quit (asks if Runs are in flight)                      │
-   │ ctrl+o  ctrl+w w  next zone: Explorer, Editor, Results                 │
-   │ ctrl+w W        previous zone                                          │
-   │ ctrl+w h        go to the Explorer                                     │
-   │ ctrl+w l  ctrl+w k  go to the Editor                                   │
-   │ ctrl+w j        go to the Results                                      │
+   │ ctrl+o  ctrl+w w  next pane: Explorer, Schema, Editor, Results         │
+   │ ctrl+w W        previous pane                                          │
+   │ ctrl+w h        go to the pane on the left                             │
+   │ ctrl+w j        go to the pane below                                   │
+   │ ctrl+w k        go to the pane above                                   │
+   │ ctrl+w l        go to the pane on the right                            │
    │ ctrl+p          command palette                                        │
    │ ctrl+t          jump to table (recently opened when empty)             │
-   │ f1              this help                                              │
+   │ f1              this help                                              │ct…
    │ ctrl+x p        projects: choose which are synced and browsed, and     │
    │                 where jobs run (one selected hides the project column) │
    │ ctrl+x f        favorites: saved queries (tab switches to History)     │
@@ -17,8 +18,7 @@ acm│ Global                                                                 �
    │                 Favorites)                                             │
    │ ctrl+g          tutorial of the navigation (while it runs: ctrl+g then │
    │                 n, p, r or q)                                          │
-   │ ctrl+c          cancel the export, the focused Run, or the sync        │
    ╰────────────────────────────────────────────────────────────────────────╯
-                  │                              │
- bqt exec acme-exec  columns  2 projects                 5 datasets · 13 tables
+                            │
+ bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
  esc close

@@ -1,9 +1,9 @@
- Projects 1/2            │ Datasets (4)                              │ Schema · acme-prod
-acme-prod         ╭─ Projects  (1-25/33) ────────────────────────────────────────────────────────────╮
+ Projects 1/2                             │ SQL · query 1   1:1
+acme-prod         ╭─ Projects  (1-25/33) ────────────────────────────────────────────────────────────╮es
 acme-staging      │ Execution project: acme-exec (chosen)                                            │
                   │ space select · o only this · e execution · s sync · S sync all · / filter · r    │
                   │ reload list · esc close                                                          │
-                  │ 2 selected                                                                       │e Execution
+                  │ 2 selected                                                                       │
                   │                                                                                  │
                   │ [x] acme-prod                                                4 datasets · 3h ago │
                   │ [x] acme-staging                                              1 dataset · 3h ago │
@@ -15,13 +15,13 @@ acme-staging      │ Execution project: acme-exec (chosen)                     
                   │ [ ] team-04-analytics  Team analytics                                            │
                   │ [ ] team-05-analytics  Team analytics                                            │
                   │ [ ] team-06-analytics  Team analytics                                            │
-                  │ [ ] team-07-analytics  Team analytics                                            │
-                  │ [ ] team-08-analytics  Team analytics                                            │
-                  │ [ ] team-09-analytics  Team analytics                                            │
-                  │ [ ] team-10-analytics  Team analytics                                            │
+ Schema · acme-pro│ [ ] team-07-analytics  Team analytics                                            │
+ acme-prod  projec│ [ ] team-08-analytics  Team analytics                                            │l+d only estimate…
+ 4 datasets       │ [ ] team-09-analytics  Team analytics                                            │
+ ✓ synced 3h ago  │ [ ] team-10-analytics  Team analytics                                            │
                   │ [ ] team-11-analytics  Team analytics                                            │
-                  │ [ ] team-12-analytics  Team analytics                                            │
-                  │ [ ] team-13-analytics  Team analytics                                            │
+ Queries and sync │ [ ] team-12-analytics  Team analytics                                            │
+ Execution project│ [ ] team-13-analytics  Team analytics                                            │
                   │ [ ] team-14-analytics  Team analytics                                            │
                   │ [ ] team-15-analytics  Team analytics                                            │
                   │ [ ] team-16-analytics  Team analytics                                            │
@@ -31,6 +31,6 @@ acme-staging      │ Execution project: acme-exec (chosen)                     
                   │ [ ] team-20-analytics  Team analytics                                            │
                   │ [ ] team-21-analytics  Team analytics                                            │
                   ╰──────────────────────────────────────────────────────────────────────────────────╯
-                         │                                           │
- bqt exec acme-exec  columns  2 projects                                                         5 datasets · 13 tables
+                                          │
+ bqt exec acme-exec  layout: classic  columns  2 projects                                        5 datasets · 13 tables
  esc close

@@ -1,9 +1,9 @@
- Projects 1/2         │ Datasets (4)
-acme╭─ Projects  (1-8/33) ─────────────────────────────╮  5
-acme│ Execution project: acme-exec (chosen)            │  2
-    │ space select · o only this · e execution · s     │  4
-    │ sync · S sync all · / filter · r reload list ·   │  1
-    │ esc close                                        │
+ [Explorer]  Schema  Editor  Results   ctrl+o next
+ Pro╭─ Projects  (1-8/33) ─────────────────────────────╮
+acme│ Execution project: acme-exec (chosen)            │  5
+acme│ space select · o only this · e execution · s     │  2
+    │ sync · S sync all · / filter · r reload list ·   │  4
+    │ esc close                                        │  1
     │ 2 selected                                       │
     │                                                  │
     │ [x] acme-prod                4 datasets · 3h ago │
@@ -16,5 +16,5 @@ acme│ Execution project: acme-exec (chosen)            │  2
     │ [ ] team-04-analytics  Team analytics            │
     ╰──────────────────────────────────────────────────╯
                       │
- bqt exec acme-exec  columns  2 pro… 5 datasets · 13 tables
+ bqt exec acme-exec  layout: classi… 5 datasets · 13 tables
  esc close

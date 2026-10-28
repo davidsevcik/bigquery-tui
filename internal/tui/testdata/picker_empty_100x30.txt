@@ -1,5 +1,5 @@
- Projects 1/2        │ Datasets (4)                      │ Schema · acme-prod
-ac╭─ Favorites and History ──────────────────────────────────────────────────────────────────────╮
+ Projects 1/2                      │ NORMAL · query 1   1:1
+ac╭─ Favorites and History ──────────────────────────────────────────────────────────────────────╮?…
 ac│  Favorites 0   History 0   tab switches                                                      │
   │ ▸ q?                                                                                         │
   │ “q?”                                                                                         │
@@ -12,19 +12,19 @@ ac│  Favorites 0   History 0   tab switches                                   
   │                                          │                                                   │
   │                                          │                                                   │
   │                                          │                                                   │
+ S│                                          │                                                   │
+ a│                                          │                                                   │a…
+ 4│                                          │                                                   │
+ ✓│                                          │                                                   │
   │                                          │                                                   │
-  │                                          │                                                   │
-  │                                          │                                                   │
-  │                                          │                                                   │
-  │                                          │                                                   │
-  │                                          │                                                   │
-  │                                          │                                                   │
-  │                                          │                                                   │
+ Q│                                          │                                                   │
+ E│                                          │                                                   │
+ h│                                          │                                                   │
   │                                          │                                                   │
   │                                          │                                                   │
   │                                          │                                                   │
   │                                          │                                                   │
   ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
-                     │                                   │
- bqt exec acme-exec  columns  2 projects                                     5 datasets · 13 tables
+                                   │
+ bqt exec acme-exec  layout: classic  columns  2 projects                    5 datasets · 13 tables
  type to search · ↑↓ select · enter open · tab favorites/history · ctrl+r show result · ctrl+s save…

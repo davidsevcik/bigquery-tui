@@ -32,9 +32,9 @@ type tutorial struct {
 
 	// observed since the step started
 	start    tutSnap
-	keys     map[string]bool // keys pressed in the zone the step starts in
+	keys     map[string]bool // keys pressed in the Pane the step starts in
 	seenOv   map[overlayKind]bool
-	zoomed   bool
+	schema   bool // the Schema pane had focus
 	inserts  bool // vim Insert mode was entered
 	styles   bool
 	filtered bool // an Explorer filter was set
@@ -81,17 +81,17 @@ var tutSteps = []tutStep{
 		}},
 	{"Filter the Explorer", plain("`/` filters the list you are in: the focused column in the columns style, the whole tree in the tree style. Type part of a name; `enter` or `esc` goes back to the list with the filter kept, and `esc` there clears it. Filter once, then clear it."),
 		func(m *Model, t *tutorial) bool { return t.filtered && !m.filterOn() }},
-	{"Jump to a table", plain("`ctrl+t` jumps to a table from any zone: type, then `enter`. Empty, it lists the tables you opened lately. From the Editor it inserts the name instead. Try it, then close it."),
+	{"Jump to a table", plain("`ctrl+t` jumps to a table from any pane: type, then `enter`. Empty, it lists the tables you opened lately. From the Editor it inserts the name instead. Try it, then close it."),
 		closedAfter(ovJump)},
 	{"Explorer styles", plain("`L` cycles the Explorer style: columns, tree, list. bqt remembers your choice, so press it until you are back at the one you like."),
 		func(m *Model, t *tutorial) bool { return t.styles }},
-	{"The detail pane", plain("On a table, the detail pane shows the schema. `tab` switches to the preview (`p` loads rows), `P` moves the pane. `z` zooms it; `esc` or `←` leaves the zoom. Zoom in and out once."),
-		func(m *Model, t *tutorial) bool { return t.zoomed && !m.zoom }},
+	{"The Schema pane", plain("The Schema pane shows the selected table. `enter` on a table goes there, and the movement keys scroll it. `tab` switches to the preview (`p` loads rows), `z` shows the pane over the whole screen, and `esc` goes back to the Explorer. Go there and back once."),
+		func(m *Model, t *tutorial) bool { return t.schema && m.zone == ZoneExplorer }},
 	{"Command palette", plain("`ctrl+p` (or `:` in the Explorer) lists every command by name, with its key. Type to filter, `enter` runs one, `esc` closes. Open it and close it."),
 		closedAfter(ovPalette)},
-	{"Help", plain("`?` lists every key of every zone (`f1` too). `j` `k` scroll it, `esc` closes it. Open it and close it."),
+	{"Help", plain("`?` lists every key of every pane (`f1` too). `j` `k` scroll it, `esc` closes it. Open it and close it."),
 		closedAfter(ovHelp)},
-	{"Zones", plain("The screen has three zones: Explorer, Editor and Results. `ctrl+o` moves to the next zone (`ctrl+w w` too, `ctrl+w W` goes back). Go to the Editor now."),
+	{"Panes", plain("The screen has four panes: Explorer, Schema, Editor and Results. `ctrl+o` moves to the next one (`ctrl+w w` too, `ctrl+w W` goes back). Go to the Editor now."),
 		func(m *Model, t *tutorial) bool { return m.zone == ZoneEditor }},
 	{"Write a query", func(m *Model) string {
 		if m.vimOn() {
@@ -113,11 +113,11 @@ var tutSteps = []tutStep{
 		return "`ctrl+r` runs the buffer (or the selection); `ctrl+d` is a dry-run, which only checks and estimates. SELECT 1 reads no data. Run it."
 	},
 		func(m *Model, t *tutorial) bool { return len(m.runs.List()) > t.start.runs }},
-	{"Go to the Results", plain("`ctrl+w` then a direction goes straight to a zone: `ctrl+w j` the Results, `ctrl+w k` the Editor, `ctrl+w h` the Explorer. Go to the Results now."),
+	{"Go to the Results", plain("`ctrl+w` then a direction (`h` `j` `k` `l`) moves to the pane on that side: `ctrl+w j` from the Editor reaches the Results below it. Go to the Results now."),
 		func(m *Model, t *tutorial) bool { return m.zone == ZoneResults }},
 	{"Read the Results", plain("`h` `j` `k` `l` move between cells, `enter` shows the row as a record (`n` `p` step rows), `esc` closes it. `y` copies a cell, `e` exports. Open a record and close it."),
 		closedAfter(ovRecord)},
-	{"Back to the Explorer", plain("`ctrl+w h` goes back to the Explorer. There, `i` inserts the selected table's name into the editor. `esc` in the Results also goes back to the Editor."),
+	{"Back to the Explorer", plain("`ctrl+w h` goes left and `ctrl+w k` goes up: from the Results that is the Schema, then the Explorer. There, `i` inserts the selected table's name into the editor. `esc` in the Results goes back to the Editor."),
 		func(m *Model, t *tutorial) bool { return m.zone == ZoneExplorer }},
 	{"Favorites and History", plain("`ctrl+x r` opens History: every query you ran, searchable (`status:failed`, `since:7d`). `tab` switches to Favorites, your saved queries (`ctrl+x s` saves the buffer as one); `enter` loads one into the editor. Open it and close it."),
 		closedAfter(ovPicker)},
@@ -140,7 +140,7 @@ func (m *Model) tutGo(step int) {
 	t := m.tut
 	t.step = clamp(step, 0, len(tutSteps)-1)
 	t.keys, t.seenOv = map[string]bool{}, map[overlayKind]bool{}
-	t.zoomed, t.inserts, t.styles, t.filtered = false, false, false, false
+	t.schema, t.inserts, t.styles, t.filtered = false, false, false, false
 	t.start = m.tutSnap()
 	m.fitHeight()
 }
@@ -213,8 +213,8 @@ func (m *Model) tutorialObserve() {
 	if m.ov != ovNone {
 		t.seenOv[m.ov] = true
 	}
-	if m.zoom {
-		t.zoomed = true
+	if m.zone == ZoneSchema {
+		t.schema = true
 	}
 	if m.filterActive() {
 		t.filtered = true

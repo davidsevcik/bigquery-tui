@@ -342,7 +342,9 @@ func (m *Model) activeResults() *searchState {
 	return nil
 }
 
-func (m *Model) listHeight() int { return max(1, m.h-4) }
+// listHeight is the number of rows the Explorer's list shows, give or take
+// its headers.
+func (m *Model) listHeight() int { return max(1, m.paneRect(ZoneExplorer).h-2) }
 
 func (m *Model) move(d int) {
 	switch m.style {
@@ -444,7 +446,7 @@ func (m *Model) right() tea.Cmd {
 }
 
 // open is Enter: expand a container or shard family; on a table, record it as
-// recently opened and zoom the detail when the pane is collapsed.
+// recently opened and go to the Schema pane.
 func (m *Model) open() tea.Cmd {
 	s := m.sel()
 	switch s.kind {
@@ -489,9 +491,7 @@ func (m *Model) open() tea.Cmd {
 		}
 		p := s.path
 		touch := func() tea.Msg { _ = m.be.TouchRecent(m.ctx, p); return nil }
-		if m.effPlacement() == placeHidden {
-			m.zoom = true
-		}
+		m.focusSchema(false)
 		return touch
 	}
 	return nil
@@ -500,7 +500,6 @@ func (m *Model) open() tea.Cmd {
 func (m *Model) setStyle(l explorerStyle) {
 	s := m.sel()
 	m.style = l
-	m.zoom = false
 	if s.kind != "" {
 		m.locate(s.path, s.kind)
 	}

@@ -38,11 +38,18 @@ type Binding struct {
 // Keymap is the registry (spec section 15).
 var Keymap = []Binding{
 	{ZoneGlobal, []string{"ctrl+q"}, "quit", "quit (asks if Runs are in flight)", "Quit", ""},
-	{ZoneGlobal, []string{"ctrl+o", "ctrl+w w"}, "zonenext", "next zone: Explorer, Editor, Results", "Next zone", "ctrl+o zone"},
-	{ZoneGlobal, []string{"ctrl+w W"}, "zoneprev", "previous zone", "Previous zone", ""},
-	{ZoneGlobal, []string{"ctrl+w h"}, "zoneexplorer", "go to the Explorer", "Go to the Explorer", ""},
-	{ZoneGlobal, []string{"ctrl+w l", "ctrl+w k"}, "zoneeditor", "go to the Editor", "Go to the Editor", ""},
-	{ZoneGlobal, []string{"ctrl+w j"}, "zoneresults", "go to the Results", "Go to the Results", ""},
+	{ZoneGlobal, []string{"ctrl+o", "ctrl+w w"}, "panenext", "next pane: Explorer, Schema, Editor, Results", "Next pane", "ctrl+o pane"},
+	{ZoneGlobal, []string{"ctrl+w W"}, "paneprev", "previous pane", "Previous pane", ""},
+	{ZoneGlobal, []string{"ctrl+w h"}, "paneleft", "go to the pane on the left", "Go to the pane on the left", ""},
+	{ZoneGlobal, []string{"ctrl+w j"}, "panedown", "go to the pane below", "Go to the pane below", ""},
+	{ZoneGlobal, []string{"ctrl+w k"}, "paneup", "go to the pane above", "Go to the pane above", ""},
+	{ZoneGlobal, []string{"ctrl+w l"}, "paneright", "go to the pane on the right", "Go to the pane on the right", ""},
+	{ZoneGlobal, []string{}, "goexplorer", "go to the Explorer", "Go to the Explorer", ""},
+	{ZoneGlobal, []string{}, "goschema", "go to the Schema pane (shown over the whole screen when the terminal has no room for it)", "Go to the Schema", ""},
+	{ZoneGlobal, []string{}, "goeditor", "go to the Editor", "Go to the Editor", ""},
+	{ZoneGlobal, []string{}, "goresults", "go to the Results", "Go to the Results", ""},
+	{ZoneGlobal, []string{}, "layoutclassic", "layout classic: Explorer over Schema on the left, Editor over Results on the right", "Layout: classic", ""},
+	{ZoneGlobal, []string{}, "layoutfocus", "layout focus: one pane at a time, under a pane bar", "Layout: focus", ""},
 	{ZoneGlobal, []string{"ctrl+p"}, "palette", "command palette", "", "ctrl+p cmds"},
 	{ZoneGlobal, []string{"ctrl+t"}, "jump", "jump to table (recently opened when empty)", "Jump to table", "ctrl+t jump"},
 	{ZoneGlobal, []string{"f1"}, "help", "this help", "Help", ""},
@@ -69,14 +76,13 @@ var Keymap = []Binding{
 	{ZoneExplorer, []string{"G", "end"}, "bottom", "last row", "", ""},
 	{ZoneExplorer, []string{"ctrl+d", "pgdown"}, "halfdown", "half page down", "", ""},
 	{ZoneExplorer, []string{"ctrl+u", "pgup"}, "halfup", "half page up", "", ""},
-	{ZoneExplorer, []string{"enter"}, "open", "expand a shard family, open a table, zoom the detail when it is collapsed; zoomed preview: show the row as a record", "", ""},
+	{ZoneExplorer, []string{"enter"}, "open", "expand a shard family; on a table, go to the Schema pane", "", ""},
 	{ZoneExplorer, []string{"esc"}, "back", "back out one level", "", ""},
 	{ZoneExplorer, []string{"/"}, "filter", "filter the column (columns style), the tree, or the list", "Filter", "/ filter"},
 	{ZoneExplorer, []string{":"}, "palette", "command palette", "", ""},
 	{ZoneExplorer, []string{"L"}, "style", "cycle the explorer style: columns, tree, list", "Cycle explorer style", "L style"},
-	{ZoneExplorer, []string{"P"}, "panes", "detail pane: auto, right, bottom, hidden; zoomed: schema and preview side by side or stacked", "Cycle detail pane placement", "P panes"},
 	{ZoneExplorer, []string{"tab"}, "tab", "switch between schema and preview (the pane that ctrl+e / ctrl+y move in)", "", ""},
-	{ZoneExplorer, []string{"z"}, "zoom", "zoom the detail pane: the movement keys then scroll it, left or esc leaves", "Zoom detail pane", ""},
+	{ZoneExplorer, []string{"z"}, "zoom", "show the Schema pane over the whole screen (z or esc restores)", "Maximise the Schema pane", ""},
 	{ZoneExplorer, []string{"ctrl+e"}, "detaildown", "scroll the schema / next preview row", "", ""},
 	{ZoneExplorer, []string{"ctrl+y"}, "detailup", "scroll the schema / previous preview row", "", ""},
 	{ZoneExplorer, []string{"p"}, "preview", "load 20 (more) preview rows of the table", "Preview table rows", ""},
@@ -93,6 +99,22 @@ var Keymap = []Binding{
 	{ZoneExplorer, []string{"g c"}, "config", "open the config file in your editor", "Open config", ""},
 	{ZoneExplorer, []string{"?"}, "help", "this help", "", "? help"},
 	{ZoneExplorer, []string{"q"}, "quit", "quit", "", ""},
+
+	{ZoneSchema, []string{"j", "down"}, "down", "scroll down a line, or the next preview row", "", "↑↓/jk scroll"},
+	{ZoneSchema, []string{"k", "up"}, "up", "scroll up a line, or the previous preview row", "", ""},
+	{ZoneSchema, []string{"ctrl+d", "pgdown"}, "halfdown", "half the pane down", "", ""},
+	{ZoneSchema, []string{"ctrl+u", "pgup"}, "halfup", "half the pane up", "", ""},
+	{ZoneSchema, []string{"g g", "home"}, "top", "top", "", ""},
+	{ZoneSchema, []string{"G", "end"}, "bottom", "bottom", "", ""},
+	{ZoneSchema, []string{"tab"}, "tab", "switch between schema and preview", "", "tab schema/preview"},
+	{ZoneSchema, []string{"p"}, "preview", "load 20 (more) preview rows of the table", "", "p rows"},
+	{ZoneSchema, []string{"J"}, "record", "show the selected preview row as a full record (also enter on the preview)", "", "J record"},
+	{ZoneSchema, []string{"enter"}, "open", "on the preview: show the row as a record", "", ""},
+	{ZoneSchema, []string{"z"}, "zoom", "maximise the Schema pane, or restore the layout", "", "z maximise"},
+	{ZoneSchema, []string{"esc", "h", "left"}, "back", "restore the layout if maximised, and go back to the Explorer", "", "esc back"},
+	{ZoneSchema, []string{"?"}, "help", "this help", "", ""},
+	{ZoneSchema, []string{"q"}, "quit", "quit", "", ""},
+	{ZoneSchema, []string{":"}, "palette", "command palette", "", ""},
 
 	{ZoneEditor, []string{"ctrl+r"}, "run", "run the selection, or the whole buffer", "Run query", "ctrl+r run"},
 	{ZoneEditor, []string{"ctrl+d"}, "dryrun", "dry-run: validate and estimate without running", "Dry-run query", "ctrl+d dry-run"},
@@ -146,8 +168,8 @@ var Keymap = []Binding{
 	{ZoneSearch, []string{"pgup"}, "halfup", "half page up", "", ""},
 	{ZoneSearch, []string{"enter"}, "open", "go to the result in the explorer", "", "enter open"},
 	{ZoneSearch, []string{"esc"}, "back", "close", "", "esc close"},
-	{ZoneSearch, []string{"ctrl+e"}, "detaildown", "scroll the detail pane down", "", ""},
-	{ZoneSearch, []string{"ctrl+y"}, "detailup", "scroll the detail pane up", "", ""},
+	{ZoneSearch, []string{"ctrl+e"}, "detaildown", "scroll the Schema pane down", "", ""},
+	{ZoneSearch, []string{"ctrl+y"}, "detailup", "scroll the Schema pane up", "", ""},
 
 	{ZonePicker, []string{"down", "ctrl+n"}, "down", "next entry", "", ""},
 	{ZonePicker, []string{"up", "ctrl+p"}, "up", "previous entry", "", ""},
@@ -277,7 +299,7 @@ func helpLines(w int) []string {
 			out = append(out, " "+k+l)
 		}
 	}
-	for _, z := range []Zone{ZoneGlobal, ZoneExplorer, ZoneEditor, ZoneResults, ZoneSearch, ZonePicker, ZoneOverlay} {
+	for _, z := range []Zone{ZoneGlobal, ZoneExplorer, ZoneSchema, ZoneEditor, ZoneResults, ZoneSearch, ZonePicker, ZoneOverlay} {
 		out = append(out, " "+sBold.Render(string(z)))
 		for _, b := range Keymap {
 			if b.Zone != z {
