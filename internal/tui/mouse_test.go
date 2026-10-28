@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
@@ -695,5 +696,33 @@ func TestTheWheelKeepsVimsCursorOnACharacter(t *testing.T) {
 	}
 	if sel := e.selection(); strings.Count(sel, "\n") != 59-e.row || !strings.HasSuffix(sel, "select 59") {
 		t.Fatalf("the Visual selection does not follow the cursor: %q", sel)
+	}
+}
+
+func TestTheHelpExplainsTheMouse(t *testing.T) {
+	var text []string
+	for _, l := range helpLines(90) {
+		text = append(text, strings.TrimSpace(ansi.Strip(l)))
+	}
+	at := func(s string) int {
+		for i, l := range text {
+			if strings.HasPrefix(l, s) {
+				return i
+			}
+		}
+		t.Fatalf("the help lacks %q", s)
+		return -1
+	}
+	if !(at("Results") < at("Mouse") && at("Mouse") < at("Filter and jump")) {
+		t.Fatal("the Mouse section is not after the Pane sections")
+	}
+	all := strings.Join(text, " ")
+	for _, want := range []string{"Mouse: on/off", "off by default", "the wheel scrolls the Pane under the pointer", "Shift+drag", "Option+drag in iTerm2", "Popups leave the mouse to the terminal"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("the help lacks %q", want)
+		}
+	}
+	if !strings.Contains(tutSteps[len(tutSteps)-1].text(nil), `"Mouse: on/off"`) {
+		t.Error("the tutorial's last step does not mention the mouse")
 	}
 }

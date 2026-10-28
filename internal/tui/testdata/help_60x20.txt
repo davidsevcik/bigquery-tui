@@ -1,5 +1,5 @@
  [Explorer]  Schema  Editor  Results   ctrl+o next
- Da╭─ Help  (1-14/290) ─────────────────────────────────╮
+ Da╭─ Help  (1-14/303) ─────────────────────────────────╮
 eve│ Global                                             │
 fin│ ctrl+q          quit (asks if Runs are in flight)  │×4
 sal│ ctrl+o  ctrl+w w  next pane: Explorer, Schema,     │
