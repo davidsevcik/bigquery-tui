@@ -449,3 +449,17 @@ func TestPresetGoldenScreens(t *testing.T) {
 	r.press("ctrl+w", "J")
 	r.golden("layout_custom_120x36")
 }
+
+func TestResizingBetweenTheSharedEditorAndResultsIsRefused(t *testing.T) {
+	r := newRig(t, 100, 28)
+	r.press("ctrl+p", "Layout: browse", "enter", "ctrl+w", "j")
+	if r.m.zone != ZoneEditor {
+		t.Fatalf("pane %s", r.m.zone)
+	}
+	r.press("ctrl+w", "+")
+	r.contains("layout: browse")
+	r.lacks("custom")
+	if !strings.Contains(r.m.toast, "share") {
+		t.Fatalf("toast %q", r.m.toast)
+	}
+}

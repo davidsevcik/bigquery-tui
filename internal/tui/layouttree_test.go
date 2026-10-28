@@ -317,3 +317,49 @@ func TestTreeJSON(t *testing.T) {
 		}
 	}
 }
+
+// Codex review of phase 3.
+
+func visibleShare(n layoutNode, z Zone) (num, den int) {
+	for i, k := range n.kids {
+		if !k.visible() {
+			continue
+		}
+		den += n.weights[i]
+		if k.isLeaf() && k.pane == z {
+			num = n.weights[i]
+		}
+	}
+	return
+}
+
+func TestRepeatedMovesKeepTheTreeLoadable(t *testing.T) {
+	tree, _ := moveToEdge(presetTree("tall"), ZoneExplorer, dirDown)
+	for i := range 14 {
+		var why string
+		if tree, why = moveToEdge(tree, tree.kids[0].pane, dirDown); why != "" {
+			t.Fatal(why)
+		}
+		b, err := json.Marshal(treeToJSON(tree))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var j treeJSON
+		if err := json.Unmarshal(b, &j); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := treeFromJSON(&j); !ok {
+			t.Fatalf("after %d moves the saved tree no longer loads: %s", i+1, tree)
+		}
+	}
+}
+
+func TestMoveToTheEdgeSizesByTheVisibleSiblings(t *testing.T) {
+	tree, why := moveToEdge(presetTree("query"), ZoneExplorer, dirLeft)
+	if why != "" {
+		t.Fatal(why)
+	}
+	if num, den := visibleShare(tree, ZoneExplorer); num*3 != den {
+		t.Fatalf("the moved Pane gets %d/%d of the visible width, want a third: %s", num, den, tree)
+	}
+}

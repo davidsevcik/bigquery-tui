@@ -194,7 +194,25 @@ func normalise(n layoutNode) layoutNode {
 	for i := range weights {
 		weights[i] /= max(g, 1)
 	}
-	return layoutNode{dir: n.dir, weights: weights, kids: kids}
+	return layoutNode{dir: n.dir, weights: boundWeights(weights), kids: kids}
+}
+
+// maxWeightSum bounds a split's weights: repeated edits multiply them, and a
+// saved tree with weights above the loader's limit would be dropped. Above
+// it the weights are scaled down to sum to about 1000, keeping every child
+// at least 1 (a share finer than 0.1% makes no difference on a terminal).
+const maxWeightSum = 10000
+
+func boundWeights(ws []int) []int {
+	s := sum(ws)
+	if s <= maxWeightSum {
+		return ws
+	}
+	out := make([]int, len(ws))
+	for i, w := range ws {
+		out[i] = max(1, int((int64(w)*1000+int64(s)/2)/int64(s)))
+	}
+	return out
 }
 
 func gcd(a, b int) int {
@@ -286,9 +304,15 @@ func moveToEdge(t layoutNode, z Zone, d direction) (layoutNode, string) {
 	rest := t.remove(z)
 	var out layoutNode
 	if !rest.isLeaf() && rest.dir == dir {
-		// a third of the split: half the sum of the others
+		// a third of the split: half the sum of the others that take room
+		// (hidden ones keep their slot but no space)
 		ws := slices.Clone(rest.weights)
-		s := sum(ws)
+		s := 0
+		for i, k := range rest.kids {
+			if k.visible() {
+				s += ws[i]
+			}
+		}
 		for i := range ws {
 			ws[i] *= 2
 		}

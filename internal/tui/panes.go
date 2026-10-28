@@ -150,7 +150,27 @@ func (m *Model) resize(dir splitDir, grow bool) {
 			}
 		}
 		body := rect{0, 0, m.w, m.bodyH()}
-		return resizePane(t, m.zone, dir, grow, func(n layoutNode) map[Zone]rect { return rawRects(n, body, omit) })
+		lay := func(n layoutNode) map[Zone]rect { return rawRects(n, body, omit) }
+		shared := !a.single && len(a.barPanes) == 2
+		if shared {
+			// browse below its height: the Editor and the Results share one
+			// slot, so a change between the two would not show
+			shown := ZoneEditor
+			if _, ok := a.rects[ZoneResults]; ok {
+				shown = ZoneResults
+			}
+			other := map[Zone]Zone{ZoneEditor: ZoneResults, ZoneResults: ZoneEditor}[shown]
+			lay = func(n layoutNode) map[Zone]rect {
+				rs := rawRects(mergeInto(n, other, shown), body, omit)
+				rs[other] = rs[shown]
+				return rs
+			}
+		}
+		out, why := resizePane(t, m.zone, dir, grow, lay)
+		if shared && why != "" && dir == splitCol && (m.zone == ZoneEditor || m.zone == ZoneResults) {
+			why = "the Editor and the Results share one slot at this height"
+		}
+		return out, why
 	})
 }
 
