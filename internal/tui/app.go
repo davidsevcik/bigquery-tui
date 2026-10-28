@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,26 +22,15 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/runs"
 )
 
-type layoutKind int
+type explorerStyle int
 
 const (
-	layoutMiller layoutKind = iota
-	layoutTree
-	layoutFlat
+	styleColumns explorerStyle = iota
+	styleTree
+	styleList
 )
 
-var layoutNames = []string{"miller", "tree", "flat"}
-
-type placement int
-
-const (
-	placeAuto placement = iota
-	placeRight
-	placeBottom
-	placeHidden
-)
-
-var placementNames = []string{"auto", "right", "bottom", "hidden"}
+var styleNames = []string{"columns", "tree", "list"}
 
 type overlayKind int
 
@@ -96,8 +86,10 @@ type Model struct {
 	w, h  int
 	termH int // the terminal's rows; h leaves out the tutorial panel
 
-	layout    layoutKind
-	place     placement
+	style     explorerStyle       // how the Explorer draws the catalog
+	preset    string              // the chosen Layout preset (classic, focus)
+	maxed     Zone                // the maximised Pane ("" for none); session only
+	mru       []Zone              // the Panes, most recently focused first
 	pd        *projDialog         // the Projects dialog while open
 	listed    []api.ListedProject // BigQuery's projects list, once fetched
 	selSeen   string              // the selection last applied (see tick)
@@ -117,16 +109,14 @@ type Model struct {
 	palCmds []command
 	ovOff   int
 
-	details     map[string]*detailData
-	lastSel     string
-	detOff      int // schema pane scroll
-	prevOff     int // preview pane scroll
-	prevRow     int // preview row cursor (the row J shows)
-	rec         *recordData
-	tab         int
-	zoom        bool
-	zoomStacked bool // zoom shows schema above preview instead of side by side
-	statSeq     int
+	details map[string]*detailData
+	lastSel string
+	detOff  int // schema pane scroll
+	prevOff int // preview pane scroll
+	prevRow int // preview row cursor (the row J shows)
+	rec     *recordData
+	tab     int // the Schema pane's half: 0 schema, 1 preview
+	statSeq int
 
 	tut      *tutorial
 	firstRun bool // no UI state file yet
@@ -185,11 +175,11 @@ func New(be Backend, o Options) *Model {
 		o.Location = time.Local
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30, termH: 30}
+	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30, termH: 30, preset: presetClassic}
 	m.jump = &searchState{typing: true, tablesOnly: true}
 	m.flat = &searchState{all: true}
 	m.tree.open = map[string]bool{}
-	m.zone = ZoneExplorer
+	m.zone, m.mru = ZoneExplorer, slices.Clone(paneOrder)
 	m.runs, m.grids = be.FollowRuns(), map[int64]*grid{}
 	m.loadState()
 	m.reloadBrowse()
@@ -199,7 +189,7 @@ func New(be Backend, o Options) *Model {
 		if err := m.openFile(o.File); err != nil {
 			m.toast = "open " + o.File + ": " + err.Error()
 		} else {
-			m.zone = ZoneEditor
+			m.setZone(ZoneEditor)
 		}
 	}
 	if len(m.bufs) == 0 {
@@ -222,11 +212,32 @@ func (m *Model) Close() {
 	m.cancel()
 }
 
+// uiState is state/tui.json. Older bqt instances share the file and read
+// "layout" as the Explorer style (miller, tree, flat), so it is read but never
+// written, and the new keys are separate.
 type uiState struct {
-	Layout string `json:"layout"`
-	Panes  string `json:"panes"`
-	// ZoomStacked: the zoomed detail shows schema above preview.
-	ZoomStacked bool `json:"zoom_stacked,omitempty"`
+	ExplorerStyle string `json:"explorer_style"`
+	// PaneLayout is an object so that a custom tree can join the preset later;
+	// it is decoded on its own, so a bad value does not lose the style.
+	PaneLayout json.RawMessage `json:"pane_layout,omitempty"`
+	Layout     string          `json:"layout,omitempty"` // legacy: the Explorer style
+}
+
+type paneLayoutState struct {
+	Preset string `json:"preset"`
+}
+
+// legacyStyles maps the old "layout" values to Explorer styles.
+var legacyStyles = map[string]explorerStyle{"miller": styleColumns, "tree": styleTree, "flat": styleList}
+
+func parseStyle(s string) (explorerStyle, bool) {
+	for i, n := range styleNames {
+		if n == s {
+			return explorerStyle(i), true
+		}
+	}
+	st, ok := legacyStyles[s]
+	return st, ok
 }
 
 func (m *Model) loadState() {
@@ -239,25 +250,26 @@ func (m *Model) loadState() {
 	if json.Unmarshal(b, &st) != nil {
 		return
 	}
-	for i, n := range layoutNames {
-		if n == st.Layout {
-			m.layout = layoutKind(i)
-		}
+	if s, ok := parseStyle(st.ExplorerStyle); ok {
+		m.style = s
+	} else if s, ok := parseStyle(st.Layout); ok {
+		m.style = s
 	}
-	for i, n := range placementNames {
-		if n == st.Panes {
-			m.place = placement(i)
-		}
+	var pl paneLayoutState
+	if json.Unmarshal(st.PaneLayout, &pl) == nil && knownPreset(pl.Preset) {
+		m.preset = pl.Preset
 	}
-	m.zoomStacked = st.ZoomStacked
 }
 
+// saveState writes the chosen Explorer style and Layout preset; the
+// step-down and the maximised Pane are never saved.
 func (m *Model) saveState() {
 	p := m.be.StatePath()
 	if os.MkdirAll(filepath.Dir(p), 0o700) != nil {
 		return
 	}
-	b, _ := json.Marshal(uiState{Layout: layoutNames[m.layout], Panes: placementNames[m.place], ZoomStacked: m.zoomStacked})
+	pl, _ := json.Marshal(paneLayoutState{Preset: m.preset})
+	b, _ := json.Marshal(uiState{ExplorerStyle: styleNames[m.style], PaneLayout: pl})
 	_ = os.WriteFile(p, b, 0o600)
 }
 
@@ -429,6 +441,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.w, m.termH = msg.Width, msg.Height
 		m.fitHeight()
+		return m, m.gridEnsure() // a Results pane that grew shows more rows
 	case tea.FocusMsg:
 		select {
 		case m.kick <- struct{}{}:
@@ -651,7 +664,7 @@ func (m *Model) typingState() *searchState {
 	switch {
 	case m.ov == ovJump:
 		return m.jump
-	case m.ov == ovNone && m.zone == ZoneExplorer && m.layout == layoutFlat && m.flat.typing:
+	case m.ov == ovNone && m.zone == ZoneExplorer && m.style == styleList && m.flat.typing:
 		return m.flat
 	}
 	return nil
@@ -661,7 +674,7 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	name := keyName(msg)
 	m.toast = ""
 	if m.tutorialKey(name) {
-		return nil
+		return m.gridEnsure() // the panel takes or gives back rows
 	}
 
 	switch m.ov {
@@ -712,11 +725,17 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return m.overlayAction(act)
 	case zone == ZoneResults:
 		return m.resultsAction(act)
+	case zone == ZoneSchema:
+		return m.schemaAction(act)
 	}
 	return m.explorerAction(act)
 }
 
 func (m *Model) globalAction(act string) (tea.Cmd, bool) {
+	if cmd, ok := m.paneAction(act); ok {
+		m.ov = ovNone
+		return cmd, true
+	}
 	switch act {
 	case "quit":
 		var why []string
@@ -738,29 +757,9 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 			return nil, true
 		}
 		return m.quit(), true
-	case "zonenext":
-		m.ov = ovNone
-		m.zoneStep(1)
-		return m.gridEnsure(), true
-	case "zoneprev":
-		m.ov = ovNone
-		m.zoneStep(-1)
-		return m.gridEnsure(), true
-	case "zoneexplorer":
-		m.ov = ovNone
-		m.setZone(ZoneExplorer)
-		return nil, true
-	case "zoneeditor":
-		m.ov = ovNone
-		m.setZone(ZoneEditor)
-		return nil, true
-	case "zoneresults":
-		m.ov = ovNone
-		m.setZone(ZoneResults)
-		return m.gridEnsure(), true
 	case "tutorial":
 		m.startTutorial()
-		return nil, true
+		return m.gridEnsure(), true
 	case "projects":
 		return m.openProjects(), true
 	case "favorites":
@@ -843,11 +842,6 @@ func (m *Model) explorerAction(act string) tea.Cmd {
 	if cmd, ok := m.globalAction(act); ok {
 		return cmd
 	}
-	if m.zoom {
-		if cmd, ok := m.zoomAction(act); ok {
-			return cmd
-		}
-	}
 	page := max(1, m.listHeight()/2)
 	switch act {
 	case "down":
@@ -874,26 +868,22 @@ func (m *Model) explorerAction(act string) tea.Cmd {
 		return m.back()
 	case "filter":
 		m.setZone(ZoneExplorer) // the palette runs it from any zone
-		if m.layout == layoutFlat {
+		if m.style == styleList {
 			m.flat.typing = true
 			return nil
 		}
-		if f := m.layoutFilter(); f != nil {
+		if f := m.styleFilter(); f != nil {
 			f.typing = true
 		}
 		return nil
-	case "layout":
-		m.setLayout((m.layout + 1) % 3)
+	case "style":
+		m.setStyle((m.style + 1) % 3)
 		m.saveState()
 		return m.runSearchIfFlat()
-	case "panes":
-		m.place = (m.place + 1) % 4
-		m.saveState()
-		m.toast = "detail pane: " + placementNames[m.place]
 	case "tab":
 		m.tab = 1 - m.tab
 	case "zoom":
-		m.zoom = !m.zoom
+		m.focusSchema(true)
 	case "detaildown":
 		return m.scrollDetail(1)
 	case "detailup":
@@ -903,7 +893,7 @@ func (m *Model) explorerAction(act string) tea.Cmd {
 	case "record":
 		return m.openRecord()
 	case "scope":
-		if m.layout == layoutFlat {
+		if m.style == styleList {
 			m.cycleScope()
 			return m.runSearch(m.flat)
 		}
@@ -951,45 +941,6 @@ func (m *Model) openConfig() tea.Cmd {
 	return tea.ExecProcess(exec.Command(argv[0], argv[1:]...), func(err error) tea.Msg { return editorDoneMsg{err} })
 }
 
-// zoomAction makes the movement keys act on the zoomed detail pane instead of
-// the hidden list: they scroll it, and left leaves the zoom.
-func (m *Model) zoomAction(act string) (tea.Cmd, bool) {
-	half := max(1, (m.h-4)/2)
-	switch act {
-	case "down":
-		return m.scrollDetail(1), true
-	case "up":
-		return m.scrollDetail(-1), true
-	case "halfdown":
-		return m.scrollDetail(half), true
-	case "halfup":
-		return m.scrollDetail(-half), true
-	case "top":
-		return m.scrollDetail(-1 << 30), true
-	case "bottom":
-		return m.scrollDetail(1 << 30), true
-	case "left":
-		m.zoom = false
-		return nil, true
-	case "right":
-		return nil, true
-	case "panes":
-		m.zoomStacked = !m.zoomStacked
-		m.saveState()
-		m.toast = "zoom: schema and preview side by side"
-		if m.zoomStacked {
-			m.toast = "zoom: schema above preview"
-		}
-		return nil, true
-	case "open":
-		if _, p := m.previewRows(); p != nil && m.tab == 1 {
-			return m.openRecord(), true
-		}
-		return nil, true
-	}
-	return nil, false
-}
-
 // scrollDetail moves within the pane that tab last selected: it scrolls the
 // schema, or moves the row cursor of the preview once rows are loaded (p
 // switches to it). Moving down from the last loaded row loads the next page.
@@ -1007,7 +958,7 @@ func (m *Model) scrollDetail(d int) tea.Cmd {
 }
 
 func (m *Model) moreIfFlat() tea.Cmd {
-	if m.layout == layoutFlat {
+	if m.style == styleList {
 		return m.maybeMore(m.flat)
 	}
 	return nil
@@ -1016,17 +967,15 @@ func (m *Model) moreIfFlat() tea.Cmd {
 // back implements "esc backs out exactly one level".
 func (m *Model) back() tea.Cmd {
 	switch {
-	case m.zoom:
-		m.zoom = false
-	case m.layout == layoutFlat && m.flat.in.value() != "":
+	case m.style == styleList && m.flat.in.value() != "":
 		m.flat.in.set("")
 		m.flat.cur, m.flat.off = 0, 0
 		m.flat.expandShards = false
 		return m.runSearch(m.flat)
-	case m.layout == layoutMiller && m.mil.family != nil:
+	case m.style == styleColumns && m.mil.family != nil:
 		m.milCollapseFamily()
-	case m.layoutFilter() != nil && m.layoutFilter().active():
-		f := m.layoutFilter()
+	case m.styleFilter() != nil && m.styleFilter().active():
+		f := m.styleFilter()
 		f.clear()
 		return m.refilter(f)
 	}
@@ -1118,7 +1067,7 @@ func (m *Model) detail(key string) *detailData {
 	return d
 }
 
-// afterSelect loads what the detail pane needs when the selection changed.
+// afterSelect loads what the Schema pane needs when the selection changed.
 func (m *Model) afterSelect() tea.Cmd {
 	s := m.sel()
 	key := s.detailKey()

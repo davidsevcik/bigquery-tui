@@ -1,24 +1,24 @@
- SQL · query 1  done   4:28
- 1  -- orders by customer
- 2  SELECT o.customer_id, SUM(o.amount) AS total
- 3  FROM `acme-prod.sales.orders` AS o
- 4 ╭─ Record 3 of 40 · run #1 ──────────────────────────────────────────────╮
-~  │ id       2                                                             │
-~  │ customer customer-2                                                    │
-~  │ country  CZ                                                            │
- Re│ city     Brno                                                          │
+ Projects 1/2               │ SQL · query 1  done   4:28
+acme-prod              ✓ 3h │ 1  -- orders by customer
+acme-staging           ✓ 3h │ 2  SELECT o.customer_id, SUM(o.amount) AS total
+                            │ 3  FROM `acme-prod.sales.orders` AS o
+   ╭─ Record 3 of 40 · run #1 ──────────────────────────────────────────────╮
+   │ id       2                                                             │
+   │ customer customer-2                                                    │
+   │ country  CZ                                                            │
+   │ city     Brno                                                          │
    │ amount   20                                                            │
-  1│ note     long note long note long note long note long note long note   │
-  2│          long note long note long note long note long note long note   │
-  3│ tags     [                                                             │
-  4│            "a",                                                        │
-  5│            "b"                                                         │
-  6│          ]                                                             │
-  7╰────────────────────────────────────────────────────────────────────────╯
-  8 7      customer-7   CZ          Brno        70
-  9 8      customer-8   CZ          Brno        80
- 10 9      customer-9   CZ          Brno        90
- 11 10     customer-10  CZ          Brno        100
- row 3 of 40 · customer STRING
- bqt exec acme-exec  on-demand  2 projects               5 datasets · 13 tables
+   │ note     long note long note long note long note long note long note   │
+   │          long note long note long note long note long note long note   │
+   │ tags     [                                                             │
+   │            "a",                                                        │
+   │            "b"                                                         │
+   │          ]                                                             │
+   ╰────────────────────────────────────────────────────────────────────────╯
+                            │  5 4      customer-4   CZ          Brno
+                            │  6 5      customer-5   CZ          Brno
+                            │  7 6      customer-6   CZ          Brno
+                            │  8 7      customer-7   CZ          Brno
+                            │ row 3 of 40 · customer STRING
+ bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
  n/N next/previous row · j/k scroll · y copy as JSON · esc close

@@ -1,0 +1,36 @@
+ [Explorer]  Schema  Editor  Results   ctrl+o next
+ Projects 1/2              │ Datasets (4)                                │ Tables (2)
+acme-prod             ✓ 3h │events                                     5 │T clicks
+acme-staging          ✓ 3h │finance                                    2 │T events_YYYYMMDD                          ×4
+                           │sales                                      4 │
+                           │us_archive                                 1 │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+                           │                                             │
+ bqt exec acme-exec  layout: focus  columns  2 projects                                          5 datasets · 13 tables
+ layout: focus

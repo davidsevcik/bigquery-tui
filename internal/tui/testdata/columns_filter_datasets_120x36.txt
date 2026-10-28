@@ -1,0 +1,36 @@
+ Datasets 2/3 of 4 ▸ s                    │ SQL · query 1   1:1
+events                                  5 │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+sales                                   4 │~
+us_archive                              1 │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+ Schema · acme-prod.sales                 │ Results
+ acme-prod.sales  dataset                 │ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
+ EU · 4 tables                            │
+ ✓ synced 3h ago                          │
+ dataset sales                            │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+ bqt exec acme-exec  layout: classic  columns  2 projects                                        5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · ? help · ctrl+o pane · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial

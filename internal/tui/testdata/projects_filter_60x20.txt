@@ -1,9 +1,9 @@
+ [Explorer]  Schema  Editor  Results   ctrl+o next
  Projects 1/2         │ Datasets (4)
 acme-prod        ✓ 3h │events                             5
 acme-staging     ✓ 3h │finance                            2
-                      │sales                              4
-    ╭─ Projects ───────────────────────────────────────╮  1
-    │ Execution project: acme-exec (chosen)            │
+    ╭─ Projects ───────────────────────────────────────╮  4
+    │ Execution project: acme-exec (chosen)            │  1
     │ space select · o only this · e execution · s     │
     │ sync · S sync all · / filter · r reload list ·   │
     │ esc close                                        │
@@ -16,5 +16,5 @@ acme-staging     ✓ 3h │finance                            2
                       │
                       │
                       │
- bqt exec acme-exec  miller  2 proj… 5 datasets · 13 tables
+ bqt exec acme-exec  layout: classi… 5 datasets · 13 tables
  esc close

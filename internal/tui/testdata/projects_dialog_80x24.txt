@@ -1,6 +1,6 @@
- Projects 1/2     │ Datasets (4)                 │ Tables (2)
-acme╭─ Projects  (1-13/33) ────────────────────────────────────────────────╮
-acme│ Execution project: acme-exec (chosen)                                │ ×4
+ Projects 1/2               │ SQL · query 1   1:1
+acme╭─ Projects  (1-13/33) ────────────────────────────────────────────────╮ ta…
+acme│ Execution project: acme-exec (chosen)                                │
     │ space select · o only this · e execution · s sync · S sync all · /   │
     │ filter · r reload list · esc close                                   │
     │ 2 selected                                                           │
@@ -10,7 +10,7 @@ acme│ Execution project: acme-exec (chosen)                                │
     │ [ ] acme-billing  Billing and invoicing                              │
     │ [ ] team-00-analytics  Team analytics                                │
     │ [ ] team-01-analytics  Team analytics                                │
-    │ [ ] team-02-analytics  Team analytics                                │
+    │ [ ] team-02-analytics  Team analytics                                │ect…
     │ [ ] team-03-analytics  Team analytics                                │
     │ [ ] team-04-analytics  Team analytics                                │
     │ [ ] team-05-analytics  Team analytics                                │
@@ -19,6 +19,6 @@ acme│ Execution project: acme-exec (chosen)                                │
     │ [ ] team-08-analytics  Team analytics                                │
     │ [ ] team-09-analytics  Team analytics                                │
     ╰──────────────────────────────────────────────────────────────────────╯
-                  │                              │
- bqt exec acme-exec  miller  2 projects                  5 datasets · 13 tables
+                            │
+ bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
  esc close

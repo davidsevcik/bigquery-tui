@@ -1,20 +1,20 @@
- Datasets 1/4                │ Tables 1/2
-eve╭─ Help  (1-14/259) ─────────────────────────────────╮
-fin│ Global                                             │×4
-sal│ ctrl+q          quit (asks if Runs are in flight)  │
-us_│ ctrl+o  ctrl+w w  next zone: Explorer, Editor,     │
-   │                   Results                          │
-   │ ctrl+w W        previous zone                      │
-   │ ctrl+w h        go to the Explorer                 │
-   │ ctrl+w l  ctrl+w k  go to the Editor               │
-   │ ctrl+w j        go to the Results                  │
+ [Explorer]  Schema  Editor  Results   ctrl+o next
+ Da╭─ Help  (1-14/279) ─────────────────────────────────╮
+eve│ Global                                             │
+fin│ ctrl+q          quit (asks if Runs are in flight)  │×4
+sal│ ctrl+o  ctrl+w w  next pane: Explorer, Schema,     │
+us_│                   Editor, Results                  │
+   │ ctrl+w W        previous pane                      │
+   │ ctrl+w h        go to the pane on the left         │
+   │ ctrl+w j        go to the pane below               │
+   │ ctrl+w k        go to the pane above               │
+   │ ctrl+w l        go to the pane on the right        │
    │ ctrl+p          command palette                    │
    │ ctrl+t          jump to table (recently opened when│
    │                 empty)                             │
    │ f1              this help                          │
    │ ctrl+x p        projects: choose which are synced  │
-   │                 and browsed, and where jobs run    │
    ╰────────────────────────────────────────────────────╯
                              │
- bqt exec acme-exec  miller  2 proj… 5 datasets · 13 tables
+ bqt exec acme-exec  layout: classi… 5 datasets · 13 tables
  esc close

@@ -1,0 +1,36 @@
+ filter ▸ ord col:amount      1/1 · 0.0ms │ SQL · query 1   1:1
+ [col:amount] “ord”                       │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+▌T orders  acme-prod.sales      prefix 3h │~
+    All customer orders, one row per order│~
+    ↳ amount  STRING                      │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+ Schema  Preview  tab · acme-prod.sales.o…│ Results
+ p loads the first 20 rows                │ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
+ (read directly: free, no query job)      │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+ bqt exec acme-exec  layout: classic  list  2 projects                                           5 datasets · 13 tables
+ type to filter · enter/esc back to the list

@@ -1,3 +1,4 @@
+ Explorer  Schema  [Editor]  Results   ctrl+o next
  SQL · query 1   4:11
  1  -- orders by customer
  2  SELECT o.customer_id, SUM(o.amount) AS total
@@ -12,9 +13,8 @@
 ~
 ~
 ~
- Results
- no run yet: ctrl+r runs the buffer (or the selection), ctr…
-
-
- bqt exec acme-exec  2 projects      5 datasets · 13 tables
+~
+~
+~
+ bqt exec acme-exec  layout: classi… 5 datasets · 13 tables
  tab accept · ↑↓ select · esc dismiss · enter is a new line

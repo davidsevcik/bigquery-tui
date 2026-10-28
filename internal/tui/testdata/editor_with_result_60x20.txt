@@ -1,20 +1,20 @@
- SQL · query 1  done   4:28
- 1  -- orders by customer
- 2  SELECT o.customer_id, SUM(o.amount) AS total
- 3  FROM `acme-prod.sales.orders` AS o
- 4  WHERE o.created_at > @since
-~
-~
-~
-~
-~
-~
+ Explorer  Schema  Editor  [Results]   ctrl+o next
  Results · #1 done · 40 rows · 1000 B billed
     id INT customer STR country STR city    STR amount STR
   1 0      customer-0   CZ          Brno        0
   2 1      customer-1   CZ          Brno        10
   3 2      customer-2   CZ          Brno        20
   4 3      customer-3   CZ          Brno        30
+  5 4      customer-4   CZ          Brno        40
+  6 5      customer-5   CZ          Brno        50
+  7 6      customer-6   CZ          Brno        60
+  8 7      customer-7   CZ          Brno        70
+  9 8      customer-8   CZ          Brno        80
+ 10 9      customer-9   CZ          Brno        90
+ 11 10     customer-10  CZ          Brno        100
+ 12 11     customer-11  CZ          Brno        110
+ 13 12     customer-12  CZ          Brno        120
+ 14 13     customer-13  CZ          Brno        130
  row 1 of 40 · id INTEGER
- bqt exec acme-exec  on-demand  2 p… 5 datasets · 13 tables
- ctrl+r run · ctrl+d dry-run · tab complete · ctrl+x b buff…
+ bqt exec acme-exec  layout: classi… 5 datasets · 13 tables
+ hjkl move · enter record · / find · y copy · e export · ? …

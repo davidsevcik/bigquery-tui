@@ -1,36 +1,36 @@
- Datasets 1/4                     │ Tables 1/2                       │ Schema · acme-prod.events.clicks
-events                          5 │T clicks                          │ acme-prod.events.clicks
-finance                         2 │T events_YYYYMMDD              ×4 │ table · EU · 0 rows · 0 B
-sales                           4 │                                  │ ✓ synced 3h ago
-us_archive                      1 │                                  │
+ Tables 1/2                               │ SQL · query 1   1:1
+T clicks                                  │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+T events_YYYYMMDD                      ×4 │~
+                                          │~
+                                          │~
                          ╭─ Commands ─────────────────────────────────────────────────────────╮
                          │ > sync                                                             │
                          │ Show sync problems                                             g p │
                          │ Show sync progress                                             g s │
                          ╰────────────────────────────────────────────────────────────────────╯
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │ Preview · acme-prod.events.clicks
-                                  │                                  │ p loads the first 20 rows
-                                  │                                  │ (read directly: free, no query job)
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
-                                  │                                  │
- bqt exec acme-exec  miller  2 projects                                                          5 datasets · 13 tables
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+ Schema  Preview  tab · acme-prod.events.…│ Results
+ p loads the first 20 rows                │ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
+ (read directly: free, no query job)      │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+ bqt exec acme-exec  layout: classic  columns  2 projects                                        5 datasets · 13 tables
  esc close

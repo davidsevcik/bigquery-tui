@@ -209,7 +209,13 @@ Both SQLite files use `modernc.org/sqlite`, WAL, `busy_timeout`, `synchronous=NO
 
 ### 8.1 Explorer styles and Layouts (TUI-only)
 
-> **Planned (ADR 0002, 2026-10-28).** The Layout paragraphs below, the Schema pane and Sample (8.4), the Sample in the Results (10.4), the `s` shortcut (9.1) and the keys in section 15 describe the target design, built in four phases (#17: #18 to #21). Until each phase lands, the TUI behaves as the previous text of these sections in git history: two screens, a detail pane with schema and preview, and "layout" for the Explorer style. The research is in `docs/research/flexible-layout.md`.
+> **Planned (ADR 0002, 2026-10-28).** The Layout paragraphs below, the Schema pane and Sample (8.4), the Sample in the Results (10.4), the `s` shortcut (9.1) and the keys in section 15 describe the target design, built in four phases (#17: #18 to #21).
+>
+> - **Built (phase 1, #18):** the four Panes on one screen, the `classic` and `focus` Layouts (the palette's "Layout: classic" and "Layout: focus", remembered in `state/tui.json`), the small-terminal step-down, geometric focus (`ctrl+w h/j/k/l`; `ctrl+o`, `ctrl+w w` and `ctrl+w W` cycle the four Panes), the Schema pane as a Pane of its own, the Explorer styles, and views listing their fields before the view SQL. A Run started while one Pane at a time is shown switches to the Results.
+> - **Still planned:** the Sample in the Results, the `s` shortcut and the partition-filter sync (phase 2); the `query`, `browse` and `tall` presets, the `ctrl+w` window commands (`space`, `H J K L`, `x`, `r`, `< > + - =`, `z`, `c`), hidden Panes, "Show <pane>", "Next layout", "Reset layout", a custom Layout and restoring the Layout on a Run (phase 3); the mouse (phase 4).
+> - **Temporary deviations** until those phases land: the Schema pane keeps today's preview (`tab` switches between schema and preview, `p` loads rows, `J` shows a row as a record) until phase 2 replaces it with the Sample; and `z` in the Explorer or the Schema pane maximises the Schema pane (`z` or `esc` restores) until phase 3 brings `ctrl+w z` for every Pane.
+>
+> The research is in `docs/research/flexible-layout.md`.
 
 Three Explorer styles: `columns` (Miller columns, project | dataset | table; the default), `tree`, and `list` (a flat list with a scoped filter). `L` cycles them ("Cycle explorer style" in the palette) and the selection carries across. The last style is remembered in `state/tui.json` under its own key; the old `"layout"` key with the values `miller`, `tree` and `flat` is still read. All lists are virtualized.
 
@@ -286,7 +292,7 @@ Vim keys (`hjkl`, `gg`/`G`, `ctrl+d`/`ctrl+u`), `/` to filter (8.1), the command
   - `/` finds text in the buffer (lower case ignores case), `n` / `N` repeat, `*` finds the word under the cursor. There is no `?` backward search (`?` is help) and no regular expressions.
   - Visual mode: motions and text objects extend the selection; `d x c s y > < ~ u U J p`, `o` swaps the ends.
   - **Key conflicts, resolved in vim's favour in Normal and Visual mode:** `ctrl+r` is redo and `ctrl+d` scrolls, so a query can never start from a redo reflex. Running is `enter` (the buffer, or the Visual selection) or `space r`; the dry-run is `space d`. The `space` leader also has `l` run list, `b` buffers, `n` new, `w` close, `[` `]` switch, `s` save, `e` `$EDITOR`. In Insert mode `ctrl+r` runs and `ctrl+d` dry-runs, as in plain editing; `ctrl+n` forces completion. `:` opens the command palette; there is no ex command line.
-  - Kept from bqt in every mode: the `ctrl+x` chords, `ctrl+w h/j/k/l` zone moves (so `ctrl+w` does not delete a word in Insert mode), `ctrl+s`, `ctrl+c`, `ctrl+p`, `ctrl+t`, `ctrl+q`, `ctrl+o`, `ctrl+g`.
+  - Kept from bqt in every mode: the `ctrl+x` chords, `ctrl+w h/j/k/l` Pane moves (so `ctrl+w` does not delete a word in Insert mode), `ctrl+s`, `ctrl+c`, `ctrl+p`, `ctrl+t`, `ctrl+q`, `ctrl+o`, `ctrl+g`.
   - Not built: macros, marks, named registers, `:` commands, block-visual mode, `ip`/`ap`, `gU`/`gu`/`g~` operators, regex search, counts on insert commands (`3ix`).
 - **Several buffers per TUI session.** `ctrl+x n` opens a new buffer, `ctrl+x b` opens the buffer list (open buffers, then the drafts that can be restored), `ctrl+x w` closes one, `ctrl+x [` and `ctrl+x ]` move between them. This is TUI-only; the core is unchanged because a Run snapshots its SQL.
 - A Run belongs to the buffer that started it, and the buffer shows a status badge for its latest Run (running, done, failed). Switching buffers while Runs are in flight is fine; the run list stays global. Closing a buffer asks only if it has changes not saved to a file or a Favorite (autosaved drafts do not count).
@@ -443,7 +449,7 @@ Palette commands (plus keys for the common ones): copy schema (a compact markdow
 
 Panes: Explorer, Schema, Editor, Results, plus overlays. Focus: `ctrl+o` (or vim's `ctrl+w w`) cycles to the next Pane and `ctrl+w W` to the previous one, skipping hidden Panes; `ctrl+w` then `h`/`j`/`k`/`l` moves to the neighbouring Pane in that direction (section 8.1). (F6 was dropped on the user's request, 2026-10-15: function keys are awkward on a laptop keyboard. `ctrl+o` is free in every Pane and in vim's Insert mode, since vim's `ctrl+o` is not built.) The `ctrl+w` window commands work in every Pane and every vim mode.
 
-Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks a panel under the screen that teaches the navigation in 17 steps: Explorer movement, in and out, search, jump, Explorer styles, Layouts and the Schema pane, the palette, help, zones, writing (vim or plain), running, Results, record view, Favorites and History. The UI works as usual meanwhile; each step watches the model (a selection change, an overlay opened and closed, a zone reached, a Run started) and opens the next step when its task is done. While it runs, `ctrl+g` is a prefix for the tutorial's own keys in every zone and popup: `n` next (skip), `p` back, `r` restart, `q` quit. The panel's rows are taken from the app's height. The first start without a UI state file shows a one-time hint about `ctrl+g`.
+Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks a panel under the screen that teaches the navigation in 17 steps: Explorer movement, in and out, search, jump, Explorer styles, the Schema pane, the palette, help, the Panes, writing (vim or plain), running, Results (`ctrl+w` by direction), record view, Favorites and History. The UI works as usual meanwhile; each step watches the model (a selection change, an overlay opened and closed, a Pane reached, a Run started) and opens the next step when its task is done. While it runs, `ctrl+g` is a prefix for the tutorial's own keys in every zone and popup: `n` next (skip), `p` back, `r` restart, `q` quit. The panel's rows are taken from the app's height. The first start without a UI state file shows a one-time hint about `ctrl+g`.
 
 | Zone | Key | Action |
 |---|---|---|
@@ -452,7 +458,7 @@ Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks
 | Global | `ctrl+t` | Jump to table |
 | Global | `ctrl+c` | Cancel focused Run; with nothing running, shows a "ctrl+q to quit" hint |
 | Global | `F1`, `?` (outside editor) | Help overlay |
-| Global | `ctrl+o`, `ctrl+w w`, `ctrl+w W` | Next zone, next zone, previous zone |
+| Global | `ctrl+o`, `ctrl+w w`, `ctrl+w W` | Next Pane, next Pane, previous Pane |
 | Global | `ctrl+g` | Tutorial of the navigation (see below) |
 | Global | `ctrl+w h` `j` `k` `l` | Focus the Pane in that direction |
 | Global | `ctrl+w space` | Next Layout preset |
@@ -507,6 +513,8 @@ Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks
 - **Live suite:** `//go:build live`, run manually against a scratch project, selected by an env var. It covers the checks in section 17 and re-runs the verified ones.
 - **Contract suites:** each port's behaviour tests are written once and run against the fake in every build and against the real implementation under `live`, so a fake that drifts fails the live run.
 - **TUI:** golden-file snapshots of `View()` at 120x36, 80x24 and 60x20, ANSI-stripped, with a deterministic fake engine and clock and an `-update` flag; key-sequence tests without a PTY; one PTY smoke test. Colours and OSC 52 are checked by hand.
+  - The Layout's pure functions have table tests without a terminal. `arrange`: the `classic` rectangles at 120x34, the step-down at 100 against 99 and 70 against 69 columns and on short bodies, `focus` with each Pane focused, a maximised Schema pane, and a body shortened by the tutorial panel; every case checks that the Panes, separators and pane bar tile the body without overlap, that each drawn Pane meets its minimum, that `stepped` is set exactly when a step-down applies, and the cycle order. `neighbour`: each direction in `classic`, the most recently focused Pane when several qualify, then the larger overlap, and `focus` resolving on the `classic` rectangles.
+  - Layout golden scenarios: `classic_view` and `classic_run` (all four Panes with content) and `schema_focused` and `schema_max` at 120x36, `stepdown` and `stepdown_schema` at 80x24, `focus` and `focus_editor` at 60x20, and `focus_chosen` at 120x36.
 - **Store and performance:** real SQLite in temp directories; a generator for 50k tables and 1.25M columns; manual benchmarks of search (budget p95 ≤ 30 ms), completion lookups and sync commit time; one CI smoke guard at about 5x the budget.
 - **Pure logic:** table tests for the filter parser and ranker, completion with cursor markers, the Favorite header and parameter schema, the safety policy over every statement type and accuracy flag, cell formatting and record trees; fuzz tests for the tokenizer (never panics, spans cover the text) and filter parser; MCP over the SDK's in-memory transport; CLI golden JSON; the import test; the keymap duplicate test.
 - **CI:** GitHub Actions on push: `go vet`, `staticcheck`, `go test -race ./...` on Go 1.26. No coverage gate, no live tests.

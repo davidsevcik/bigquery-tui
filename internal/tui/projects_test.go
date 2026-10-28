@@ -87,6 +87,7 @@ func TestProjectsDialogSelectsWhatIsSyncedAndBrowsed(t *testing.T) {
 	if len(calls) != 3 || calls[2].Project != "acme-new" {
 		t.Fatalf("calls %+v", calls)
 	}
+	r.press("h") // the projects column
 	r.contains("2 projects", "acme-new")
 	r.lacks("acme-staging")
 	if got := strings.Join(r.eng.Selection().IDs(), ","); got != "acme-new,acme-prod" {
@@ -196,7 +197,7 @@ func TestHelpWrapsDescriptions(t *testing.T) {
 		}
 		// a long description is wrapped, not cut
 		words := strings.Join(strings.Fields(ansi.Strip(strings.Join(lines, "\n"))), " ")
-		if !strings.Contains(words, "zoomed preview: show the row as a record") {
+		if !strings.Contains(words, "result sample or summary, to the clipboard or a file") {
 			t.Fatalf("width %d: description cut:\n%s", w, strings.Join(lines, "\n"))
 		}
 	}

@@ -1,36 +1,36 @@
- Explorer  5/10                                                      │ Schema · acme-prod.sales.customers
-▾ acme-prod                                                     ✓ 3h │ acme-prod.sales.customers
-  ▸ events                                                         5 │ table · EU · 0 rows · 0 B
-  ▸ finance                                                        2 │ ✓ synced 3h ago
-  ▾ sales                                                          4 │
-      T customers                                                    │ ── schema · 2 fields ──
-      T order_items                                                  │ id       STRING
-      T orders                                                       │ email    STRING
-      V v_orders                                                     │
-  ▸ us_archive                                                     1 │
-▸ acme-staging                                                  ✓ 3h │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │ Preview · acme-prod.sales.customers
-                                                                     │ the table is empty
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
-                                                                     │
- bqt exec acme-exec  tree  2 projects                                                            5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · ctrl+o zone · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial
+ Explorer  5/10                           │ SQL · query 1   1:1
+▾ acme-prod                          ✓ 3h │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+  ▸ events                              5 │~
+  ▸ finance                             2 │~
+  ▾ sales                               4 │~
+      T customers                         │~
+      T order_items                       │~
+      T orders                            │~
+      V v_orders                          │~
+  ▸ us_archive                          1 │~
+▸ acme-staging                       ✓ 3h │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+ Schema  Preview  tab · acme-prod.sales.c…│ Results
+ the table is empty                       │ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+ bqt exec acme-exec  layout: classic  tree  2 projects                                           5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · ? help · ctrl+o pane · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial

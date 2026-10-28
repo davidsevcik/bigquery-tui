@@ -1,36 +1,36 @@
- SQL · query 1  done   4:28
- 1  -- orders by customer
- 2  SELECT o.customer_id, SUM(o.amount) AS total
- 3  FROM `acme-prod.sales.orders` AS o
- 4  WHERE o.created_at > @since
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
- Results · #1 done · 40 rows · 1000 B billed
-    id INT customer STR country STR city    STR amount STR note                                 STR tags STR[]
-  1 0      customer-0   CZ          Brno        0          NULL                                     [2] a, b
-  2 1      customer-1   CZ          Brno        10         long note long note long note long note… [2] a, b
-  3 2      customer-2   CZ          Brno        20         long note long note long note long note… [2] a, b
-  4 3      customer-3   CZ          Brno        30         long note long note long note long note… [2] a, b
-  5 4      customer-4   CZ          Brno        40         long note long note long note long note… [2] a, b
-  6 5      customer-5   CZ          Brno        50         NULL                                     [2] a, b
-  7 6      customer-6   CZ          Brno        60         long note long note long note long note… [2] a, b
-  8 7      customer-7   CZ          Brno        70         long note long note long note long note… [2] a, b
-  9 8      customer-8   CZ          Brno        80         long note long note long note long note… [2] a, b
- 10 9      customer-9   CZ          Brno        90         long note long note long note long note… [2] a, b
- 11 10     customer-10  CZ          Brno        100        NULL                                     [2] a, b
- row 1 of 40 · id INTEGER
- bqt exec acme-exec  on-demand  2 projects                                                       5 datasets · 13 tables
- ctrl+r run · ctrl+d dry-run · tab complete · ctrl+x b buffers · ctrl+x l runs · ctrl+o zone · ctrl+p cmds · ctrl+t jum…
+ Projects 1/2                             │ SQL · query 1  done   4:28
+acme-prod                            ✓ 3h │ 1  -- orders by customer
+acme-staging                         ✓ 3h │ 2  SELECT o.customer_id, SUM(o.amount) AS total
+                                          │ 3  FROM `acme-prod.sales.orders` AS o
+                                          │ 4  WHERE o.created_at > @since
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+ Schema · acme-prod                       │ Results · #1 done · 40 rows · 1000 B billed
+ acme-prod  project                       │    id INT customer STR country STR city    STR amount STR
+ 4 datasets                               │  1 0      customer-0   CZ          Brno        0
+ ✓ synced 3h ago                          │  2 1      customer-1   CZ          Brno        10
+                                          │  3 2      customer-2   CZ          Brno        20
+ Queries and sync jobs run in the         │  4 3      customer-3   CZ          Brno        30
+ Execution project acme-exec, not here.   │  5 4      customer-4   CZ          Brno        40
+                                          │  6 5      customer-5   CZ          Brno        50
+                                          │  7 6      customer-6   CZ          Brno        60
+                                          │  8 7      customer-7   CZ          Brno        70
+                                          │  9 8      customer-8   CZ          Brno        80
+                                          │ 10 9      customer-9   CZ          Brno        90
+                                          │ 11 10     customer-10  CZ          Brno        100
+                                          │ 12 11     customer-11  CZ          Brno        110
+                                          │ 13 12     customer-12  CZ          Brno        120
+                                          │ 14 13     customer-13  CZ          Brno        130
+                                          │ row 1 of 40 · id INTEGER
+ bqt exec acme-exec  layout: classic  on-demand  2 projects                                      5 datasets · 13 tables
+ ctrl+r run · ctrl+d dry-run · tab complete · ctrl+x b buffers · ctrl+x l runs · ctrl+o pane · ctrl+p cmds · ctrl+t jum…

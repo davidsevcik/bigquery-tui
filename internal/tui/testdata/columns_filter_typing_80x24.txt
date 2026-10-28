@@ -1,0 +1,24 @@
+ filter tables ▸… 3 matches │ SQL · query 1   1:1
+ “ord”                      │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · ta…
+ Tables 2/3 of 4 ▸ ord      │~
+T order_items               │~
+T orders                    │~
+V v_orders                  │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │ Results
+                            │ no run yet: ctrl+r runs the buffer (or the select…
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+ bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
+ type to filter · enter/esc back to the list · esc there clears the filter

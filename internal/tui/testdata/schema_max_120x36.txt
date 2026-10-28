@@ -1,0 +1,36 @@
+ Schema · acme-prod.sales.orders                            │ Preview · acme-prod.sales.orders
+ acme-prod.sales.orders                                     │ p loads the first 20 rows
+ table · EU · 45 rows · 5.0 MiB                             │ (read directly: free, no query job)
+ partition created_at                                       │
+ labels team:sales                                          │
+ ✓ synced 3h ago                                            │
+ All customer orders, one row per order                     │
+                                                            │
+ ── schema · 8 fields ──                                    │
+ id          INT64          required Order id               │
+ customer_id STRING                                         │
+ amount      STRING                                         │
+ address     STRUCT<…>                                      │
+   city      STRING                                         │
+   geo       STRING                                         │
+     lat     STRING                                         │
+ created_at  TIMESTAMP                                      │
+                                                            │
+                                                            │
+                                                            │
+                                                            │
+                                                            │
+                                                            │
+                                                            │
+                                                            │
+                                                            │
+                                                            │
+                                                            │
+                                                            │
+                                                            │
+                                                            │
+                                                            │
+                                                            │
+                                                            │
+ bqt exec acme-exec  layout: classic  on-demand  2 projects                                      5 datasets · 13 tables
+ ↑↓/jk scroll · tab schema/preview · p rows · J record · z maximise · esc back

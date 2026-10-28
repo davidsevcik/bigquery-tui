@@ -1,24 +1,24 @@
- Projects 1/2     │ Datasets (4)                 │ Tables (2)
-acme-prod    ✓ 3h │events                      5 │T clicks
-acme-staging ✓ 3h │finance                     2 │T events_YYYYMMDD          ×4
-                  │sales                       4 │
-                  │us_archive                  1 │
-                  │                              │
+ Projects 1/2               │ SQL · query 1   1:1
+acme-prod              ✓ 3h │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · ta…
+acme-staging           ✓ 3h │~
+                            │~
+                            │~
+                            │~
     ╭─ Projects ───────────────────────────────────────────────────────────╮
     │ Execution project: acme-exec (chosen)                                │
     │ space select · o only this · e execution · s sync · S sync all · /   │
     │ filter · r reload list · esc close                                   │
     │ 2 selected                                                           │
     │ / bill                                                               │
-    │                                                                      │
+    │                                                                      │ect…
     │ [ ] acme-billing  Billing and invoicing                              │
     ╰──────────────────────────────────────────────────────────────────────╯
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
-                  │                              │
- bqt exec acme-exec  miller  2 projects                  5 datasets · 13 tables
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+ bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
  esc close

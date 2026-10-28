@@ -1,6 +1,6 @@
- Projects 1/2     │ Datasets 1/4                 │ Tables 1/2
-acme╭─ Jump to table ──────────────────────────────────────────────────────╮
-acme│ ⌕ ev                                                     1/2 · 0.0ms │ ×4
+ Tables 1/2                 │ SQL · query 1   1:1
+T cl╭─ Jump to table ──────────────────────────────────────────────────────╮ ta…
+T ev│ ⌕ ev                                                     1/2 · 0.0ms │
     │ “ev”                                                                 │
     │▌T events_YYYYMMDD ×4  acme-prod.events                     prefix 3h │
     │ T clicks  acme-prod.events                         dataset·prefix 3h │
@@ -10,15 +10,15 @@ acme│ ⌕ ev                                                     1/2 · 0.0ms 
     │                                                                      │
     │                                                                      │
     │                                                                      │
-    │                                                                      │
+    │                                                                      │ect…
     │                                                                      │
     │                                                                      │
     │                                                                      │
     │                                                                      │
     │                                                                      │
     ╰──────────────────────────────────────────────────────────────────────╯
-                  │                              │
-                  │                              │
-                  │                              │
- bqt exec acme-exec  miller  2 projects                  5 datasets · 13 tables
+                            │
+                            │
+                            │
+ bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
  type to search · ↑↓ select · enter open · esc close

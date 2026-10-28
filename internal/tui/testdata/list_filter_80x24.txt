@@ -1,0 +1,24 @@
+ filter ▸ ord … 1/1 · 0.0ms │ SQL · query 1   1:1
+ [col:amount] “ord”         │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · ta…
+▌T orders  acme-… prefix 3h │~
+    All customer orders, on…│~
+    ↳ amount  STRING        │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │ Results
+                            │ no run yet: ctrl+r runs the buffer (or the select…
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+ bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
+ type to filter · enter/esc back to the list

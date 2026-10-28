@@ -1,36 +1,36 @@
- Projects 1/2            │ Datasets (4)                              │ Schema · acme-prod
-acme-prod           ✓ 3h │events                                   5 │ acme-prod  project
-acme-staging        ✓ 3h │finance                                  2 │ 4 datasets
-                         │sales                                    4 │ ✓ synced 3h ago
-                         │us_archive                               1 │
-                         │                                           │ Queries and sync jobs run in the Execution
-                         │                                           │ project acme-exec, not here.
-                         │                                           │
-                         │                                           │
-                         │                                           │
-                         │                                           │
-                         │                                           │
+ Projects 1/2                             │ SQL · query 1   1:1
+acme-prod                            ✓ 3h │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+acme-staging                         ✓ 3h │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
                   ╭─ Projects ───────────────────────────────────────────────────────────────────────╮
                   │ Execution project: acme-exec (chosen)                                            │
                   │ space select · o only this · e execution · s sync · S sync all · / filter · r    │
                   │ reload list · esc close                                                          │
                   │ 2 selected · could not list your projects: access denied: projects.list          │
-                  │                                                                                  │
-                  │ [x] acme-prod                                                4 datasets · 3h ago │
-                  │ [x] acme-staging                                              1 dataset · 3h ago │
-                  ╰──────────────────────────────────────────────────────────────────────────────────╯
-                         │                                           │
-                         │                                           │
-                         │                                           │
-                         │                                           │
-                         │                                           │
-                         │                                           │
-                         │                                           │
-                         │                                           │
-                         │                                           │
-                         │                                           │
-                         │                                           │
-                         │                                           │
-                         │                                           │
- bqt exec acme-exec  miller  2 projects                                                          5 datasets · 13 tables
+ Schema · acme-pro│                                                                                  │
+ acme-prod  projec│ [x] acme-prod                                                4 datasets · 3h ago │l+d only estimate…
+ 4 datasets       │ [x] acme-staging                                              1 dataset · 3h ago │
+ ✓ synced 3h ago  ╰──────────────────────────────────────────────────────────────────────────────────╯
+                                          │
+ Queries and sync jobs run in the         │
+ Execution project acme-exec, not here.   │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+ bqt exec acme-exec  layout: classic  columns  2 projects                                        5 datasets · 13 tables
  esc close

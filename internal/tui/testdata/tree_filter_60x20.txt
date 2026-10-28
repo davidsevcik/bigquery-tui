@@ -1,3 +1,4 @@
+ [Explorer]  Schema  Editor  Results   ctrl+o next
  Explorer  4/10 ▸ ord · 5 matches
 ▾ acme-prod                                            ✓ 3h
   ▾ sales                                                 4
@@ -15,6 +16,5 @@
 
 
 
-
- bqt exec acme-exec  tree  2 projec… 5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · …
+ bqt exec acme-exec  layout: classi… 5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · ? help · ctrl+o pane…

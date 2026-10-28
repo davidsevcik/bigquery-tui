@@ -1,24 +1,24 @@
- SQL · query 1  done   4:28
- 1  -- orders by customer
- 2  SELECT o.customer_id, SUM(o.amount) AS total
- 3  FROM `acme-prod.sales.orders` AS o
- 4  WHERE o.created_at > @since
-~
-~
-~
- Results · #1 done · 40 rows · 1000 B billed
+ Projects 1/2               │ SQL · query 1  done   4:28
+acme-prod              ✓ 3h │ 1  -- orders by customer
+acme-staging           ✓ 3h │ 2  SELECT o.customer_id, SUM(o.amount) AS total
+                            │ 3  FROM `acme-prod.sales.orders` AS o
+                            │ 4  WHERE o.created_at > @since
+                            │~
+                            │~
+                            │~
+                            │~
   ╭─ Runs ───────────────────────────────────────────────────────────────────╮
   │ #1   done             1000 B     40 rows       -- orders by cus… query 1 │
   ╰──────────────────────────────────────────────────────────────────────────╯
-  3 2      customer-2   CZ          Brno        20
-  4 3      customer-3   CZ          Brno        30
-  5 4      customer-4   CZ          Brno        40
-  6 5      customer-5   CZ          Brno        50
-  7 6      customer-6   CZ          Brno        60
-  8 7      customer-7   CZ          Brno        70
-  9 8      customer-8   CZ          Brno        80
- 10 9      customer-9   CZ          Brno        90
- 11 10     customer-10  CZ          Brno        100
- row 3 of 40 · customer STRING
- bqt exec acme-exec  on-demand  2 projects               5 datasets · 13 tables
+                            │    id INT customer STR country STR city    STR
+                            │  1 0      customer-0   CZ          Brno
+                            │  2 1      customer-1   CZ          Brno
+                            │  3 2      customer-2   CZ          Brno
+                            │  4 3      customer-3   CZ          Brno
+                            │  5 4      customer-4   CZ          Brno
+                            │  6 5      customer-5   CZ          Brno
+                            │  7 6      customer-6   CZ          Brno
+                            │  8 7      customer-7   CZ          Brno
+                            │ row 3 of 40 · customer STRING
+ bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
  ↑↓ select · enter show the result · c cancel the run · esc close

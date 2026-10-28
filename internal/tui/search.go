@@ -8,7 +8,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// searchState backs the search overlay, the jump popup and the flat layout.
+// searchState backs the search overlay, the jump popup and the list style.
 type searchState struct {
 	in      input
 	parsed  api.ParsedQuery
@@ -22,11 +22,11 @@ type searchState struct {
 	typing   bool
 
 	tablesOnly bool
-	all        bool // list everything for an empty query (flat layout)
+	all        bool // list everything for an empty query (list style)
 	scope      *api.ObjectPath
 	expand     bool // next result set replaces a shard family: keep the cursor at the top
 	// expandShards lists shard members individually. It is set when a family
-	// is opened in the flat layout and cleared as soon as the filter is edited.
+	// is opened in the list style and cleared as soon as the filter is edited.
 	expandShards bool
 	wantEnd      bool
 	pending      *api.ObjectPath // select this path once results arrive

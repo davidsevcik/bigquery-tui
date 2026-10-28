@@ -1,36 +1,36 @@
- SQL · query 1   4:11
- 1  -- orders by customer
- 2  SELECT o.customer_id, SUM(o.amount) AS total
- 3  FROM `acme-prod.sales.orders` AS o
- 4  WHERE o.cr
-~            c created_at TIMESTAMP
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
-~
- Results
- no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimates it
-
-
- bqt exec acme-exec  2 projects                                                                  5 datasets · 13 tables
+ Projects 1/2                             │ SQL · query 1   4:11
+acme-prod                            ✓ 3h │ 1  -- orders by customer
+acme-staging                         ✓ 3h │ 2  SELECT o.customer_id, SUM(o.amount) AS total
+                                          │ 3  FROM `acme-prod.sales.orders` AS o
+                                          │ 4  WHERE o.cr
+                                          │~            c created_at TIMESTAMP
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+ Schema · acme-prod                       │ Results
+ acme-prod  project                       │ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
+ 4 datasets                               │
+ ✓ synced 3h ago                          │
+                                          │
+ Queries and sync jobs run in the         │
+ Execution project acme-exec, not here.   │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+ bqt exec acme-exec  layout: classic  2 projects                                                 5 datasets · 13 tables
  tab accept · ↑↓ select · esc dismiss · enter is a new line

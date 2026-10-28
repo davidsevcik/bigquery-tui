@@ -1,0 +1,24 @@
+ Projects 1/2               │ SQL · query 1   1:1
+acme-prod              ✓ 3h │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · ta…
+acme-staging           ✓ 3h │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │ Results
+                            │ no run yet: ctrl+r runs the buffer (or the select…
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+ bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · ? help · ctrl+o pane · ctrl+p cmds · ctr…

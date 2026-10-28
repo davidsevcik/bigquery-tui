@@ -1,0 +1,20 @@
+ Explorer  Schema  [Editor]  Results   ctrl+o next
+ SQL · query 1   1:1
+ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab complet…
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+ bqt exec acme-exec  layout: classi… 5 datasets · 13 tables
+ ctrl+r run · ctrl+d dry-run · tab complete · ctrl+x b buff…

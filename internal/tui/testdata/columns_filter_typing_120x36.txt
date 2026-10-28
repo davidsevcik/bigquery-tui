@@ -1,0 +1,36 @@
+ filter tables ▸ ord            3 matches │ SQL · query 1   1:1
+ “ord”                                    │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+ Tables 2/3 of 4 ▸ ord                    │~
+T order_items                             │~
+T orders                                  │~
+V v_orders                                │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+ Schema  Preview  tab · acme-prod.sales.o…│ Results
+ p loads the first 20 rows                │ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
+ (read directly: free, no query job)      │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+ bqt exec acme-exec  layout: classic  columns  2 projects                                        5 datasets · 13 tables
+ type to filter · enter/esc back to the list · esc there clears the filter

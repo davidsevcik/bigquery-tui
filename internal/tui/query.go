@@ -1,8 +1,8 @@
 package tui
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -91,26 +91,6 @@ var inferParamFn = sqlx.InferParam
 
 // exportAskRows is the row count above which an export asks first.
 const exportAskRows = 1_000_000
-
-// --- zones
-
-func (m *Model) setZone(z Zone) {
-	m.zone = z
-	m.zoom = false
-	m.comp.open = false
-	m.pendingKey = ""
-}
-
-func (m *Model) zoneStep(d int) {
-	order := []Zone{ZoneExplorer, ZoneEditor, ZoneResults}
-	for i, z := range order {
-		if z == m.zone {
-			m.setZone(order[(i+d+len(order))%len(order)])
-			return
-		}
-	}
-	m.setZone(ZoneExplorer)
-}
 
 // --- editor zone
 
@@ -383,6 +363,11 @@ func (m *Model) startRun(b *buffer, sql string, params []api.QueryParam, dry boo
 		b.viewID = id
 	}
 	b.ed.errLine, b.ed.errCol = 0, 0
+	if !dry && m.arr().bar != nil {
+		// one Pane at a time: show the Run as it fills in (a dry-run has no
+		// result to show; its estimate is in the status line)
+		m.setZone(ZoneResults)
+	}
 	return m.followRun(id)
 }
 
@@ -428,7 +413,8 @@ func (m *Model) onRun(msg runMsg) tea.Cmd {
 	if !news {
 		return tea.Batch(cmds...)
 	}
-	here := b != nil && bi == m.cur && m.zone != ZoneExplorer
+	_, shown := m.arr().rects[ZoneResults]
+	here := b != nil && bi == m.cur && shown // the Results pane shows the outcome
 	switch info.State {
 	case api.RunNeedsOK:
 		m.askConfirm(confirmState{kind: "run", runID: info.ID, lines: confirmLines(info)})

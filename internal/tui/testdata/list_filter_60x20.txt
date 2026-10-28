@@ -1,3 +1,4 @@
+ [Explorer]  Schema  Editor  Results   ctrl+o next
  filter ▸ ord col:amount                        1/1 · 0.0ms
  [col:amount] “ord”
 ▌T orders  acme-prod.sales                        prefix 3h
@@ -15,6 +16,5 @@
 
 
 
-
- bqt exec acme-exec  flat  2 projec… 5 datasets · 13 tables
+ bqt exec acme-exec  layout: classi… 5 datasets · 13 tables
  type to filter · enter/esc back to the list

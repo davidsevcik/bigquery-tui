@@ -1,24 +1,24 @@
- Explorer  5/10
-▾ acme-prod                                                                ✓ 3h
-  ▸ events                                                                    5
-  ▸ finance                                                                   2
-  ▾ sales                                                                     4
-      T customers
-      T order_items
-      T orders
-      V v_orders
-  ▸ us_archive                                                                1
-▸ acme-staging                                                             ✓ 3h
-
-
-
-
-
-
-
-
-
-
-
- bqt exec acme-exec  tree  2 projects                    5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · ctrl+o zone · ctrl+p…
+ Explorer  5/10             │ SQL · query 1   1:1
+▾ acme-prod            ✓ 3h │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · ta…
+  ▸ events                5 │~
+  ▸ finance               2 │~
+  ▾ sales                 4 │~
+      T customers           │~
+      T order_items         │~
+      T orders              │~
+      V v_orders            │~
+  ▸ us_archive            1 │~
+▸ acme-staging         ✓ 3h │~
+                            │ Results
+                            │ no run yet: ctrl+r runs the buffer (or the select…
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+ bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · ? help · ctrl+o pane · ctrl+p cmds · ctr…

@@ -19,9 +19,9 @@ import (
 func editorRig(t *testing.T, w, h int) *rig {
 	t.Helper()
 	r := newRig(t, w, h)
-	r.press("ctrl+o")
+	r.press("ctrl+w", "l")
 	if r.m.zone != ZoneEditor {
-		t.Fatalf("ctrl+o goes to the editor, got %s", r.m.zone)
+		t.Fatalf("ctrl+w l goes to the editor, got %s", r.m.zone)
 	}
 	return r
 }
@@ -41,38 +41,74 @@ func historyCount(t *testing.T, r *rig) int {
 	return n
 }
 
-func TestZonesCycleAndChords(t *testing.T) {
+func TestPanesCycleAndDirections(t *testing.T) {
 	r := newRig(t, 120, 30)
-	for _, want := range []Zone{ZoneEditor, ZoneResults, ZoneExplorer} {
+	for _, want := range []Zone{ZoneSchema, ZoneEditor, ZoneResults, ZoneExplorer} {
 		r.press("ctrl+o")
 		if r.m.zone != want {
-			t.Fatalf("zone %s, want %s", r.m.zone, want)
+			t.Fatalf("ctrl+o: pane %s, want %s", r.m.zone, want)
 		}
 	}
 	r.press("ctrl+w", "W")
 	if r.m.zone != ZoneResults {
 		t.Fatalf("ctrl+w W goes back: %s", r.m.zone)
 	}
-	r.press("ctrl+w", "k")
-	if r.m.zone != ZoneEditor {
-		t.Fatalf("ctrl+w k: %s", r.m.zone)
-	}
-	r.press("ctrl+w", "j")
-	if r.m.zone != ZoneResults {
-		t.Fatalf("ctrl+w j: %s", r.m.zone)
-	}
-	r.press("ctrl+w", "h")
+	r.press("ctrl+w", "w")
 	if r.m.zone != ZoneExplorer {
-		t.Fatalf("ctrl+w h: %s", r.m.zone)
+		t.Fatalf("ctrl+w w goes on: %s", r.m.zone)
+	}
+	for _, step := range []struct {
+		key  string
+		want Zone
+	}{{"l", ZoneEditor}, {"j", ZoneResults}, {"h", ZoneSchema}, {"k", ZoneExplorer}, {"h", ZoneExplorer}, {"j", ZoneSchema}, {"l", ZoneResults}, {"k", ZoneEditor}, {"h", ZoneExplorer}} {
+		from := r.m.zone
+		r.press("ctrl+w", step.key)
+		if r.m.zone != step.want {
+			t.Fatalf("ctrl+w %s from %s: %s, want %s", step.key, from, r.m.zone, step.want)
+		}
 	}
 	r.press("ctrl+w", "l")
-	if r.m.zone != ZoneEditor {
-		t.Fatalf("ctrl+w l: %s", r.m.zone)
-	}
 	// printable keys type in the editor, including the explorer's commands
 	r.typeText("q L ? /")
 	if r.text() != "q L ? /" || r.m.zone != ZoneEditor {
 		t.Fatalf("%q", r.text())
+	}
+}
+
+func TestPanesCycleSkipsTheSteppedDownSchema(t *testing.T) {
+	r := newRig(t, 80, 24)
+	for _, want := range []Zone{ZoneEditor, ZoneResults, ZoneExplorer} {
+		r.press("ctrl+o")
+		if r.m.zone != want {
+			t.Fatalf("ctrl+o: pane %s, want %s", r.m.zone, want)
+		}
+	}
+	r.press("ctrl+w", "W")
+	if r.m.zone != ZoneResults {
+		t.Fatalf("ctrl+w W: %s", r.m.zone)
+	}
+	// both the Editor and the Results lie right of the Explorer: the one used last wins
+	r.press("ctrl+w", "h", "ctrl+w", "l")
+	if r.m.zone != ZoneResults {
+		t.Fatalf("ctrl+w l returns to the Results: %s", r.m.zone)
+	}
+	r.press("ctrl+w", "k", "ctrl+w", "h", "ctrl+w", "l")
+	if r.m.zone != ZoneEditor {
+		t.Fatalf("ctrl+w l returns to the Editor: %s", r.m.zone)
+	}
+}
+
+func TestPaneChordsWorkInVimInsertMode(t *testing.T) {
+	rigEditing = "vim"
+	defer func() { rigEditing = "plain" }()
+	r := newRig(t, 120, 30)
+	r.press("ctrl+w", "l", "i")
+	if r.m.buf().vim.mode != vimInsert {
+		t.Fatal("precondition: Insert mode")
+	}
+	r.press("ctrl+w", "h")
+	if r.m.zone != ZoneExplorer || r.text() != "" {
+		t.Fatalf("ctrl+w h leaves Insert mode's Editor: %s %q", r.m.zone, r.text())
 	}
 }
 
@@ -310,7 +346,7 @@ func TestBuffersAndRunList(t *testing.T) {
 	r.contains("#1 done", "11 rows")
 
 	// closing a buffer with text asks; an empty one does not
-	r.press("ctrl+o", "ctrl+o", "ctrl+x", "w")
+	r.press("ctrl+w", "k", "ctrl+x", "w") // the Editor, above the Results
 	if r.m.ov != ovConfirm {
 		t.Fatalf("zone %s ov %v", r.m.zone, r.m.ov)
 	}
@@ -355,7 +391,7 @@ func TestDraftsSurviveAndAreOfferedForRestore(t *testing.T) {
 	r3 := &rig{t: t, m: m3, fake: r.fake, eng: r.eng, now: r.now}
 	r3.send(teaSize(120, 30))
 	r3.contains("1 draft(s) from earlier sessions")
-	r3.press("ctrl+o", "ctrl+x", "b")
+	r3.press("ctrl+w", "l", "ctrl+x", "b")
 	r3.contains("Restore drafts", "select 'kept'")
 	r3.press("down", "enter")
 	if len(m3.bufs) != 1 || m3.buf().ed.text() != "select 'kept'" {
@@ -435,7 +471,7 @@ func wideScript() bqtest.QueryScript {
 }
 
 func TestGridColumnsFreezeHideAndFind(t *testing.T) {
-	r := editorRig(t, 70, 24)
+	r := editorRig(t, 108, 24) // a Results pane 70 cells wide
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return wideScript() }
 	r.typeText("select wide")
 	r.press("ctrl+r", "ctrl+o")
@@ -553,7 +589,7 @@ func TestQueryGoldenScreens(t *testing.T) {
 		r.typeText("2024-01-01")
 		r.press("enter")
 		r.golden(name("editor_with_result"))
-		r.press("ctrl+o", "j", "j", "l")
+		r.press("ctrl+w", "j", "j", "j", "l") // the Results, below the Editor (at 60x20 the Run showed them already)
 		r.golden(name("results"))
 		r.press("enter")
 		r.golden(name("result_record"))
@@ -562,11 +598,11 @@ func TestQueryGoldenScreens(t *testing.T) {
 	}
 }
 
-func TestFlatExplorerLayoutDoesNotStealEditorKeys(t *testing.T) {
+func TestListStyleDoesNotStealEditorKeys(t *testing.T) {
 	r := newRig(t, 120, 30)
-	r.press("L", "L") // flat list
-	r.press("/")      // its filter is now taking keys
-	r.press("ctrl+o")
+	r.press("L", "L")           // the list style
+	r.press("/")                // its filter is now taking keys
+	r.press("ctrl+o", "ctrl+o") // the Schema pane, then the Editor
 	r.typeText("select 1")
 	if r.text() != "select 1" || r.m.flat.in.value() != "" {
 		t.Fatalf("editor %q, explorer filter %q", r.text(), r.m.flat.in.value())

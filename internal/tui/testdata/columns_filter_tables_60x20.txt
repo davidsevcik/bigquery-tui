@@ -1,3 +1,4 @@
+ [Explorer]  Schema  Editor  Results   ctrl+o next
  Datasets 3/4                │ Tables 2/3 of 4 ▸ ord
 events                     5 │T order_items
 finance                    2 │T orders
@@ -15,6 +16,5 @@ us_archive                 1 │
                              │
                              │
                              │
-                             │
- bqt exec acme-exec  miller  2 proj… 5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · …
+ bqt exec acme-exec  layout: classi… 5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · ? help · ctrl+o pane…

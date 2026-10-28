@@ -1,3 +1,4 @@
+ [Explorer]  Schema  Editor  Results   ctrl+o next
  Projects 1/2         │ Datasets (4)
 acme-prod        ✓ 3h │events                             5
 acme-staging     ✓ 3h │finance                            2
@@ -15,6 +16,5 @@ acme-staging     ✓ 3h │finance                            2
                       │
                       │
                       │
-                      │
- bqt exec acme-exec  miller  2 proj… 5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L layout · P panes · ? help · …
+ bqt exec acme-exec  layout: classi… 5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · ? help · ctrl+o pane…

@@ -1,0 +1,36 @@
+ filter ▸ type a name, or p… 5/10 · 0.0ms │ SQL · query 1   1:1
+ p: d: type: col: label: desc:  -neg  a,b…│ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+ T clicks  acme-prod.events            3h │~
+ T events_YYYYMMDD ×4  acme-prod.eve…  3h │~
+ T invoices  acme-prod.finance         3h │~
+ T refunds  acme-prod.finance          3h │~
+▌T customers  acme-prod.sales          3h │~
+ T order_items  acme-prod.sales        3h │~
+ T orders  acme-prod.sales             3h │~
+ V v_orders  acme-prod.sales           3h │~
+ T orders_2019  acme-prod.us_archive   3h │~
+ T orders  acme-staging.sales          3h │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+ Schema  Preview  tab · acme-prod.sales.c…│ Results
+ the table is empty                       │ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+ bqt exec acme-exec  layout: classic  list  2 projects                                           5 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · ? help · ctrl+o pane · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial
