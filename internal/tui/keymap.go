@@ -72,6 +72,7 @@ var Keymap = []Binding{
 	{ZoneGlobal, []string{}, "showschema", "show the Schema pane if hidden, and focus it", "Show Schema", ""},
 	{ZoneGlobal, []string{}, "showeditor", "show the Editor if hidden, and focus it", "Show Editor", ""},
 	{ZoneGlobal, []string{}, "showresults", "show the Results if hidden, and focus it", "Show Results", ""},
+	{ZoneGlobal, []string{}, "mouse", "mouse on or off (off by default): a click focuses a Pane, the wheel scrolls the Pane under the pointer; Shift+drag (Option+drag in iTerm2) selects text", "Mouse: on/off", ""},
 	{ZoneGlobal, []string{"ctrl+p"}, "palette", "command palette", "", "ctrl+p cmds"},
 	{ZoneGlobal, []string{"ctrl+t"}, "jump", "jump to table (recently opened when empty)", "Jump to table", "ctrl+t jump"},
 	{ZoneGlobal, []string{"f1"}, "help", "this help", "Help", ""},

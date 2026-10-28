@@ -58,10 +58,13 @@ func (m *Model) health(n api.BrowseNode, long bool) (string, lipgloss.Style) {
 	return "✓ " + a, sOk
 }
 
+// tooSmall reports that the screen only says "bqt needs a larger terminal".
+func (m *Model) tooSmall() bool { return m.w < 20 || m.h < 6 }
+
 // render builds the whole screen as lines.
 func (m *Model) render() []string {
 	w, h := m.w, m.h
-	if w < 20 || h < 6 {
+	if m.tooSmall() {
 		return []string{"bqt needs a larger terminal"}
 	}
 	bodyH := h - 2
@@ -314,16 +317,15 @@ func (m *Model) explorerPane(w, h int) []string {
 // stands for, the drawn one in brackets.
 func paneBar(a arrangement, w int) string {
 	b := &rb{bg: lipgloss.Color("236")}
-	b.add(" ", sDim)
-	for i, z := range a.barPanes {
-		if i > 0 {
-			b.add("  ", sDim)
-		}
-		if _, ok := a.rects[z]; ok {
-			b.add("["+string(z)+"]", sTitleF)
+	at := a.bar.x
+	for _, l := range barLabels(a) {
+		b.add(strings.Repeat(" ", l.x-at), sDim)
+		if l.drawn {
+			b.add(l.text, sTitleF)
 		} else {
-			b.add(string(z), sDim)
+			b.add(l.text, sDim)
 		}
+		at = l.x + l.w
 	}
 	b.add("   "+a.barHint, sFaint)
 	return b.line(w)
