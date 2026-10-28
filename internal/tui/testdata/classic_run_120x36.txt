@@ -15,22 +15,22 @@ V v_orders                                │~
                                           │~
                                           │~
                                           │~
- Schema  Preview  tab · acme-prod.sales.o…│ Results · #1 done · 12 rows · 1.2 KiB billed
+ Schema · acme-prod.sales.orders ↓1       │ Results · #1 done · 12 rows · 1.2 KiB billed
  acme-prod.sales.orders                   │    n INT label STR
  table · EU · 45 rows · 5.0 MiB           │  1 0     row 0
  partition created_at                     │  2 1     row 1
- labels team:sales                        │  3 2     row 2
- ✓ synced 3h ago                          │  4 3     row 3
- All customer orders, one row per order   │  5 4     row 4
-                                          │  6 5     row 5
- ── schema · 8 fields ──                  │  7 6     row 6
- id          INT64          required Orde…│  8 7     row 7
- customer_id STRING                       │  9 8     row 8
- amount      STRING                       │ 10 9     row 9
- address     STRUCT<…>                    │ 11 10    row 10
-   city      STRING                       │ 12 11    row 11
+ partition filter required                │  3 2     row 2
+ labels team:sales                        │  4 3     row 3
+ ✓ synced 3h ago                          │  5 4     row 4
+ All customer orders, one row per order   │  6 5     row 5
+                                          │  7 6     row 6
+ ── schema · 8 fields ──                  │  8 7     row 7
+ id          INT64          required Orde…│  9 8     row 8
+ customer_id STRING                       │ 10 9     row 9
+ amount      STRING                       │ 11 10    row 10
+ address     STRUCT<…>                    │ 12 11    row 11
+   city      STRING                       │
    geo       STRING                       │
-     lat     STRING                       │
- created_at  TIMESTAMP                    │ row 1 of 12 · n INTEGER
+     lat     STRING                       │ row 1 of 12 · n INTEGER
  bqt exec acme-exec  layout: classic  columns  on-demand  2 projects                             5 datasets · 13 tables
- ↑↓←→/hjkl move · / filter · L style · ? help · ctrl+o pane · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · ctrl+o pane · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial

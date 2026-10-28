@@ -67,8 +67,12 @@ func TestTutorialWalkthrough(t *testing.T) {
 	if r.m.zone != ZoneSchema {
 		t.Fatal("enter on a table goes to the Schema pane")
 	}
-	r.press("j", "esc")
+	r.press("j")
+	r.tutStep(6)
+	r.press("p") // a free Sample of orders in the Results
 	r.tutStep(7)
+	r.contains("Sample · free read")
+	r.press("esc")
 	r.press("ctrl+p", "esc")
 	r.tutStep(8)
 	r.press("?", "esc")

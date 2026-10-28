@@ -46,6 +46,14 @@ func nested(name string) api.TableMeta {
 	return t
 }
 
+// strictOrders is acme-prod.sales.orders: partitioned on created_at, and
+// queries must filter on it.
+func strictOrders() api.TableMeta {
+	t := nested("orders")
+	t.RequirePartitionFilter = true
+	return t
+}
+
 func fixtureFake() *bqtest.Fake {
 	f := bqtest.New()
 	a := f.AddProject("acme-prod")
@@ -56,7 +64,7 @@ func fixtureFake() *bqtest.Fake {
 		events = append(events, bqtest.Table("events_"+d, "user_id", "event_name"))
 	}
 	a.Datasets = []bqtest.Dataset{
-		bqtest.DS("sales", "EU", nested("orders"), bqtest.Table("order_items", "order_id", "sku", "qty"), bqtest.Table("customers", "id", "email"), view),
+		bqtest.DS("sales", "EU", strictOrders(), bqtest.Table("order_items", "order_id", "sku", "qty"), bqtest.Table("customers", "id", "email"), view),
 		bqtest.DS("events", "EU", events...),
 		bqtest.DS("finance", "EU", bqtest.Table("refunds", "id", "amount"), bqtest.Table("invoices", "id")),
 		bqtest.DS("us_archive", "US", bqtest.Table("orders_2019", "id")),

@@ -1,5 +1,5 @@
  Tables 1/2                 │ SQL · query 1   1:1
-T c╭─ Help  (1-18/224) ─────────────────────────────────────────────────────╮ta…
+T c╭─ Help  (1-18/221) ─────────────────────────────────────────────────────╮ta…
 T e│ Global                                                                 │
    │ ctrl+q          quit (asks if Runs are in flight)                      │
    │ ctrl+o  ctrl+w w  next pane: Explorer, Schema, Editor, Results         │
@@ -9,8 +9,8 @@ T e│ Global                                                                 �
    │ ctrl+w k        go to the pane above                                   │
    │ ctrl+w l        go to the pane on the right                            │
    │ ctrl+p          command palette                                        │
-   │ ctrl+t          jump to table (recently opened when empty)             │
-   │ f1              this help                                              │ct…
+   │ ctrl+t          jump to table (recently opened when empty)             │le…
+   │ f1              this help                                              │
    │ ctrl+x p        projects: choose which are synced and browsed, and     │
    │                 where jobs run (one selected hides the project column) │
    │ ctrl+x f        favorites: saved queries (tab switches to History)     │
@@ -19,6 +19,6 @@ T e│ Global                                                                 �
    │ ctrl+g          tutorial of the navigation (while it runs: ctrl+g then │
    │                 n, p, r or q)                                          │
    ╰────────────────────────────────────────────────────────────────────────╯
-                            │
+                            │ row 1 of 45 · id INTEGER
  bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
  esc close

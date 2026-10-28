@@ -15,22 +15,22 @@ T events_YYYYMMDD                      ×4 │~
             │                                                                                              │
             │                                                                                              │
             │                                                                                              │
- Schema  Pre│                                                                                              │
- p loads the│                                                                                              │ly estimate…
- (read direc│                                                                                              │
+ Schema · ac│                                                                                              │ows
+ acme-prod.e│                                                                                              │
+ shard famil│                                                                                              │
+ schema of t│                                                                                              │
+ table · EU │                                                                                              │
+ ✓ synced 3h│                                                                                              │
             │                                                                                              │
-            │                                                                                              │
-            │                                                                                              │
-            │                                                                                              │
-            │                                                                                              │
-            │                                                                                              │
-            ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
-                                          │
+ ── schema ·│                                                                                              │
+ user_id    │                                                                                              │
+ event_name ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+                                          │  9 19     cust-j          19.99
+                                          │ 10 10     cust-k          19.99
+                                          │ 11 11     cust-l          19.99
+                                          │ 12 12     cust-m          19.99
+                                          │ 13 13     cust-n          19.99
+                                          │ 14 14     cust-o          NULL
+                                          │ row 1 of 45 · id INTEGER
  bqt exec acme-exec  layout: classic  columns  2 projects                                        5 datasets · 13 tables
  type to search · ↑↓ select · enter open · esc close

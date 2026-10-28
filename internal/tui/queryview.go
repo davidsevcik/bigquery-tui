@@ -174,6 +174,9 @@ func (m *Model) withCompletion(body []string, ed rect, w int) []string {
 }
 
 func (m *Model) resultsPane(w, h int) []string {
+	if m.sampleShown() {
+		return m.samplePane(w, h)
+	}
 	focused := m.zone == ZoneResults
 	r, ok := m.shownRun()
 	if !ok {
@@ -242,6 +245,49 @@ func (m *Model) resultsPane(w, h int) []string {
 		}
 		out = append(out, g.view(w, h-len(out)-1, focused)...)
 		out = append(out, sFaint.Render(fit(" "+m.gridStatus(g), w)))
+	}
+	for i := range out {
+		out[i] = fit(out[i], w)
+	}
+	return fillTo(out, w, h)
+}
+
+// samplePane draws the Sample in the Results pane, titled in the success
+// colour so that a free read never looks like a billed Run.
+func (m *Model) samplePane(w, h int) []string {
+	focused := m.zone == ZoneResults
+	sm := m.sample
+	ttl := m.sampleTitle()
+	st := sTitleN
+	if focused {
+		st = sTitleF
+	}
+	out := []string{st.Foreground(lipgloss.Color("78")).Render(fit(ttl, w))}
+	add := func(text string, st lipgloss.Style) {
+		for _, l := range wrap(text, w-2) {
+			out = append(out, " "+st.Render(l))
+		}
+	}
+	g := sm.g
+	switch {
+	case sm.err != "":
+		add(sm.err, sErr)
+	case g == nil:
+		add("loading…", sDim)
+	case g.total == 0:
+		add("the table is empty", sDim)
+	default:
+		if g.err != "" {
+			add(g.err, sErr)
+		}
+		out = append(out, g.view(w, h-len(out)-1, focused)...)
+		st := " " + m.gridStatus(g)
+		if len(m.bufs) > 0 {
+			if r, ok := m.runs.Info(m.buf().viewID); ok {
+				st += fmt.Sprintf(" · ] shows run #%d", r.ID)
+			}
+		}
+		out = append(out, sFaint.Render(fit(st, w)))
 	}
 	for i := range out {
 		out[i] = fit(out[i], w)

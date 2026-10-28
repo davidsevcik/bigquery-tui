@@ -361,13 +361,12 @@ func (m *Model) startRun(b *buffer, sql string, params []api.QueryParam, dry boo
 	b.runID = id
 	if !dry {
 		b.viewID = id
-	}
-	b.ed.errLine, b.ed.errCol = 0, 0
-	if !dry && m.arr().bar != nil {
+		m.showRun()
 		// one Pane at a time: show the Run as it fills in (a dry-run has no
 		// result to show; its estimate is in the status line)
-		m.setZone(ZoneResults)
+		m.revealPane(ZoneResults)
 	}
+	b.ed.errLine, b.ed.errCol = 0, 0
 	return m.followRun(id)
 }
 
@@ -438,7 +437,7 @@ func (m *Model) onRun(msg runMsg) tea.Cmd {
 		m.toast = fmt.Sprintf("run #%d cancelled", info.ID)
 	case api.RunDone:
 		if info.HasResult {
-			g := newGrid(info)
+			g := m.runGrid(info)
 			m.grids[info.ID] = g
 			m.trimGrids()
 			cmds = append(cmds, m.fetchPage(g, 0))
@@ -908,6 +907,8 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 	case "runs":
 		m.ov, m.ovSel, m.ovOff = ovRuns, 0, 0
 		return nil
+	case "switchsource":
+		return m.switchSource()
 	case "back":
 		if g := m.grid(); g != nil && g.find != "" {
 			g.find = ""
@@ -952,7 +953,7 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 	case "lastcol":
 		g.moveCol(len(g.cols))
 	case "record":
-		return m.openRunRecord()
+		return m.openGridRecord(g)
 	case "freeze":
 		g.frozen = !g.frozen
 	case "hide":
@@ -1015,6 +1016,10 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 		m.toast = fmt.Sprintf("copied %d rows as TSV", len(rows))
 		return tea.SetClipboard(export.TSV(g.cols, rows))
 	case "export":
+		if m.sampleShown() {
+			m.toast = "a Sample cannot be exported: s writes a SELECT whose result can be (billed)"
+			return nil
+		}
 		if m.exp != nil {
 			m.toast = "an export is already running (ctrl+c cancels it)"
 			return nil
@@ -1029,9 +1034,9 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 
 // copyRow reads the cursor row in full and copies what pick returns.
 func (m *Model) copyRow(g *grid, pick func(cols []api.PreviewColumn, full []api.Cell) (text, toast string)) tea.Cmd {
-	id, row, cols := g.run, g.row, g.cols
+	row, cols := g.row, g.cols
 	return func() tea.Msg {
-		page, err := m.be.RunRows(m.ctx, id, row, 1, format.Options{})
+		page, err := g.src(m.ctx, row, 1, format.Options{})
 		if err != nil || len(page.Rows) != 1 {
 			return clipMsg{err: fmt.Errorf("could not read the row: %v", err)}
 		}
@@ -1079,8 +1084,9 @@ func (m *Model) runsOverlayAction(act string, name string) tea.Cmd {
 				m.cur = i
 			}
 			m.buf().viewID = r.ID
+			m.showRun()
 			if r.HasResult && m.grids[r.ID] == nil {
-				m.grids[r.ID] = newGrid(r)
+				m.grids[r.ID] = m.runGrid(r)
 			}
 			m.setZone(ZoneResults)
 			return m.gridEnsure()
@@ -1134,11 +1140,7 @@ func (m *Model) insertPath(p api.ObjectPath) {
 	if p.Project == "" {
 		return
 	}
-	name := "`" + p.String() + "`"
-	if strings.HasSuffix(p.Table, "YYYYMMDD") {
-		name = "`" + p.Project + "." + p.Dataset + "." + strings.TrimSuffix(p.Table, "YYYYMMDD") + "*`"
-	}
-	m.buf().ed.insert(name)
+	m.buf().ed.insert(sqlx.QuoteTable(p))
 	m.setZone(ZoneEditor)
 	if m.o.NoBackground {
 		m.saveDraft(m.buf())

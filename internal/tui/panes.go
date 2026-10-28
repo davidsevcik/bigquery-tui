@@ -114,8 +114,8 @@ func (m *Model) leaveSchema() {
 	m.setZone(ZoneExplorer)
 }
 
-// schemaAction handles a key in the Schema pane: the movement keys scroll it
-// (or move the preview's row cursor), and the preview keys still work there.
+// schemaAction handles a key in the Schema pane: the movement keys scroll it,
+// and p and s work on its table as in the Explorer.
 func (m *Model) schemaAction(act string) tea.Cmd {
 	if cmd, ok := m.globalAction(act); ok {
 		return cmd
@@ -134,16 +134,10 @@ func (m *Model) schemaAction(act string) tea.Cmd {
 		return m.scrollDetail(-1 << 30)
 	case "bottom":
 		return m.scrollDetail(1 << 30)
-	case "tab":
-		m.tab = 1 - m.tab
-	case "preview":
-		return m.previewMore()
-	case "record":
-		return m.openRecord()
-	case "open":
-		if _, p := m.previewRows(); p != nil && m.tab == 1 {
-			return m.openRecord()
-		}
+	case "sample":
+		return m.sampleAction()
+	case "select":
+		return m.selectAction()
 	case "zoom":
 		switch {
 		case m.maxed == "" && slices.Contains(m.arr().cycle, ZoneSchema):

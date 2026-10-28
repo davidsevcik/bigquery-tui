@@ -35,6 +35,7 @@ type tutorial struct {
 	keys     map[string]bool // keys pressed in the Pane the step starts in
 	seenOv   map[overlayKind]bool
 	schema   bool // the Schema pane had focus
+	sampled  bool // p was pressed on a table
 	inserts  bool // vim Insert mode was entered
 	styles   bool
 	filtered bool // an Explorer filter was set
@@ -85,8 +86,8 @@ var tutSteps = []tutStep{
 		closedAfter(ovJump)},
 	{"Explorer styles", plain("`L` cycles the Explorer style: columns, tree, list. bqt remembers your choice, so press it until you are back at the one you like."),
 		func(m *Model, t *tutorial) bool { return t.styles }},
-	{"The Schema pane", plain("The Schema pane shows the selected table. `enter` on a table goes there, and the movement keys scroll it. `tab` switches to the preview (`p` loads rows), `z` shows the pane over the whole screen, and `esc` goes back to the Explorer. Go there and back once."),
-		func(m *Model, t *tutorial) bool { return t.schema && m.zone == ZoneExplorer }},
+	{"The Schema pane", plain("The Schema pane shows the selected table: `enter` goes there, the movement keys scroll it, `z` maximises it, `esc` goes back. `p` shows a free Sample of the table's rows in the Results (`[` `]` there switch back to the Run), and `s` opens a SELECT for it in a new buffer. Press `p` on a table."),
+		func(m *Model, t *tutorial) bool { return t.sampled }},
 	{"Command palette", plain("`ctrl+p` (or `:` in the Explorer) lists every command by name, with its key. Type to filter, `enter` runs one, `esc` closes. Open it and close it."),
 		closedAfter(ovPalette)},
 	{"Help", plain("`?` lists every key of every pane (`f1` too). `j` `k` scroll it, `esc` closes it. Open it and close it."),
@@ -140,7 +141,7 @@ func (m *Model) tutGo(step int) {
 	t := m.tut
 	t.step = clamp(step, 0, len(tutSteps)-1)
 	t.keys, t.seenOv = map[string]bool{}, map[overlayKind]bool{}
-	t.schema, t.inserts, t.styles, t.filtered = false, false, false, false
+	t.schema, t.sampled, t.inserts, t.styles, t.filtered = false, false, false, false, false
 	t.start = m.tutSnap()
 	m.fitHeight()
 }
