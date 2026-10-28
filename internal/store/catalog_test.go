@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -590,5 +591,55 @@ func TestReadOnlyOpenOfAnOlderCatalogReadsTheFlagAsFalse(t *testing.T) {
 	tabs, err := ro.Tables(ctx, "p", "d1")
 	if err != nil || len(tabs) != 1 || tabs[0].RequirePartitionFilter {
 		t.Fatalf("Tables: %+v %v", tabs, err)
+	}
+}
+
+// Several bqt processes may start at once on a catalog that predates the
+// column, while another one already has it open for reading.
+func TestConcurrentOpensAddTheFlagColumnOnce(t *testing.T) {
+	path := catalogWithoutTheFlag(t)
+	ro, err := OpenCatalogReadOnly(path) // opened before the column exists
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ro.Close()
+	type res struct {
+		recreated string
+		err       error
+	}
+	out := make(chan res, 8)
+	for range 8 {
+		go func() {
+			c, err := OpenCatalog(path)
+			if err != nil {
+				out <- res{err: err}
+				return
+			}
+			defer c.Close()
+			if tabs, err := c.Tables(ctx, "p", "d1"); err != nil || len(tabs) != 1 {
+				out <- res{c.Recreated(), fmt.Errorf("tables %v: %w", tabs, err)}
+				return
+			}
+			out <- res{c.Recreated(), nil}
+		}()
+	}
+	for range 8 {
+		r := <-out
+		if r.err != nil || r.recreated != "" {
+			t.Fatalf("a concurrent open must add the column in place: recreated %q, %v", r.recreated, r.err)
+		}
+	}
+	got, err := ro.TableByID(ctx, tableID(t, ro, "orders"))
+	if err != nil || got.Name != "orders" || got.RequirePartitionFilter {
+		t.Fatalf("the earlier reader still reads the table: %+v %v", got, err)
+	}
+	c, err := OpenCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	n := 0
+	if err := c.db.QueryRow(`SELECT count(*) FROM pragma_table_info('tables') WHERE name = 'require_partition_filter'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("the column exists once: %d %v", n, err)
 	}
 }

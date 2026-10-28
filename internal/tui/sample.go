@@ -48,11 +48,15 @@ func (m *Model) sampleShown() bool { return m.showSample && m.sample != nil }
 // or picked).
 func (m *Model) showRun() { m.showSample = false }
 
-// revealPane makes sure a Pane that just got content is on screen. In the focus
-// Layout (chosen, or the small-terminal step-down) only one Pane is drawn, so
-// it takes the focus there; elsewhere the focus stays.
+// revealPane makes sure a Pane that just got content is on screen. Another
+// Pane maximised over it is restored. Where it is still not drawn (the focus
+// Layout, chosen or the small-terminal step-down, or a maximised Pane the
+// Layout has no room for) it takes the focus; elsewhere the focus stays.
 func (m *Model) revealPane(z Zone) {
-	if m.arr().bar != nil {
+	if m.maxed != "" && m.maxed != z {
+		m.maxed = ""
+	}
+	if _, ok := m.arr().rects[z]; !ok {
 		m.setZone(z)
 	}
 }
@@ -92,7 +96,10 @@ func (m *Model) sampleAction() tea.Cmd {
 		sm.prev.prev = nil // keep one step back, not a chain
 	}
 	if s.kind == api.KindShards && s.node.Shard != nil {
-		sm.name = s.path.Project + "." + s.path.Dataset + "." + s.node.Shard.Prefix + s.node.Shard.Last
+		// read the newest shard as it is now, page after page, even when a
+		// sync adds a newer one meanwhile
+		sm.path.Table = s.node.Shard.Prefix + s.node.Shard.Last
+		sm.name = sm.path.String()
 	}
 	m.sample, m.showSample = sm, true
 	m.revealPane(ZoneResults)
@@ -118,7 +125,11 @@ func (m *Model) onSample(msg sampleMsg) tea.Cmd {
 		if prev != nil && prev.g == nil && prev.err == "" {
 			prev = nil
 		}
-		m.sample, m.showSample = prev, prev != nil && sm.prevShow
+		// switching to a Run meanwhile is not undone
+		m.sample, m.showSample = prev, m.showSample && prev != nil && sm.prevShow
+		if m.sampleShown() {
+			return m.gridEnsure()
+		}
 		return nil
 	case msg.err != nil:
 		sm.err = msg.err.Error()

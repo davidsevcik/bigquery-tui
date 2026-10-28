@@ -466,6 +466,9 @@ func (m *Model) gridEnsure() tea.Cmd {
 func (m *Model) onPage(msg pageMsg) {
 	g := msg.g
 	if !m.kept(g) {
+		// not shown now, but it may be again (a Sample restored after the
+		// next one failed): it must not wait for this page for ever
+		delete(g.loading, msg.start)
 		return
 	}
 	if msg.err != nil {

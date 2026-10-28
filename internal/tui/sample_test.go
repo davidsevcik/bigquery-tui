@@ -399,3 +399,76 @@ func TestSStartsInNormalModeInVim(t *testing.T) {
 		t.Fatalf("cw replaces the condition:\n%s", r.text())
 	}
 }
+
+// Codex review of phase 2: the message orders and states below went wrong.
+
+func TestAFamilySampleKeepsReadingTheShardItStartedWith(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.press("l", "l", "j")
+	r.selected("acme-prod.events.events_YYYYMMDD")
+	r.press("p")
+	// later pages must not follow the family to a newer shard synced meanwhile
+	if got := r.m.sample.path.String(); got != "acme-prod.events.events_20240104" {
+		t.Fatalf("the Sample reads %s, want the shard it was loaded from", got)
+	}
+}
+
+func TestARestoredSampleCanStillLoadItsPages(t *testing.T) {
+	r := newRig(t, 120, 30)
+	td := r.fake.TableData["acme-prod.sales.orders"]
+	r.fake.TableData["acme-prod.sales.customers"] = bqtest.TableData{Info: bq.TableInfo{Type: api.TypeView, Schema: td.Info.Schema}}
+	r.onOrders()
+	r.press("p")
+	a := r.m.sample.g
+	page := r.m.fetchPage(a, gridPage) // A's next page is on its way
+	r.press("k", "k")
+	r.selected("acme-prod.sales.customers")
+	b := r.m.sampleAction()
+	r.run(page) // arrives while B is the Sample
+	r.run(b)    // B turns out to be a view: A comes back
+	if r.m.sample == nil || r.m.sample.g != a {
+		t.Fatal("the earlier Sample is not restored")
+	}
+	if a.loading[gridPage] {
+		t.Fatal("the page that arrived meanwhile stays loading for ever")
+	}
+}
+
+func TestAFailedSampleDoesNotUndoSwitchingToTheRun(t *testing.T) {
+	r := newRig(t, 120, 30)
+	td := r.fake.TableData["acme-prod.sales.orders"]
+	r.fake.TableData["acme-prod.sales.customers"] = bqtest.TableData{Info: bq.TableInfo{Type: api.TypeView, Schema: td.Info.Schema}}
+	r.onOrders()
+	r.press("p", "k", "k")
+	b := r.m.sampleAction()
+	r.m.showRun() // a Run is started or picked before B answers
+	r.run(b)
+	if r.m.sampleShown() {
+		t.Fatal("the failed Sample switched the Results back to the earlier Sample")
+	}
+}
+
+func TestPBringsTheResultsBackFromAMaximisedSchema(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		w, h int
+		want Zone // where the focus ends up
+	}{{"classic", 120, 30, ZoneSchema}, {"stepped down", 80, 24, ZoneResults}} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t, c.w, c.h)
+			r.onOrders()
+			r.press("z")
+			if r.m.maxed != ZoneSchema {
+				t.Fatalf("z did not maximise the Schema: %q", r.m.maxed)
+			}
+			r.press("p")
+			if _, ok := r.m.arr().rects[ZoneResults]; !ok {
+				t.Fatalf("the Sample loaded off screen (maxed %q)", r.m.maxed)
+			}
+			if r.m.zone != c.want {
+				t.Fatalf("pane %s, want %s", r.m.zone, c.want)
+			}
+			r.contains(sampleTitle)
+		})
+	}
+}
