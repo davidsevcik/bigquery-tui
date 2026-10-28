@@ -491,3 +491,14 @@ func TestSchemaFlagsColumnsStoredAsRequiredWithoutTheLiveTable(t *testing.T) {
 		t.Fatalf("precondition: the flag must come from the catalog, not the live table: %+v %+v", s, d)
 	}
 }
+
+func TestFreshnessUnderAMinuteReadsJustNow(t *testing.T) {
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	if got := agoPhrase(now, &now); got != "just now" {
+		t.Fatalf("%q", got)
+	}
+	then := now.Add(-5 * time.Minute)
+	if got := agoPhrase(now, &then); got != "5m ago" {
+		t.Fatalf("%q", got)
+	}
+}
