@@ -64,3 +64,14 @@ func TestWrapKeepsKind(t *testing.T) {
 		t.Fatal("Retryable follows Kind")
 	}
 }
+
+func TestEndpointOptionsComeFromTheEnvironment(t *testing.T) {
+	t.Setenv(EndpointEnv, "")
+	if o := EndpointOptions(); o != nil {
+		t.Fatalf("unset: %v", o)
+	}
+	t.Setenv(EndpointEnv, " http://localhost:9050 ")
+	if o := EndpointOptions(); len(o) != 2 {
+		t.Fatalf("an endpoint and no credentials: %v", o)
+	}
+}
