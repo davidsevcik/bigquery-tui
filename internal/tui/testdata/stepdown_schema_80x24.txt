@@ -1,3 +1,4 @@
+ Explorer  [Schema]  Editor  Results   ctrl+o next
  Schema · acme-prod.sales.orders
  acme-prod.sales.orders
  table · EU · 45 rows · 5.0 MiB
@@ -19,6 +20,5 @@
 
 
 
-
  bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
- ↑↓/jk scroll · p sample · z maximise · esc back
+ ↑↓/jk scroll · p sample · esc back

@@ -112,8 +112,12 @@ func (m *Model) statusLine(w int) string {
 		exec = "none"
 	}
 	b.add(" bqt ", sBold).add("exec ", sDim).add(exec, sAcc)
-	b.add("  layout: "+m.preset, sDim)
-	if m.arr().stepped {
+	a := m.arr()
+	b.add("  layout: "+m.layoutName(), sDim)
+	if a.zoom != "" {
+		b.add(" (maximised)", sDim)
+	}
+	if a.stepped {
 		b.add(" (small terminal)", sDim)
 	}
 	if m.zone == ZoneExplorer {
@@ -254,7 +258,7 @@ func (m *Model) panesBody(w, h int) []string {
 		pieces = append(pieces, piece{s, vsep(s.h)})
 	}
 	if a.bar != nil {
-		pieces = append(pieces, piece{*a.bar, []string{m.paneBar(a.bar.w)}})
+		pieces = append(pieces, piece{*a.bar, []string{paneBar(a, a.bar.w)}})
 	}
 	slices.SortFunc(pieces, func(p, q piece) int { return p.r.x - q.r.x })
 	out := make([]string, h)
@@ -305,22 +309,23 @@ func (m *Model) explorerPane(w, h int) []string {
 	return list(w, h)
 }
 
-// paneBar is the focus Layout's top row: the four Panes, the shown one in
-// brackets.
-func (m *Model) paneBar(w int) string {
+// paneBar is the row above a Pane shown on its own (the focus Layout, a
+// maximised Pane, browse's shared Editor and Results slot): the Panes it
+// stands for, the drawn one in brackets.
+func paneBar(a arrangement, w int) string {
 	b := &rb{bg: lipgloss.Color("236")}
 	b.add(" ", sDim)
-	for i, z := range paneOrder {
+	for i, z := range a.barPanes {
 		if i > 0 {
 			b.add("  ", sDim)
 		}
-		if z == m.zone {
+		if _, ok := a.rects[z]; ok {
 			b.add("["+string(z)+"]", sTitleF)
 		} else {
 			b.add(string(z), sDim)
 		}
 	}
-	b.add("   ctrl+o next", sFaint)
+	b.add("   "+a.barHint, sFaint)
 	return b.line(w)
 }
 

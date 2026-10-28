@@ -1,0 +1,24 @@
+ Tables 3/4         │ SQL · query 1   1:1
+T customers         │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab comple…
+T order_items       │~
+T orders            │~
+V v_orders          │~
+                    │~
+                    │~
+                    │~
+                    │~
+                    │~
+                    │~
+                    │ Results
+                    │ no run yet: ctrl+r runs the buffer (or the selection), ct…
+                    │
+                    │
+                    │
+                    │
+                    │
+                    │
+                    │
+                    │
+                    │
+ bqt exec acme-exec  layout: query  columns  2 projects  5 datasets · 13 tables
+ layout: query

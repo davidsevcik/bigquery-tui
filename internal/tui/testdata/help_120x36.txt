@@ -1,5 +1,5 @@
  Tables 1/2                               │ SQL · query 1   1:1
-T clicks    ╭─ Help  (1-30/202) ───────────────────────────────────────────────────────────────────────────╮
+T clicks    ╭─ Help  (1-30/214) ───────────────────────────────────────────────────────────────────────────╮
 T events_YYY│ Global                                                                                       │
             │ ctrl+q          quit (asks if Runs are in flight)                                            │
             │ ctrl+o  ctrl+w w  next pane: Explorer, Schema, Editor, Results                               │
@@ -8,28 +8,28 @@ T events_YYY│ Global                                                          
             │ ctrl+w j        go to the pane below                                                         │
             │ ctrl+w k        go to the pane above                                                         │
             │ ctrl+w l        go to the pane on the right                                                  │
-            │ ctrl+p          command palette                                                              │
+            │ ctrl+w space    next layout: classic, query, browse, tall, focus                             │
+            │ ctrl+w H        move the pane to the far left, full height                                   │
+            │ ctrl+w J        move the pane to the bottom, full width                                      │
+            │ ctrl+w K        move the pane to the top, full width                                         │
+            │ ctrl+w L        move the pane to the far right, full height                                  │
+            │ ctrl+w x        exchange the pane with the next one in its split                             │
+            │ ctrl+w r        rotate the panes of its split                                                │
+ Schema · ac│ ctrl+w <        make the pane narrower                                                       │ows
+ acme-prod.e│ ctrl+w >        make the pane wider                                                          │
+ table · EU │ ctrl+w -        make the pane shorter                                                        │
+ ✓ synced 3h│ ctrl+w +        make the pane taller                                                         │
+            │ ctrl+w =        give every pane in each split an equal share                                 │
+ ── schema ·│ ctrl+w z        maximise the pane; again restores the layout                                 │
+ user_id  ST│ ctrl+w c        hide the pane (Show <pane> brings it back)                                   │
+ url      ST│ ctrl+p          command palette                                                              │
             │ ctrl+t          jump to table (recently opened when empty)                                   │
             │ f1              this help                                                                    │
             │ ctrl+x p        projects: choose which are synced and browsed, and where jobs run (one       │
             │                 selected hides the project column)                                           │
             │ ctrl+x f        favorites: saved queries (tab switches to History)                           │
             │ ctrl+x r        history: every query run, searchable (tab switches to Favorites)             │
- Schema · ac│ ctrl+g          tutorial of the navigation (while it runs: ctrl+g then n, p, r or q)         │ows
- acme-prod.e│ ctrl+c          cancel the export, the focused Run, or the sync                              │
- table · EU │ ctrl+x y        hand-off to an agent: the selected table's schema, the focused Run's error,  │
- ✓ synced 3h│                 result sample or summary, to the clipboard or a file                         │
-            │                                                                                              │
- ── schema ·│ Explorer                                                                                     │
- user_id  ST│ j  down         move down                                                                    │
- url      ST│ k  up           move up                                                                      │
-            │ h  left         parent column / collapse                                                     │
-            │ l  right        child column / expand                                                        │
-            │ g g  home       first row                                                                    │
-            │ G  end          last row                                                                     │
-            │ ctrl+d  pgdown  half page down                                                               │
-            │ ctrl+u  pgup    half page up                                                                 │
-            │ enter           expand a shard family; on a table, go to the Schema pane                     │
+            │ ctrl+g          tutorial of the navigation (while it runs: ctrl+g then n, p, r or q)         │
             ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
                                           │ row 1 of 45 · id INTEGER
  bqt exec acme-exec  layout: classic  columns  2 projects                                        5 datasets · 13 tables

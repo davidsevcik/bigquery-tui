@@ -359,6 +359,9 @@ func (m *Model) startRun(b *buffer, sql string, params []api.QueryParam, dry boo
 		}
 	}
 	b.runID = id
+	// every Run start restores a maximised Layout and shows hidden Results
+	m.maxed = ""
+	m.uncover(ZoneResults)
 	if !dry {
 		b.viewID = id
 		m.showRun()
@@ -1088,6 +1091,7 @@ func (m *Model) runsOverlayAction(act string, name string) tea.Cmd {
 			if r.HasResult && m.grids[r.ID] == nil {
 				m.grids[r.ID] = m.runGrid(r)
 			}
+			m.revealPane(ZoneResults)
 			m.setZone(ZoneResults)
 			return m.gridEnsure()
 		}
@@ -1141,6 +1145,7 @@ func (m *Model) insertPath(p api.ObjectPath) {
 		return
 	}
 	m.buf().ed.insert(sqlx.QuoteTable(p))
+	m.revealPane(ZoneEditor)
 	m.setZone(ZoneEditor)
 	if m.o.NoBackground {
 		m.saveDraft(m.buf())

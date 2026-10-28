@@ -211,23 +211,19 @@ func TestClearingTheTreeFilterRestoresTheExpansionExactly(t *testing.T) {
 	r.selected("acme-prod.sales") // the nearest row still shown
 }
 
-func TestEscLeavesTheZoomBeforeClearingTheFilter(t *testing.T) {
+func TestEscLeavesTheSchemaBeforeClearingTheFilter(t *testing.T) {
 	r := newRig(t, 120, 30)
-	r.press("l", "j", "j", "l", "/", "ord", "enter", "z")
+	r.press("l", "j", "j", "l", "/", "ord", "enter", "enter", "ctrl+w", "z")
 	if r.m.zone != ZoneSchema || r.m.maxed != ZoneSchema {
-		t.Fatalf("z maximises the Schema pane: %s %q", r.m.zone, r.m.maxed)
-	}
-	r.press("esc")
-	if r.m.zone != ZoneSchema || r.m.maxed != "" || !r.m.mil.f[2].active() {
-		t.Fatalf("first esc only restores the Layout (pane %s, maxed %q)", r.m.zone, r.m.maxed)
+		t.Fatalf("enter goes to the Schema pane, ctrl+w z maximises it: %s %q", r.m.zone, r.m.maxed)
 	}
 	r.press("esc")
 	if r.m.zone != ZoneExplorer || !r.m.mil.f[2].active() {
-		t.Fatalf("second esc leaves the Schema pane only (pane %s)", r.m.zone)
+		t.Fatalf("first esc leaves the Schema pane only (pane %s)", r.m.zone)
 	}
 	r.press("esc")
 	if r.m.mil.f[2].active() {
-		t.Fatal("third esc clears the filter")
+		t.Fatal("second esc clears the filter")
 	}
 }
 

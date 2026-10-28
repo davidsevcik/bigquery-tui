@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -48,16 +49,31 @@ func (m *Model) sampleShown() bool { return m.showSample && m.sample != nil }
 // or picked).
 func (m *Model) showRun() { m.showSample = false }
 
-// revealPane makes sure a Pane that just got content is on screen. Another
-// Pane maximised over it is restored. Where it is still not drawn (the focus
-// Layout, chosen or the small-terminal step-down, or a maximised Pane the
-// Layout has no room for) it takes the focus; elsewhere the focus stays.
+// revealPane makes sure a Pane that just got content is on screen. A hidden
+// Pane is shown again, and another Pane maximised over it is restored (the
+// zoom stays when z itself is maximised). Where it is still not drawn (the
+// focus Layout, chosen or the small-terminal step-down, or a Pane the Layout
+// has no room for) it takes the focus; elsewhere the focus stays.
 func (m *Model) revealPane(z Zone) {
-	if m.maxed != "" && m.maxed != z {
-		m.maxed = ""
+	m.uncover(z)
+	if a := m.arr(); z != m.zone && a.bar != nil && slices.Contains(a.barPanes, z) && !a.single && a.zoom == "" && !a.offLayout {
+		// browse's shared slot draws the one of its Panes focused last: z
+		// becomes that one, and the focus stays
+		m.mru = append([]Zone{m.mru[0], z}, slices.DeleteFunc(slices.Clone(m.mru[1:]), func(o Zone) bool { return o == z })...)
 	}
 	if _, ok := m.arr().rects[z]; !ok {
 		m.setZone(z)
+	}
+}
+
+// uncover shows a hidden Pane and clears a zoom on another Pane, without
+// moving the focus.
+func (m *Model) uncover(z Zone) {
+	if m.panes.hiddenPane(z) {
+		m.setPanes(showPane(m.panes, z))
+	}
+	if m.maxed != "" && m.maxed != z {
+		m.maxed = ""
 	}
 }
 

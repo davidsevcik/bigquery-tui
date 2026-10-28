@@ -1,5 +1,7 @@
 package tui
 
+import "slices"
+
 // The Layout arranges the four Panes (Explorer, Schema, Editor, Results) on
 // screen: a split tree whose leaves are the Panes (ADR 0002). arrange turns
 // it, the body size and the focus into a rectangle per Pane; drawing and key
@@ -17,9 +19,11 @@ const (
 )
 
 // layoutNode is one node of the split tree: a leaf holds a Pane, a split
-// holds children with an integer weight each. A Pane appears at most once.
+// holds children with an integer weight each. A Pane appears at most once. A
+// hidden leaf keeps its slot but takes no space.
 type layoutNode struct {
 	pane    Zone
+	hidden  bool
 	dir     splitDir
 	weights []int
 	kids    []layoutNode
@@ -39,18 +43,19 @@ var classicTree = split(splitRow, []int{35, 65},
 	split(splitCol, []int{50, 50}, leaf(ZoneEditor), leaf(ZoneResults)),
 )
 
-// Layout presets. focus uses the classic tree for directions but draws only
-// the focused Pane, under a one-line pane bar.
+// Layout presets (layouttree.go has their trees). focus uses the classic tree
+// for directions but draws only the focused Pane, under a one-line pane bar.
 const (
 	presetClassic = "classic"
+	presetQuery   = "query"
+	presetBrowse  = "browse"
+	presetTall    = "tall"
 	presetFocus   = "focus"
 )
 
-var presetNames = []string{presetClassic, presetFocus}
-
 func knownPreset(name string) bool {
-	for _, n := range presetNames {
-		if n == name {
+	for _, p := range presets {
+		if p.name == name {
 			return true
 		}
 	}
@@ -70,77 +75,135 @@ var paneMin = map[Zone]struct{ w, h int }{
 
 // arrangement is where everything goes for one frame.
 type arrangement struct {
-	rects   map[Zone]rect // Panes drawn now, each exactly this size; they tile the body with seps (and bar)
-	seps    []rect        // one-column vertical separators
-	bar     *rect         // the focus pane bar row, nil otherwise
-	nav     map[Zone]rect // rectangles used for ctrl+w h/j/k/l
-	cycle   []Zone        // ctrl+o order: Explorer, Schema, Editor, Results minus Panes not reachable
-	stepped bool          // a small-terminal step-down applies
+	rects    map[Zone]rect // Panes drawn now, each exactly this size; they tile the body with seps (and bar)
+	seps     []rect        // one-column vertical separators
+	bar      *rect         // the pane bar row, nil otherwise
+	barPanes []Zone        // the Panes the bar names; the one drawn is in brackets
+	barHint  string
+	nav      map[Zone]rect // rectangles used for ctrl+w h/j/k/l
+	cycle    []Zone        // ctrl+o order: Explorer, Schema, Editor, Results minus Panes not reachable
+	stepped  bool          // a small-terminal step-down applies
+	single   bool          // one Pane at a time: the focus Layout or the small-terminal fallback
+	zoom     Zone          // the Pane maximised with ctrl+w z ("" for none)
+	// the focused Pane is shown maximised because the step-down left it out
+	offLayout bool
 }
 
-// arrange lays the preset out in a w×h body. focused is the Pane with focus,
-// maxed the maximised Pane ("" for none).
-func arrange(preset string, focused, maxed Zone, w, h int) arrangement {
-	full := classic(w, h, nil)
-	a := full
-	single := preset == presetFocus // one Pane at a time
-	if !single {
-		a, single = stepDown(w, h)
+// arrange lays the tree out in a w×h body. preset is the tree's source
+// preset (its step-down rules apply), focused the Pane with focus, zoom the
+// maximised Pane ("" for none) and mru the Panes, most recently focused
+// first.
+//
+// Directions (nav) follow the Layout before the shared slot, the fallback and
+// the zoom, so that ctrl+w h/j/k/l moves as on the full screen; a Pane the
+// step-down leaves out is skipped, as ctrl+o skips it.
+func arrange(preset string, tree layoutNode, focused, zoom Zone, mru []Zone, w, h int) arrangement {
+	visible := tree.visiblePanes()
+	a := arrangement{single: true}
+	if preset != presetFocus {
+		a = stepDown(presetOf(preset), tree, focused, mru, w, h)
 	}
-	a.cycle = paneOrder
-	if single {
-		a = arrangement{
-			rects:   map[Zone]rect{focused: {0, 1, w, h - 1}},
-			bar:     &rect{0, 0, w, 1},
-			cycle:   paneOrder,
-			stepped: a.stepped,
-		}
-	} else if a.stepped {
-		a.cycle = nil
-		for _, z := range paneOrder {
-			if _, ok := a.rects[z]; ok {
-				a.cycle = append(a.cycle, z)
-			}
+	if a.single {
+		return arrangement{
+			rects:    map[Zone]rect{focused: {0, 1, w, h - 1}},
+			bar:      &rect{0, 0, w, 1},
+			barPanes: visible,
+			barHint:  "ctrl+o next",
+			nav:      lay(tree, rect{0, 0, w, h}, nil).rects,
+			cycle:    visible,
+			stepped:  a.stepped,
+			single:   true,
 		}
 	}
-	a.nav = a.rects
 	// The focused Pane is always on screen: one the step-down left out is
 	// shown maximised.
-	if _, ok := a.rects[focused]; !ok && maxed == "" {
-		maxed = focused
+	hint := "ctrl+w z restore"
+	if _, ok := a.rects[focused]; !ok && zoom == "" {
+		zoom, hint, a.offLayout = focused, "ctrl+o next", true
+	} else {
+		a.zoom = zoom
 	}
-	if maxed != "" {
-		a.rects, a.seps, a.bar = map[Zone]rect{maxed: {0, 0, w, h}}, nil, nil
-	}
-	// While one Pane at a time is drawn, directions still follow the classic tree.
-	if len(a.rects) == 1 {
-		a.nav = full.rects
+	if zoom != "" {
+		a.barPanes = nil
+		for _, z := range paneOrder {
+			if z == zoom || slices.Contains(a.cycle, z) {
+				a.barPanes = append(a.barPanes, z)
+			}
+		}
+		a.rects, a.seps = map[Zone]rect{zoom: {0, 1, w, h - 1}}, nil
+		a.bar, a.barHint = &rect{0, 0, w, 1}, hint
 	}
 	return a
 }
 
-// stepDown is classic as it fits the body: below 100 columns, or when a Pane
-// would be smaller than its minimum, the Schema is left out; below 70 columns,
-// or when that is still too small, one Pane at a time is shown (single).
-func stepDown(w, h int) (a arrangement, single bool) {
+// stepDown is the Layout as it fits the body. Below 70 columns, or when the
+// Panes are still too small after the steps below, one Pane at a time is
+// shown (single). Otherwise, in this order: the preset may leave out the
+// Schema below a width; browse shares one slot between the Editor and the
+// Results below a height (the one focused last is drawn, under a pane bar);
+// and the Schema is left out when a Pane would be smaller than its minimum.
+// The last visible Pane is never left out.
+func stepDown(p presetDef, tree layoutNode, focused Zone, mru []Zone, w, h int) arrangement {
 	if w < 70 {
-		return arrangement{stepped: true}, true
+		return arrangement{single: true, stepped: true}
 	}
+	body := rect{0, 0, w, h}
+	visible := tree.visiblePanes()
 	omit := map[Zone]bool{}
-	if w < 100 {
+	canOmit := func(z Zone) bool {
+		return !omit[z] && slices.Contains(visible, z) && len(visible)-len(omit) > 1
+	}
+	if p.schemaBelow > 0 && w < p.schemaBelow && canOmit(ZoneSchema) {
 		omit[ZoneSchema] = true
 	}
 	for {
-		a = classic(w, h, omit)
-		a.stepped = len(omit) > 0
-		if a.fits() {
-			return a, false
+		a := lay(tree, body, omit)
+		a.nav = a.rects
+		for _, z := range visible {
+			if !omit[z] {
+				a.cycle = append(a.cycle, z)
+			}
 		}
-		if omit[ZoneSchema] {
-			return arrangement{stepped: true}, true
+		if p.shareBelow > 0 && h < p.shareBelow && slices.Contains(a.cycle, ZoneEditor) && slices.Contains(a.cycle, ZoneResults) {
+			shown, other := ZoneEditor, ZoneResults
+			for _, z := range append([]Zone{focused}, mru...) {
+				if z == ZoneResults || z == ZoneEditor {
+					shown = z
+					break
+				}
+			}
+			if shown == ZoneResults {
+				other = ZoneEditor
+			}
+			s := lay(mergeInto(tree, other, shown), body, omit)
+			r := s.rects[shown]
+			a.rects, a.seps = s.rects, s.seps
+			a.rects[shown] = rect{r.x, r.y + 1, r.w, r.h - 1}
+			a.bar, a.barPanes, a.barHint = &rect{r.x, r.y, r.w, 1}, []Zone{ZoneEditor, ZoneResults}, "ctrl+w j/k switch"
+		}
+		a.stepped = len(omit) > 0 || a.bar != nil
+		if a.fits() {
+			return a
+		}
+		if !canOmit(ZoneSchema) {
+			return arrangement{single: true, stepped: true}
 		}
 		omit[ZoneSchema] = true
 	}
+}
+
+// mergeInto leaves the Pane gone out of the tree, its share going to into
+// when the two are in the same split (they then share one slot).
+func mergeInto(t layoutNode, gone, into Zone) layoutNode {
+	out := t.clone()
+	p, _ := out.path(gone)
+	q, _ := out.path(into)
+	if len(p) > 0 && len(q) == len(p) && slices.Equal(p[:len(p)-1], q[:len(q)-1]) {
+		parent := out.at(p[:len(p)-1])
+		parent.weights[q[len(q)-1]] += parent.weights[p[len(p)-1]]
+	}
+	out.at(p).hidden = true
+	return out
 }
 
 // fits reports whether every drawn Pane meets its minimum size.
@@ -153,17 +216,29 @@ func (a arrangement) fits() bool {
 	return true
 }
 
-// classic lays the classic tree out in the body, leaving out the Panes in omit.
-func classic(w, h int, omit map[Zone]bool) arrangement {
+// lay lays the tree out in the body, leaving out hidden Panes and the Panes
+// in omit. A child too small for its Panes' minimums takes the room from its
+// siblings while they can spare it.
+func lay(t layoutNode, body rect, omit map[Zone]bool) arrangement {
 	a := arrangement{rects: map[Zone]rect{}}
-	place(classicTree, rect{0, 0, w, h}, omit, &a)
+	place(t, body, omit, true, &a)
 	return a
 }
 
-// place lays node out in r, leaving out the Panes in omit, and appends the
-// rectangles and separators to a.
-func place(n layoutNode, r rect, omit map[Zone]bool, a *arrangement) {
-	if n.pane != "" {
+// rawRects is lay by the weights alone, without the minimums (resizing is
+// clamped on it, so that weights never drift where the screen would not
+// change).
+func rawRects(t layoutNode, body rect, omit map[Zone]bool) map[Zone]rect {
+	a := arrangement{rects: map[Zone]rect{}}
+	place(t, body, omit, false, &a)
+	return a.rects
+}
+
+// place lays node out in r, leaving out hidden Panes and the Panes in omit,
+// and appends the rectangles and separators to a. With fix, children below
+// their minimum are grown at their siblings' expense.
+func place(n layoutNode, r rect, omit map[Zone]bool, fix bool, a *arrangement) {
+	if n.isLeaf() {
 		a.rects[n.pane] = r
 		return
 	}
@@ -178,40 +253,126 @@ func place(n layoutNode, r rect, omit map[Zone]bool, a *arrangement) {
 	if len(kids) == 0 {
 		return
 	}
-	sum := 0
-	for _, wt := range weights {
-		sum += wt
-	}
-	extent := r.h
+	extent, seps := r.h, 0
 	if n.dir == splitRow {
-		extent = r.w
+		extent, seps = r.w, len(kids)-1
 	}
 	// Each child gets its share of the whole extent; the last one takes what
 	// is left after the separators.
+	total := sum(weights)
+	sizes := make([]int, len(kids))
+	used := 0
+	for i := range kids {
+		sizes[i] = extent * weights[i] / total
+		if i == len(kids)-1 {
+			sizes[i] = extent - seps - used
+		}
+		used += sizes[i]
+	}
+	if fix {
+		fixMinimums(kids, weights, sizes, extent-seps, n.dir, omit)
+	}
 	at := 0
 	for i, k := range kids {
-		size := extent * weights[i] / sum
-		if i == len(kids)-1 {
-			size = extent - at
-		}
 		if n.dir == splitRow {
-			place(k, rect{r.x + at, r.y, size, r.h}, omit, a)
-			at += size
+			place(k, rect{r.x + at, r.y, sizes[i], r.h}, omit, fix, a)
+			at += sizes[i]
 			if i < len(kids)-1 {
 				a.seps = append(a.seps, rect{r.x + at, r.y, 1, r.h})
 				at++
 			}
 		} else {
-			place(k, rect{r.x, r.y + at, r.w, size}, omit, a)
-			at += size
+			place(k, rect{r.x, r.y + at, r.w, sizes[i]}, omit, fix, a)
+			at += sizes[i]
 		}
 	}
 }
 
-// omitted reports whether every Pane under n is left out.
+// fixMinimums gives each child below its minimum extent that minimum, and
+// shares the rest among the others by weight, when the minimums fit at all.
+func fixMinimums(kids []layoutNode, weights, sizes []int, avail int, dir splitDir, omit map[Zone]bool) {
+	mins := make([]int, len(kids))
+	need, short := 0, false
+	for i, k := range kids {
+		mins[i] = minExtent(k, dir, omit)
+		need += mins[i]
+		short = short || sizes[i] < mins[i]
+	}
+	if !short || need > avail {
+		return
+	}
+	fixed := make([]bool, len(kids))
+	for {
+		changed := false
+		for i := range kids {
+			if !fixed[i] && sizes[i] < mins[i] {
+				fixed[i], changed = true, true
+			}
+		}
+		if !changed {
+			return
+		}
+		rest, fw, last := avail, 0, -1
+		for i := range kids {
+			if fixed[i] {
+				sizes[i] = mins[i]
+				rest -= mins[i]
+			} else {
+				fw += weights[i]
+				last = i
+			}
+		}
+		if last < 0 {
+			sizes[len(sizes)-1] += rest
+			return
+		}
+		used := 0
+		for i := range kids {
+			if fixed[i] {
+				continue
+			}
+			if i == last {
+				sizes[i] = rest - used
+			} else {
+				sizes[i] = rest * weights[i] / fw
+				used += sizes[i]
+			}
+		}
+	}
+}
+
+// minExtent is the smallest width (along splitRow) or height (splitCol) the
+// node's drawn Panes need.
+func minExtent(n layoutNode, axis splitDir, omit map[Zone]bool) int {
+	if n.isLeaf() {
+		if axis == splitRow {
+			return paneMin[n.pane].w
+		}
+		return paneMin[n.pane].h
+	}
+	total, count := 0, 0
+	for _, k := range n.kids {
+		if k.omitted(omit) {
+			continue
+		}
+		m := minExtent(k, axis, omit)
+		if n.dir == axis {
+			total += m
+			count++
+		} else {
+			total = max(total, m)
+		}
+	}
+	if n.dir == axis && axis == splitRow && count > 1 {
+		total += count - 1 // the separators
+	}
+	return total
+}
+
+// omitted reports whether every Pane under n is hidden or left out.
 func (n layoutNode) omitted(omit map[Zone]bool) bool {
-	if n.pane != "" {
-		return omit[n.pane]
+	if n.isLeaf() {
+		return n.hidden || omit[n.pane]
 	}
 	for _, k := range n.kids {
 		if !k.omitted(omit) {
