@@ -218,9 +218,13 @@ func (e *Engine) TableStats(ctx context.Context, p api.ObjectPath) (api.TableSta
 	return e.stats[ref.Path.String()].stats, nil
 }
 
-// Preview reads rows straight from a table (no query, no cost). Views and
-// external tables return bq.ErrNeedsQuery. maxChars truncates cell text.
-func (e *Engine) Preview(ctx context.Context, p api.ObjectPath, startIndex int64, rows, maxChars int) (api.PreviewPage, error) {
+// Preview reads rows straight from a table (no query, no cost): the free
+// Sample. Views and external tables return bq.ErrNeedsQuery; a shard family
+// path reads its newest shard. o formats the cells, as for RunRows.
+// BigQuery can return fewer rows than asked when rows are wide, so it reads
+// on from the next index until it has the rows, a call returns none, or the
+// table ends.
+func (e *Engine) Preview(ctx context.Context, p api.ObjectPath, startIndex int64, rows int, o format.Options) (api.PreviewPage, error) {
 	ref, ok := e.search.Lookup(p)
 	if !ok {
 		return api.PreviewPage{}, ErrUnknownTable
@@ -240,13 +244,21 @@ func (e *Engine) Preview(ctx context.Context, p api.ObjectPath, startIndex int64
 	if err != nil {
 		return api.PreviewPage{}, err
 	}
-	raw, err := tp.ListRows(ctx, bq.TableRef{Project: ref.Path.Project, Dataset: ref.Path.Dataset, Table: ref.Path.Table}, startIndex, rows)
-	if err != nil {
-		return api.PreviewPage{}, err
-	}
-	page := api.PreviewPage{Columns: format.Columns(info.Schema), StartIndex: startIndex, TotalRows: raw.TotalRows, Rows: [][]api.Cell{}}
-	for _, r := range raw.Rows {
-		page.Rows = append(page.Rows, format.Row(info.Schema, r, format.Options{MaxChars: maxChars}))
+	tr := bq.TableRef{Project: ref.Path.Project, Dataset: ref.Path.Dataset, Table: ref.Path.Table}
+	page := api.PreviewPage{Columns: format.Columns(info.Schema), StartIndex: startIndex, Rows: [][]api.Cell{}}
+	for next := startIndex; len(page.Rows) < rows; {
+		raw, err := tp.ListRows(ctx, tr, next, rows-len(page.Rows))
+		if err != nil {
+			return api.PreviewPage{}, err
+		}
+		page.TotalRows = raw.TotalRows
+		for _, r := range raw.Rows {
+			page.Rows = append(page.Rows, format.Row(info.Schema, r, o))
+		}
+		next += int64(len(raw.Rows))
+		if len(raw.Rows) == 0 || next >= raw.TotalRows {
+			break
+		}
 	}
 	return page, nil
 }

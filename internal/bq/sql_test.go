@@ -41,3 +41,11 @@ func TestQuoteIdentEscapesBackticks(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestTableOptionsAskForTheRequiredPartitionFilter(t *testing.T) {
+	for _, s := range []scope{regionScope("p", "US"), datasetScope("p", "ds")} {
+		if q := s.tableOptionsSQL(); !strings.Contains(q, "'require_partition_filter'") {
+			t.Fatal(q)
+		}
+	}
+}

@@ -220,15 +220,15 @@ func (c *Catalog) TableByID(ctx context.Context, id int64) (api.TableMeta, error
 	defer tx.Rollback()
 	var typ, labels, sp, sf, sl string
 	var created, expires int64
-	var names, sc int
+	var names, sc, rpf int
 	err = tx.QueryRowContext(ctx, `SELECT d.name, t.name, t.type, t.created_at, t.description, t.labels, t.expires_at, t.view_sql, t.names_only,
- t.shard_prefix, t.shard_first, t.shard_last, t.shard_count
+ t.shard_prefix, t.shard_first, t.shard_last, t.shard_count, `+c.rpf+`
 FROM tables t JOIN datasets d ON d.id = t.dataset_id WHERE t.id = ?`, id).
-		Scan(&t.Dataset, &t.Name, &typ, &created, &t.Description, &labels, &expires, &t.ViewSQL, &names, &sp, &sf, &sl, &sc)
+		Scan(&t.Dataset, &t.Name, &typ, &created, &t.Description, &labels, &expires, &t.ViewSQL, &names, &sp, &sf, &sl, &sc, &rpf)
 	if err != nil {
 		return t, err
 	}
-	t.Type, t.Labels, t.NamesOnly = api.TableType(typ), decodeLabels(labels), names != 0
+	t.Type, t.Labels, t.NamesOnly, t.RequirePartitionFilter = api.TableType(typ), decodeLabels(labels), names != 0, rpf != 0
 	if created > 0 {
 		t.CreatedAt = time.Unix(created, 0).UTC()
 	}

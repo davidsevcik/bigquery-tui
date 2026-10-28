@@ -78,7 +78,7 @@ func (m *Model) loadRecord() tea.Cmd {
 	m.rec.busy = true
 	path := m.sel().path
 	return func() tea.Msg {
-		page, err := m.be.Preview(m.ctx, path, p.StartIndex+int64(row), 1, recordCellMax)
+		page, err := m.be.Preview(m.ctx, path, p.StartIndex+int64(row), 1, recordFormat)
 		return recordMsg{key: key, row: int64(row), page: page, err: err}
 	}
 }

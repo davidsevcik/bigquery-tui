@@ -62,7 +62,7 @@ WHERE %s`, s.view("TABLES"), s.filter("table_schema"))
 func (s scope) tableOptionsSQL() string {
 	return fmt.Sprintf(`SELECT table_schema, table_name, option_name, option_value
 FROM %s
-WHERE %s AND option_name IN ('description', 'labels', 'expiration_timestamp')`, s.view("TABLE_OPTIONS"), s.filter("table_schema"))
+WHERE %s AND option_name IN ('description', 'labels', 'expiration_timestamp', 'require_partition_filter')`, s.view("TABLE_OPTIONS"), s.filter("table_schema"))
 }
 
 func (s scope) viewsSQL() string {

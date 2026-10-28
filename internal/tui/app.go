@@ -1133,7 +1133,7 @@ func (m *Model) previewMore() tea.Cmd {
 	m.tab = 1
 	p := s.path
 	return func() tea.Msg {
-		page, err := m.be.Preview(m.ctx, p, start, previewPage, previewChars)
+		page, err := m.be.Preview(m.ctx, p, start, previewPage, format.Options{MaxChars: previewChars})
 		return previewMsg{key, page, err}
 	}
 }

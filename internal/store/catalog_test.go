@@ -487,3 +487,108 @@ func TestPruneKeepsReincludedDatasetOfIgnoredProject(t *testing.T) {
 		t.Fatalf("%+v", ds)
 	}
 }
+
+func TestContentHashSeesOnlyASetPartitionFilterFlag(t *testing.T) {
+	a := table("d", "t", "a", "b")
+	// the hash of this table before the flag existed: an upgrade must not
+	// rewrite tables that do not have it
+	if got := a.ContentHash(); got != "78946ca620b91f2398f1b65ce084ccedc13035b9f9cd02cfb263a23bb7121a13" {
+		t.Fatalf("a false flag changed the hash: %s", got)
+	}
+	b := a
+	b.RequirePartitionFilter = true
+	if a.ContentHash() == b.ContentHash() {
+		t.Fatal("a set flag must change the hash")
+	}
+}
+
+func tableID(t *testing.T, c *Catalog, name string) int64 {
+	t.Helper()
+	var id int64
+	if err := c.db.QueryRow(`SELECT id FROM tables WHERE name = ?`, name).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func TestPartitionFilterFlagRoundTripsAndCountsAsAChange(t *testing.T) {
+	c := openTemp(t)
+	req := table("d1", "orders", "day")
+	req.RequirePartitionFilter = true
+	apply(t, c, unit("p", "EU"), t0, dsApply("d1", "EU", req, table("d1", "plain", "x")))
+	if got, err := c.TableByID(ctx, tableID(t, c, "orders")); err != nil || !got.RequirePartitionFilter {
+		t.Fatalf("TableByID: %+v %v", got, err)
+	}
+	if got, _ := c.TableByID(ctx, tableID(t, c, "plain")); got.RequirePartitionFilter {
+		t.Fatal("a table without the option reads false")
+	}
+	tabs, _ := c.Tables(ctx, "p", "d1")
+	if len(tabs) != 2 || !tabs[0].RequirePartitionFilter || tabs[1].RequirePartitionFilter {
+		t.Fatalf("Tables: %+v", tabs)
+	}
+	flipped := req
+	flipped.RequirePartitionFilter = false
+	st := apply(t, c, unit("p", "EU"), t0.Add(time.Hour), dsApply("d1", "EU", flipped, table("d1", "plain", "x")))
+	if st.TablesUpdated != 1 || st.TablesUnchanged != 1 {
+		t.Fatalf("flipping the flag is an update: %+v", st)
+	}
+	if got, _ := c.TableByID(ctx, tableID(t, c, "orders")); got.RequirePartitionFilter {
+		t.Fatal("the update cleared the flag")
+	}
+}
+
+// catalogWithoutTheFlag is a catalog written before require_partition_filter
+// existed: same schema version, one column fewer.
+func catalogWithoutTheFlag(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	c, err := OpenCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	apply(t, c, unit("p", "EU"), t0, dsApply("d1", "EU", table("d1", "orders", "day")))
+	if _, err := c.db.Exec(`ALTER TABLE tables DROP COLUMN require_partition_filter`); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	return path
+}
+
+func TestOlderCatalogGainsTheFlagColumnInPlace(t *testing.T) {
+	path := catalogWithoutTheFlag(t)
+	c, err := OpenCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if c.Recreated() != "" {
+		t.Fatalf("an added column must not recreate the catalog: %s", c.Recreated())
+	}
+	got, err := c.TableByID(ctx, tableID(t, c, "orders"))
+	if err != nil || got.Name != "orders" || got.RequirePartitionFilter || len(got.Columns) != 1 {
+		t.Fatalf("the data is kept and the flag reads false: %+v %v", got, err)
+	}
+	req := table("d1", "orders", "day")
+	req.RequirePartitionFilter = true
+	apply(t, c, unit("p", "EU"), t0.Add(time.Hour), dsApply("d1", "EU", req))
+	if got, _ := c.TableByID(ctx, tableID(t, c, "orders")); !got.RequirePartitionFilter {
+		t.Fatal("the next sync stores the flag")
+	}
+}
+
+func TestReadOnlyOpenOfAnOlderCatalogReadsTheFlagAsFalse(t *testing.T) {
+	path := catalogWithoutTheFlag(t)
+	ro, err := OpenCatalogReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ro.Close()
+	got, err := ro.TableByID(ctx, tableID(t, ro, "orders"))
+	if err != nil || got.Name != "orders" || got.RequirePartitionFilter {
+		t.Fatalf("TableByID: %+v %v", got, err)
+	}
+	tabs, err := ro.Tables(ctx, "p", "d1")
+	if err != nil || len(tabs) != 1 || tabs[0].RequirePartitionFilter {
+		t.Fatalf("Tables: %+v %v", tabs, err)
+	}
+}

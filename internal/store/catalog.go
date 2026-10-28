@@ -14,8 +14,18 @@ import (
 )
 
 // CatalogSchemaVersion is the catalog.db schema version. The catalog has no
-// migrations: a mismatch deletes and recreates the file (ticket 06).
+// migrations: a mismatch deletes and recreates the file (ticket 06). A column
+// with a default is added in place instead (addedColumns), without a version
+// change, so that older bqt binaries sharing the file keep working.
 const CatalogSchemaVersion = 3
+
+// addedColumns are the columns added to the schema after its version: the
+// writer open adds any an existing file lacks, and the read-only open reads
+// a missing one as its default. Older binaries name their columns, so they
+// never see these.
+var addedColumns = []struct{ table, column, decl string }{
+	{"tables", "require_partition_filter", "INTEGER NOT NULL DEFAULT 0"},
+}
 
 const catalogSchema = `
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -50,6 +60,7 @@ CREATE TABLE tables (
   view_sql     TEXT NOT NULL DEFAULT '',
   names_only   INTEGER NOT NULL DEFAULT 0,
   content_hash TEXT NOT NULL,
+  require_partition_filter INTEGER NOT NULL DEFAULT 0,
   shard_prefix TEXT NOT NULL DEFAULT '',
   shard_first  TEXT NOT NULL DEFAULT '',
   shard_last   TEXT NOT NULL DEFAULT '',
@@ -100,6 +111,9 @@ type Catalog struct {
 	path      string
 	readOnly  bool
 	recreated string
+	// rpf is what the readers select for tables.require_partition_filter:
+	// the column, or 0 in a read-only file that predates it.
+	rpf string
 }
 
 // OpenCatalog opens (creating if needed) the catalog for writing. A schema
@@ -125,7 +139,11 @@ func OpenCatalog(path string) (*Catalog, error) {
 				db.Close()
 				return nil, verr
 			case v == CatalogSchemaVersion:
-				return &Catalog{db: db, path: path}, nil
+				if err := addMissingColumns(db); err != nil {
+					db.Close()
+					return nil, err
+				}
+				return &Catalog{db: db, path: path, rpf: "t.require_partition_filter"}, nil
 			case v == 0:
 				// empty file: fall through to create
 			default:
@@ -145,7 +163,7 @@ func OpenCatalog(path string) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Catalog{db: db, path: path, recreated: reason}
+	c := &Catalog{db: db, path: path, recreated: reason, rpf: "t.require_partition_filter"}
 	if err := c.create(); err != nil {
 		db.Close()
 		return nil, err
@@ -170,7 +188,52 @@ func OpenCatalogReadOnly(path string) (*Catalog, error) {
 		}
 		return nil, err
 	}
-	return &Catalog{db: db, path: path, readOnly: true}, nil
+	c := &Catalog{db: db, path: path, readOnly: true, rpf: "t.require_partition_filter"}
+	has, err := hasColumn(db, "tables", "require_partition_filter")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if !has {
+		c.rpf = "0" // written before the column: "unknown = false"
+	}
+	return c, nil
+}
+
+// addMissingColumns adds the columns an existing file lacks, keeping its data.
+// The caller holds the init lock.
+func addMissingColumns(db *sql.DB) error {
+	for _, a := range addedColumns {
+		has, err := hasColumn(db, a.table, a.column)
+		if err != nil {
+			return err
+		}
+		if has {
+			continue
+		}
+		if _, err := db.Exec("ALTER TABLE " + a.table + " ADD COLUMN " + a.column + " " + a.decl); err != nil {
+			return fmt.Errorf("add catalog column %s.%s: %w", a.table, a.column, err)
+		}
+	}
+	return nil
+}
+
+func hasColumn(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query("SELECT name FROM pragma_table_info(?)", table)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return false, err
+		}
+		if n == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 func (c *Catalog) create() error {
@@ -398,12 +461,12 @@ func applyTables(ctx context.Context, tx *sql.Tx, datasetID int64, tables []api.
 	}
 	rows.Close()
 
-	insTable, err := tx.PrepareContext(ctx, `INSERT INTO tables(dataset_id,name,name_lc,type,created_at,description,labels,expires_at,view_sql,names_only,content_hash,shard_prefix,shard_first,shard_last,shard_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	insTable, err := tx.PrepareContext(ctx, `INSERT INTO tables(dataset_id,name,name_lc,type,created_at,description,labels,expires_at,view_sql,names_only,content_hash,shard_prefix,shard_first,shard_last,shard_count,require_partition_filter) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return st, err
 	}
 	defer insTable.Close()
-	updTable, err := tx.PrepareContext(ctx, `UPDATE tables SET type=?,created_at=?,description=?,labels=?,expires_at=?,view_sql=?,names_only=?,content_hash=?,shard_prefix=?,shard_first=?,shard_last=?,shard_count=? WHERE id=?`)
+	updTable, err := tx.PrepareContext(ctx, `UPDATE tables SET type=?,created_at=?,description=?,labels=?,expires_at=?,view_sql=?,names_only=?,content_hash=?,shard_prefix=?,shard_first=?,shard_last=?,shard_count=?,require_partition_filter=? WHERE id=?`)
 	if err != nil {
 		return st, err
 	}
@@ -444,7 +507,7 @@ func applyTables(ctx context.Context, tx *sql.Tx, datasetID int64, tables []api.
 			}
 			st.TablesUnchanged++
 		case found:
-			if _, err := updTable.ExecContext(ctx, string(t.Type), unix(t.CreatedAt), t.Description, encodeLabels(t.Labels), unixPtr(t.ExpiresAt), t.ViewSQL, b2i(t.NamesOnly), hash, sp, sf, sl, sc, old.id); err != nil {
+			if _, err := updTable.ExecContext(ctx, string(t.Type), unix(t.CreatedAt), t.Description, encodeLabels(t.Labels), unixPtr(t.ExpiresAt), t.ViewSQL, b2i(t.NamesOnly), hash, sp, sf, sl, sc, b2i(t.RequirePartitionFilter), old.id); err != nil {
 				return st, err
 			}
 			if _, err := tx.ExecContext(ctx, "DELETE FROM columns WHERE table_id = ?", old.id); err != nil {
@@ -455,7 +518,7 @@ func applyTables(ctx context.Context, tx *sql.Tx, datasetID int64, tables []api.
 			}
 			st.TablesUpdated++
 		default:
-			res, err := insTable.ExecContext(ctx, datasetID, t.Name, strings.ToLower(t.Name), string(t.Type), unix(t.CreatedAt), t.Description, encodeLabels(t.Labels), unixPtr(t.ExpiresAt), t.ViewSQL, b2i(t.NamesOnly), hash, sp, sf, sl, sc)
+			res, err := insTable.ExecContext(ctx, datasetID, t.Name, strings.ToLower(t.Name), string(t.Type), unix(t.CreatedAt), t.Description, encodeLabels(t.Labels), unixPtr(t.ExpiresAt), t.ViewSQL, b2i(t.NamesOnly), hash, sp, sf, sl, sc, b2i(t.RequirePartitionFilter))
 			if err != nil {
 				return st, err
 			}
@@ -629,7 +692,7 @@ func (c *Catalog) Datasets(ctx context.Context, project string) ([]DatasetRow, e
 
 // Tables lists a dataset's tables (without columns).
 func (c *Catalog) Tables(ctx context.Context, project, dataset string) ([]api.TableMeta, error) {
-	rows, err := c.db.QueryContext(ctx, `SELECT t.name,t.type,t.created_at,t.description,t.labels,t.expires_at,t.view_sql,t.names_only,t.shard_prefix,t.shard_first,t.shard_last,t.shard_count
+	rows, err := c.db.QueryContext(ctx, `SELECT t.name,t.type,t.created_at,t.description,t.labels,t.expires_at,t.view_sql,t.names_only,t.shard_prefix,t.shard_first,t.shard_last,t.shard_count,`+c.rpf+`
 FROM tables t JOIN datasets d ON d.id=t.dataset_id JOIN projects p ON p.id=d.project_id
 WHERE p.name = ? AND d.name = ? ORDER BY t.name_lc`, project, dataset)
 	if err != nil {
@@ -641,12 +704,13 @@ WHERE p.name = ? AND d.name = ? ORDER BY t.name_lc`, project, dataset)
 		var t api.TableMeta
 		var typ, labels string
 		var created, expires int64
-		var names int
+		var names, rpf int
 		var sp, sf, sl string
 		var sc int
-		if err := rows.Scan(&t.Name, &typ, &created, &t.Description, &labels, &expires, &t.ViewSQL, &names, &sp, &sf, &sl, &sc); err != nil {
+		if err := rows.Scan(&t.Name, &typ, &created, &t.Description, &labels, &expires, &t.ViewSQL, &names, &sp, &sf, &sl, &sc, &rpf); err != nil {
 			return nil, err
 		}
+		t.RequirePartitionFilter = rpf != 0
 		t.Dataset = dataset
 		t.Type = api.TableType(typ)
 		if created > 0 {
