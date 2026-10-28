@@ -1,5 +1,5 @@
  Tables 1/2                 │ SQL · query 1   1:1
-T c╭─ Help  (1-18/231) ─────────────────────────────────────────────────────╮ta…
+T c╭─ Help  (1-18/239) ─────────────────────────────────────────────────────╮ta…
 T e│ Global                                                                 │
    │ ctrl+q          quit (asks if Runs are in flight)                      │
    │ ctrl+o  ctrl+w w  next pane: Explorer, Schema, Editor, Results         │

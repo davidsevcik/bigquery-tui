@@ -85,6 +85,7 @@ type Model struct {
 	panes     layoutNode          // the Layout's tree: the preset's, or the user's edit of it (custom)
 	maxed     Zone                // the maximised Pane ("" for none); session only
 	mru       []Zone              // the Panes, most recently focused first
+	mouse     bool                // mouse reporting: click to focus, the wheel scrolls (remembered)
 	pd        *projDialog         // the Projects dialog while open
 	listed    []api.ListedProject // BigQuery's projects list, once fetched
 	selSeen   string              // the selection last applied (see tick)
@@ -218,6 +219,18 @@ type uiState struct {
 	// it is decoded on its own, so a bad value does not lose the style.
 	PaneLayout json.RawMessage `json:"pane_layout,omitempty"`
 	Layout     string          `json:"layout,omitempty"` // legacy: the Explorer style
+	// Mouse is the palette's "Mouse: on/off"; missing (older files) is off.
+	Mouse lenientBool `json:"mouse,omitempty"`
+}
+
+// lenientBool reads a value that is not a boolean as false, so that it does
+// not lose the rest of the state file.
+type lenientBool bool
+
+func (b *lenientBool) UnmarshalJSON(data []byte) error {
+	var v bool
+	*b = lenientBool(json.Unmarshal(data, &v) == nil && v)
+	return nil
 }
 
 // paneLayoutState is "pane_layout": the source preset, and the tree when it
@@ -256,6 +269,7 @@ func (m *Model) loadState() {
 		m.style = s
 	}
 	m.loadPaneLayout(st.PaneLayout)
+	m.mouse = bool(st.Mouse)
 }
 
 // loadPaneLayout reads "pane_layout": an unknown preset (from a newer bqt)
@@ -284,9 +298,9 @@ func (m *Model) loadPaneLayout(raw json.RawMessage) {
 	}
 }
 
-// saveState writes the chosen Explorer style and the Layout (its preset, and
-// its tree when custom); the step-down and the maximised Pane are never
-// saved.
+// saveState writes the chosen Explorer style, the Layout (its preset, and
+// its tree when custom) and the mouse setting; the step-down and the
+// maximised Pane are never saved.
 func (m *Model) saveState() {
 	p := m.be.StatePath()
 	if os.MkdirAll(filepath.Dir(p), 0o700) != nil {
@@ -297,7 +311,7 @@ func (m *Model) saveState() {
 		pls.Tree = treeToJSON(m.panes)
 	}
 	pl, _ := json.Marshal(pls)
-	b, _ := json.Marshal(uiState{ExplorerStyle: styleNames[m.style], PaneLayout: pl})
+	b, _ := json.Marshal(uiState{ExplorerStyle: styleNames[m.style], PaneLayout: pl, Mouse: lenientBool(m.mouse)})
 	_ = os.WriteFile(p, b, 0o600)
 }
 
@@ -520,6 +534,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.key(msg)
 		m.nextConfirm()
 		return m, tea.Batch(cmd, m.afterSelect())
+	case tea.MouseClickMsg:
+		return m, tea.Batch(m.mouseClick(tea.Mouse(msg)), m.afterSelect())
+	case tea.MouseWheelMsg:
+		return m, tea.Batch(m.mouseWheel(tea.Mouse(msg)), m.afterSelect())
 	case searchMsg:
 		m.onSearch(msg)
 		return m, m.afterSelect()
@@ -814,6 +832,9 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 		return m.runSearch(m.jump), true
 	case "help":
 		m.ov, m.ovOff = ovHelp, 0
+		return nil, true
+	case "mouse":
+		m.toggleMouse()
 		return nil, true
 	case "cancel":
 		if m.cancelFocused() {
@@ -1135,5 +1156,10 @@ func (m *Model) View() tea.View {
 	v := tea.NewView(strings.Join(m.render(), "\n"))
 	v.AltScreen = true
 	v.ReportFocus = true
+	// Popups leave the mouse to the terminal: its own selection and wheel
+	// work there. Bubble Tea switches the terminal's mode between frames.
+	if m.mouse && m.ov == ovNone {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	return v
 }

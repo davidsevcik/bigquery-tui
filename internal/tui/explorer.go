@@ -349,21 +349,26 @@ func (m *Model) listHeight() int { return max(1, m.paneRect(ZoneExplorer).h-2) }
 func (m *Model) move(d int) {
 	switch m.style {
 	case styleColumns:
-		ml := &m.mil
-		c := ml.col
-		old := ml.cur[c]
-		ml.cur[c] = clamp(ml.cur[c]+d, 0, max(0, len(ml.cols[c])-1))
-		if ml.cur[c] != old && c < 2 {
-			for i := c + 1; i < 3; i++ {
-				ml.cur[i], ml.off[i] = 0, 0
-			}
-			ml.family = nil
-			m.milLoad(c + 1)
-		}
+		m.milMove(m.mil.col, d)
 	case styleTree:
 		m.tree.cur = clamp(m.tree.cur+d, 0, max(0, len(m.tree.rows)-1))
 	case styleList:
 		m.flat.move(d)
+	}
+}
+
+// milMove moves column c's cursor by d; the deeper columns start again at
+// the top of the new parent. c need not be the focused column (the wheel).
+func (m *Model) milMove(c, d int) {
+	ml := &m.mil
+	old := ml.cur[c]
+	ml.cur[c] = clamp(ml.cur[c]+d, 0, max(0, len(ml.cols[c])-1))
+	if ml.cur[c] != old && c < 2 {
+		for i := c + 1; i < 3; i++ {
+			ml.cur[i], ml.off[i] = 0, 0
+		}
+		ml.family = nil
+		m.milLoad(c + 1)
 	}
 }
 

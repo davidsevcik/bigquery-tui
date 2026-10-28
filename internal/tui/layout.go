@@ -459,3 +459,65 @@ func neighbour(nav map[Zone]rect, from Zone, d direction, mru []Zone) (Zone, boo
 func span(a, al, b, bl int) int {
 	return min(a+al, b+bl) - max(a, b)
 }
+
+// has reports whether the cell (x, y) lies in r (the top-left edge
+// inclusive, the bottom-right exclusive).
+func (r rect) has(x, y int) bool {
+	return x >= r.x && x < r.x+r.w && y >= r.y && y < r.y+r.h
+}
+
+// paneAt is the drawn Pane whose rectangle holds the screen cell (x, y), for
+// the mouse. The body starts at screen row 0, so the rectangles are screen
+// coordinates. A Pane's rectangle includes its title row; the separators, the
+// pane bar, and the tutorial panel, status line and footer below the body lie
+// outside every rectangle.
+func paneAt(rects map[Zone]rect, x, y int) (Zone, bool) {
+	for _, z := range paneOrder {
+		if r, ok := rects[z]; ok && r.has(x, y) {
+			return z, true
+		}
+	}
+	return "", false
+}
+
+// barLabel is one Pane's name on the pane bar, at the screen columns
+// [x, x+w).
+type barLabel struct {
+	pane  Zone
+	text  string
+	drawn bool // the Pane drawn under the bar, named in brackets
+	x, w  int
+}
+
+// barLabels lays out the pane bar's names: one cell in, two between them.
+// paneBar draws them here, and a click on one focuses its Pane.
+func barLabels(a arrangement) []barLabel {
+	if a.bar == nil {
+		return nil
+	}
+	var out []barLabel
+	x := a.bar.x + 1
+	for _, z := range a.barPanes {
+		_, drawn := a.rects[z]
+		text := string(z)
+		if drawn {
+			text = "[" + text + "]"
+		}
+		out = append(out, barLabel{z, text, drawn, x, wid(text)})
+		x += wid(text) + 2
+	}
+	return out
+}
+
+// barAt is the Pane whose name on the pane bar holds the screen cell (x, y).
+func barAt(a arrangement, x, y int) (Zone, bool) {
+	if a.bar == nil || !a.bar.has(x, y) {
+		return "", false
+	}
+	for _, l := range barLabels(a) {
+		if x >= l.x && x < l.x+l.w {
+			return l.pane, true
+		}
+	}
+	return "", false
+}

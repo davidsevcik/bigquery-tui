@@ -1,5 +1,5 @@
  Tables 1/2                               │ SQL · query 1   1:1
-T clicks    ╭─ Help  (1-30/214) ───────────────────────────────────────────────────────────────────────────╮
+T clicks    ╭─ Help  (1-30/221) ───────────────────────────────────────────────────────────────────────────╮
 T events_YYY│ Global                                                                                       │
             │ ctrl+q          quit (asks if Runs are in flight)                                            │
             │ ctrl+o  ctrl+w w  next pane: Explorer, Schema, Editor, Results                               │

@@ -125,7 +125,7 @@ var tutSteps = []tutStep{
 		func(m *Model, t *tutorial) bool { return m.zone == ZoneExplorer }},
 	{"Favorites and History", plain("`ctrl+x r` opens History: every query you ran, searchable (`status:failed`, `since:7d`). `tab` switches to Favorites, your saved queries (`ctrl+x s` saves the buffer as one); `enter` loads one into the editor. Open it and close it."),
 		closedAfter(ovPicker)},
-	{"Done", plain("That is the navigation. `?` lists every key, `ctrl+p` every command, `ctrl+g` starts this tutorial again. `ctrl+g n` closes it."), nil},
+	{"Done", plain("That is the navigation. `?` lists every key, `ctrl+p` every command, `ctrl+g` starts this tutorial again. The mouse is off; the palette's \"Mouse: on/off\" turns on click-to-focus and wheel scrolling. `ctrl+g n` closes it."), nil},
 }
 
 func (m *Model) startTutorial() {

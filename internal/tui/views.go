@@ -58,10 +58,13 @@ func (m *Model) health(n api.BrowseNode, long bool) (string, lipgloss.Style) {
 	return "✓ " + a, sOk
 }
 
+// tooSmall reports that the screen only says "bqt needs a larger terminal".
+func (m *Model) tooSmall() bool { return m.w < 20 || m.h < 6 }
+
 // render builds the whole screen as lines.
 func (m *Model) render() []string {
 	w, h := m.w, m.h
-	if w < 20 || h < 6 {
+	if m.tooSmall() {
 		return []string{"bqt needs a larger terminal"}
 	}
 	bodyH := h - 2
@@ -314,16 +317,15 @@ func (m *Model) explorerPane(w, h int) []string {
 // stands for, the drawn one in brackets.
 func paneBar(a arrangement, w int) string {
 	b := &rb{bg: lipgloss.Color("236")}
-	b.add(" ", sDim)
-	for i, z := range a.barPanes {
-		if i > 0 {
-			b.add("  ", sDim)
-		}
-		if _, ok := a.rects[z]; ok {
-			b.add("["+string(z)+"]", sTitleF)
+	at := a.bar.x
+	for _, l := range barLabels(a) {
+		b.add(strings.Repeat(" ", l.x-at), sDim)
+		if l.drawn {
+			b.add(l.text, sTitleF)
 		} else {
-			b.add(string(z), sDim)
+			b.add(l.text, sDim)
 		}
+		at = l.x + l.w
 	}
 	b.add("   "+a.barHint, sFaint)
 	return b.line(w)
@@ -331,28 +333,42 @@ func paneBar(a arrangement, w int) string {
 
 // --- lists
 
-func (m *Model) millerList(w, h int) []string {
-	ml := &m.mil
+// millerSpan is one drawn Miller column: which one, and its cells [x, x+w)
+// within the Explorer Pane.
+type millerSpan struct{ col, x, w int }
+
+// millerSpans lays out the Miller columns shown in a w-cell Explorer, one
+// separator column between them: drawing and the wheel both use it.
+func (m *Model) millerSpans(w int) []millerSpan {
 	first := m.milFirst()
 	n := clamp(w/24, 1, 3-first)
-	start := clamp(ml.col-(n-1), first, 3-n)
+	start := clamp(m.mil.col-(n-1), first, 3-n)
 	avail := w - (n - 1)
-	var blocks [][]string
-	used := 0
 	// Dataset and table names are long; project ids are few and short.
 	weight := []int{3, 5, 5}
 	sum := 0
 	for i := 0; i < n; i++ {
 		sum += weight[start+i]
 	}
+	var out []millerSpan
+	used := 0
 	for i := 0; i < n; i++ {
 		cw := avail * weight[start+i] / sum
 		if i == n-1 {
 			cw = avail - used
 		}
+		out = append(out, millerSpan{start + i, used + i, cw})
 		used += cw
-		blocks = append(blocks, m.millerCol(start+i, cw, h))
-		if i < n-1 {
+	}
+	return out
+}
+
+func (m *Model) millerList(w, h int) []string {
+	var blocks [][]string
+	spans := m.millerSpans(w)
+	for i, s := range spans {
+		blocks = append(blocks, m.millerCol(s.col, s.w, h))
+		if i < len(spans)-1 {
 			blocks = append(blocks, vsep(h))
 		}
 	}

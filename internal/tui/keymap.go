@@ -72,6 +72,7 @@ var Keymap = []Binding{
 	{ZoneGlobal, []string{}, "showschema", "show the Schema pane if hidden, and focus it", "Show Schema", ""},
 	{ZoneGlobal, []string{}, "showeditor", "show the Editor if hidden, and focus it", "Show Editor", ""},
 	{ZoneGlobal, []string{}, "showresults", "show the Results if hidden, and focus it", "Show Results", ""},
+	{ZoneGlobal, []string{}, "mouse", "mouse on or off (off by default): a click focuses a Pane, the wheel scrolls the Pane under the pointer; Shift+drag (Option+drag in iTerm2) selects text", "Mouse: on/off", ""},
 	{ZoneGlobal, []string{"ctrl+p"}, "palette", "command palette", "", "ctrl+p cmds"},
 	{ZoneGlobal, []string{"ctrl+t"}, "jump", "jump to table (recently opened when empty)", "Jump to table", "ctrl+t jump"},
 	{ZoneGlobal, []string{"f1"}, "help", "this help", "Help", ""},
@@ -341,6 +342,13 @@ func helpLines(w int) []string {
 			}
 		}
 		out = append(out, "")
+		if z == ZoneResults {
+			out = append(out, " "+sBold.Render("Mouse"))
+			for _, l := range mouseHelp {
+				row(l[0], l[1])
+			}
+			out = append(out, "")
+		}
 	}
 	out = append(out, " "+sBold.Render("Search syntax"))
 	row("p: d: type:", "filters; also col: label: desc:")
@@ -348,6 +356,12 @@ func helpLines(w int) []string {
 	row("col:user.id", "columns are searched only with col:")
 	row("proj.ds.table", "a pasted path is an exact lookup")
 	return out
+}
+
+// mouseHelp explains the mouse, which has no keys of its own.
+var mouseHelp = [][2]string{
+	{"Mouse: on/off", "off by default. When on, a click focuses a Pane (or a name in the focus pane bar), the wheel scrolls the Pane under the pointer (sideways in the Results: columns). Popups leave the mouse to the terminal."},
+	{"Shift+drag", "selects text while the mouse is on (Option+drag in iTerm2; middle-click paste may need Shift too)"},
 }
 
 // editingHelp lists the text-editing keys, which belong to the editor widget

@@ -178,6 +178,30 @@ func (r *rig) send(msg tea.Msg) {
 	r.run(cmd)
 }
 
+// click sends a plain left click at the screen cell (x, y).
+func (r *rig) click(x, y int) {
+	r.t.Helper()
+	r.send(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+}
+
+// wheel sends one wheel step (tea.MouseWheelUp, Down, Left or Right) at the
+// screen cell (x, y).
+func (r *rig) wheel(x, y int, button tea.MouseButton) {
+	r.t.Helper()
+	r.send(tea.MouseWheelMsg{X: x, Y: y, Button: button})
+}
+
+// center is the middle cell of a drawn Pane, read from the arrangement the
+// model draws.
+func (r *rig) center(z Zone) (int, int) {
+	r.t.Helper()
+	p, ok := r.m.arr().rects[z]
+	if !ok {
+		r.t.Fatalf("%s is not drawn", z)
+	}
+	return p.x + p.w/2, p.y + p.h/2
+}
+
 var special = map[string]rune{
 	"enter": tea.KeyEnter, "esc": tea.KeyEscape, "tab": tea.KeyTab, "up": tea.KeyUp, "down": tea.KeyDown,
 	"left": tea.KeyLeft, "right": tea.KeyRight, "backspace": tea.KeyBackspace, "f1": tea.KeyF1, "pgdown": tea.KeyPgDown, "pgup": tea.KeyPgUp,
