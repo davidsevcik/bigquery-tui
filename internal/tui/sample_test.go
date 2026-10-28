@@ -457,9 +457,12 @@ func TestPBringsTheResultsBackFromAMaximisedSchema(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			r := newRig(t, c.w, c.h)
 			r.onOrders()
-			r.press("z")
-			if r.m.maxed != ZoneSchema {
-				t.Fatalf("z did not maximise the Schema: %q", r.m.maxed)
+			r.press("enter")
+			if c.want == ZoneSchema {
+				r.press("ctrl+w", "z")
+			}
+			if _, ok := r.m.arr().rects[ZoneResults]; ok {
+				t.Fatalf("the Schema is not maximised: %v", r.m.arr().rects)
 			}
 			r.press("p")
 			if _, ok := r.m.arr().rects[ZoneResults]; !ok {

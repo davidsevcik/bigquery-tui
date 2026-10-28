@@ -33,7 +33,7 @@ func TestEnterOnATableGoesToTheSchemaPane(t *testing.T) {
 	if r.m.zone != ZoneSchema || r.m.maxed != "" {
 		t.Fatalf("enter focuses the Schema pane in place: %s %q", r.m.zone, r.m.maxed)
 	}
-	r.contains("↑↓/jk scroll · p sample · z maximise · esc back")
+	r.contains("↑↓/jk scroll · p sample · esc back")
 	r.press("j", "j")
 	if r.m.detOff != 2 {
 		t.Fatalf("j scrolls the schema: %d", r.m.detOff)
@@ -79,59 +79,68 @@ func TestEnterShowsASteppedDownSchemaMaximised(t *testing.T) {
 	r.lacks("Schema ·")
 	r.onOrders()
 	r.press("enter")
-	if r.m.zone != ZoneSchema || r.m.maxed != ZoneSchema {
+	if r.m.zone != ZoneSchema || !r.m.arr().offLayout || r.m.maxed != "" {
 		t.Fatalf("pane %s maxed %q", r.m.zone, r.m.maxed)
 	}
-	r.contains("schema · 8 fields")
-	r.lacks("Tables 3/4", "SQL · query 1")
+	r.contains("schema · 8 fields", "Explorer  [Schema]  Editor  Results   ctrl+o next")
+	r.lacks("Tables 3/4", "SQL · query 1", "(maximised)")
 	r.press("esc")
-	if r.m.zone != ZoneExplorer || r.m.maxed != "" {
-		t.Fatalf("esc restores: pane %s maxed %q", r.m.zone, r.m.maxed)
+	if r.m.zone != ZoneExplorer || r.m.arr().offLayout {
+		t.Fatalf("esc goes back: pane %s", r.m.zone)
 	}
 	r.contains("Tables 3/4", "SQL · query 1")
 	r.lacks("schema · 8 fields")
-	// z restores as well
-	r.press("z")
-	r.contains("schema · 8 fields")
-	r.press("z")
+	// ctrl+w z restores as well: back to a Pane the Layout has room for
+	r.press("enter", "ctrl+w", "z")
 	if r.m.zone != ZoneExplorer || r.m.maxed != "" {
-		t.Fatalf("z restores: pane %s maxed %q", r.m.zone, r.m.maxed)
+		t.Fatalf("ctrl+w z restores: pane %s maxed %q", r.m.zone, r.m.maxed)
 	}
 }
 
-func TestZMaximisesAndRestoresTheSchemaPane(t *testing.T) {
+func TestCtrlWZMaximisesAnyPaneAndTheZoomFollowsFocus(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.onOrders()
-	r.press("z")
+	r.press("enter", "ctrl+w", "z")
 	if r.m.zone != ZoneSchema || r.m.maxed != ZoneSchema {
-		t.Fatalf("z maximises: pane %s maxed %q", r.m.zone, r.m.maxed)
+		t.Fatalf("ctrl+w z maximises: pane %s maxed %q", r.m.zone, r.m.maxed)
 	}
 	r.lacks("Tables 3/4", "SQL · query 1")
-	if r.line(" Schema · acme-prod.sales.orders") != 0 {
-		t.Fatalf("maximised, the Schema pane fills the screen:\n%s", r.screen())
+	r.contains("layout: classic (maximised)", "Explorer  [Schema]  Editor  Results   ctrl+w z restore")
+	if r.line(" Schema · acme-prod.sales.orders") != 1 {
+		t.Fatalf("maximised, the Schema pane fills the screen under the pane bar:\n%s", r.screen())
 	}
-	r.press("z")
+	r.press("ctrl+w", "z")
 	if r.m.zone != ZoneSchema || r.m.maxed != "" {
-		t.Fatalf("z in the Schema restores and keeps the focus: pane %s maxed %q", r.m.zone, r.m.maxed)
+		t.Fatalf("ctrl+w z again restores and keeps the focus: pane %s maxed %q", r.m.zone, r.m.maxed)
 	}
 	r.contains("Tables 3/4", "SQL · query 1")
-	// esc backs out one level at a time: first the maximise, then the Pane
-	r.press("z", "esc")
-	if r.m.zone != ZoneSchema || r.m.maxed != "" {
-		t.Fatalf("the first esc only restores: pane %s maxed %q", r.m.zone, r.m.maxed)
+	r.lacks("(maximised)")
+	// the zoom follows ctrl+w l, found on the real Layout: right of the
+	// Schema are the Results
+	r.press("ctrl+w", "z", "ctrl+w", "l")
+	if r.m.zone != ZoneResults || r.m.maxed != ZoneResults {
+		t.Fatalf("ctrl+w l moves the zoom: pane %s maxed %q", r.m.zone, r.m.maxed)
 	}
-	r.press("esc")
-	if r.m.zone != ZoneExplorer {
-		t.Fatalf("the second esc goes back: pane %s", r.m.zone)
+	r.contains("Explorer  Schema  Editor  [Results]", "(maximised)")
+	// and ctrl+o, skipping a hidden Pane
+	r.press("ctrl+w", "z", "ctrl+w", "k", "ctrl+w", "c", "ctrl+w", "j", "ctrl+w", "z")
+	if r.m.zone != ZoneResults || r.m.maxed != ZoneResults || !r.m.panes.hiddenPane(ZoneEditor) {
+		t.Fatalf("pane %s maxed %q tree %s", r.m.zone, r.m.maxed, r.m.panes)
 	}
-	// moving the focus away restores the Layout too
-	r.press("z", "ctrl+o")
-	if r.m.zone != ZoneEditor || r.m.maxed != "" {
-		t.Fatalf("pane %s maxed %q", r.m.zone, r.m.maxed)
+	r.press("ctrl+o")
+	if r.m.zone != ZoneExplorer || r.m.maxed != ZoneExplorer {
+		t.Fatalf("ctrl+o skips the hidden Editor: pane %s maxed %q", r.m.zone, r.m.maxed)
 	}
-	// the palette names it
-	r.press("ctrl+w", "h", "ctrl+p", "Go to the Schema", "enter")
-	if r.m.zone != ZoneSchema || r.m.maxed != "" {
+	r.contains("[Explorer]  Schema  Results   ctrl+w z restore")
+	// esc does not restore: it keeps its meaning in the Pane (here the
+	// Schema's: back to the Explorer, which the zoom follows)
+	r.press("ctrl+o", "esc")
+	if r.m.zone != ZoneExplorer || r.m.maxed != ZoneExplorer {
+		t.Fatalf("esc: pane %s maxed %q", r.m.zone, r.m.maxed)
+	}
+	// the palette names the Panes too
+	r.press("ctrl+p", "Go to the Schema", "enter")
+	if r.m.zone != ZoneSchema || r.m.maxed != ZoneSchema {
 		t.Fatalf("the palette goes to the Schema pane: %s %q", r.m.zone, r.m.maxed)
 	}
 }
@@ -244,7 +253,7 @@ func TestViewsListTheirFieldsBeforeTheSQL(t *testing.T) {
 	r.addViewWithFields()
 	r.press("ctrl+t", "v_customers", "enter")
 	r.selected("acme-prod.sales.v_customers")
-	r.press("z")
+	r.press("enter", "ctrl+w", "z")
 	email := -1
 	for i, l := range strings.Split(r.screen(), "\n") {
 		if strings.Contains(l, " email ") && strings.Contains(l, "STRING") {
@@ -286,7 +295,7 @@ func TestLayoutGoldenScreens(t *testing.T) {
 	r.golden("classic_run_120x36")
 	r.press("enter")
 	r.golden("schema_focused_120x36")
-	r.press("z")
+	r.press("ctrl+w", "z")
 	r.golden("schema_max_120x36")
 
 	r = newRig(t, 80, 24)

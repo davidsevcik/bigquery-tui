@@ -13,7 +13,7 @@ acme-staging           ✓ 3h │~
                             │
                             │
                             │
-╭─ Tutorial 3/17 · In and out ─────────────────────────────────────────────────╮
+╭─ Tutorial 3/18 · In and out ─────────────────────────────────────────────────╮
 │ l or → opens the selected project or dataset (in the tree style: expands     │
 │ it); h or ← goes back out. Go in once and back out once.                     │
 │                                                                              │

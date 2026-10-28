@@ -1,0 +1,36 @@
+ Explorer  Schema  [Editor]  Results   ctrl+w z restore
+ SQL · query 1   1:22
+ 1  select n from numbers
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+ bqt exec acme-exec  layout: classic (maximised)  2 projects                                     5 datasets · 13 tables
+ ctrl+r run · ctrl+d dry-run · tab complete · ctrl+x b buffers · ctrl+x l runs · ctrl+o pane · ctrl+p cmds · ctrl+t jum…

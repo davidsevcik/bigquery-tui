@@ -491,7 +491,7 @@ func (m *Model) open() tea.Cmd {
 		}
 		p := s.path
 		touch := func() tea.Msg { _ = m.be.TouchRecent(m.ctx, p); return nil }
-		m.focusSchema(false)
+		m.focusSchema()
 		return touch
 	}
 	return nil
@@ -636,6 +636,11 @@ func (m *Model) reveal(p api.ObjectPath, kind api.ResultKind) tea.Cmd {
 	if m.style == styleList {
 		// the list style cannot show containers: fall back to the columns style
 		m.style = styleColumns
+	}
+	if m.panes.hiddenPane(ZoneExplorer) || (m.maxed != "" && m.maxed != ZoneExplorer) {
+		// the Explorer is out of sight: go there (shown again, or maximised
+		// in place of the maximised Pane)
+		m.setZone(ZoneExplorer)
 	}
 	// a pasted path can name a project that is not selected
 	show := m.selectForPath(p.Project)

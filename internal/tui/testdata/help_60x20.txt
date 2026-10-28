@@ -1,5 +1,5 @@
  [Explorer]  Schema  Editor  Results   ctrl+o next
- Da╭─ Help  (1-14/272) ─────────────────────────────────╮
+ Da╭─ Help  (1-14/290) ─────────────────────────────────╮
 eve│ Global                                             │
 fin│ ctrl+q          quit (asks if Runs are in flight)  │×4
 sal│ ctrl+o  ctrl+w w  next pane: Explorer, Schema,     │
@@ -9,11 +9,11 @@ us_│                   Editor, Results                  │
    │ ctrl+w j        go to the pane below               │
    │ ctrl+w k        go to the pane above               │
    │ ctrl+w l        go to the pane on the right        │
-   │ ctrl+p          command palette                    │
-   │ ctrl+t          jump to table (recently opened when│
-   │                 empty)                             │
-   │ f1              this help                          │
-   │ ctrl+x p        projects: choose which are synced  │
+   │ ctrl+w space    next layout: classic, query,       │
+   │                 browse, tall, focus                │
+   │ ctrl+w H        move the pane to the far left, full│
+   │                 height                             │
+   │ ctrl+w J        move the pane to the bottom, full  │
    ╰────────────────────────────────────────────────────╯
                              │
  bqt exec acme-exec  layout: classi… 5 datasets · 13 tables

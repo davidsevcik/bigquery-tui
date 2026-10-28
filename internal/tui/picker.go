@@ -269,6 +269,7 @@ func (m *Model) loadPick(req loadReq) tea.Cmd {
 		for i, b := range m.bufs {
 			if b.path == req.path {
 				m.cur = i
+				m.revealPane(ZoneEditor)
 				m.setZone(ZoneEditor)
 				m.toast = req.what + " is already open"
 				return m.gridEnsure()
@@ -314,6 +315,7 @@ func (m *Model) finishLoad(req loadReq, replace bool) tea.Cmd {
 		}
 		m.cur = min(idx, len(m.bufs)-1)
 	}
+	m.revealPane(ZoneEditor)
 	m.setZone(ZoneEditor)
 	m.toast = "opened " + req.what
 	return nil
@@ -330,6 +332,7 @@ func (m *Model) onReopen(msg reopenMsg) tea.Cmd {
 	}
 	b.viewID = msg.id
 	m.showRun()
+	m.revealPane(ZoneResults)
 	m.setZone(ZoneResults)
 	m.toast = ""
 	return m.followRun(msg.id)

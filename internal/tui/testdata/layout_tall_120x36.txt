@@ -1,0 +1,36 @@
+ Datasets 3/4                │ Tables 3/4                   │ Schema · acme-prod.sales.orders ↓8
+events                     5 │T customers                   │ acme-prod.sales.orders
+finance                    2 │T order_items                 │ table · EU · 45 rows · 5.0 MiB
+sales                      4 │T orders                      │ partition created_at
+us_archive                 1 │V v_orders                    │ partition filter required
+                             │                              │ labels team:sales
+                             │                              │ ✓ synced 3h ago
+                             │                              │ All customer orders, one row per order
+                             │                              │
+                             │                              │ ── schema · 8 fields ──
+ SQL · query 1   1:1
+ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+~
+~
+~
+~
+~
+~
+ Results
+ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimates it
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ bqt exec acme-exec  layout: tall  columns  2 projects                                           5 datasets · 13 tables
+ layout: tall

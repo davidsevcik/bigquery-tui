@@ -81,7 +81,8 @@ type Model struct {
 	termH int // the terminal's rows; h leaves out the tutorial panel
 
 	style     explorerStyle       // how the Explorer draws the catalog
-	preset    string              // the chosen Layout preset (classic, focus)
+	preset    string              // the Layout's source preset (classic, query, browse, tall, focus)
+	panes     layoutNode          // the Layout's tree: the preset's, or the user's edit of it (custom)
 	maxed     Zone                // the maximised Pane ("" for none); session only
 	mru       []Zone              // the Panes, most recently focused first
 	pd        *projDialog         // the Projects dialog while open
@@ -170,13 +171,14 @@ func New(be Backend, o Options) *Model {
 		o.Location = time.Local
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30, termH: 30, preset: presetClassic}
+	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30, termH: 30, preset: presetClassic, panes: presetTree(presetClassic)}
 	m.jump = &searchState{typing: true, tablesOnly: true}
 	m.flat = &searchState{all: true}
 	m.tree.open = map[string]bool{}
 	m.zone, m.mru = ZoneExplorer, slices.Clone(paneOrder)
 	m.runs, m.grids = be.FollowRuns(), map[int64]*grid{}
 	m.loadState()
+	m.focusMRU() // a saved Layout may hide the Explorer
 	m.reloadBrowse()
 	m.selSeen = selectionKey(be)
 	m.autoProjs = len(be.Selection().Selected) == 0
@@ -218,8 +220,11 @@ type uiState struct {
 	Layout     string          `json:"layout,omitempty"` // legacy: the Explorer style
 }
 
+// paneLayoutState is "pane_layout": the source preset, and the tree when it
+// differs from the preset's. The maximised Pane is never saved.
 type paneLayoutState struct {
-	Preset string `json:"preset"`
+	Preset string    `json:"preset"`
+	Tree   *treeJSON `json:"tree,omitempty"`
 }
 
 // legacyStyles maps the old "layout" values to Explorer styles.
@@ -250,20 +255,48 @@ func (m *Model) loadState() {
 	} else if s, ok := parseStyle(st.Layout); ok {
 		m.style = s
 	}
+	m.loadPaneLayout(st.PaneLayout)
+}
+
+// loadPaneLayout reads "pane_layout": an unknown preset (from a newer bqt)
+// is classic, and a tree that is not valid, or hides every Pane, is its
+// preset's.
+func (m *Model) loadPaneLayout(raw json.RawMessage) {
 	var pl paneLayoutState
-	if json.Unmarshal(st.PaneLayout, &pl) == nil && knownPreset(pl.Preset) {
-		m.preset = pl.Preset
+	if json.Unmarshal(raw, &pl) != nil {
+		// a tree a newer bqt wrote in another shape still leaves the preset
+		var only struct {
+			Preset string `json:"preset"`
+		}
+		if json.Unmarshal(raw, &only) != nil {
+			return
+		}
+		pl = paneLayoutState{Preset: only.Preset}
+	}
+	if !knownPreset(pl.Preset) {
+		return
+	}
+	m.preset, m.panes = pl.Preset, presetTree(pl.Preset)
+	if pl.Tree != nil && pl.Preset != presetFocus {
+		if t, ok := treeFromJSON(pl.Tree); ok {
+			m.panes = t
+		}
 	}
 }
 
-// saveState writes the chosen Explorer style and Layout preset; the
-// step-down and the maximised Pane are never saved.
+// saveState writes the chosen Explorer style and the Layout (its preset, and
+// its tree when custom); the step-down and the maximised Pane are never
+// saved.
 func (m *Model) saveState() {
 	p := m.be.StatePath()
 	if os.MkdirAll(filepath.Dir(p), 0o700) != nil {
 		return
 	}
-	pl, _ := json.Marshal(paneLayoutState{Preset: m.preset})
+	pls := paneLayoutState{Preset: m.preset}
+	if isCustom(m.preset, m.panes) {
+		pls.Tree = treeToJSON(m.panes)
+	}
+	pl, _ := json.Marshal(pls)
 	b, _ := json.Marshal(uiState{ExplorerStyle: styleNames[m.style], PaneLayout: pl})
 	_ = os.WriteFile(p, b, 0o600)
 }
@@ -872,12 +905,15 @@ func (m *Model) explorerAction(act string) tea.Cmd {
 		m.setStyle((m.style + 1) % 3)
 		m.saveState()
 		return m.runSearchIfFlat()
-	case "zoom":
-		m.focusSchema(true)
-	case "detaildown":
+	case "detaildown", "detailup":
+		if m.panes.hiddenPane(ZoneSchema) {
+			m.toast = "the Schema pane is hidden (palette: Show Schema)"
+			return nil
+		}
+		if act == "detailup" {
+			return m.scrollDetail(-1)
+		}
 		return m.scrollDetail(1)
-	case "detailup":
-		return m.scrollDetail(-1)
 	case "sample":
 		return m.sampleAction()
 	case "select":
