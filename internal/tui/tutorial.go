@@ -35,6 +35,7 @@ type tutorial struct {
 	keys     map[string]bool // keys pressed in the Pane the step starts in
 	seenOv   map[overlayKind]bool
 	schema   bool // the Schema pane had focus
+	zoomed   bool // a Pane was maximised (ctrl+w z)
 	sampled  bool // p was pressed on a table
 	inserts  bool // vim Insert mode was entered
 	styles   bool
@@ -86,7 +87,7 @@ var tutSteps = []tutStep{
 		closedAfter(ovJump)},
 	{"Explorer styles", plain("`L` cycles the Explorer style: columns, tree, list. bqt remembers your choice, so press it until you are back at the one you like."),
 		func(m *Model, t *tutorial) bool { return t.styles }},
-	{"The Schema pane", plain("The Schema pane shows the selected table: `enter` goes there, the movement keys scroll it, `z` maximises it, `esc` goes back. `p` shows a free Sample of the table's rows in the Results (`[` `]` there switch back to the Run), and `s` opens a SELECT for it in a new buffer. Press `p` on a table."),
+	{"The Schema pane", plain("The Schema pane shows the selected table: `enter` goes there, the movement keys scroll it, `esc` goes back. `p` shows a free Sample of the table's rows in the Results (`[` `]` there switch back to the Run), and `s` opens a SELECT for it in a new buffer. Press `p` on a table."),
 		func(m *Model, t *tutorial) bool { return t.sampled }},
 	{"Command palette", plain("`ctrl+p` (or `:` in the Explorer) lists every command by name, with its key. Type to filter, `enter` runs one, `esc` closes. Open it and close it."),
 		closedAfter(ovPalette)},
@@ -94,6 +95,8 @@ var tutSteps = []tutStep{
 		closedAfter(ovHelp)},
 	{"Panes", plain("The screen has four panes: Explorer, Schema, Editor and Results. `ctrl+o` moves to the next one (`ctrl+w w` too, `ctrl+w W` goes back). Go to the Editor now."),
 		func(m *Model, t *tutorial) bool { return m.zone == ZoneEditor }},
+	{"Arrange the panes", plain("`ctrl+w space` switches the layout: classic, query, browse, tall, focus (the palette has \"Layout: …\" and \"Reset layout\"). `ctrl+w z` maximises the pane and restores the layout again; `ctrl+w c` hides it, and \"Show <pane>\" brings it back. Maximise a pane and restore it."),
+		func(m *Model, t *tutorial) bool { return t.zoomed && m.maxed == "" }},
 	{"Write a query", func(m *Model) string {
 		if m.vimOn() {
 			return "The editor uses vim keys and starts in Normal mode. `i` enters Insert mode: type SELECT 1, then `esc` goes back to Normal mode."
@@ -128,6 +131,7 @@ var tutSteps = []tutStep{
 func (m *Model) startTutorial() {
 	m.ov, m.pendingKey = ovNone, ""
 	m.setZone(ZoneExplorer)
+	m.maxed = ""
 	m.tut = &tutorial{}
 	m.tutGo(0)
 }
@@ -141,7 +145,7 @@ func (m *Model) tutGo(step int) {
 	t := m.tut
 	t.step = clamp(step, 0, len(tutSteps)-1)
 	t.keys, t.seenOv = map[string]bool{}, map[overlayKind]bool{}
-	t.schema, t.sampled, t.inserts, t.styles, t.filtered = false, false, false, false, false
+	t.schema, t.zoomed, t.sampled, t.inserts, t.styles, t.filtered = false, false, false, false, false, false
 	t.start = m.tutSnap()
 	m.fitHeight()
 }
@@ -216,6 +220,9 @@ func (m *Model) tutorialObserve() {
 	}
 	if m.zone == ZoneSchema {
 		t.schema = true
+	}
+	if m.maxed != "" {
+		t.zoomed = true
 	}
 	if m.filterActive() {
 		t.filtered = true

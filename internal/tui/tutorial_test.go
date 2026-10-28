@@ -37,7 +37,7 @@ func TestTutorialWalkthrough(t *testing.T) {
 	if r.m.zone != ZoneExplorer || r.m.h != 36-tutorialRows {
 		t.Fatalf("zone %s, height %d", r.m.zone, r.m.h)
 	}
-	r.contains("Tutorial 1/17 · Welcome", "ctrl+g then: n next")
+	r.contains("Tutorial 1/18 · Welcome", "ctrl+g then: n next")
 	r.press("j") // the welcome step waits for ctrl+g n
 	r.tutStep(0)
 	r.press("k", "ctrl+g", "n")
@@ -81,28 +81,39 @@ func TestTutorialWalkthrough(t *testing.T) {
 	r.tutStep(9)
 	r.press("ctrl+o")
 	r.tutStep(10)
+	r.contains("Arrange the panes", "ctrl+w space", "ctrl+w z")
+	for range presets { // switching layouts round to classic is not the task
+		r.press("ctrl+w", "space")
+	}
+	r.contains("layout: classic")
+	r.tutStep(10)
+	r.press("ctrl+w", "z")
+	r.tutStep(10) // maximised: now restore it
+	r.contains("(maximised)")
+	r.press("ctrl+w", "z")
+	r.tutStep(11)
 	r.contains("vim keys")
 	r.press("i")
 	r.typeText("SELECT 1")
-	r.tutStep(10) // still in Insert mode
+	r.tutStep(11) // still in Insert mode
 	r.press("esc")
-	r.tutStep(11)
-	r.press("enter")
 	r.tutStep(12)
-	r.press("ctrl+w", "j")
+	r.press("enter")
 	r.tutStep(13)
+	r.press("ctrl+w", "j")
+	r.tutStep(14)
 	r.press("enter")
 	if r.m.ov != ovRecord {
 		t.Fatal("enter opens the record")
 	}
 	r.press("esc")
-	r.tutStep(14)
-	r.press("ctrl+w", "h") // the Schema pane, left of the Results
-	r.tutStep(14)
-	r.press("ctrl+w", "k")
 	r.tutStep(15)
-	r.press("ctrl+x", "r", "esc")
+	r.press("ctrl+w", "h") // the Schema pane, left of the Results
+	r.tutStep(15)
+	r.press("ctrl+w", "k")
 	r.tutStep(16)
+	r.press("ctrl+x", "r", "esc")
+	r.tutStep(17)
 	r.press("ctrl+g", "n")
 	if r.m.tut != nil || r.m.h != 36 {
 		t.Fatalf("the last step closes the tutorial and gives the rows back (%d)", r.m.h)
