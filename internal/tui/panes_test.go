@@ -123,9 +123,14 @@ func TestZMaximisesAndRestoresTheSchemaPane(t *testing.T) {
 		t.Fatalf("z in the Schema restores and keeps the focus: pane %s maxed %q", r.m.zone, r.m.maxed)
 	}
 	r.contains("Tables 3/4", "SQL · query 1")
+	// esc backs out one level at a time: first the maximise, then the Pane
 	r.press("z", "esc")
-	if r.m.zone != ZoneExplorer || r.m.maxed != "" {
-		t.Fatalf("esc restores and goes back: pane %s maxed %q", r.m.zone, r.m.maxed)
+	if r.m.zone != ZoneSchema || r.m.maxed != "" {
+		t.Fatalf("the first esc only restores: pane %s maxed %q", r.m.zone, r.m.maxed)
+	}
+	r.press("esc")
+	if r.m.zone != ZoneExplorer {
+		t.Fatalf("the second esc goes back: pane %s", r.m.zone)
 	}
 	// moving the focus away restores the Layout too
 	r.press("z", "ctrl+o")
@@ -206,6 +211,16 @@ func TestARunInTheFocusLayoutShowsTheResults(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestADryRunInTheFocusLayoutStaysInTheEditor(t *testing.T) {
+	r := editorRig(t, 60, 20)
+	r.typeText("select 1")
+	r.press("ctrl+d")
+	if r.m.zone != ZoneEditor {
+		t.Fatalf("a dry-run has no result to show: pane %s", r.m.zone)
+	}
+	r.contains("[Editor]")
 }
 
 func TestLayoutIsRememberedAndTheStepDownIsNot(t *testing.T) {

@@ -218,12 +218,16 @@ func TestEscLeavesTheZoomBeforeClearingTheFilter(t *testing.T) {
 		t.Fatalf("z maximises the Schema pane: %s %q", r.m.zone, r.m.maxed)
 	}
 	r.press("esc")
-	if r.m.zone != ZoneExplorer || r.m.maxed != "" || !r.m.mil.f[2].active() {
-		t.Fatalf("first esc leaves the Schema pane only (pane %s, maxed %q)", r.m.zone, r.m.maxed)
+	if r.m.zone != ZoneSchema || r.m.maxed != "" || !r.m.mil.f[2].active() {
+		t.Fatalf("first esc only restores the Layout (pane %s, maxed %q)", r.m.zone, r.m.maxed)
+	}
+	r.press("esc")
+	if r.m.zone != ZoneExplorer || !r.m.mil.f[2].active() {
+		t.Fatalf("second esc leaves the Schema pane only (pane %s)", r.m.zone)
 	}
 	r.press("esc")
 	if r.m.mil.f[2].active() {
-		t.Fatal("second esc clears the filter")
+		t.Fatal("third esc clears the filter")
 	}
 }
 

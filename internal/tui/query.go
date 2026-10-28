@@ -363,8 +363,9 @@ func (m *Model) startRun(b *buffer, sql string, params []api.QueryParam, dry boo
 		b.viewID = id
 	}
 	b.ed.errLine, b.ed.errCol = 0, 0
-	if m.arr().bar != nil {
-		// one Pane at a time: show the Run as it fills in
+	if !dry && m.arr().bar != nil {
+		// one Pane at a time: show the Run as it fills in (a dry-run has no
+		// result to show; its estimate is in the status line)
 		m.setZone(ZoneResults)
 	}
 	return m.followRun(id)

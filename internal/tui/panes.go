@@ -154,7 +154,13 @@ func (m *Model) schemaAction(act string) tea.Cmd {
 			m.leaveSchema() // the Layout has no room for it
 		}
 	case "back":
-		m.leaveSchema()
+		// one level at a time: a maximised Schema that fits the Layout is
+		// restored first and keeps the focus
+		if m.maxed == ZoneSchema && slices.Contains(m.arr().cycle, ZoneSchema) {
+			m.maxed = ""
+		} else {
+			m.leaveSchema()
+		}
 	}
 	return nil
 }

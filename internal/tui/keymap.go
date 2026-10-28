@@ -111,7 +111,7 @@ var Keymap = []Binding{
 	{ZoneSchema, []string{"J"}, "record", "show the selected preview row as a full record (also enter on the preview)", "", "J record"},
 	{ZoneSchema, []string{"enter"}, "open", "on the preview: show the row as a record", "", ""},
 	{ZoneSchema, []string{"z"}, "zoom", "maximise the Schema pane, or restore the layout", "", "z maximise"},
-	{ZoneSchema, []string{"esc", "h", "left"}, "back", "restore the layout if maximised, and go back to the Explorer", "", "esc back"},
+	{ZoneSchema, []string{"esc", "h", "left"}, "back", "restore the layout if maximised, else go back to the Explorer", "", "esc back"},
 	{ZoneSchema, []string{"?"}, "help", "this help", "", ""},
 	{ZoneSchema, []string{"q"}, "quit", "quit", "", ""},
 	{ZoneSchema, []string{":"}, "palette", "command palette", "", ""},
