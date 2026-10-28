@@ -27,7 +27,6 @@ type sample struct {
 	name string         // project.dataset.table as shown (the newest shard for a family)
 	g    *grid          // nil until the first page arrives
 	err  string
-	busy bool
 	seq  int
 
 	// what the Results showed before: restored when the table turns out to
@@ -88,7 +87,7 @@ func (m *Model) sampleAction() tea.Cmd {
 		return m.gridEnsure()
 	}
 	m.sampleSeq++
-	sm := &sample{key: key, path: s.path, name: s.path.String(), busy: true, seq: m.sampleSeq, prev: m.sample, prevShow: m.showSample}
+	sm := &sample{key: key, path: s.path, name: s.path.String(), seq: m.sampleSeq, prev: m.sample, prevShow: m.showSample}
 	if sm.prev != nil {
 		sm.prev.prev = nil // keep one step back, not a chain
 	}
@@ -109,12 +108,17 @@ func (m *Model) onSample(msg sampleMsg) tea.Cmd {
 	if sm == nil || sm.seq != msg.seq {
 		return nil // a replaced Sample
 	}
-	sm.busy = false
 	switch {
 	case errors.Is(msg.err, bq.ErrNeedsQuery):
-		// the catalog said table, BigQuery says view or external table
+		// the catalog said table, BigQuery says view or external table: back
+		// to what the Results showed (a Sample still loading then never
+		// finishes, so it goes too)
 		m.toast = viewNoSample
-		m.sample, m.showSample = sm.prev, sm.prevShow
+		prev := sm.prev
+		if prev != nil && prev.g == nil && prev.err == "" {
+			prev = nil
+		}
+		m.sample, m.showSample = prev, prev != nil && sm.prevShow
 		return nil
 	case msg.err != nil:
 		sm.err = msg.err.Error()
