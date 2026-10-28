@@ -5,12 +5,14 @@ import (
 	"strings"
 )
 
-// Zone is where a key binding applies.
+// Zone is where a key binding applies. The four Panes (Explorer, Schema,
+// Editor, Results) are Zones too; user-visible text calls them Panes.
 type Zone string
 
 const (
 	ZoneGlobal   Zone = "Global"
 	ZoneExplorer Zone = "Explorer"
+	ZoneSchema   Zone = "Schema"
 	ZoneEditor   Zone = "Editor"
 	ZoneResults  Zone = "Results"
 	ZoneSearch   Zone = "Filter and jump"
