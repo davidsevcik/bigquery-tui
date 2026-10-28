@@ -607,7 +607,13 @@ func (e *editor) scroll(w, h int) {
 // the column it wants, as a plain up or down would; a selection follows it.
 func (e *editor) scrollView(d, h int) {
 	h = max(1, h)
-	e.top = clamp(e.top+d, 0, max(0, len(e.lines)-h))
+	top := clamp(e.top+d, 0, max(0, len(e.lines)-h))
+	// a view scrolled further than this height allows (the Editor grew) is
+	// never moved against the wheel's direction
+	if (d > 0 && top < e.top) || (d < 0 && top > e.top) {
+		top = e.top
+	}
+	e.top = top
 	if row := clamp(e.row, e.top, min(len(e.lines)-1, e.top+h-1)); row != e.row {
 		e.row = row
 		e.col = clamp(e.want, 0, len(e.lines[row]))

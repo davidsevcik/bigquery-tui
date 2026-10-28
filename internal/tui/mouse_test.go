@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -724,5 +725,25 @@ func TestTheHelpExplainsTheMouse(t *testing.T) {
 	}
 	if !strings.Contains(tutSteps[len(tutSteps)-1].text(nil), `"Mouse: on/off"`) {
 		t.Error("the tutorial's last step does not mention the mouse")
+	}
+}
+
+// Codex review of phase 4: a view scrolled further than the Editor's new
+// height allows (it was grown or maximised) must not jump back up on a
+// wheel-down.
+func TestTheWheelNeverScrollsAgainstItsDirection(t *testing.T) {
+	lines := make([]string, 100)
+	for i := range lines {
+		lines[i] = "select " + strconv.Itoa(i)
+	}
+	e := newEditor(strings.Join(lines, "\n"))
+	e.top, e.row = 90, 99 // scrolled in a 10-row view
+	e.scrollView(3, 30)   // the view is 30 rows now
+	if e.top < 90 {
+		t.Fatalf("a wheel-down moved the view up to line %d", e.top)
+	}
+	e.scrollView(-3, 30)
+	if e.top > 90 {
+		t.Fatalf("a wheel-up moved the view down to line %d", e.top)
 	}
 }
