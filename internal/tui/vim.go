@@ -590,7 +590,7 @@ func (v *vim) motionFor(e *editor, key string, page int) motion {
 		return motion{r: r, c: min(e.lineLen(r), c+n), ok: true}
 	case "j", "down", "ctrl+n":
 		return motion{r: min(len(e.lines)-1, r+n), c: e.want, linewise: true, keepWant: true, ok: true}
-	case "k", "up", "ctrl+p":
+	case "k", "up":
 		return motion{r: max(0, r-n), c: e.want, linewise: true, keepWant: true, ok: true}
 	case "0", "home":
 		return motion{r: r, c: 0, ok: true}
@@ -675,7 +675,7 @@ func (v *vim) motionFor(e *editor, key string, page int) motion {
 func isMotionKey(key string) bool {
 	switch key {
 	case "h", "l", "j", "k", "left", "right", "up", "down", "backspace", "space", "0", "^", "$", "home", "end",
-		"w", "W", "b", "B", "e", "E", "G", "{", "}", "%", ";", ",", "ctrl+d", "ctrl+u", "ctrl+f", "ctrl+b", "pgdown", "pgup", "n", "N", "ctrl+n", "ctrl+p":
+		"w", "W", "b", "B", "e", "E", "G", "{", "}", "%", ";", ",", "ctrl+d", "ctrl+u", "ctrl+f", "ctrl+b", "pgdown", "pgup", "n", "N", "ctrl+n":
 		return true
 	}
 	return false
@@ -1244,7 +1244,7 @@ func (m *Model) vimOn() bool { return m.be.Config().Editing() == "vim" }
 // instead of the editor's registry binding (ctrl+r is redo, ctrl+d scrolls).
 func vimClaims(name string) bool {
 	switch name {
-	case "ctrl+r", "ctrl+d", "ctrl+u", "ctrl+f", "ctrl+b", "ctrl+n", "ctrl+p", "esc":
+	case "ctrl+r", "ctrl+d", "ctrl+u", "ctrl+f", "ctrl+b", "ctrl+n", "esc":
 		return true
 	}
 	return false

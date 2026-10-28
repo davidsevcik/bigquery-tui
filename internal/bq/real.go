@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -47,6 +48,7 @@ func NewClient(ctx context.Context, executionProject string, o Options) (*Client
 	if executionProject != "" {
 		opts = append(opts, option.WithQuotaProject(executionProject))
 	}
+	opts = append(opts, EndpointOptions()...)
 	opts = append(opts, o.ExtraClientOptions...)
 	c, err := bqapi.NewClient(ctx, executionProject, opts...)
 	if err != nil {
@@ -421,4 +423,17 @@ func num(v bqapi.Value) int64 {
 		return int64(x)
 	}
 	return 0
+}
+
+// EndpointEnv names a BigQuery endpoint to use instead of Google's, without
+// credentials: a local emulator for manual testing (spec section 16).
+const EndpointEnv = "BQT_BIGQUERY_ENDPOINT"
+
+// EndpointOptions are the client options for EndpointEnv, nil when unset.
+func EndpointOptions() []option.ClientOption {
+	ep := strings.TrimSpace(os.Getenv(EndpointEnv))
+	if ep == "" {
+		return nil
+	}
+	return []option.ClientOption{option.WithEndpoint(ep), option.WithoutAuthentication()}
 }

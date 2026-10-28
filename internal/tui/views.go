@@ -12,6 +12,15 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/format"
 )
 
+// agoPhrase is how long ago t was, as a phrase: "just now" under a minute,
+// else "5m ago".
+func agoPhrase(now time.Time, t *time.Time) string {
+	if a := ago(now, t); a != "now" {
+		return a + " ago"
+	}
+	return "just now"
+}
+
 func ago(now time.Time, t *time.Time) string {
 	if t == nil {
 		return "never"
@@ -48,12 +57,12 @@ func (m *Model) health(n api.BrowseNode, long bool) (string, lipgloss.Style) {
 		return "● never", sWarn
 	case n.Stale:
 		if long {
-			return "● stale · synced " + a + " ago", sWarn
+			return "● stale · synced " + agoPhrase(m.o.Now(), n.SyncedAt), sWarn
 		}
 		return "● " + a, sWarn
 	}
 	if long {
-		return "✓ synced " + a + " ago", sOk
+		return "✓ synced " + agoPhrase(m.o.Now(), n.SyncedAt), sOk
 	}
 	return "✓ " + a, sOk
 }

@@ -28,7 +28,7 @@ V v_orders                                │~
  FROM `acme-prod.sales.customers`         │
                                           │
  Customers with an email                  │
- ✓ synced now ago                         │
+ ✓ synced just now                        │
                                           │
                                           │
                                           │

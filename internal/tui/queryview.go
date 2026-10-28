@@ -454,7 +454,7 @@ func (m *Model) buffersLines(w int) []string {
 		out = append(out, "", " "+sBold.Render("Restore drafts")+sDim.Render("  from earlier sessions (kept 30 days)"))
 		for i, o := range m.orphans {
 			r := newRB(len(m.bufs)+i == m.ovSel)
-			r.add("   "+fit(ago(m.o.Now(), &o.modTime)+" ago", 12), sDim).add(fit(fmt.Sprintf("%d lines", o.lines), 12), sDim).add(o.first, sFaint)
+			r.add("   "+fit(agoPhrase(m.o.Now(), &o.modTime), 12), sDim).add(fit(fmt.Sprintf("%d lines", o.lines), 12), sDim).add(o.first, sFaint)
 			out = append(out, r.line(w))
 		}
 	}
