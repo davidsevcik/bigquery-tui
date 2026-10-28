@@ -385,3 +385,16 @@ func TestPlainEditingIsStillAvailable(t *testing.T) {
 	}
 	r.lacks("NORMAL", "INSERT")
 }
+
+// ctrl+p is kept from bqt in every vim mode (spec 9.1): it opens the command
+// palette, also in Normal mode.
+func TestCtrlPOpensThePaletteInNormalMode(t *testing.T) {
+	r := vimRig(t, 120, 30)
+	if r.m.buf().vim.mode != vimNormal {
+		t.Fatalf("mode %v", r.m.buf().vim.mode)
+	}
+	r.press("ctrl+p")
+	if r.m.ov != ovPalette {
+		t.Fatalf("ctrl+p in Normal mode: overlay %v", r.m.ov)
+	}
+}
