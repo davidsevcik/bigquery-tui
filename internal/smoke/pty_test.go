@@ -85,7 +85,9 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 	f.Write([]byte("\x1b"))
 	waitFor(t, out, "ctrl+g starts a short tutorial", 5*time.Second)
 	f.Write([]byte("?"))
-	waitFor(t, out, "command palette", 5*time.Second)
+	// the first row of the help: on 24 rows the overlay shows only the top of
+	// its list
+	waitFor(t, out, "quit (asks if Runs are in flight)", 5*time.Second)
 	f.Write([]byte("\x1b")) // esc closes the help
 	time.Sleep(150 * time.Millisecond)
 	// ctrl+o goes to the editor; printable keys type there (q must not quit)
