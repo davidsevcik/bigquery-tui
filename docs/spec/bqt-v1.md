@@ -530,7 +530,7 @@ Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks
 
 ## 17. Live checks
 
-Run on 2026-10-13 against a real EU dev project (about 1,280 datasets and 9,400 tables, jobs running on a Standard edition reservation), using dry-runs and one tiny test table that was dropped afterwards. They are the seed for the `live` suite (section 16).
+Run on 2026-10-13 against a real EU dev project (about 1,280 datasets and 9,400 tables, jobs running on a Standard edition reservation), using dry-runs and one tiny test table that was dropped afterwards. They are the seed for the `live` suite (section 16). Items 7 to 9, the release blockers, were checked on 2026-10-31 against a BigQuery sandbox project (on-demand, no billing account, `US`), using `bigquery-public-data` and small CTAS tables.
 
 Verified:
 
@@ -552,9 +552,12 @@ Verified:
 
 8. **`tabledata.list` on a materialized view (verified 2026-10-31).** The EU dev project could not hold one (its Standard edition reservation refuses "Materialized views cannot be created in a project with Standard edition reservation"). The BigQuery sandbox allows them: `CREATE MATERIALIZED VIEW` over a CTAS table worked, and sync catalogs it as `mview`. `tabledata.list` refuses it: "Error 400: Cannot list a table of type MATERIALIZED_VIEW., invalid" (seen through bqt's Sample and `bq head`). So `p` treats a materialized view like a view (8.4): a toast pointing to `s`, no backend call. A `SELECT *` on it runs (`UPPER_BOUND` estimate, 1.3 KiB processed, 10 MiB billed, `materializedViewStatistics.chosen = true`).
 
-Not verified. Item 9 is not needed for the author's own use and is a **blocker before any public release**; resolve it if the tool is ever released:
-
-9. Region-view behaviour and error text with dataset-only grants (needs a restricted identity).
+9. **Dataset-only grants (verified 2026-10-31).** Run as a service account with `roles/bigquery.jobUser` on the sandbox project and `roles/bigquery.dataViewer` on one dataset only (granted with `GRANT … ON SCHEMA`; `bq add-iam-policy-binding` on a dataset was refused, "This feature requires" an allowlist), through an `impersonated_service_account` ADC file, with its own config and data directory:
+   - `projects.list` shows the project and `datasets.list` shows only the granted dataset, so sync never sees the others.
+   - Every region-scope view is refused, `SCHEMATA` included: a region view needs the permission on every dataset in the region. Error text: "Access Denied: Table bqt-sandbox:region-us.INFORMATION_SCHEMA.TABLES: User does not have the required permissions ('bigquery.routines.list', 'bigquery.tables.list' permission(s) at the dataset level; and 'bigquery.routines.get' permission(s) at the routine level; and 'bigquery.tables.get' permission(s) at the table level) to query system entity …" (`SCHEMATA` and `SCHEMATA_OPTIONS` ask for `bigquery.datasets.get` at the dataset level).
+   - The failure ladder works: sync logs "region views not accessible, falling back to per-dataset" (INFO), the dataset-scope views succeed, and the unit ends `ok` with 1 dataset, 1 table and 5 columns. As expected, the dataset has no description in the catalog (`SCHEMATA_OPTIONS` is region scope only).
+   - The Explorer, the Sample (`tabledata.list`) and queries on the granted dataset work. A query on an ungranted dataset fails with "Access Denied: Table …: User does not have permission to query table …, or perhaps it does not exist." (exit 6).
+   - `bqt doctor` before the token-creator grant had propagated (about a minute) printed the full JSON of `iam.serviceAccounts.getAccessToken` denied, with the hint `run gcloud auth application-default login`, which does not fix it.
 
 Not verified, not release blockers:
 
