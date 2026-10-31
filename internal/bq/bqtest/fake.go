@@ -408,7 +408,7 @@ func (f *Fake) ListRows(ctx context.Context, ref bq.TableRef, startIndex int64, 
 	if err != nil {
 		return bq.RawPage{}, err
 	}
-	if info.Type == api.TypeView || info.Type == api.TypeExternal {
+	if info.Type == api.TypeView || info.Type == api.TypeMView || info.Type == api.TypeExternal {
 		return bq.RawPage{}, &bq.Error{Kind: bq.KindOther, Op: "fake", Err: fmt.Errorf("cannot list a table of type %s", info.Type)}
 	}
 	f.mu.Lock()

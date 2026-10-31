@@ -87,12 +87,14 @@ func TestSamplePagesThroughTheWholeTableOnDemand(t *testing.T) {
 	}
 }
 
-func TestPOnAViewOrAnExternalTableOnlyPointsToS(t *testing.T) {
+func TestPOnAViewLikeObjectOnlyPointsToS(t *testing.T) {
 	r := newRig(t, 120, 30)
 	ext := bqtest.Table("ext_orders", "id")
 	ext.Type = api.TypeExternal
+	mv := bqtest.Table("mv_totals", "id")
+	mv.Type = api.TypeMView
 	ds := &r.fake.Projects["acme-prod"].Datasets[0]
-	ds.Tables = append(ds.Tables, ext)
+	ds.Tables = append(ds.Tables, ext, mv)
 	hd, err := r.eng.StartSync(context.Background(), api.SyncScope{})
 	if err != nil {
 		t.Fatal(err)
@@ -104,6 +106,7 @@ func TestPOnAViewOrAnExternalTableOnlyPointsToS(t *testing.T) {
 	for _, c := range []struct{ name, path, toast string }{
 		{"v_orders", "acme-prod.sales.v_orders", "views have no free sample; press s for a SELECT (billed)"},
 		{"ext_orders", "acme-prod.sales.ext_orders", "external tables have no free sample; press s for a SELECT (billed)"},
+		{"mv_totals", "acme-prod.sales.mv_totals", "materialized views have no free sample; press s for a SELECT (billed)"},
 	} {
 		r.press("ctrl+t", c.name, "enter")
 		r.selected(c.path)
