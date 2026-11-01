@@ -51,7 +51,7 @@ homebrew_casks:
     repository:
       owner: davidsevcik
       name: homebrew-tap
-      token: '{{ index .Env "HOMEBREW_TAP_GITHUB_TOKEN" }}'
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/davidsevcik/bigquery-tui
     description: Keyboard-driven terminal UI and CLI for BigQuery
     license: Apache-2.0
