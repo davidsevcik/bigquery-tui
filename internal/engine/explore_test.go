@@ -132,6 +132,41 @@ func TestTableDetailStatsAndPreview(t *testing.T) {
 	}
 }
 
+// BigQuery refuses tabledata.list on a materialized view ("Cannot list a
+// table of type MATERIALIZED_VIEW", seen live 2026-10-31), so it needs a query
+// like a view.
+func TestPreviewOfAMaterializedViewNeedsAQuery(t *testing.T) {
+	e := newEnv(t, "proj-a")
+	mv := bqtest.Table("mv_totals", "n")
+	mv.Type = api.TypeMView
+	ds := &e.fake.Projects["proj-a"].Datasets[0]
+	ds.Tables = append(ds.Tables, mv)
+	e.fake.TableData = map[string]bqtest.TableData{
+		// the catalog says table, BigQuery now says materialized view
+		"proj-a.sales.orders": {Info: bq.TableInfo{Type: api.TypeMView, Schema: []bq.Field{{Name: "id", Type: "INTEGER"}}}},
+	}
+	eng := e.openWithTables(false)
+	h, err := eng.StartSync(ctx, api.SyncScope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.ReloadIndex(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"mv_totals", "orders"} {
+		p := api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: table}
+		if _, err := eng.Preview(ctx, p, 0, 5, format.Options{}); !errors.Is(err, bq.ErrNeedsQuery) {
+			t.Fatalf("%s: materialized views need a query: %v", table, err)
+		}
+	}
+	if n := len(e.fake.CallsTo("ListRows")); n != 0 {
+		t.Fatalf("tabledata.list called %d times", n)
+	}
+}
+
 func TestPreviewFormatsCellsLikeARun(t *testing.T) {
 	e, eng := synced(t, "proj-a")
 	e.fake.TableData["proj-a.sales.orders"] = bqtest.TableData{

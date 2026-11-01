@@ -219,7 +219,8 @@ func (e *Engine) TableStats(ctx context.Context, p api.ObjectPath) (api.TableSta
 }
 
 // Preview reads rows straight from a table (no query, no cost): the free
-// Sample. Views and external tables return bq.ErrNeedsQuery; a shard family
+// Sample. Views, materialized views and external tables return
+// bq.ErrNeedsQuery (BigQuery refuses tabledata.list on them); a shard family
 // path reads its newest shard. o formats the cells, as for RunRows.
 // BigQuery can return fewer rows than asked when rows are wide, so it reads
 // on from the next index until it has the rows, a call returns none, or the
@@ -230,14 +231,14 @@ func (e *Engine) Preview(ctx context.Context, p api.ObjectPath, startIndex int64
 		return api.PreviewPage{}, ErrUnknownTable
 	}
 	switch ref.Type {
-	case api.TypeView, api.TypeExternal:
+	case api.TypeView, api.TypeMView, api.TypeExternal:
 		return api.PreviewPage{}, bq.ErrNeedsQuery
 	}
 	info, err := e.tableInfo(ctx, ref)
 	if err != nil {
 		return api.PreviewPage{}, err
 	}
-	if info.Type == api.TypeView || info.Type == api.TypeExternal {
+	if info.Type == api.TypeView || info.Type == api.TypeMView || info.Type == api.TypeExternal {
 		return api.PreviewPage{}, bq.ErrNeedsQuery
 	}
 	tp, err := e.tables(ctx)

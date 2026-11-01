@@ -80,6 +80,7 @@ func (m *Model) uncover(z Zone) {
 const (
 	viewNoSample     = "views have no free sample; press s for a SELECT (billed)"
 	externalNoSample = "external tables have no free sample; press s for a SELECT (billed)"
+	mviewNoSample    = "materialized views have no free sample; press s for a SELECT (billed)"
 )
 
 // sampleAction is p in the Explorer and the Schema pane.
@@ -99,6 +100,9 @@ func (m *Model) sampleAction() tea.Cmd {
 		return nil
 	case api.TypeExternal:
 		m.toast = externalNoSample
+		return nil
+	case api.TypeMView:
+		m.toast = mviewNoSample
 		return nil
 	}
 	if m.sample != nil && m.sample.key == key && m.sample.err == "" {
