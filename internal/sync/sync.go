@@ -496,7 +496,7 @@ func (s *Syncer) fallbackDataset(ctx context.Context, job unitJob, d api.Dataset
 	if err == nil {
 		sub := s.fromSnapshot(unitJob{ref: job.ref, datasets: []api.DatasetMeta{d}}, snap)
 		if len(sub) == 1 {
-			return sub[0], true
+			return s.withDatasetOptions(ctx, sub[0]), true
 		}
 		return keepOld(errors.New("empty dataset snapshot"))
 	}
@@ -525,7 +525,7 @@ func (s *Syncer) fallbackDataset(ctx context.Context, job unitJob, d api.Dataset
 		}
 		sort.Slice(kept, func(i, j int) bool { return kept[i].Name < kept[j].Name })
 		AssignShards(kept)
-		return store.DatasetApply{Meta: m, Mode: store.ModeNamesOnly, Status: api.DatasetNamesOnly, Tables: kept}, true
+		return s.withDatasetOptions(ctx, store.DatasetApply{Meta: m, Mode: store.ModeNamesOnly, Status: api.DatasetNamesOnly, Tables: kept}), true
 	}
 	if ctx.Err() != nil {
 		return store.DatasetApply{}, false
@@ -534,6 +534,24 @@ func (s *Syncer) fallbackDataset(ctx context.Context, job unitJob, d api.Dataset
 		return store.DatasetApply{}, false
 	}
 	return keepOld(nerr)
+}
+
+// withDatasetOptions fills the description, friendly name and labels from
+// datasets.get, since SCHEMATA_OPTIONS exists only at region scope. A failure
+// is logged and leaves the datasets.list values: the tables are still fresh.
+func (s *Syncer) withDatasetOptions(ctx context.Context, a store.DatasetApply) store.DatasetApply {
+	m := a.Meta
+	got, err := retry(ctx, s, "get dataset "+m.Project+"."+m.Name, func() (api.DatasetMeta, error) {
+		return s.o.Meta.GetDataset(ctx, m.Project, m.Name)
+	})
+	if err != nil {
+		if ctx.Err() == nil {
+			s.o.Log.Warn("dataset options not read", "project", m.Project, "dataset", m.Name, "err", err)
+		}
+		return a
+	}
+	a.Meta.Description, a.Meta.FriendlyName, a.Meta.Labels = got.Description, got.FriendlyName, got.Labels
+	return a
 }
 
 // summarize derives the unit status and a short error summary.

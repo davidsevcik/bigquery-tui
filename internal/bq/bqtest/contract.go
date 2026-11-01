@@ -128,6 +128,16 @@ func RunMetadataContract(t *testing.T, md bq.Metadata, o ContractOptions) {
 				if got, want := columnCount(tablesOf(ds, d)), columnCount(region); got != want {
 					t.Fatalf("dataset %s: dataset-scope has %d columns, region has %d", d, got, want)
 				}
+				// datasets.get stands in for SCHEMATA_OPTIONS in the fallback.
+				meta, err := md.GetDataset(ctx, o.Project, d)
+				if err != nil {
+					t.Fatalf("GetDataset(%s): %v", d, err)
+				}
+				for _, rd := range snap.Datasets {
+					if rd.Name == d && (meta.Description != rd.Description || meta.FriendlyName != rd.FriendlyName || len(meta.Labels) != len(rd.Labels)) {
+						t.Fatalf("dataset %s: datasets.get differs from the region view\n got %+v\nwant %+v", d, meta, rd)
+					}
+				}
 				names2, err := md.ListTableNames(ctx, o.Project, d)
 				if err != nil {
 					t.Fatalf("ListTableNames(%s): %v", d, err)
@@ -143,6 +153,21 @@ func RunMetadataContract(t *testing.T, md bq.Metadata, o ContractOptions) {
 			}
 		})
 	}
+
+	t.Run("get dataset", func(t *testing.T) {
+		d := list.Datasets[0]
+		got, err := md.GetDataset(ctx, o.Project, d.Name)
+		if err != nil {
+			t.Fatalf("GetDataset(%s): %v", d.Name, err)
+		}
+		if got.Project != o.Project || got.Name != d.Name || !strings.EqualFold(got.Location, d.Location) {
+			t.Fatalf("GetDataset = %+v, want the listed %+v", got, d)
+		}
+		_, err = md.GetDataset(ctx, o.Project, "bqt_does_not_exist_zz")
+		if k := bq.KindOf(err); k != bq.KindNotFound && k != bq.KindPermission {
+			t.Fatalf("unknown dataset should classify as not-found or permission, got %v (%v)", k, err)
+		}
+	})
 
 	t.Run("unknown project", func(t *testing.T) {
 		_, err := md.ListDatasets(ctx, o.Project+"-does-not-exist-zz")

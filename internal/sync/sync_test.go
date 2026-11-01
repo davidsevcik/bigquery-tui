@@ -147,6 +147,9 @@ func TestSyncBasicGroupsByProjectAndRegion(t *testing.T) {
 	if ds[0].Description != "dataset logs" {
 		t.Fatalf("description from the snapshot must overlay datasets.list: %+v", ds[0])
 	}
+	if n := len(h.fake.CallsTo("GetDataset")); n != 0 {
+		t.Fatalf("the region path needs no datasets.get, got %d calls", n)
+	}
 }
 
 func TestSyncEvents(t *testing.T) {
@@ -252,6 +255,46 @@ func TestSyncPermissionLadder(t *testing.T) {
 	}
 	if len(h.fake.CallsTo("DatasetSnapshot")) < 3 {
 		t.Fatal("ladder should query each dataset")
+	}
+}
+
+// Dataset-level grants refuse every region view, and SCHEMATA_OPTIONS has no
+// dataset scope, so the fallback reads dataset options from datasets.get.
+func TestSyncDatasetScopeFallbackKeepsDatasetOptions(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a"]`)
+	p := h.fake.AddProject("proj-a")
+	granted := bqtest.DS("granted", "US", bqtest.Table("t1", "a"))
+	granted.Meta.Description = "granted to bqt-restricted"
+	granted.Meta.FriendlyName = "Granted"
+	granted.Meta.Labels = map[string]string{"team": "data"}
+	names := bqtest.DS("names", "US", bqtest.Table("t2", "a"))
+	names.Denied, names.NamesOK = true, true
+	p.Datasets = []bqtest.Dataset{granted, bqtest.DS("broken", "US", bqtest.Table("t3", "a")), names}
+	h.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Err: bqtest.PermissionError("region-us")})
+	h.fake.Fail(bqtest.Failure{Method: "GetDataset", Dataset: "broken", Err: bqtest.TransientError("datasets.get")})
+
+	h.run(api.SyncScope{})
+
+	if u := h.unit("proj-a", "US"); u.Status != api.UnitDegraded || u.NamesOnly != 1 || u.Inaccessible != 0 {
+		t.Fatalf("a failed datasets.get must not fail the dataset: %+v", u)
+	}
+	ds, _ := h.cat.Datasets(ctx, "proj-a")
+	byName := map[string]store.DatasetRow{}
+	for _, d := range ds {
+		byName[d.Name] = d
+	}
+	g := byName["granted"]
+	if g.Description != "granted to bqt-restricted" || g.FriendlyName != "Granted" || g.Labels["team"] != "data" {
+		t.Fatalf("dataset options must reach the catalog: %+v", g)
+	}
+	if b := byName["broken"]; b.Status != api.DatasetOK || b.Description != "" {
+		t.Fatalf("%+v", b)
+	}
+	if n := byName["names"]; n.Status != api.DatasetNamesOnly || n.Description != "dataset names" {
+		t.Fatalf("the names-only rung keeps dataset options too: %+v", n)
+	}
+	if got := len(h.fake.CallsTo("GetDataset")); got < 3 {
+		t.Fatalf("GetDataset calls = %d, want one per dataset (plus retries)", got)
 	}
 }
 

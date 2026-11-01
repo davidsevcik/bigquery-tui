@@ -123,6 +123,22 @@ func (c *Client) ListDatasets(ctx context.Context, project string) (DatasetList,
 	return out, nil
 }
 
+// GetDataset implements Metadata using REST datasets.get.
+func (c *Client) GetDataset(ctx context.Context, project, dataset string) (api.DatasetMeta, error) {
+	d, err := c.svc.Datasets.Get(project, dataset).Context(ctx).Do()
+	if err != nil {
+		return api.DatasetMeta{}, Wrap(fmt.Sprintf("get dataset %s.%s", project, dataset), err)
+	}
+	return api.DatasetMeta{
+		Project:      project,
+		Name:         dataset,
+		Location:     d.Location,
+		Description:  d.Description,
+		FriendlyName: d.FriendlyName,
+		Labels:       d.Labels,
+	}, nil
+}
+
 // RegionSnapshot implements Metadata with region-qualified views.
 func (c *Client) RegionSnapshot(ctx context.Context, req RegionRequest) (*api.Snapshot, error) {
 	sc := regionScope(req.Project, req.Location)

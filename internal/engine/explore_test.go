@@ -89,6 +89,27 @@ func TestSearchAndBrowseAfterSync(t *testing.T) {
 	}
 }
 
+func TestSearchDatasetDescriptionWithoutRegionViews(t *testing.T) {
+	e := newEnv(t, "proj-a")
+	e.fake.Projects["proj-a"].Datasets[0].Meta.Description = "granted to bqt-restricted"
+	e.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Err: bqtest.PermissionError("region views")})
+	eng := e.open(false)
+	h, err := eng.StartSync(ctx, api.SyncScope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, err := h.Wait(); err != nil || res.UnitsOK != 2 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if err := eng.ReloadIndex(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r, err := eng.Search(ctx, "desc:restricted", api.SearchOptions{})
+	if err != nil || len(r.Results) != 1 || r.Results[0].Path.String() != "proj-a.sales.orders" {
+		t.Fatalf("desc: must match the dataset description from datasets.get: %+v %v", r.Results, err)
+	}
+}
+
 func TestTableDetailStatsAndPreview(t *testing.T) {
 	e, eng := synced(t, "proj-a")
 	p := api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "orders"}
