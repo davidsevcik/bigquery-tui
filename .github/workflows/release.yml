@@ -23,5 +23,8 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The tag that triggered this run. Without it, GoReleaser picks one of the tags on
+          # the commit, so v0.1.0 on the same commit as v0.1.0-rc1 was released as rc1.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
           # Optional: a token that can push to davidsevcik/homebrew-tap. Without it the cask is not published.
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
