@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
@@ -21,56 +20,6 @@ import (
 
 // The agent-facing commands (spec 14.1): schema, query, results, history,
 // favorites. Every query runs under the CLI's policy profile (spec 14.3).
-
-// parseAnywhere parses flags that may come before, between or after the
-// positional arguments (`bqt query "SELECT 1" --limit 5`). An argument with
-// white space in it is never a flag, so SQL starting with "--" or "-" stays
-// SQL; a lone "--" ends the flags. A negated search filter (-status:failed)
-// is a positional argument too.
-func parseAnywhere(fs *flag.FlagSet, args []string) ([]string, error) {
-	var flags, pos []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
-			pos = append(pos, args[i+1:]...)
-			break
-		}
-		if !isFlagArg(a) {
-			pos = append(pos, a)
-			continue
-		}
-		flags = append(flags, a)
-		name := strings.TrimLeft(a, "-")
-		if strings.Contains(name, "=") {
-			continue
-		}
-		if f := fs.Lookup(name); f != nil {
-			if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
-				continue
-			}
-			if i+1 < len(args) {
-				i++
-				flags = append(flags, args[i])
-			}
-		}
-	}
-	if err := parse(fs, flags); err != nil {
-		return nil, err
-	}
-	return pos, nil
-}
-
-func isFlagArg(a string) bool {
-	if len(a) < 2 || a[0] != '-' || strings.IndexFunc(a, unicode.IsSpace) >= 0 {
-		return false
-	}
-	name := strings.TrimLeft(a, "-")
-	if i := strings.IndexByte(name, '='); i >= 0 {
-		name = name[:i]
-	}
-	// -status:failed is a negated filter, -5 a number
-	return name != "" && !strings.Contains(name, ":") && !unicode.IsDigit(rune(name[0]))
-}
 
 // limits holds the flags that lower the policy limits.
 type limits struct {

@@ -16,14 +16,15 @@ import (
 // terminal belongs to the UI.
 func cmdTUI(ctx context.Context, o *out, g *globals, args []string) error {
 	fs := commandFlags("tui", g)
-	if err := parse(fs, args); err != nil {
+	pos, err := parseAnywhere(fs, args)
+	if err != nil {
 		return err
 	}
 	file := ""
-	switch fs.NArg() {
+	switch len(pos) {
 	case 0:
 	case 1:
-		file = fs.Arg(0)
+		file = pos[0]
 	default:
 		return usageErr("the UI opens at most one file")
 	}

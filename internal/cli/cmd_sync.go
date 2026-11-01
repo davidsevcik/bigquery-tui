@@ -46,7 +46,7 @@ func cmdSync(ctx context.Context, o *out, g *globals, args []string) (int, error
 	fs := commandFlags("sync", g)
 	fs.Var(&projects, "project", "sync only this project: a selected one, or a deselected one to refresh its cache (repeatable)")
 	fs.BoolVar(&progress, "progress", false, "stream progress to stderr (default on a terminal)")
-	if err := parse(fs, args); err != nil {
+	if err := parseNoArgs(fs, args); err != nil {
 		return 0, err
 	}
 	env := o.env

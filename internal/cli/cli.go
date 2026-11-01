@@ -236,7 +236,10 @@ func classify(err error) *cmdError {
 const usage = `bqt - a keyboard-driven BigQuery explorer
 
 Usage:
-  bqt [global flags] <command> [flags]
+  bqt [global flags] <command> [arguments and flags]
+
+Flags may also follow the arguments (bqt search orders --limit 5); a lone --
+ends the flags.
 
 Commands:
   (none), tui    Open the interactive UI: explorer, editor, results (needs a terminal)
@@ -422,8 +425,68 @@ func parse(fs *flag.FlagSet, args []string) error {
 	return nil
 }
 
+// parseAnywhere parses flags that may come before, between or after the
+// positional arguments (`bqt query "SELECT 1" --limit 5`). An argument with
+// white space in it is never a flag, so SQL starting with "--" or "-" stays
+// SQL; a lone "--" ends the flags. A negated search filter (-status:failed)
+// is a positional argument too.
+func parseAnywhere(fs *flag.FlagSet, args []string) ([]string, error) {
+	var flags, pos []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			pos = append(pos, args[i+1:]...)
+			break
+		}
+		if !isFlagArg(a) {
+			pos = append(pos, a)
+			continue
+		}
+		flags = append(flags, a)
+		name := strings.TrimLeft(a, "-")
+		if strings.Contains(name, "=") {
+			continue
+		}
+		if f := fs.Lookup(name); f != nil {
+			if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+				continue
+			}
+			if i+1 < len(args) {
+				i++
+				flags = append(flags, args[i])
+			}
+		}
+	}
+	if err := parse(fs, flags); err != nil {
+		return nil, err
+	}
+	return pos, nil
+}
+
+func isFlagArg(a string) bool {
+	if len(a) < 2 || a[0] != '-' || strings.IndexFunc(a, unicode.IsSpace) >= 0 {
+		return false
+	}
+	name := strings.TrimLeft(a, "-")
+	if i := strings.IndexByte(name, '='); i >= 0 {
+		name = name[:i]
+	}
+	// -status:failed is a negated filter, -5 a number
+	return name != "" && !strings.Contains(name, ":") && !unicode.IsDigit(rune(name[0]))
+}
+
+// parseNoArgs parses the flags of a command that takes no arguments, and
+// refuses an argument rather than ignore it and the flags after it.
+func parseNoArgs(fs *flag.FlagSet, args []string) error {
+	pos, err := parseAnywhere(fs, args)
+	if err == nil && len(pos) > 0 {
+		err = usageErr("unexpected argument %q", pos[0])
+	}
+	return err
+}
+
 func cmdVersion(o *out, g *globals, args []string) error {
-	if err := parse(commandFlags("version", g), args); err != nil {
+	if err := parseNoArgs(commandFlags("version", g), args); err != nil {
 		return err
 	}
 	data := map[string]string{"version": version.String(), "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH}

@@ -19,11 +19,8 @@ func cmdMCP(ctx context.Context, o *out, g *globals, args []string) error {
 	var printConfig bool
 	fs := commandFlags("mcp", g)
 	fs.BoolVar(&printConfig, "print-config", false, "print configuration snippets for Claude Code, Codex and Gemini CLI")
-	if err := parse(fs, args); err != nil {
+	if err := parseNoArgs(fs, args); err != nil {
 		return err
-	}
-	if fs.NArg() > 0 {
-		return usageErr("unexpected argument %q", fs.Arg(0))
 	}
 	env := o.env
 	if printConfig {

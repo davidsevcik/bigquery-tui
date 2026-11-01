@@ -24,7 +24,7 @@ type engineLog struct{ *slog.Logger }
 func jsonMarshal(v any) ([]byte, error) { return json.Marshal(v) }
 
 func cmdStatus(ctx context.Context, o *out, g *globals, args []string) error {
-	if err := parse(commandFlags("status", g), args); err != nil {
+	if err := parseNoArgs(commandFlags("status", g), args); err != nil {
 		return err
 	}
 	env := o.env
@@ -99,7 +99,7 @@ func printStatus(w io.Writer, st api.CatalogStatus) {
 }
 
 func cmdDoctor(ctx context.Context, o *out, g *globals, args []string) error {
-	if err := parse(commandFlags("doctor", g), args); err != nil {
+	if err := parseNoArgs(commandFlags("doctor", g), args); err != nil {
 		return err
 	}
 	env := o.env

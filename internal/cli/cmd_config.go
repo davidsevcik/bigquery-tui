@@ -13,7 +13,7 @@ import (
 
 func cmdInit(ctx context.Context, o *out, g *globals, args []string) error {
 	fs := commandFlags("init", g)
-	if err := parse(fs, args); err != nil {
+	if err := parseNoArgs(fs, args); err != nil {
 		return err
 	}
 	env := o.env
@@ -45,14 +45,18 @@ func cmdInit(ctx context.Context, o *out, g *globals, args []string) error {
 }
 
 func cmdConfig(ctx context.Context, o *out, g *globals, args []string) error {
-	if len(args) == 0 {
-		return usageErr("config needs a subcommand: path or edit")
-	}
-	sub, rest := args[0], args[1:]
-	fs := commandFlags("config "+sub, g)
-	if err := parse(fs, rest); err != nil {
+	pos, err := parseAnywhere(commandFlags("config", g), args)
+	if err != nil {
 		return err
 	}
+	switch len(pos) {
+	case 0:
+		return usageErr("config needs a subcommand: path or edit")
+	case 1:
+	default:
+		return usageErr("unexpected argument %q", pos[1])
+	}
+	sub := pos[0]
 	env := o.env
 	path := config.ResolvePath(g.loadOptions(env))
 	switch sub {
