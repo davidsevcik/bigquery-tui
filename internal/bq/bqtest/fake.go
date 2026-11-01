@@ -21,8 +21,9 @@ type Dataset struct {
 	// Denied makes region and dataset-scope queries fail with a permission
 	// error, as when the user holds no metadata access to the dataset.
 	Denied bool
-	// NamesOK lets ListTableNames succeed even when Denied (tables.list needs
-	// weaker permissions than INFORMATION_SCHEMA).
+	// NamesOK lets ListTableNames and GetDataset succeed even when Denied
+	// (tables.list and datasets.get need weaker permissions than
+	// INFORMATION_SCHEMA).
 	NamesOK bool
 }
 
@@ -45,7 +46,7 @@ type Project struct {
 
 // Failure injects an error into matching calls. Empty fields are wildcards.
 type Failure struct {
-	Method   string // "ListProjects", "ListDatasets", "RegionSnapshot", "DatasetSnapshot", "ListTableNames"
+	Method   string // "ListProjects", "ListDatasets", "GetDataset", "RegionSnapshot", "DatasetSnapshot", "ListTableNames"
 	Project  string
 	Location string
 	Dataset  string
@@ -242,6 +243,29 @@ func (f *Fake) ListDatasets(ctx context.Context, project string) (bq.DatasetList
 	return out, nil
 }
 
+// GetDataset implements bq.Metadata.
+func (f *Fake) GetDataset(ctx context.Context, project, dataset string) (api.DatasetMeta, error) {
+	if err := f.begin(ctx, Call{Method: "GetDataset", Project: project, Dataset: dataset}); err != nil {
+		return api.DatasetMeta{}, err
+	}
+	p, err := f.project(project)
+	if err != nil {
+		return api.DatasetMeta{}, err
+	}
+	for _, d := range p.Datasets {
+		if d.Meta.Name != dataset {
+			continue
+		}
+		if d.Denied && !d.NamesOK {
+			return api.DatasetMeta{}, PermissionError(fmt.Sprintf("datasets.get on %s.%s", project, dataset))
+		}
+		m := d.Meta
+		m.Project = project
+		return m, nil
+	}
+	return api.DatasetMeta{}, &bq.Error{Kind: bq.KindNotFound, Op: "fake", Err: fmt.Errorf("dataset %s.%s not found", project, dataset)}
+}
+
 // RegionSnapshot implements bq.Metadata.
 func (f *Fake) RegionSnapshot(ctx context.Context, req bq.RegionRequest) (*api.Snapshot, error) {
 	if err := f.begin(ctx, Call{Method: "RegionSnapshot", Project: req.Project, Location: req.Location, Datasets: append([]string(nil), req.Datasets...)}); err != nil {
@@ -304,8 +328,9 @@ func (f *Fake) DatasetSnapshot(ctx context.Context, req bq.DatasetRequest) (*api
 		if d.Denied {
 			return nil, PermissionError(fmt.Sprintf("dataset %s.%s", req.Project, req.Dataset))
 		}
-		m := d.Meta
-		m.Project = req.Project
+		// SCHEMATA_OPTIONS has no dataset scope: no description, friendly
+		// name or labels.
+		m := api.DatasetMeta{Project: req.Project, Name: d.Meta.Name, Location: d.Meta.Location}
 		snap := &api.Snapshot{Datasets: []api.DatasetMeta{m}}
 		for _, t := range d.Tables {
 			t.Dataset = d.Meta.Name

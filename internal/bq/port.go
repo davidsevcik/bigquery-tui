@@ -43,6 +43,11 @@ type Metadata interface {
 	// datasets.list). It is the only way to discover which regions to query.
 	ListDatasets(ctx context.Context, project string) (DatasetList, error)
 
+	// GetDataset reads one dataset's description, friendly name, labels and
+	// location (REST datasets.get, free). The dataset-scope fallback uses it
+	// for what SCHEMATA_OPTIONS gives at region scope only.
+	GetDataset(ctx context.Context, project, dataset string) (api.DatasetMeta, error)
+
 	// RegionSnapshot returns datasets (with description, friendly name and
 	// labels), tables, views, and column field paths for the requested
 	// datasets in one region, using region-qualified INFORMATION_SCHEMA views.
