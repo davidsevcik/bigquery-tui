@@ -23,11 +23,8 @@ func cmdHistoryPrune(ctx context.Context, o *out, g *globals, args []string) err
 	older := fs.String("older-than", "", "delete entries older than an age such as 90d or 12w")
 	before := fs.String("before", "", "delete entries created before a date (2026-01-31)")
 	all := fs.Bool("all", false, "delete every entry")
-	if err := parse(fs, args); err != nil {
+	if err := parseNoArgs(fs, args); err != nil {
 		return err
-	}
-	if fs.NArg() > 0 {
-		return usageErr("unexpected argument %q", fs.Arg(0))
 	}
 	n := 0
 	for _, set := range []bool{*older != "", *before != "", *all} {

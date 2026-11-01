@@ -19,21 +19,12 @@ func cmdSearch(ctx context.Context, o *out, g *globals, args []string) error {
 	fs.IntVar(&limit, "limit", 50, "maximum number of results")
 	fs.StringVar(&cursor, "cursor", "", "continue from a previous next_cursor")
 	fs.BoolVar(&tablesOnly, "tables-only", false, "leave out project and dataset results")
-	// A query may start with a negated filter such as -d:tmp, which must not be
-	// read as a flag: everything from the first such token on is the query.
-	for i, a := range args {
-		if a == "--" {
-			break
-		}
-		if strings.HasPrefix(a, "-") && strings.Contains(a, ":") {
-			args = append(append(append([]string{}, args[:i]...), "--"), args[i:]...)
-			break
-		}
-	}
-	if err := parse(fs, args); err != nil {
+	// flags may follow the query; a negated filter such as -d:tmp is part of it
+	pos, err := parseAnywhere(fs, args)
+	if err != nil {
 		return err
 	}
-	query := strings.Join(fs.Args(), " ")
+	query := strings.Join(pos, " ")
 	offset := 0
 	if cursor != "" {
 		n, err := strconv.Atoi(cursor)

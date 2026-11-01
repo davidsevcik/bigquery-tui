@@ -448,6 +448,44 @@ func TestSearchCommand(t *testing.T) {
 	}
 }
 
+// Issue #32: a flag after the arguments is a flag, never part of the query.
+func TestFlagsAfterTheArguments(t *testing.T) {
+	s := syncedSandbox(t, "")
+	code, out, errOut := s.run("search", "orders", "--format", "text")
+	if code != 0 || !strings.Contains(out, "proj-a.sales.orders") {
+		t.Fatalf("search QUERY --format text: %d %q %s", code, out, errOut)
+	}
+	code, out, _ = s.run("search", "type:table", "--limit", "1", "-d:us_data")
+	if env := decode(t, out); code != 0 || env.NextCursor != "" || len(env.Data.(map[string]any)["results"].([]any)) != 1 {
+		t.Fatalf("search QUERY --limit 1 -d:x: %d %s", code, out)
+	}
+	// an unknown flag is refused by name, not swallowed into the query
+	code, _, errOut = s.run("search", "orders", "--tables-onyl")
+	if code != api.ExitUsage || !strings.Contains(errOut, "tables-onyl") {
+		t.Fatalf("misspelt flag: %d %s", code, errOut)
+	}
+	// after a lone -- everything is the query
+	code, out, _ = s.run("search", "orders", "--", "--limit")
+	if q := decode(t, out).Data.(map[string]any)["query"].(map[string]any); code != 0 || q["raw"] != "orders --limit" {
+		t.Fatalf("search -- : %d %v", code, q)
+	}
+	// commands without arguments refuse one instead of ignoring the flags after it
+	for _, args := range [][]string{
+		{"sync", "now", "--project", "proj-a"}, {"status", "x", "--format", "text"}, {"doctor", "x"},
+		{"version", "x"}, {"init", "x"}, {"config", "path", "x"}, {"history", "prune", "x", "--all"},
+	} {
+		if code, _, errOut := s.run(args...); code != api.ExitUsage || !strings.Contains(errOut, "unexpected argument") {
+			t.Errorf("%v: %d %s", args, code, errOut)
+		}
+	}
+	if code, _, errOut := s.run("config", "--format", "text", "path"); code != 0 {
+		t.Errorf("config FLAGS path: %d %s", code, errOut)
+	}
+	if code, _, errOut := s.run("tui", "q.sql", "--format", "text"); code != api.ExitUsage || !strings.Contains(errOut, "needs a terminal") {
+		t.Errorf("tui FILE --format text: %d %s", code, errOut)
+	}
+}
+
 func TestHistoryPrune(t *testing.T) {
 	s := newSandbox(t)
 	s.writeConfig("projects = [\"proj-a\"]\n")
