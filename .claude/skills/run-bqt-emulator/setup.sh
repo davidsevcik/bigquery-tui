@@ -8,7 +8,8 @@ REPO=$(cd "$SKILL/../../.." && pwd)
 E="$REPO/.scratch/emu"   # under $HOME: colima shares only the home directory
 API=http://localhost:9050/bigquery/v2/projects/test-proj
 
-colima status >/dev/null 2>&1 || colima start
+# any running Docker will do (Docker Desktop, colima); otherwise start colima
+docker info >/dev/null 2>&1 || colima start
 rm -rf "$E" && mkdir -p "$E/data" "$E/fav" "$E/exports"
 python3 "$SKILL/seed.py" > "$E/data.yaml"
 
