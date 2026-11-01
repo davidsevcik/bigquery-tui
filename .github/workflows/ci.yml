@@ -18,7 +18,8 @@ jobs:
         run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
       - name: test
         run: go test -race ./...
-      - name: pty smoke (never cached: it runs a freshly built binary, which the test cache cannot track)
+      # Never cached: the test runs a freshly built binary, which the Go test cache cannot track.
+      - name: pty smoke
         run: go test -count=1 ./internal/smoke
       - name: search latency guard
         run: go test ./internal/search -run TestSearchLatencySmoke
