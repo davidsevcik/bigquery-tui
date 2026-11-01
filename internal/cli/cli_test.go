@@ -27,6 +27,8 @@ type sandbox struct {
 	edit    func(argv []string)
 	stdin   string
 	runs    int // each command runs a minute after the one before
+	// authErr, when set, is what the credentials check fails with.
+	authErr error
 }
 
 func newSandbox(t *testing.T) *sandbox {
@@ -83,6 +85,9 @@ func (s *sandbox) run(args ...string) (code int, stdout, stderr string) {
 		Meta:  func(context.Context) (bq.Metadata, error) { return s.fake, nil },
 		Jobs:  func(context.Context) (bq.Jobs, error) { return s.fake, nil },
 		CheckAuth: func(context.Context) (bq.AuthInfo, error) {
+			if s.authErr != nil {
+				return bq.AuthInfo{Type: "impersonated_service_account"}, s.authErr
+			}
 			return bq.AuthInfo{Type: "authorized_user", QuotaProject: "exec-proj"}, nil
 		},
 		Backoff: func(int) time.Duration { return 0 },

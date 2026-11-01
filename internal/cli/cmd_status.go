@@ -148,11 +148,14 @@ func cmdDoctor(ctx context.Context, o *out, g *globals, args []string) error {
 	if aerr != nil {
 		rep.Auth.Error = aerr.Error()
 	}
-	o.result(rep, func(w io.Writer) { printDoctor(w, rep) })
+	hint := aerr != nil && !bq.ImpersonationDenied(aerr)
+	o.result(rep, func(w io.Writer) { printDoctor(w, rep, hint) })
 	return nil
 }
 
-func printDoctor(w io.Writer, r api.DoctorReport) {
+// printDoctor prints the report; withHint adds the ADC login hint under an
+// auth error.
+func printDoctor(w io.Writer, r api.DoctorReport, withHint bool) {
 	yn := func(b bool) string {
 		if b {
 			return "ok"
@@ -193,6 +196,8 @@ func printDoctor(w io.Writer, r api.DoctorReport) {
 	fmt.Fprintf(w, "auth:     %s\n", auth)
 	if r.Auth.Error != "" {
 		fmt.Fprintf(w, "          %s\n", r.Auth.Error)
-		fmt.Fprintln(w, "          run `gcloud auth application-default login`")
+	}
+	if withHint {
+		fmt.Fprintln(w, "          "+loginHint)
 	}
 }

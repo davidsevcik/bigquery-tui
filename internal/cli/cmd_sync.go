@@ -91,7 +91,9 @@ func cmdSync(ctx context.Context, o *out, g *globals, args []string) (int, error
 		return api.ExitCancelled, nil
 	case res.UnitsFailed > 0:
 		if allAuthFailures(res) {
-			fmt.Fprintln(env.Stderr, "hint: run `gcloud auth application-default login`")
+			if !allImpersonationFailures(res) {
+				fmt.Fprintln(env.Stderr, "hint: "+loginHint)
+			}
 			return api.ExitAuth, nil
 		}
 		return api.ExitBigQuery, nil
@@ -151,6 +153,17 @@ func printSyncSummary(w io.Writer, r api.SyncResult) {
 	for _, m := range r.Warnings {
 		fmt.Fprintf(w, "  warning: %s\n", m)
 	}
+}
+
+// allImpersonationFailures reports whether every failed unit failed on a
+// refused impersonation, whose message (bq.ImpersonationError) names the fix.
+func allImpersonationFailures(r api.SyncResult) bool {
+	for _, u := range r.Units {
+		if (u.Status == api.UnitInaccessible || u.Status == api.UnitDegraded) && !strings.HasPrefix(u.Error, "auth: cannot impersonate ") {
+			return false
+		}
+	}
+	return true
 }
 
 // allAuthFailures reports whether every failed unit failed on credentials.

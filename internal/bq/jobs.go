@@ -296,7 +296,8 @@ func (c *Client) QueryRows(ctx context.Context, ref api.JobRef, startIndex int64
 
 var errPosition = regexp.MustCompile(`\[(\d+):(\d+)\]`)
 
-// authHint is shown for every credentials failure.
+// authHint is shown for credentials failures other than a refused
+// impersonation, whose message names its own fix.
 const authHint = "run: gcloud auth application-default login"
 
 // QueryErrorOf turns a dry-run or job failure into plain data: the message
@@ -304,6 +305,9 @@ const authHint = "run: gcloud auth application-default login"
 func QueryErrorOf(err error) *api.QueryError {
 	if err == nil {
 		return nil
+	}
+	if ie := asImpersonation(err, defaultADC); ie != nil {
+		err = ie
 	}
 	qe := &api.QueryError{Message: err.Error(), Kind: "other"}
 	var be *bqapi.Error
@@ -331,7 +335,10 @@ func QueryErrorOf(err error) *api.QueryError {
 		qe.Kind = "over_limit"
 		qe.Hint = "the query is over max_bytes_billed; narrow it or raise the cap in the config"
 	case KindAuth:
-		qe.Kind, qe.Hint = "auth", authHint
+		qe.Kind = "auth"
+		if !ImpersonationDenied(err) {
+			qe.Hint = authHint
+		}
 	case KindPermission:
 		qe.Kind = "permission"
 	case KindNotFound:

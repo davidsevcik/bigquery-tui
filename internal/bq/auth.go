@@ -34,6 +34,9 @@ func CheckAuth(ctx context.Context) (AuthInfo, error) {
 		info.Type = "metadata_server_or_other"
 	}
 	if _, err := creds.TokenSource.Token(); err != nil {
+		if ie := asImpersonation(err, func() []byte { return creds.JSON }); ie != nil {
+			err = ie
+		}
 		return info, Wrap("fetch access token", err)
 	}
 	return info, nil

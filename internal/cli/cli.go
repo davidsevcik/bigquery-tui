@@ -161,6 +161,10 @@ func (o *out) fail(err error) int {
 	return ce.exit
 }
 
+// loginHint fixes missing or expired credentials, not a refused
+// impersonation (bq.ImpersonationDenied).
+const loginHint = "run `gcloud auth application-default login`"
+
 func classify(err error) *cmdError {
 	var ce *cmdError
 	if errors.As(err, &ce) {
@@ -188,7 +192,11 @@ func classify(err error) *cmdError {
 		case "timeout":
 			return &cmdError{exit: api.ExitOverLimit, code: "timeout", msg: qf.Error(), hint: "narrow the query, or raise agent_timeout in the config"}
 		case "auth":
-			return &cmdError{exit: api.ExitAuth, code: "auth", msg: qf.Error(), hint: "run `gcloud auth application-default login`"}
+			hint := ""
+			if qf.Err.Hint != "" { // none for a refused impersonation
+				hint = loginHint
+			}
+			return &cmdError{exit: api.ExitAuth, code: "auth", msg: qf.Error(), hint: hint}
 		case "over_limit":
 			return &cmdError{exit: api.ExitOverLimit, code: "over_limit", msg: qf.Error(), hint: "BigQuery refused it under the job's byte cap (max_bytes_billed, agent_max_bytes)"}
 		}
@@ -218,7 +226,11 @@ func classify(err error) *cmdError {
 	}
 	switch bq.KindOf(err) {
 	case bq.KindAuth:
-		return &cmdError{exit: api.ExitAuth, code: "auth", msg: err.Error(), hint: "run `gcloud auth application-default login`"}
+		ce := &cmdError{exit: api.ExitAuth, code: "auth", msg: err.Error(), hint: loginHint}
+		if bq.ImpersonationDenied(err) {
+			ce.hint = "" // the message names the fix
+		}
+		return ce
 	case bq.KindOverLimit:
 		return &cmdError{exit: api.ExitOverLimit, code: "over_limit", msg: err.Error()}
 	case bq.KindCancelled:

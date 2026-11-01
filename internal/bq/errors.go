@@ -20,7 +20,7 @@ const (
 	KindNotFound        // object is gone
 	KindTransient       // quota, 5xx, network: retry with backoff
 	KindOverLimit       // bytes-billed cap exceeded: do not retry
-	KindAuth            // credentials missing or expired
+	KindAuth            // credentials missing, expired or refused impersonation
 	KindCancelled       // context cancelled or deadline exceeded by the caller
 )
 
@@ -56,6 +56,9 @@ func Wrap(op string, err error) error {
 		}
 		return err
 	}
+	if ie := asImpersonation(err, defaultADC); ie != nil {
+		err = ie
+	}
 	return &Error{Kind: Classify(err), Op: op, Err: err}
 }
 
@@ -81,6 +84,9 @@ func Classify(err error) Kind {
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return KindTransient
+	}
+	if ImpersonationDenied(err) {
+		return KindAuth // before net.Error: the client wraps it in a *url.Error
 	}
 	reason := ""
 	code := 0
