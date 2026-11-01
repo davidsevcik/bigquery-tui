@@ -12,7 +12,9 @@ const (
 )
 
 // UnitRef identifies a sync unit. Location "" is the project-level discovery
-// unit (datasets.list), used when a project cannot be enumerated at all.
+// unit (datasets.list), used when a project cannot be enumerated completely,
+// and to record the sync of a project that has no datasets (and so no other
+// unit).
 type UnitRef struct {
 	Project  string `json:"project"`
 	Location string `json:"location"`

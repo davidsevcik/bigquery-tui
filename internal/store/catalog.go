@@ -588,6 +588,24 @@ ON CONFLICT(project,location) DO UPDATE SET last_attempt=excluded.last_attempt,s
 	return err
 }
 
+// RecordEmptyProject records a complete dataset listing that left nothing to
+// sync: the project has no (project, location) unit, so its discovery unit
+// (location "") carries the successful sync, with 0 datasets.
+func (c *Catalog) RecordEmptyProject(ctx context.Context, project string, at time.Time) error {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := ensureProject(ctx, tx, project); err != nil {
+		return err
+	}
+	if err := upsertUnit(ctx, tx, api.UnitState{UnitRef: api.UnitRef{Project: project}, Status: api.UnitOK, LastAttempt: &at, LastSuccess: &at}); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // RemoveUnit deletes a unit's datasets and its state row (used when a
 // location no longer has any datasets).
 func (c *Catalog) RemoveUnit(ctx context.Context, u api.UnitRef) error {

@@ -162,7 +162,7 @@ Both SQLite files use `modernc.org/sqlite`, WAL, `busy_timeout`, `synchronous=NO
 - Shard family per table: prefix, first, last, count (section 8.3).
 - A content hash per table for the local diff. No `TABLE_STORAGE` in v1; size and row-count columns can be added later as nullable.
 - Surrogate integer keys with unique constraints on `(project)`, `(project, dataset)` and `(dataset_id, table_name)`. Identifiers are stored exactly as returned plus a lowercase `name_lc` column for lookups and range scans. The hot path is `columns(table_id)`.
-- Per-`(project, region)` sync state: last attempt, last success, status (`ok`, `degraded`, `inaccessible`), error text.
+- Per-`(project, region)` sync state: last attempt, last success, status (`ok`, `degraded`, `inaccessible`), error text. A per-project discovery row (region `""`) holds the state of `datasets.list`: its failure, or, for a project whose complete listing leaves no datasets to sync, the successful sync itself, since such a project has no unit to record it.
 - A `meta` table: config hash, schema version, and a `last synced as` value if cheap. The catalog is not identity-aware; switching ADC accounts means deleting `catalog.db`.
 - No full-text index in the catalog. Search loads projects, datasets and tables (not columns) into memory and ranks them there; the `col:` filter scans an in-memory blob of column paths and descriptions built on first use (section 8.2). A trigram FTS5 index over columns was built and measured: it made the first apply of 1.3M columns ten times slower (14 s to 146 s), so it was dropped. `columns(parent_id)` must stay indexed (section 17 item 13).
 - Never design a lookup that needs a global distinct-column scan per keystroke (390 ms measured) or a sorted unscoped `LIKE` (18 ms).
@@ -205,7 +205,7 @@ Both SQLite files use `modernc.org/sqlite`, WAL, `busy_timeout`, `synchronous=NO
 - **Failure ladder:** region-scope `INFORMATION_SCHEMA`, then per-dataset `INFORMATION_SCHEMA` for datasets that failed, then REST `tables.list` (names only, flagged "names only"). No per-table `tables.get` in v1. Transient errors (quota, 5xx, network) get 2 retries with backoff; permission errors are not retried. A failed unit keeps old data and is marked `degraded` or `inaccessible` with the error text.
 - **Reporting:** failures never open a modal. They show as a warning glyph per project and in a "sync problems" list; `bqt sync` returns the same data as structured events.
 - **Events:** unit started, datasets and tables counted, unit done or failed, run finished. The TUI shows `sync 7/23 units` in the status bar with a details overlay; `ctrl+c` or `esc` there cancels through `context`, committed units stay and in-flight units roll back. Four units run in parallel (a fixed internal cap).
-- **Freshness:** "synced 3h ago" per project; a dataset is dimmed if its unit is stale or degraded.
+- **Freshness:** "synced 3h ago" per project (its oldest unit's last success); a dataset is dimmed if its unit is stale or degraded. A project with no datasets (after `ignore`) counts as synced, with 0 datasets, once a sync lists it completely; a failed or incomplete (`unreachable[]`) listing records no new success.
 
 ## 8. Explorer and search (phase 2) [08, 09]
 

@@ -32,7 +32,7 @@ func (s *Searcher) ProjectHealth(project string, n *api.BrowseNode) {
 }
 
 func (s *Searcher) projectHealth(x *Index, project string, n *api.BrowseNode) {
-	var oldest *time.Time
+	var oldest, discovery *time.Time
 	known := false
 	rank := map[api.UnitStatus]int{api.UnitOK: 0, api.UnitDegraded: 1, api.UnitInaccessible: 2}
 	if n.UnitStatus == "" {
@@ -49,6 +49,7 @@ func (s *Searcher) projectHealth(x *Index, project string, n *api.BrowseNode) {
 			n.Error = u.Error
 		}
 		if ref.Location == "" {
+			discovery = u.LastSuccess // carries a sync only for an empty project
 			continue
 		}
 		known = true
@@ -61,9 +62,13 @@ func (s *Searcher) projectHealth(x *Index, project string, n *api.BrowseNode) {
 			oldest = &t
 		}
 	}
-	if !known {
+	if !known && discovery == nil {
 		n.Stale = true
 		return
+	}
+	if !known {
+		t := *discovery
+		oldest = &t
 	}
 	n.SyncedAt = oldest
 	if oldest != nil && s.Now().Sub(*oldest) > s.ttl() {

@@ -460,3 +460,76 @@ func TestCompletionLeavesOutDeselectedProjects(t *testing.T) {
 		t.Fatalf("unqualified names resolve in the Execution project: %s", got)
 	}
 }
+
+// Issue 33: a project with no datasets has no (project, location) unit, but a
+// complete dataset listing still syncs it: status, the Projects dialog and
+// the Explorer all count it as synced (0 datasets).
+func TestAnEmptyProjectCountsAsSynced(t *testing.T) {
+	e := newEnv(t, "proj-empty")
+	e.fake.AddProject("proj-empty")
+	eng := e.open(false)
+	fullSync(t, eng)
+	if err := eng.ReloadIndex(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := eng.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.SyncNeeded {
+		t.Fatalf("sync needed: %s", st.SyncReason)
+	}
+	if len(st.Projects) != 1 || st.Projects[0].SyncedAt == nil || !st.Projects[0].SyncedAt.Equal(e.now) || st.Projects[0].Stale {
+		t.Fatalf("status %+v", st.Projects)
+	}
+	infos, err := eng.ProjectInfos(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 1 || infos[0].Sync != api.ProjectSynced || infos[0].SyncedAt == nil || infos[0].Datasets != 0 {
+		t.Fatalf("projects dialog %+v", infos)
+	}
+	if ps := eng.Projects(); len(ps) != 1 || ps[0].SyncedAt == nil || ps[0].Stale || ps[0].UnitStatus != api.UnitOK {
+		t.Fatalf("explorer %+v", ps)
+	}
+	if need, err := eng.NeedsSync(ctx, []string{"proj-empty"}); err != nil || len(need) != 0 {
+		t.Fatalf("needs sync %v %v", need, err)
+	}
+
+	// Once older than sync_ttl it is stale like any other project.
+	e.now = e.now.Add(25 * time.Hour)
+	if st, _ := eng.Status(ctx); !st.Projects[0].Stale {
+		t.Fatalf("not stale after the TTL: %+v", st.Projects[0])
+	}
+}
+
+// Issue 33: a project whose dataset listing fails has no (project, location)
+// unit either, and is not synced.
+func TestAProjectWhoseListingFailsIsNotSynced(t *testing.T) {
+	e := newEnv(t, "proj-x")
+	e.fake.AddProject("proj-x").ListErr = bqtest.TransientError("boom")
+	eng := e.open(false)
+	fullSync(t, eng)
+	if err := eng.ReloadIndex(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := eng.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.SyncNeeded || !strings.Contains(st.SyncReason, "never been synced") || st.Projects[0].SyncedAt != nil || !st.Projects[0].Stale {
+		t.Fatalf("status %q %+v", st.SyncReason, st.Projects)
+	}
+	infos, err := eng.ProjectInfos(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if infos[0].Sync != api.ProjectFailed || infos[0].SyncedAt != nil {
+		t.Fatalf("projects dialog %+v", infos)
+	}
+	if ps := eng.Projects(); ps[0].SyncedAt != nil {
+		t.Fatalf("explorer %+v", ps)
+	}
+}
