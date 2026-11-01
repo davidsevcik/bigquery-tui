@@ -1,0 +1,67 @@
+# Release builds for bqt. A pushed tag `v*` runs .github/workflows/release.yml,
+# which runs GoReleaser with this file. Check it locally with:
+#   goreleaser check
+#   goreleaser release --snapshot --clean   # builds into dist/, publishes nothing
+version: 2
+
+project_name: bqt
+
+before:
+  hooks:
+    - go mod tidy -diff
+
+builds:
+  - id: bqt
+    main: ./cmd/bqt
+    binary: bqt
+    # The SQLite driver is pure Go, so no C toolchain is needed for any target.
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/davidsevcik/bigquery-tui/internal/version.Version={{ .Tag }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: bqt
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^Merge "
+
+release:
+  # A tag like v0.2.0-rc1 is marked as a pre-release.
+  prerelease: auto
+
+homebrew_casks:
+  - name: bqt
+    repository:
+      owner: davidsevcik
+      name: homebrew-tap
+      token: '{{ index .Env "HOMEBREW_TAP_GITHUB_TOKEN" }}'
+    homepage: https://github.com/davidsevcik/bigquery-tui
+    description: Keyboard-driven terminal UI and CLI for BigQuery
+    license: Apache-2.0
+    # Publish the cask only when the tap token is non-empty (an unset GitHub secret
+    # arrives as ""), and never for a pre-release tag.
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_GITHUB_TOKEN" }}auto{{ else }}true{{ end }}'
+    hooks:
+      post:
+        # The binaries are not notarised; without this, macOS refuses to run bqt.
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/bqt"]
+          end

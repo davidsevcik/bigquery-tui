@@ -4,13 +4,21 @@ A keyboard-driven terminal tool for browsing, searching, writing and running Big
 
 Status: **phases 1 to 5** of [`docs/spec/bqt-v1.md`](docs/spec/bqt-v1.md). This build has the config file, the local metadata catalog, sync, catalog search, the interactive explorer, the query editor with completion, query runs with a dry-run first, the results viewer with export, History and Favorites, and the agent layer: a JSON command line, an MCP server and hand-off actions in the UI.
 
-## Build
+## Install
 
-Needs Go 1.26 or newer.
+Prebuilt binaries for macOS and Linux (amd64 and arm64) are on the [releases page](https://github.com/davidsevcik/bigquery-tui/releases). Or, with Go 1.26 or newer:
+
+```sh
+go install github.com/davidsevcik/bigquery-tui/cmd/bqt@latest
+```
+
+To build from a checkout:
 
 ```sh
 go build -o bin/bqt ./cmd/bqt
 ```
+
+Maintainers: pushing a tag `v*` runs `.github/workflows/release.yml`, which builds the binaries with GoReleaser (`.goreleaser.yaml`) and publishes a GitHub release. Try the config locally with `goreleaser release --snapshot --clean`.
 
 To see the architecture (packages, the imports between them, and each package's exported API), generate the map from the current source:
 
