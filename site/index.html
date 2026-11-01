@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bqt: BigQuery in the terminal</title>
+<meta name="description" content="A keyboard-driven BigQuery client for the terminal: instant search across thousands of datasets, a SQL editor with completion, a cost cap on every query, and safe access for AI agents.">
+<meta property="og:title" content="bqt: BigQuery in the terminal">
+<meta property="og:description" content="Instant search across thousands of datasets, a SQL editor with completion, a cost cap on every query, and safe access for AI agents.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://davidsevcik.github.io/bigquery-tui/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23172231'/%3E%3Cpath d='M8 10l6 6-6 6' stroke='%23E0A526' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M16 22h8' stroke='%23D3DCE6' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;700&family=Atkinson+Hyperlegible+Next:wght@400;700;800&display=swap" rel="stylesheet">
+<!-- The screens below are copied from bqt's golden test files in internal/tui/testdata (fictional "acme" data). -->
+<style>
+:root {
+  --paper: #edf0f3;
+  --paper-2: #e2e7ec;
+  --ink: #16202e;
+  --muted: #566274;
+  --rule: #c6ced8;
+  --accent: #8a5d00;
+  --term-bg: #172231;
+  --term-fg: #d3dce6;
+  --term-dim: #66768c;
+  --term-line: #34445a;
+  --term-amber: #e0a526;
+  --term-green: #7cc49a;
+  --term-bar: #1f2d40;
+  --focus: #2f6fd6;
+  --sans: "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --mono: "Atkinson Hyperlegible Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #131b26;
+    --paper-2: #1a2431;
+    --ink: #e3e8ee;
+    --muted: #9aa6b6;
+    --rule: #2c3a4c;
+    --accent: #e8b44a;
+    --term-bg: #0e1622;
+    --term-bar: #172231;
+    --focus: #7aa7f0;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #131b26;
+  --paper-2: #1a2431;
+  --ink: #e3e8ee;
+  --muted: #9aa6b6;
+  --rule: #2c3a4c;
+  --accent: #e8b44a;
+  --term-bg: #0e1622;
+  --term-bar: #172231;
+  --focus: #7aa7f0;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 1.0625rem/1.55 var(--sans);
+}
+a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 0.2em; }
+a:hover { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+code, pre, kbd { font-family: var(--mono); }
+code { font-size: 0.92em; }
+
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+@media (min-width: 720px) { .wrap { padding: 0 32px; } }
+
+/* Top bar */
+.top { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
+.mark { font: 700 1.25rem/1 var(--mono); text-decoration: none; display: inline-flex; align-items: center; gap: 0.5rem; }
+.mark .prompt { color: var(--accent); }
+.top nav { display: flex; gap: 1.25rem; font-size: 0.95rem; }
+.top nav a { text-decoration: none; color: var(--muted); }
+.top nav a:hover { color: var(--ink); }
+
+/* Hero */
+.hero { padding: 40px 0 28px; }
+.hero h1 {
+  font: 800 clamp(2.1rem, 5.2vw, 3.6rem)/1.06 var(--sans);
+  letter-spacing: -0.02em;
+  margin: 0 0 1.25rem;
+  max-width: 17ch;
+  text-wrap: balance;
+}
+.hero .lede { font-size: 1.2rem; color: var(--muted); max-width: 46ch; margin: 0 0 2rem; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
+.install {
+  display: flex; align-items: center; min-width: 0; max-width: 100%;
+  background: var(--term-bg); color: var(--term-fg);
+  border-radius: 8px; padding: 0 4px 0 14px;
+  font: 400 0.9rem/1 var(--mono);
+}
+.install code { white-space: nowrap; overflow-x: auto; padding: 14px 0; scrollbar-width: none; }
+.install code::before { content: "$ "; color: var(--term-amber); }
+.copy {
+  flex: none; margin-left: 10px; border: 0; border-radius: 6px; cursor: pointer;
+  background: var(--term-bar); color: var(--term-fg); font: 700 0.8rem/1 var(--sans); padding: 9px 12px;
+}
+.copy:hover { background: var(--term-line); }
+.button {
+  display: inline-flex; align-items: center; padding: 0 18px; min-height: 44px; border-radius: 8px;
+  border: 1.5px solid var(--ink); text-decoration: none; font-weight: 700; font-size: 0.95rem;
+}
+.button:hover { background: var(--ink); color: var(--paper); }
+
+/* Terminal showcase: the one bold element */
+.show { padding: 28px 0 72px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: -1px; position: relative; z-index: 1; }
+.tab {
+  font: 700 0.9rem/1 var(--sans); color: var(--muted); background: transparent; cursor: pointer;
+  border: 0; border-radius: 8px 8px 0 0; padding: 12px 16px;
+}
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { background: var(--term-bg); color: var(--term-fg); }
+.term {
+  container-type: inline-size;
+  background: var(--term-bg); color: var(--term-fg);
+  border-radius: 0 10px 10px 10px;
+  box-shadow: 0 30px 60px -30px rgb(10 20 35 / 0.55);
+  overflow: hidden;
+}
+.screen {
+  margin: 0; padding: 18px 20px 20px; overflow-x: auto;
+  /* --cw is the font's character width in em, measured by the script below. */
+  font: 400 clamp(8.5px, calc((100cqi - 40px) / (120 * var(--cw, 0.62))), 15px)/1.32 var(--mono);
+  tab-size: 4;
+}
+.screen[hidden] { display: none; }
+.screen .b { color: var(--term-line); }
+.screen .d { color: var(--term-dim); }
+.screen .ok { color: var(--term-green); }
+.screen .sel { color: var(--term-amber); }
+.screen .bar { color: var(--term-dim); }
+.screen .bar strong { color: var(--term-fg); font-weight: 400; }
+.caption { margin: 14px 0 0; color: var(--muted); font-size: 0.98rem; max-width: 70ch; min-height: 3.1em; }
+.caption kbd, .feature kbd {
+  font-size: 0.85em; padding: 0.05em 0.35em; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper-2);
+}
+
+/* Features: a heading column and a body column, not a card grid */
+.features { border-top: 1px solid var(--rule); }
+.feature {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px 48px; padding: 44px 0; border-bottom: 1px solid var(--rule);
+}
+@media (min-width: 860px) { .feature { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); } }
+.feature h2 { font: 700 1.6rem/1.2 var(--sans); letter-spacing: -0.01em; margin: 0; max-width: 18ch; }
+.feature p { margin: 0 0 1rem; max-width: 62ch; }
+.feature p:last-child { margin-bottom: 0; }
+.feature ul { margin: 0 0 1rem; padding-left: 1.2rem; max-width: 62ch; }
+.feature li { margin: 0.3rem 0; }
+.snippet {
+  margin: 0 0 1rem; padding: 14px 16px; border-radius: 8px; overflow-x: auto;
+  background: var(--paper-2); font: 400 0.88rem/1.5 var(--mono);
+}
+.snippet .c { color: var(--muted); }
+
+/* Steps: a real sequence, so numbers are earned */
+.start { padding: 64px 0 72px; }
+.start h2 { font: 800 2rem/1.15 var(--sans); letter-spacing: -0.015em; margin: 0 0 2rem; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 28px; counter-reset: step; }
+@media (min-width: 860px) { .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; } }
+.steps li { counter-increment: step; min-width: 0; }
+.steps li::before {
+  content: counter(step); display: block; font: 700 1rem/1 var(--mono); color: var(--accent); margin-bottom: 0.75rem;
+}
+.steps h3 { font: 700 1.15rem/1.3 var(--sans); margin: 0 0 0.5rem; }
+.steps p { margin: 0 0 0.75rem; color: var(--muted); }
+.steps .snippet { margin: 0; }
+.more { margin: 2.5rem 0 0; }
+
+footer { border-top: 1px solid var(--rule); padding: 28px 0 40px; color: var(--muted); font-size: 0.92rem; }
+footer p { margin: 0.25rem 0; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .screen:not([hidden]) { animation: show 160ms ease-out; }
+  @keyframes show { from { opacity: 0.4; } to { opacity: 1; } }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="mark" href="./"><span class="prompt" aria-hidden="true">&gt;</span>bqt</a>
+    <nav aria-label="Project links">
+      <a href="https://github.com/davidsevcik/bigquery-tui/blob/master/docs/usage.md">Guide</a>
+      <a href="https://github.com/davidsevcik/bigquery-tui/releases">Releases</a>
+      <a href="https://github.com/davidsevcik/bigquery-tui">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>Find any table in a thousand datasets, and query it without a surprise bill.</h1>
+      <p class="lede">bqt is a keyboard-driven BigQuery client for the terminal, with a safe way in for your AI agents.</p>
+      <div class="actions">
+        <div class="install">
+          <code id="install-cmd">go install github.com/davidsevcik/bigquery-tui/cmd/bqt@latest</code>
+          <button class="copy" type="button" data-copy="install-cmd">Copy</button>
+        </div>
+        <a class="button" href="https://github.com/davidsevcik/bigquery-tui/releases">Download for macOS or Linux</a>
+      </div>
+    </section>
+
+    <section class="show" aria-label="bqt screens">
+      <div class="tabs" role="tablist" aria-label="Screens">
+        <button class="tab" role="tab" id="tab-browse" aria-controls="screen-browse" aria-selected="true">Browse</button>
+        <button class="tab" role="tab" id="tab-jump" aria-controls="screen-jump" aria-selected="false" tabindex="-1">Jump to a table</button>
+        <button class="tab" role="tab" id="tab-complete" aria-controls="screen-complete" aria-selected="false" tabindex="-1">Complete</button>
+        <button class="tab" role="tab" id="tab-run" aria-controls="screen-run" aria-selected="false" tabindex="-1">Run</button>
+      </div>
+      <div class="term">
+<pre class="screen" id="screen-browse" role="tabpanel" aria-labelledby="tab-browse" data-caption="The Explorer over the Schema on the left, the Editor over the Results on the right. Move with the arrows or &lt;kbd&gt;hjkl&lt;/kbd&gt;, press &lt;kbd&gt;p&lt;/kbd&gt; for a free sample of a table's rows."> Tables 1/4                               <span class="b">│</span> SQL · query 1   1:1
+T customers                               <span class="b">│</span> 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+T order_items                             <span class="b">│</span><span class="d">~</span>
+T orders                                  <span class="b">│</span><span class="d">~</span>
+V v_orders                                <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+ Schema · acme-prod.sales.customers       <span class="b">│</span> Results
+ acme-prod.sales.customers                <span class="b">│</span> no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
+ table · EU · 0 rows · 0 B                <span class="b">│</span>
+ <span class="ok">✓</span> synced 3h ago                          <span class="b">│</span>
+                                          <span class="b">│</span>
+ <span class="b">──</span> schema · 2 fields <span class="b">──</span>                  <span class="b">│</span>
+ id       STRING                          <span class="b">│</span>
+ email    STRING                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+<span class="bar"> bqt exec acme-exec  layout: classic  columns  2 projects                                        5 datasets · 13 tables</span>
+<span class="bar"> ↑↓←→/hjkl move · / filter · L style · p sample · ? help · ctrl+o pane · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial</span></pre>
+<pre class="screen" id="screen-jump" role="tabpanel" aria-labelledby="tab-jump" hidden data-caption="&lt;kbd&gt;ctrl+t&lt;/kbd&gt; searches every synced project from a local index, so results come back as you type. Date-sharded tables fold into one row."> Tables 1/2                               <span class="b">│</span> SQL · query 1   1:1
+T clicks                                  <span class="b">│</span> 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+T events_YYYYMMDD                      ×4 <span class="b">│</span><span class="d">~</span>
+            <span class="b">╭─</span> Jump to table <span class="b">──────────────────────────────────────────────────────────────────────────────╮</span>
+            <span class="b">│</span> ⌕ ev                                                                             1/2 · 0.0ms <span class="b">│</span>
+            <span class="b">│</span> “ev”                                                                                         <span class="b">│</span>
+            <span class="b">│</span><span class="sel">▌</span>T events_YYYYMMDD ×4  acme-prod.events                                             prefix 3h <span class="b">│</span>
+            <span class="b">│</span> T clicks  acme-prod.events                                                 dataset·prefix 3h <span class="b">│</span>
+            <span class="b">│</span>                                                                                              <span class="b">│</span>
+            <span class="b">│</span>                                                                                              <span class="b">│</span>
+            <span class="b">│</span>                                                                                              <span class="b">│</span>
+            <span class="b">│</span>                                                                                              <span class="b">│</span>
+            <span class="b">│</span>                                                                                              <span class="b">│</span>
+            <span class="b">│</span>                                                                                              <span class="b">│</span>
+            <span class="b">│</span>                                                                                              <span class="b">│</span>
+            <span class="b">│</span>                                                                                              <span class="b">│</span>
+            <span class="b">│</span>                                                                                              <span class="b">│</span>
+ Schema · ac<span class="b">│</span>                                                                                              <span class="b">│</span>ows
+ acme-prod.e<span class="b">│</span>                                                                                              <span class="b">│</span>
+ shard famil<span class="b">│</span>                                                                                              <span class="b">│</span>
+ schema of t<span class="b">│</span>                                                                                              <span class="b">│</span>
+ table · EU <span class="b">│</span>                                                                                              <span class="b">│</span>
+ <span class="ok">✓</span> synced 3h<span class="b">│</span>                                                                                              <span class="b">│</span>
+            <span class="b">│</span>                                                                                              <span class="b">│</span>
+ <span class="b">──</span> schema ·<span class="b">│</span>                                                                                              <span class="b">│</span>
+ user_id    <span class="b">│</span>                                                                                              <span class="b">│</span>
+ event_name <span class="b">╰──────────────────────────────────────────────────────────────────────────────────────────────╯</span>
+                                          <span class="b">│</span>  9 19     cust-j          19.99
+                                          <span class="b">│</span> 10 10     cust-k          19.99
+                                          <span class="b">│</span> 11 11     cust-l          19.99
+                                          <span class="b">│</span> 12 12     cust-m          19.99
+                                          <span class="b">│</span> 13 13     cust-n          19.99
+                                          <span class="b">│</span> 14 14     cust-o          NULL
+                                          <span class="b">│</span> row 1 of 45 · id INTEGER
+<span class="bar"> bqt exec acme-exec  layout: classic  columns  2 projects                                        5 datasets · 13 tables</span>
+<span class="bar"> type to search · ↑↓ select · enter open · esc close</span></pre>
+<pre class="screen" id="screen-complete" role="tabpanel" aria-labelledby="tab-complete" hidden data-caption="Completion knows your projects, datasets, tables and columns, and follows aliases, CTEs and &lt;code&gt;UNNEST&lt;/code&gt;. &lt;kbd&gt;tab&lt;/kbd&gt; accepts."> Projects 1/2                             <span class="b">│</span> SQL · query 1   4:11
+acme-prod                            <span class="ok">✓</span> 3h <span class="b">│</span> 1  -- orders by customer
+acme-staging                         <span class="ok">✓</span> 3h <span class="b">│</span> 2  SELECT o.customer_id, SUM(o.amount) AS total
+                                          <span class="b">│</span> 3  FROM `acme-prod.sales.orders` AS o
+                                          <span class="b">│</span> 4  WHERE o.cr
+                                          <span class="b">│</span><span class="d">~</span>            c created_at TIMESTAMP
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+ Schema · acme-prod                       <span class="b">│</span> Results
+ acme-prod  project                       <span class="b">│</span> no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
+ 4 datasets                               <span class="b">│</span>
+ <span class="ok">✓</span> synced 3h ago                          <span class="b">│</span>
+                                          <span class="b">│</span>
+ Queries and sync jobs run in the         <span class="b">│</span>
+ Execution project acme-exec, not here.   <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+                                          <span class="b">│</span>
+<span class="bar"> bqt exec acme-exec  layout: classic  2 projects                                                 5 datasets · 13 tables</span>
+<span class="bar"> tab accept · ↑↓ select · esc dismiss · enter is a new line</span></pre>
+<pre class="screen" id="screen-run" role="tabpanel" aria-labelledby="tab-run" hidden data-caption="&lt;kbd&gt;ctrl+r&lt;/kbd&gt; dry-runs first, then runs with a byte cap. Results page in below; &lt;kbd&gt;enter&lt;/kbd&gt; opens a row, &lt;kbd&gt;e&lt;/kbd&gt; exports to CSV, JSON or NDJSON."> Projects 1/2                             <span class="b">│</span> SQL · query 1  done   4:28
+acme-prod                            <span class="ok">✓</span> 3h <span class="b">│</span> 1  -- orders by customer
+acme-staging                         <span class="ok">✓</span> 3h <span class="b">│</span> 2  SELECT o.customer_id, SUM(o.amount) AS total
+                                          <span class="b">│</span> 3  FROM `acme-prod.sales.orders` AS o
+                                          <span class="b">│</span> 4  WHERE o.created_at &gt; @since
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+                                          <span class="b">│</span><span class="d">~</span>
+ Schema · acme-prod                       <span class="b">│</span> Results · #1 done · 40 rows · 1000 B billed
+ acme-prod  project                       <span class="b">│</span>    id INT customer STR country STR city    STR amount STR
+ 4 datasets                               <span class="b">│</span>  1 0      customer-0   CZ          Brno        0
+ <span class="ok">✓</span> synced 3h ago                          <span class="b">│</span>  2 1      customer-1   CZ          Brno        10
+                                          <span class="b">│</span>  3 2      customer-2   CZ          Brno        20
+ Queries and sync jobs run in the         <span class="b">│</span>  4 3      customer-3   CZ          Brno        30
+ Execution project acme-exec, not here.   <span class="b">│</span>  5 4      customer-4   CZ          Brno        40
+                                          <span class="b">│</span>  6 5      customer-5   CZ          Brno        50
+                                          <span class="b">│</span>  7 6      customer-6   CZ          Brno        60
+                                          <span class="b">│</span>  8 7      customer-7   CZ          Brno        70
+                                          <span class="b">│</span>  9 8      customer-8   CZ          Brno        80
+                                          <span class="b">│</span> 10 9      customer-9   CZ          Brno        90
+                                          <span class="b">│</span> 11 10     customer-10  CZ          Brno        100
+                                          <span class="b">│</span> 12 11     customer-11  CZ          Brno        110
+                                          <span class="b">│</span> 13 12     customer-12  CZ          Brno        120
+                                          <span class="b">│</span> 14 13     customer-13  CZ          Brno        130
+                                          <span class="b">│</span> row 1 of 40 · id INTEGER
+<span class="bar"> bqt exec acme-exec  layout: classic  on-demand  2 projects                                      5 datasets · 13 tables</span>
+<span class="bar"> ctrl+r run · ctrl+d dry-run · tab complete · ctrl+x b buffers · ctrl+x l runs · ctrl+o pane · ctrl+p cmds · ctrl+t jum…</span></pre>
+      </div>
+      <p class="caption" id="caption" aria-live="polite"></p>
+    </section>
+
+    <section class="features" aria-label="What bqt does">
+      <div class="feature">
+        <h2>Search that never waits on the API</h2>
+        <div>
+          <p>One sync copies the metadata of your projects, datasets, tables and columns into a local SQLite index. After that, filtering the Explorer, jumping to a table and completing a column name all read local data, even across thousands of datasets.</p>
+          <pre class="snippet"><span class="c"># orders tables in prod projects, not in tmp datasets</span>
+bqt search 'orders p:prod -d:tmp'
+<span class="c"># tables with a customer_id column in sales datasets</span>
+bqt search 'col:customer_id d:sales'</pre>
+          <p>Deselect a project and it stops syncing, but the command line and MCP can still search its cached metadata. <code>bqt sync</code> refreshes the catalog from a script or cron.</p>
+        </div>
+      </div>
+
+      <div class="feature">
+        <h2>A cost check before every query</h2>
+        <div>
+          <p>bqt dry-runs each query before it starts a job, and shows how many bytes it would scan.</p>
+          <ul>
+            <li>It asks before a statement that is not a <code>SELECT</code>, and before a scan larger than <code>confirm_bytes</code>.</li>
+            <li>It sets <code>max_bytes_billed</code> on the job, so BigQuery itself refuses to go over.</li>
+            <li><kbd>ctrl+d</kbd> only estimates, and <kbd>ctrl+c</kbd> cancels a run.</li>
+          </ul>
+          <p>Every run lands in History with its bytes billed, duration and status.</p>
+        </div>
+      </div>
+
+      <div class="feature">
+        <h2>Safe for AI agents</h2>
+        <div>
+          <p>Agents can call the commands, which print one JSON document when piped, or connect to the MCP server. Both follow one policy, checked on the dry-run before any job starts:</p>
+          <ul>
+            <li>Only <code>SELECT</code> runs over MCP. The command line allows writes only if you turn on <code>cli_allow_writes</code>.</li>
+            <li>Each query is capped at 1 GiB and 60 seconds by default, and flags can only lower the limits.</li>
+            <li>Every job is labelled <code>bqt=1</code> and kept in History with its source.</li>
+          </ul>
+          <pre class="snippet">bqt mcp --print-config   <span class="c"># snippets for Claude Code, Codex and Gemini CLI</span></pre>
+          <p>In the UI, <kbd>ctrl+x y</kbd> copies a table's schema, a failed query with its error, or the first rows of a result, ready to paste into an agent.</p>
+        </div>
+      </div>
+
+      <div class="feature">
+        <h2>Queries you keep as plain files</h2>
+        <div>
+          <p>History records every query you run and is searchable by status, project and age. Favorites are ordinary <code>.sql</code> files, so you can keep them in git. A small header adds a description, tags and typed parameters, and the file still runs as plain SQL.</p>
+          <pre class="snippet"><span class="c">-- description: Daily active users by country
+-- tags: events, dau
+-- param: start DATE = 2024-01-01
+-- param: country STRING</span>
+SELECT ... WHERE d &gt;= @start AND c = @country</pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="start" aria-labelledby="start-title">
+      <h2 id="start-title">Get started</h2>
+      <ol class="steps">
+        <li>
+          <h3>Install</h3>
+          <p>Download a binary from the releases page, or build it with Go 1.26 or newer.</p>
+          <pre class="snippet">go install github.com/davidsevcik/bigquery-tui/cmd/bqt@latest</pre>
+        </li>
+        <li>
+          <h3>Sign in</h3>
+          <p>bqt uses your Application Default Credentials. You need read access to your data and permission to run jobs in one project.</p>
+          <pre class="snippet">gcloud auth application-default login</pre>
+        </li>
+        <li>
+          <h3>Pick your projects</h3>
+          <p>Start bqt, press <kbd>ctrl+x p</kbd> and select the projects to sync. <kbd>ctrl+g</kbd> starts a short tutorial.</p>
+          <pre class="snippet">bqt</pre>
+        </li>
+      </ol>
+      <p class="more">Every key, command and setting is in the <a href="https://github.com/davidsevcik/bigquery-tui/blob/master/docs/usage.md">full guide</a>.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>bqt is open source under the <a href="https://github.com/davidsevcik/bigquery-tui/blob/master/LICENSE">Apache License 2.0</a>. Built by David Sevcik.</p>
+    <p>bqt is not made, endorsed or supported by Google. BigQuery is a trademark of Google LLC.</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  var caption = document.getElementById('caption');
+
+  function select(tab, focus) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+    });
+    caption.innerHTML = document.getElementById(tab.getAttribute('aria-controls')).dataset.caption;
+    if (focus) tab.focus();
+  }
+
+  tabs.forEach(function (tab, i) {
+    tab.addEventListener('click', function () { select(tab, false); });
+    tab.addEventListener('keydown', function (e) {
+      var next = null;
+      if (e.key === 'ArrowRight') next = tabs[(i + 1) % tabs.length];
+      if (e.key === 'ArrowLeft') next = tabs[(i - 1 + tabs.length) % tabs.length];
+      if (e.key === 'Home') next = tabs[0];
+      if (e.key === 'End') next = tabs[tabs.length - 1];
+      if (next) { e.preventDefault(); select(next, true); }
+    });
+  });
+  select(tabs[0], false);
+
+  // Fit the 120-column screens to the box: measure the mono font's character width.
+  function measure() {
+    var probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font:400 100px/1 var(--mono)';
+    probe.textContent = '0123456789'.repeat(10);
+    document.body.appendChild(probe);
+    var cw = probe.getBoundingClientRect().width / 100 / 100;
+    probe.remove();
+    if (cw > 0.4 && cw < 0.9) document.documentElement.style.setProperty('--cw', cw.toFixed(4));
+  }
+  measure();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
+
+  document.querySelectorAll('[data-copy]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var text = document.getElementById(button.dataset.copy).textContent;
+      function done() {
+        button.textContent = 'Copied';
+        setTimeout(function () { button.textContent = 'Copy'; }, 1600);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+      } else {
+        var range = document.createRange();
+        range.selectNodeContents(document.getElementById(button.dataset.copy));
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>

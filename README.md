@@ -1,8 +1,48 @@
 # bqt
 
-A keyboard-driven terminal tool for browsing, searching, writing and running BigQuery queries across many GCP projects, built to sit next to AI agents.
+A keyboard-driven BigQuery client for the terminal. It searches thousands of datasets instantly, edits SQL with schema-aware completion, caps the cost of every query, and gives AI agents safe, read-only access to BigQuery through a JSON command line and an MCP server.
 
-Status: **phases 1 to 5** of [`docs/spec/bqt-v1.md`](docs/spec/bqt-v1.md). This build has the config file, the local metadata catalog, sync, catalog search, the interactive explorer, the query editor with completion, query runs with a dry-run first, the results viewer with export, History and Favorites, and the agent layer: a JSON command line, an MCP server and hand-off actions in the UI.
+[Project page](https://davidsevcik.github.io/bigquery-tui/) · [Releases](https://github.com/davidsevcik/bigquery-tui/releases) · [Full guide](docs/usage.md)
+
+```text
+ Projects 1/2               │ SQL · query 1  done   4:28
+acme-prod              ✓ 3h │ 1  -- orders by customer
+acme-staging           ✓ 3h │ 2  SELECT o.customer_id, SUM(o.amount) AS total
+                            │ 3  FROM `acme-prod.sales.orders` AS o
+                            │ 4  WHERE o.created_at > @since
+                            │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │ Results · #1 done · 40 rows · 1000 B billed
+                            │    id INT customer STR country STR city    STR
+                            │  1 0      customer-0   CZ          Brno
+                            │  2 1      customer-1   CZ          Brno
+                            │  3 2      customer-2   CZ          Brno
+                            │  4 3      customer-3   CZ          Brno
+                            │  5 4      customer-4   CZ          Brno
+                            │  6 5      customer-5   CZ          Brno
+                            │  7 6      customer-6   CZ          Brno
+                            │  8 7      customer-7   CZ          Brno
+                            │ row 1 of 40 · id INTEGER
+ bqt exec acme-exec  layout: classic (small terminal)  … 5 datasets · 13 tables
+ ctrl+r run · ctrl+d dry-run · tab complete · ctrl+x b buffers · ctrl+x l runs …
+```
+
+## Why
+
+I work with a handful of GCP projects that have over a thousand datasets each, and the BigQuery console was too slow to find anything in them. bqt keeps a local SQLite index of your projects, datasets, tables and columns, so every keystroke searches local data instead of calling the BigQuery API. It lives in the terminal, next to vim, tmux and coding agents.
+
+## What it does
+
+- **Instant search across projects.** One sync fills the local catalog; after that, search and jump-to-table run locally. Filters like `p:prod col:customer_id -d:tmp` narrow by project, dataset, column, label or type.
+- **A real SQL editor.** Vim-style editing (or plain, if you prefer), completion of projects, datasets, tables and columns through aliases, CTEs and `UNNEST`, several buffers with crash-safe drafts, and `@name` parameters.
+- **No surprise bills.** Every query does a dry-run first. bqt shows the estimate, asks before anything that is not a `SELECT` or scans more than you set, and puts `max_bytes_billed` on the job.
+- **Results you can use.** Browse rows in a grid, open one as a record, copy cells or rows as JSON, export everything to CSV, JSON or NDJSON. Tables get a free sample without running a query.
+- **History and Favorites.** Every run is kept and searchable. Favorites are plain `.sql` files with typed parameters, so you can keep them in git.
+- **Built for agents.** Every command prints JSON when piped, `bqt mcp` serves eight tools over MCP, and both share one policy: read-only, capped and labelled. In the UI, `ctrl+x y` hands a schema, an error or the first rows to the clipboard for an agent.
 
 ## Install
 
@@ -12,112 +52,41 @@ Prebuilt binaries for macOS and Linux (amd64 and arm64) are on the [releases pag
 go install github.com/davidsevcik/bigquery-tui/cmd/bqt@latest
 ```
 
-To build from a checkout:
+## Quickstart
+
+bqt uses your Application Default Credentials. It needs read access to the data you browse, and permission to run jobs in one project (the Execution project).
 
 ```sh
-go build -o bin/bqt ./cmd/bqt
+gcloud auth application-default login
+bqt                                      # pick your projects with ctrl+x p, then wait for the first sync
 ```
 
-Maintainers: pushing a tag `v*` runs `.github/workflows/release.yml`, which builds the binaries with GoReleaser (`.goreleaser.yaml`) and publishes a GitHub release. Try the config locally with `goreleaser release --snapshot --clean`.
+In the UI, `ctrl+t` jumps to a table, `p` shows a sample of its rows, `ctrl+o` moves to the editor, `ctrl+r` runs the query and `?` lists every key. `ctrl+g` starts a short tutorial.
 
-To see the architecture (packages, the imports between them, and each package's exported API), generate the map from the current source:
+From the command line or a script:
 
 ```sh
-go run ./internal/tools/archmap -open   # writes bin/architecture.html and opens it
+bqt sync                                 # refresh the local catalog
+bqt search 'orders p:prod -d:tmp'        # find tables
+bqt query --dry-run 'SELECT ...'         # what a query would scan, and whether it is allowed
+bqt mcp --print-config                   # MCP snippets for Claude Code, Codex and Gemini CLI
 ```
 
-## Use
+The [full guide](docs/usage.md) covers every pane, key and command, the agent safety policy, search syntax, exit codes and the config file.
 
-```sh
-gcloud auth application-default login   # Application Default Credentials only
-bin/bqt init                             # a commented config (optional settings)
-bin/bqt                                  # the interactive UI: pick your projects first (ctrl+x p)
-bin/bqt projects                         # or list them from the command line…
-bin/bqt projects select my-proj other    # …and choose what is synced
-bin/bqt projects exec billing-proj       # where query and sync jobs run (default: the first one selected)
-bin/bqt path/to/query.sql                # the UI with that file open in the editor
-bin/bqt sync                             # or fill the local catalog from a script or cron
-bin/bqt search 'orders p:prod -d:tmp'    # search the catalog from the command line
-bin/bqt status                           # freshness and sync problems
-bin/bqt doctor                           # paths, versions, auth, catalog age
-```
+## Agents
 
-The screen holds four panes: the Explorer over the Schema on the left, the Editor over the Results on the right (the `classic` layout; a terminal under 70 columns shows one pane at a time, as the `focus` layout does). In the Explorer: `hjkl` or the arrows move, `/` filters the list in place (the focused column, the whole tree, or the list; `esc` clears it), `ctrl+t` jumps to a table, `ctrl+p` opens the command palette, `L` cycles the Explorer style (columns, tree, list), `enter` on a table goes to the Schema pane (the movement keys scroll it, `esc` comes back), `p` shows a free Sample of the table's rows in the Results (`s` opens a `SELECT` for it in a new buffer), `?` lists every key. `ctrl+x p` opens the Projects dialog: it lists every BigQuery project your credentials can reach; `space` selects what is synced and browsed (a deselected project stops syncing but keeps its cached metadata), `e` picks the Execution project, `s` syncs the project under the cursor now (`S` all selected), `/` filters (and adds a project BigQuery does not list by its ID). With one project selected, the columns style starts at its datasets. `ctrl+g` starts an interactive tutorial of the navigation.
+Agents can call the commands (Claude Code runs them through Bash) or connect to `bqt mcp`. Either way, only `SELECT` runs (`cli_allow_writes = true` in the config opens the command line, never MCP), each query is capped at `agent_max_bytes` (1 GiB by default) and `agent_timeout` (60 s), and every job is labelled `bqt=1` and kept in History. Flags can only lower the limits. For a hard guarantee, give the Execution project read-only IAM. See [Agents: command line and MCP](docs/usage.md#agents-command-line-and-mcp).
 
-**Writing and running queries.** `ctrl+o` cycles the four panes: Explorer, Schema, Editor, Results (`ctrl+w w` / `W` cycle as in vim, and `ctrl+w` then `h`/`j`/`k`/`l` moves to the pane on that side). `ctrl+w space` switches layouts (`classic`, `query`, `browse`, `tall`, `focus`), and `ctrl+w H`/`J`/`K`/`L`, `x`, `r`, `< > + - =`, `z` and `c` move, swap, rotate, resize, maximise and hide panes, also from the palette (with "Show <pane>" and "Reset layout"); bqt remembers the arrangement. The mouse is off by default; the palette's "Mouse: on/off" turns on click-to-focus and wheel scrolling, and Shift+drag (Option+drag in iTerm2) then selects text.
+## Docs
 
-- Editor: vim-style editing by default (`i` to insert, `esc` back to Normal mode, the usual motions, operators, text objects, Visual mode, `/`, `.`; `?` lists what is built). In Normal mode `enter` runs and `space d` dry-runs; `ctrl+r` is redo there. Set `[tui] editing = "plain"` in the config for a modeless editor. The keys below are for Insert mode and plain editing.
-- Type SQL; the completion popup offers projects, datasets, tables, columns (through aliases, CTEs and `UNNEST`), functions and keywords. `tab` accepts, `ctrl+space` forces it. `ctrl+r` runs the selection or the whole buffer, `ctrl+d` only dry-runs it. `@name` parameters are asked for. `ctrl+x n` / `b` / `w` / `[` / `]` manage buffers; every buffer is autosaved as a draft and offered for restore after a crash or a closed terminal. `i` in the Explorer inserts the selected table's name.
-- Every run does a dry-run first. bqt shows the estimate, asks before a non-SELECT statement or a scan over `confirm_bytes`, and sets `max_bytes_billed` on the job. `ctrl+c` cancels the focused run; `ctrl+x l` (or `gr`) lists the runs.
-- Results: `hjkl` move the cell cursor, `enter` shows the row as a full record, `/` finds text in the loaded pages, `f` freezes the first column, `H` hides one, `y` / `Y` copy the cell or the row as JSON, `[` / `]` switch between a Sample and the buffer's run, `e` exports every row to CSV, JSON or NDJSON (into `export_dir` when set, else the working directory).
-
-**History and Favorites.** `ctrl+x r` opens History: every query you ran, grouped by SQL text and searchable (`status:failed`, `project:`, `source:`, `since:7d`). `ctrl+x f` opens Favorites, saved queries kept as plain `.sql` files in `favorites_dir` (put it in a git repo if you like); `tab` switches between the two. `enter` loads a pick into the editor, `ctrl+s` on a History entry saves it as a Favorite, `ctrl+r` shows its result again (BigQuery keeps results about 24 hours). In the editor `ctrl+x s` saves the buffer as a Favorite. A Favorite's header declares typed parameters, and the file still runs as plain SQL:
-
-```sql
--- description: Daily active users by country
--- tags: events, dau
--- param: start DATE = 2024-01-01
--- param: country STRING
-SELECT ... WHERE d >= @start AND c = @country
-```
-
-`bqt history prune --older-than 90d` deletes old History entries (`history_retention_days` in the config does it automatically).
-
-**Hand-off to an agent.** `ctrl+x y` (vim: `space y`) offers what fits the moment: the selected table's schema as markdown or JSON, the focused run's SQL with its error, the first 20 result rows (markdown, TSV or NDJSON), or a summary of the run. `enter` copies it to the clipboard (OSC 52, so it works over SSH and tmux; iTerm2 needs Settings > General > Selection > "Applications in terminal may access clipboard", and tmux needs `set -g set-clipboard on`); `w` writes it to a file, `./.bqt-handoff/` by default. Each one is also a palette command ("Hand-off: …").
-
-## Agents: command line and MCP
-
-Agents can use bqt two ways: run the commands (Claude Code calls them through Bash), or start the MCP server.
-
-```sh
-bqt search 'col:customer_id d:sales'         # find tables
-bqt schema proj.sales.orders                  # columns, types, descriptions
-bqt query --dry-run 'SELECT ...'              # bytes, statement type, allowed or not
-bqt query 'SELECT ... WHERE d > @d' --param d=DATE:2024-01-31 --limit 20
-bqt results 'proj:EU.job_id' --cursor 20      # more rows of that query (about 24 hours)
-bqt history 'status:failed since:7d'          # past runs
-bqt favorites list | show ID | run ID --param country=CZ
-bqt mcp --print-config                        # snippets for Claude Code, Codex, Gemini CLI
-```
-
-Every command prints one JSON document when stdout is not a terminal (`{"schema_version":1,"data":…,"truncated":…,"next_cursor":…}`) and errors as JSON on stderr. The SQL can also come from `--file` or stdin.
-
-`bqt mcp` serves eight tools over stdio: `search_catalog`, `get_schema`, `catalog_status`, `dry_run`, `run_query`, `get_results`, `list_favorites`, `search_history`. It never syncs; `catalog_status` tells the agent to ask you to run `bqt sync` when the catalog is stale.
-
-**Safety.** bqt cannot tell an agent from a person at the command line, so `bqt query`, `bqt favorites run` and the MCP server share one policy, checked on the dry-run before any job starts:
-
-- Only `SELECT` runs. Scripts, DML, DDL, `EXPORT DATA` and `CALL` are refused (`cli_allow_writes = true` opens the command line, never MCP).
-- At most `agent_max_bytes` (default 1 GiB) per query; an `UNKNOWN` estimate is refused; a scan over `confirm_bytes` is refused instead of asked about.
-- `agent_timeout` (default 60s) per query, up to 1,000 rows per call, cells cut at 200 characters.
-- Flags and tool arguments can only lower these limits. Raising them takes the config file, which an agent that can edit your files can also do: give the Execution project read-only IAM for the real guarantee.
-- Every job carries the labels `bqt=1` and `bqt_source=cli|mcp`, and lands in History with its source.
-
-Search syntax: free terms match names (and descriptions last); filters are `p:` project, `d:` dataset, `type:`, `col:`, `label:`, `desc:`; `-d:tmp` excludes; `type:view,mview` is OR; a pasted `project.dataset.table` is an exact lookup. Columns are searched only with `col:`.
-
-Output is JSON when stdout is not a terminal and text otherwise (`--format json|text`). Exit codes: 0 ok, 1 failure, 2 usage, 3 config, 4 auth, 5 over limit or refused by the policy, 6 BigQuery error (also: a sync with failed units), 7 cancelled.
-
-The config file lives at `~/.config/bqt/config.toml` (or `$BQT_CONFIG`, or `--config`). Unknown keys are errors. See the comments in the file `bqt init` writes.
-
-## Develop
-
-```sh
-go vet ./... && go test -race ./...
-go run honnef.co/go/tools/cmd/staticcheck@latest ./...
-```
-
-Tests use hand-written fakes behind the BigQuery ports. An optional live suite runs read-only against a real project:
-
-```sh
-BQT_LIVE_EXECUTION_PROJECT=... BQT_LIVE_PROJECT=... go test -tags live ./internal/bq -run Live -v
-```
-
-The live suite also runs a few queries that read no tables (`BQT_LIVE_LOCATION` sets their job location).
-
-Scale measurements: `BQT_SCALE=500 go test ./internal/store -run Scale -v` (catalog apply) and `BQT_SCALE=1 go test ./internal/search -run LatencyReport -v` (search latency at 50k tables). Terminal screens are golden files in `internal/tui/testdata`; regenerate with `go test ./internal/tui -update` after checking the change.
+- [Full guide](docs/usage.md): keys, commands, safety, search syntax, config.
+- [Specification](docs/spec/bqt-v1.md): the v1 design, phases and live checks against BigQuery.
+- [Glossary](CONTEXT.md) and [decision records](docs/adr/).
 
 ## Contributing and security
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately as described in [SECURITY.md](SECURITY.md).
+Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers building, testing and releasing. Report security problems privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
