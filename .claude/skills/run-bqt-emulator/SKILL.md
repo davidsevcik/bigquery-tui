@@ -13,7 +13,7 @@ The real binary, a real terminal (tmux), a local [goccy/bigquery-emulator](https
 .claude/skills/run-bqt-emulator/setup.sh
 ```
 
-It starts colima if needed, runs the emulator container `bqemu` on port 9050 with the seed data, builds `bqt` from the working tree, and syncs a fresh catalog into `.scratch/emu/`. Re-run it after changing code: it rebuilds and resets all state.
+It uses whatever Docker is running (Docker Desktop or colima) and starts colima if none is, runs the emulator container `bqemu` on port 9050 with the seed data, builds `bqt` from the working tree, and syncs a fresh catalog into `.scratch/emu/`. Re-run it after changing code: it rebuilds and resets all state.
 
 Done when it prints `ready:`.
 

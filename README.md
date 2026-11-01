@@ -63,7 +63,7 @@ SELECT ... WHERE d >= @start AND c = @country
 
 `bqt history prune --older-than 90d` deletes old History entries (`history_retention_days` in the config does it automatically).
 
-**Hand-off to an agent.** `ctrl+x y` (vim: `space y`) offers what fits the moment: the selected table's schema as markdown or JSON, the focused run's SQL with its error, the first 20 result rows (markdown, TSV or NDJSON), or a summary of the run. `enter` copies it to the clipboard (OSC 52, so it works over SSH and tmux); `w` writes it to a file, `./.bqt-handoff/` by default. Each one is also a palette command ("Hand-off: …").
+**Hand-off to an agent.** `ctrl+x y` (vim: `space y`) offers what fits the moment: the selected table's schema as markdown or JSON, the focused run's SQL with its error, the first 20 result rows (markdown, TSV or NDJSON), or a summary of the run. `enter` copies it to the clipboard (OSC 52, so it works over SSH and tmux; iTerm2 needs Settings > General > Selection > "Applications in terminal may access clipboard", and tmux needs `set -g set-clipboard on`); `w` writes it to a file, `./.bqt-handoff/` by default. Each one is also a palette command ("Hand-off: …").
 
 ## Agents: command line and MCP
 
