@@ -350,7 +350,7 @@ Triggered after 2 typed characters in an identifier position, and immediately af
 
 ### 10.3 Errors
 
-The core parses BigQuery's `[line:col]` into `{message, line?, col?}` (position is optional: some errors, such as a missing table, carry none); when present the editor jumps to and marks it. `invalid_grant` and `invalid_rapt` show the `gcloud auth application-default login` hint; a missing ADC file shows the same hint. A cancelled Run is "cancel requested" until the job state confirms.
+The core parses BigQuery's `[line:col]` into `{message, line?, col?}` (position is optional: some errors, such as a missing table, carry none); when present the editor jumps to and marks it. `invalid_grant` and `invalid_rapt` show the `gcloud auth application-default login` hint; a missing ADC file shows the same hint. A refused service account impersonation (an `impersonated_service_account` ADC file) is an auth error, not retried, with one line and no login hint, which would not fix it, the target read from the file's `service_account_impersonation_url`: when the account lacks `iam.serviceAccounts.getAccessToken` on the target, "cannot impersonate SA: your account needs roles/iam.serviceAccountTokenCreator on it (new grants can take a minute)"; when the target does not exist, "cannot impersonate SA: no such service account (check service_account_impersonation_url in the credentials file)". A cancelled Run is "cancel requested" until the job state confirms.
 
 ### 10.4 Results
 
@@ -558,7 +558,7 @@ Verified:
    - Every region-scope view is refused, `SCHEMATA` included: a region view needs the permission on every dataset in the region. Error text: "Access Denied: Table bqt-sandbox:region-us.INFORMATION_SCHEMA.TABLES: User does not have the required permissions ('bigquery.routines.list', 'bigquery.tables.list' permission(s) at the dataset level; and 'bigquery.routines.get' permission(s) at the routine level; and 'bigquery.tables.get' permission(s) at the table level) to query system entity …" (`SCHEMATA` and `SCHEMATA_OPTIONS` ask for `bigquery.datasets.get` at the dataset level).
    - The failure ladder works: sync logs "region views not accessible, falling back to per-dataset" (INFO), the dataset-scope views succeed, and the unit ends `ok` with 1 dataset, 1 table and 5 columns. As expected, the dataset had no description in the catalog (`SCHEMATA_OPTIONS` is region scope only). Fixed since (#34): the fallback reads it from `datasets.get`.
    - The Explorer, the Sample (`tabledata.list`) and queries on the granted dataset work. A query on an ungranted dataset fails with "Access Denied: Table …: User does not have permission to query table …, or perhaps it does not exist." (exit 6).
-   - `bqt doctor` before the token-creator grant had propagated (about a minute) printed the full JSON of `iam.serviceAccounts.getAccessToken` denied, with the hint `run gcloud auth application-default login`, which does not fix it.
+   - `bqt doctor` before the token-creator grant had propagated (about a minute) printed the full JSON of `iam.serviceAccounts.getAccessToken` denied, with the hint `run gcloud auth application-default login`, which does not fix it. Fixed (#35): `bqt doctor`, `bqt projects`, sync and queries now print the one line of section 10.3 and no login hint.
 
 Not verified, not release blockers:
 
