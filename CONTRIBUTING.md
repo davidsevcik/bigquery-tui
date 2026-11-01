@@ -51,6 +51,8 @@ Pushing a tag `v*` runs `.github/workflows/release.yml`, which builds the binari
 
 The project page in `site/` is published to GitHub Pages by `.github/workflows/pages.yml` on every push to `master` that changes it.
 
+The screenshots in `site/img` (used by the page and the README) are the real bqt in a real terminal, on fictional data from a local BigQuery emulator. When the UI changes, record them again with `internal/tools/screenshots/record.sh` (needs Docker, Go and python3). Each screen is a [VHS](https://github.com/charmbracelet/vhs) tape in that folder.
+
 ## License
 
 bqt is licensed under the [Apache License 2.0](LICENSE). By submitting a contribution you agree that it is licensed under the same terms, as described in section 5 of the license.
