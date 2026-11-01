@@ -232,13 +232,16 @@ func (e *Engine) NeedsSync(ctx context.Context, ids []string) ([]string, error) 
 }
 
 // syncedAt is a project's oldest successful unit sync; ok is false when a
-// unit never succeeded or there is none.
+// unit never succeeded. A project with no unit is synced when its discovery
+// unit succeeded (a complete listing found no datasets).
 func syncedAt(units []api.UnitState) (time.Time, bool) {
 	var oldest time.Time
+	var discovery *time.Time
 	known := false
 	for _, u := range units {
 		if u.Location == "" {
-			continue // discovery state carries no data of its own
+			discovery = u.LastSuccess // carries a sync only for an empty project
+			continue
 		}
 		if u.LastSuccess == nil {
 			return time.Time{}, false
@@ -247,6 +250,9 @@ func syncedAt(units []api.UnitState) (time.Time, bool) {
 			oldest = *u.LastSuccess
 		}
 		known = true
+	}
+	if !known && discovery != nil {
+		return *discovery, true
 	}
 	return oldest, known
 }

@@ -320,6 +320,12 @@ func (s *Syncer) discover(ctx context.Context, project string, r *run) discovery
 			s.o.Log.Error("record unreachable", "project", project, "err", rerr)
 		}
 		d.unreachable = list.Unreachable
+	} else if len(d.units) == 0 {
+		// Nothing to sync, so no unit records the success: the discovery
+		// unit does, or the project would never count as synced.
+		if err := s.o.Catalog.RecordEmptyProject(ctx, project, now); err != nil {
+			s.o.Log.Error("record empty project", "project", project, "err", err)
+		}
 	} else if err := s.o.Catalog.RemoveUnit(ctx, api.UnitRef{Project: project}); err != nil {
 		s.o.Log.Error("clear discovery state", "project", project, "err", err)
 	}

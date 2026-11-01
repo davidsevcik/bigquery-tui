@@ -343,9 +343,11 @@ func (e *Engine) Status(ctx context.Context) (api.CatalogStatus, error) {
 		}
 		var oldest *time.Time
 		known := false
-		for _, u := range ps.Units {
+		var discovery *api.UnitState
+		for i, u := range ps.Units {
 			if u.Location == "" {
-				continue // discovery state carries no data of its own
+				discovery = &ps.Units[i] // carries a sync only for an empty project
+				continue
 			}
 			known = true
 			if u.LastSuccess == nil {
@@ -361,9 +363,13 @@ func (e *Engine) Status(ctx context.Context) (api.CatalogStatus, error) {
 				ps.Stale = true
 			}
 		}
-		if !known {
+		switch {
+		case !known && discovery != nil && discovery.LastSuccess != nil:
+			t := *discovery.LastSuccess
+			ps.SyncedAt, ps.Stale = &t, discovery.Stale
+		case !known:
 			ps.Stale = true
-		} else {
+		default:
 			ps.SyncedAt = oldest
 		}
 		st.Projects = append(st.Projects, ps)

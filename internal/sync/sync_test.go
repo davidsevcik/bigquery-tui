@@ -378,6 +378,65 @@ func TestSyncRemovesVanishedLocationAndDatasets(t *testing.T) {
 	}
 }
 
+// Issue 33: a project with no datasets has no (project, location) unit, so
+// its discovery unit records the successful sync. It gives way to real units
+// once datasets appear, and comes back when they are all gone.
+func TestSyncRecordsAnEmptyProjectOnItsDiscoveryUnit(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-e"]`)
+	p := h.fake.AddProject("proj-e")
+	first := h.now
+	if res := h.run(api.SyncScope{}); res.UnitsTotal != 0 || res.UnitsFailed != 0 {
+		t.Fatalf("%+v", res)
+	}
+	if u := h.unit("proj-e", ""); u.Status != api.UnitOK || u.Error != "" || u.LastSuccess == nil || !u.LastSuccess.Equal(first) {
+		t.Fatalf("%+v", u)
+	}
+
+	// A failed listing keeps the earlier success, like any failed unit.
+	p.ListErr = bqtest.TransientError("boom")
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	if u := h.unit("proj-e", ""); u.Status != api.UnitInaccessible || u.LastSuccess == nil || !u.LastSuccess.Equal(first) {
+		t.Fatalf("%+v", u)
+	}
+
+	// Datasets appear: the real unit holds the sync, the discovery unit goes.
+	p.ListErr = nil
+	p.Datasets = []bqtest.Dataset{bqtest.DS("core", "EU", bqtest.Table("t", "c"))}
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	if u := h.unit("proj-e", "EU"); u.LastSuccess == nil || !u.LastSuccess.Equal(h.now) {
+		t.Fatalf("%+v", u)
+	}
+	us, _ := h.cat.Units(ctx)
+	for _, u := range us {
+		if u.Location == "" {
+			t.Fatalf("discovery unit kept beside a real one: %+v", u)
+		}
+	}
+
+	// They are all deleted: empty again, and synced now.
+	p.Datasets = nil
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	if u := h.unit("proj-e", ""); u.Status != api.UnitOK || u.LastSuccess == nil || !u.LastSuccess.Equal(h.now) {
+		t.Fatalf("%+v", u)
+	}
+	if locs, _ := h.cat.Locations(ctx, "proj-e"); len(locs) != 0 {
+		t.Fatalf("%v", locs)
+	}
+}
+
+// Issue 33: a project whose listing never succeeded records no success.
+func TestSyncAFailedListingRecordsNoSuccess(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-e"]`)
+	h.fake.AddProject("proj-e").ListErr = bqtest.TransientError("boom")
+	h.run(api.SyncScope{})
+	if u := h.unit("proj-e", ""); u.Status != api.UnitInaccessible || u.LastSuccess != nil {
+		t.Fatalf("%+v", u)
+	}
+}
+
 func TestSyncCancelKeepsCommittedUnits(t *testing.T) {
 	h := newHarness(t, `projects = ["proj-a", "proj-b"]`)
 	twoProjectFake(h.fake)
