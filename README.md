@@ -21,11 +21,19 @@ I work with a handful of GCP projects that have over a thousand datasets each, a
 
 ## Install
 
-Prebuilt binaries for macOS and Linux (amd64 and arm64) are on the [releases page](https://github.com/davidsevcik/bigquery-tui/releases). Or, with Go 1.26 or newer:
+With [Homebrew](https://brew.sh) on macOS or Linux:
+
+```sh
+brew install davidsevcik/tap/bqt
+```
+
+Or with Go 1.26 or newer:
 
 ```sh
 go install github.com/davidsevcik/bigquery-tui/cmd/bqt@latest
 ```
+
+Prebuilt binaries for macOS and Linux (amd64 and arm64) are also on the [releases page](https://github.com/davidsevcik/bigquery-tui/releases).
 
 ## Quickstart
 
