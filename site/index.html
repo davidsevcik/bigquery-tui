@@ -169,6 +169,7 @@ code { font-size: 0.92em; }
 .steps h3 { font: 700 1.15rem/1.3 var(--sans); margin: 0 0 0.5rem; }
 .steps p { margin: 0 0 0.75rem; color: var(--muted); }
 .steps .snippet { margin: 0; }
+.steps .snippet + .snippet { margin-top: 0.5rem; }
 .more { margin: 2.5rem 0 0; }
 
 footer { border-top: 1px solid var(--rule); padding: 28px 0 40px; color: var(--muted); font-size: 0.92rem; }
@@ -197,7 +198,7 @@ footer p { margin: 0.25rem 0; }
       <p class="lede">bqt is a keyboard-driven BigQuery client for the terminal, with a safe way in for your AI agents.</p>
       <div class="actions">
         <div class="install">
-          <code id="install-cmd">go install github.com/davidsevcik/bigquery-tui/cmd/bqt@latest</code>
+          <code id="install-cmd">brew install davidsevcik/tap/bqt</code>
           <button class="copy" type="button" data-copy="install-cmd">Copy</button>
         </div>
         <a class="button" href="https://github.com/davidsevcik/bigquery-tui/releases">Download for macOS or Linux</a>
@@ -278,7 +279,8 @@ SELECT ... WHERE d &gt;= @start AND c = @country</pre>
       <ol class="steps">
         <li>
           <h3>Install</h3>
-          <p>Download a binary from the releases page, or build it with Go 1.26 or newer.</p>
+          <p>With Homebrew on macOS or Linux, or with Go 1.26 or newer. Binaries are also on the releases page.</p>
+          <pre class="snippet">brew install davidsevcik/tap/bqt</pre>
           <pre class="snippet">go install github.com/davidsevcik/bigquery-tui/cmd/bqt@latest</pre>
         </li>
         <li>
