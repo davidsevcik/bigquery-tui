@@ -95,14 +95,19 @@ code { font-size: 0.92em; }
   text-wrap: balance;
 }
 .hero .lede { font-size: 1.2rem; color: var(--muted); max-width: 46ch; margin: 0 0 2rem; }
-.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.install-group { min-width: 0; max-width: 100%; }
+/* Both panels share one grid cell, so the box keeps the longer command's width when you switch tabs. */
+.install-panels { display: grid; }
+.install-panels > .install { grid-area: 1 / 1; }
+.install-panels > .install[hidden] { display: flex; visibility: hidden; }
 .install {
   display: flex; align-items: center; min-width: 0; max-width: 100%;
   background: var(--term-bg); color: var(--term-fg);
-  border-radius: 8px; padding: 0 4px 0 14px;
+  border-radius: 0 8px 8px 8px; padding: 0 4px 0 14px;
   font: 400 0.9rem/1 var(--mono);
 }
-.install code { white-space: nowrap; overflow-x: auto; padding: 14px 0; scrollbar-width: none; }
+.install code { flex: 1; white-space: nowrap; overflow-x: auto; padding: 14px 0; scrollbar-width: none; }
 .install code::before { content: "$ "; color: var(--term-amber); }
 .copy {
   flex: none; margin-left: 10px; border: 0; border-radius: 6px; cursor: pointer;
@@ -125,6 +130,8 @@ code { font-size: 0.92em; }
 .tab:hover { color: var(--ink); }
 /* --shot-bg is the screenshots' own terminal background, so tab, frame and image read as one. */
 .tab[aria-selected="true"] { background: var(--shot-bg); color: var(--term-fg); }
+.install-group .tab { font-size: 0.85rem; padding: 10px 14px; }
+.install-group .tab[aria-selected="true"] { background: var(--term-bg); }
 .term {
   background: var(--shot-bg); color: var(--term-fg);
   border-radius: 0 10px 10px 10px;
@@ -197,9 +204,21 @@ footer p { margin: 0.25rem 0; }
       <h1>Find any table in a thousand datasets, and query it without a surprise bill.</h1>
       <p class="lede">bqt is a keyboard-driven BigQuery client for the terminal, with a safe way in for your AI agents.</p>
       <div class="actions">
-        <div class="install">
-          <code id="install-cmd">brew install davidsevcik/tap/bqt</code>
-          <button class="copy" type="button" data-copy="install-cmd">Copy</button>
+        <div class="install-group">
+          <div class="tabs" role="tablist" aria-label="Install with">
+            <button class="tab" role="tab" id="tab-brew" aria-controls="install-brew" aria-selected="true">Homebrew</button>
+            <button class="tab" role="tab" id="tab-go" aria-controls="install-go" aria-selected="false" tabindex="-1">Go</button>
+          </div>
+          <div class="install-panels">
+            <div class="install" id="install-brew" role="tabpanel" aria-labelledby="tab-brew">
+              <code id="cmd-brew">brew install davidsevcik/tap/bqt</code>
+              <button class="copy" type="button" data-copy="cmd-brew">Copy</button>
+            </div>
+            <div class="install" id="install-go" role="tabpanel" aria-labelledby="tab-go" hidden>
+              <code id="cmd-go">go install github.com/davidsevcik/bigquery-tui/cmd/bqt@latest</code>
+              <button class="copy" type="button" data-copy="cmd-go">Copy</button>
+            </div>
+          </div>
         </div>
         <a class="button" href="https://github.com/davidsevcik/bigquery-tui/releases">Download for macOS or Linux</a>
       </div>
@@ -306,32 +325,36 @@ SELECT ... WHERE d &gt;= @start AND c = @country</pre>
 
 <script>
 (function () {
-  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
   var caption = document.getElementById('caption');
 
-  function select(tab, focus) {
-    tabs.forEach(function (t) {
-      var on = t === tab;
-      t.setAttribute('aria-selected', on ? 'true' : 'false');
-      t.tabIndex = on ? 0 : -1;
-      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
-    });
-    caption.innerHTML = document.getElementById(tab.getAttribute('aria-controls')).dataset.caption;
-    if (focus) tab.focus();
-  }
+  document.querySelectorAll('[role="tablist"]').forEach(function (list) {
+    var tabs = Array.prototype.slice.call(list.querySelectorAll('[role="tab"]'));
 
-  tabs.forEach(function (tab, i) {
-    tab.addEventListener('click', function () { select(tab, false); });
-    tab.addEventListener('keydown', function (e) {
-      var next = null;
-      if (e.key === 'ArrowRight') next = tabs[(i + 1) % tabs.length];
-      if (e.key === 'ArrowLeft') next = tabs[(i - 1 + tabs.length) % tabs.length];
-      if (e.key === 'Home') next = tabs[0];
-      if (e.key === 'End') next = tabs[tabs.length - 1];
-      if (next) { e.preventDefault(); select(next, true); }
-    });
+    function select(tab, focus) {
+      tabs.forEach(function (t) {
+        var on = t === tab;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.tabIndex = on ? 0 : -1;
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+      var panel = document.getElementById(tab.getAttribute('aria-controls'));
+      if (panel.dataset.caption) caption.innerHTML = panel.dataset.caption;
+      if (focus) tab.focus();
+    }
+
+    tabs.forEach(function (tab, i) {
+      tab.addEventListener('click', function () { select(tab, false); });
+      tab.addEventListener('keydown', function (e) {
+        var next = null;
+        if (e.key === 'ArrowRight') next = tabs[(i + 1) % tabs.length];
+        if (e.key === 'ArrowLeft') next = tabs[(i - 1 + tabs.length) % tabs.length];
+        if (e.key === 'Home') next = tabs[0];
+        if (e.key === 'End') next = tabs[tabs.length - 1];
+        if (next) { e.preventDefault(); select(next, true); }
+      });
   });
   select(tabs[0], false);
+  });
 
   document.querySelectorAll('[data-copy]').forEach(function (button) {
     button.addEventListener('click', function () {
