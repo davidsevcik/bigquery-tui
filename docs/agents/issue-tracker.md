@@ -14,7 +14,7 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 
-`.scratch/` is gitignored and holds only personal notes (handoffs, resume notes). Never put specs or tickets there: agents on other machines can't see it. The specs already under `.scratch/` are from before the switch to GitHub Issues.
+`.scratch/` is gitignored and holds only personal notes (handoffs, resume notes). Never put specs or tickets there: agents on other machines can't see it.
 
 ## Pull requests as a triage surface
 
