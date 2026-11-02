@@ -1,7 +1,15 @@
 {
   "enabledPlugins": {
-    "mattpocock-skills@claude-plugins-official": true,
+    "mattpocock-skills@mattpocock": true,
     "context7@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "mattpocock": {
+      "source": {
+        "source": "github",
+        "repo": "mattpocock/skills"
+      }
+    }
   },
   "hooks": {
     "SessionStart": [
