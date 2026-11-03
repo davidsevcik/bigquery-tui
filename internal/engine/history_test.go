@@ -17,8 +17,10 @@ import (
 func TestHistorySearchPromoteAndReopen(t *testing.T) {
 	e, eng := synced(t, "proj-a")
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(30) }
-	eng.StartRun(ctx, runs.Request{SQL: "select n from orders where d >= @start",
-		Params: []api.QueryParam{{Name: "start", Type: "DATE", Value: "2024-01-01"}, {Name: "x", Null: true, Type: "STRING"}}}).Wait()
+	eng.StartRun(ctx, runs.Request{
+		SQL:    "select n from orders where d >= @start",
+		Params: []api.QueryParam{{Name: "start", Type: "DATE", Value: "2024-01-01"}, {Name: "x", Null: true, Type: "STRING"}},
+	}).Wait()
 	e.now = e.now.Add(time.Minute)
 	eng.StartRun(ctx, runs.Request{SQL: "select  n from orders where d >= @start"}).Wait()
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.QueryScript{JobErr: bqtest.QueryError("boom")} }
@@ -48,7 +50,9 @@ func TestHistorySearchPromoteAndReopen(t *testing.T) {
 	}
 	h, _ := eng.History()
 	var firstID int64
-	h.DB().QueryRow("SELECT MIN(id) FROM history").Scan(&firstID)
+	if err := h.DB().QueryRow("SELECT MIN(id) FROM history").Scan(&firstID); err != nil {
+		t.Fatal(err)
+	}
 	id2, err := eng.PromoteHistory(ctx, firstID, "dated", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +132,8 @@ func TestPromoteKeepsOneHeaderAndNull(t *testing.T) {
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
 	sql := "-- description: old\n-- tags: a\n-- param: d DATE = 2024-01-01\nselect @d, @p, @n"
 	eng.StartRun(ctx, runs.Request{SQL: sql, Params: []api.QueryParam{
-		{Name: "d", Type: "DATE", Value: "2025-05-05"}, {Name: "p", Type: "STRING", Null: true}, {Name: "n", Type: "INT64", Null: true}}}).Wait()
+		{Name: "d", Type: "DATE", Value: "2025-05-05"}, {Name: "p", Type: "STRING", Null: true}, {Name: "n", Type: "INT64", Null: true},
+	}}).Wait()
 	page, _ := eng.SearchHistory(ctx, "", 1, 0)
 	id, err := eng.PromoteHistory(ctx, page.Groups[0].Latest.ID, "x", "new", nil, false)
 	if err != nil {

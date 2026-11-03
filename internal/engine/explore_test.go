@@ -14,10 +14,10 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/format"
 )
 
-func (e *env) openWithTables(readOnly bool) *Engine {
+func (e *env) openWithTables() *Engine {
 	e.t.Helper()
 	eng, err := Open(ctx, Options{
-		Config: e.cfg, ReadOnly: readOnly,
+		Config:  e.cfg,
 		Meta:    func(context.Context) (bq.Metadata, error) { return e.fake, nil },
 		Tables:  func(context.Context) (bq.Tables, error) { return e.fake, nil },
 		Jobs:    func(context.Context) (bq.Jobs, error) { return e.fake, nil },
@@ -44,7 +44,7 @@ func synced(t *testing.T, selected ...string) (*env, *Engine) {
 			Rows: [][]any{{"1", "ten"}, {"2", nil}, {"3", "a very long value indeed"}},
 		},
 	}
-	eng := e.openWithTables(false)
+	eng := e.openWithTables()
 	h, err := eng.StartSync(ctx, api.SyncScope{})
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +132,9 @@ func TestTableDetailStatsAndPreview(t *testing.T) {
 	if err != nil || st.Rows != 3 || st.Bytes != 4096 {
 		t.Fatalf("%+v %v", st, err)
 	}
-	eng.TableStats(ctx, p)
+	if _, err := eng.TableStats(ctx, p); err != nil {
+		t.Fatal(err)
+	}
 	if n := len(e.fake.CallsTo("GetTable")); n != 1 {
 		t.Fatalf("stats are cached, got %d calls", n)
 	}
@@ -166,7 +168,7 @@ func TestPreviewOfAMaterializedViewNeedsAQuery(t *testing.T) {
 		// the catalog says table, BigQuery now says materialized view
 		"proj-a.sales.orders": {Info: bq.TableInfo{Type: api.TypeMView, Schema: []bq.Field{{Name: "id", Type: "INTEGER"}}}},
 	}
-	eng := e.openWithTables(false)
+	eng := e.openWithTables()
 	h, err := eng.StartSync(ctx, api.SyncScope{})
 	if err != nil {
 		t.Fatal(err)
@@ -253,7 +255,7 @@ func TestTableDetailCarriesTheRequiredPartitionFilter(t *testing.T) {
 	tb := bqtest.Table("strict", "day")
 	tb.RequirePartitionFilter = true
 	e.fake.Projects["proj-a"].Datasets[0].Tables = append(e.fake.Projects["proj-a"].Datasets[0].Tables, tb)
-	eng := e.openWithTables(false)
+	eng := e.openWithTables()
 	fullSync(t, eng)
 	if err := eng.ReloadIndex(ctx); err != nil {
 		t.Fatal(err)
@@ -285,15 +287,17 @@ func TestRecentsFeedTheEmptyQuery(t *testing.T) {
 
 func TestWatchCatalogReloadsAfterAnotherProcessSyncs(t *testing.T) {
 	e := newEnv(t, "proj-a")
-	reader := e.openWithTables(false)
+	reader := e.openWithTables()
 	wctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	changed := reader.WatchCatalog(wctx, 10*time.Millisecond)
 	time.Sleep(40 * time.Millisecond) // let the watcher take its baseline
 
-	writer := e.openWithTables(false) // "another process"
+	writer := e.openWithTables() // "another process"
 	h, _ := writer.StartSync(ctx, api.SyncScope{})
-	h.Wait()
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
 
 	deadline := time.After(3 * time.Second)
 	for {
@@ -310,7 +314,9 @@ func TestWatchCatalogReloadsAfterAnotherProcessSyncs(t *testing.T) {
 
 func TestReconcilePrunesWithoutBigQuery(t *testing.T) {
 	e, eng := synced(t, "proj-a", "proj-b")
-	eng.DeselectProjects("proj-b")
+	if err := eng.DeselectProjects("proj-b"); err != nil {
+		t.Fatal(err)
+	}
 	calls := len(e.fake.Calls)
 	eng.SetConfig(e.config(`ignore = ["proj-a.us_data"]`))
 	rec, skipped, err := eng.Reconcile(ctx)
@@ -331,7 +337,7 @@ func TestReconcilePrunesWithoutBigQuery(t *testing.T) {
 
 func TestAutoRefresh(t *testing.T) {
 	e := newEnv(t, "proj-a", "proj-b")
-	eng := e.openWithTables(false)
+	eng := e.openWithTables()
 	// empty catalog: full sync
 	h, err := eng.AutoRefresh(ctx)
 	if err != nil || h == nil {
@@ -349,13 +355,17 @@ func TestAutoRefresh(t *testing.T) {
 	e.fake.Calls = nil
 	e.now = e.now.Add(25 * time.Hour)
 	h2, _ := eng.StartSync(ctx, api.SyncScope{Projects: []string{"proj-b"}})
-	h2.Wait()
+	if _, err := h2.Wait(); err != nil {
+		t.Fatal(err)
+	}
 	e.fake.Calls = nil
 	h, err = eng.AutoRefresh(ctx)
 	if err != nil || h == nil {
 		t.Fatalf("%v %v", h, err)
 	}
-	h.Wait()
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range e.fake.CallsTo("ListDatasets") {
 		if c.Project != "proj-a" {
 			t.Fatalf("only the stale project is refreshed: %+v", c)
@@ -377,9 +387,11 @@ func TestSetConfigChangesTTL(t *testing.T) {
 
 func TestAutoRefreshSyncsANewlySelectedProject(t *testing.T) {
 	e := newEnv(t, "proj-a")
-	eng := e.openWithTables(false)
+	eng := e.openWithTables()
 	h, _ := eng.AutoRefresh(ctx)
-	h.Wait()
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
 	// the user selects another project: background refresh syncs just it
 	if err := eng.SelectProjects("proj-b"); err != nil {
 		t.Fatal(err)
@@ -389,7 +401,9 @@ func TestAutoRefreshSyncsANewlySelectedProject(t *testing.T) {
 	if err != nil || h == nil {
 		t.Fatalf("%v %v", h, err)
 	}
-	h.Wait()
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range e.fake.CallsTo("ListDatasets") {
 		if c.Project != "proj-b" {
 			t.Fatalf("only the new project is synced: %+v", c)
@@ -402,7 +416,7 @@ func TestAutoRefreshSyncsANewlySelectedProject(t *testing.T) {
 
 func TestUnreadSyncEventsDoNotLeakThePump(t *testing.T) {
 	e := newEnv(t, "proj-a", "proj-b")
-	eng := e.openWithTables(false)
+	eng := e.openWithTables()
 	h, _ := eng.StartSync(ctx, api.SyncScope{})
 	if _, err := h.Wait(); err != nil {
 		t.Fatal(err)
@@ -421,7 +435,7 @@ func TestUnreadSyncEventsDoNotLeakThePump(t *testing.T) {
 
 func TestOperationsAfterCloseFailCleanly(t *testing.T) {
 	e := newEnv(t, "proj-a")
-	eng := e.openWithTables(false)
+	eng := e.openWithTables()
 	eng.Close()
 	if err := eng.TouchRecent(ctx, api.ObjectPath{Project: "p", Dataset: "d", Table: "t"}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("%v", err)
@@ -433,9 +447,11 @@ func TestDetailRejectsAStaleIndexEntry(t *testing.T) {
 	// the table disappears from BigQuery and the catalog, but this engine's
 	// index is deliberately left stale
 	e.fake.Projects["proj-a"].Datasets[1].Tables = nil
-	other := e.openWithTables(false)
+	other := e.openWithTables()
 	h, _ := other.StartSync(ctx, api.SyncScope{})
-	h.Wait()
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := eng.TableDetail(ctx, api.ObjectPath{Project: "proj-a", Dataset: "us_data", Table: "u1"}); !errors.Is(err, ErrUnknownTable) {
 		t.Fatalf("%v", err)
 	}

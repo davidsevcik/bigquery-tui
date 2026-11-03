@@ -153,6 +153,8 @@ func BenchmarkSearchPrefixAll(b *testing.B) {
 	s, _ := synthetic(500)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		s.Search(ctx, "table", api.SearchOptions{Limit: 50})
+		if _, err := s.Search(ctx, "table", api.SearchOptions{Limit: 50}); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

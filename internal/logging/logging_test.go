@@ -41,7 +41,11 @@ func TestStderrOnlyWarnAndAbove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeFn()
+	t.Cleanup(func() {
+		if err := closeFn(); err != nil {
+			t.Error(err)
+		}
+	})
 	l.Info("quiet")
 	l.Warn("loud")
 	if strings.Contains(stderr.String(), "quiet") || !strings.Contains(stderr.String(), "loud") {
@@ -58,7 +62,11 @@ func TestNoSinksIsSilent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeFn()
+	t.Cleanup(func() {
+		if err := closeFn(); err != nil {
+			t.Error(err)
+		}
+	})
 	l.Error("nobody hears this")
 }
 

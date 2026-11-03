@@ -119,9 +119,16 @@ func TestPaneAtSkipsSeparatorsInClassic(t *testing.T) {
 		x, y int
 		want Zone
 	}{
-		{0, 0, ZoneExplorer}, {41, 16, ZoneExplorer}, {41, 17, ZoneSchema}, {42, 5, ""},
-		{43, 0, ZoneEditor}, {119, 16, ZoneEditor}, {43, 17, ZoneResults}, {119, 33, ZoneResults},
-		{0, 34, ""}, {120, 0, ""},
+		{0, 0, ZoneExplorer},
+		{41, 16, ZoneExplorer},
+		{41, 17, ZoneSchema},
+		{42, 5, ""},
+		{43, 0, ZoneEditor},
+		{119, 16, ZoneEditor},
+		{43, 17, ZoneResults},
+		{119, 33, ZoneResults},
+		{0, 34, ""},
+		{120, 0, ""},
 	}
 	for _, c := range cases {
 		if z, _ := paneAt(a.rects, c.x, c.y); z != c.want {
@@ -137,10 +144,21 @@ func TestPaneBarLabelsAreClickable(t *testing.T) {
 		x, y int
 		want Zone
 	}{
-		{0, 0, ""}, {1, 0, ZoneExplorer}, {8, 0, ZoneExplorer}, {9, 0, ""}, {10, 0, ""},
-		{11, 0, ZoneSchema}, {16, 0, ZoneSchema}, {17, 0, ""},
-		{19, 0, ZoneEditor}, {26, 0, ZoneEditor}, {29, 0, ZoneResults}, {35, 0, ZoneResults},
-		{36, 0, ""}, {45, 0, ""}, {1, 1, ""},
+		{0, 0, ""},
+		{1, 0, ZoneExplorer},
+		{8, 0, ZoneExplorer},
+		{9, 0, ""},
+		{10, 0, ""},
+		{11, 0, ZoneSchema},
+		{16, 0, ZoneSchema},
+		{17, 0, ""},
+		{19, 0, ZoneEditor},
+		{26, 0, ZoneEditor},
+		{29, 0, ZoneResults},
+		{35, 0, ZoneResults},
+		{36, 0, ""},
+		{45, 0, ""},
+		{1, 1, ""},
 	}
 	for _, c := range cases {
 		if z, _ := barAt(a, c.x, c.y); z != c.want {

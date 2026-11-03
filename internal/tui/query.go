@@ -875,8 +875,12 @@ func (m *Model) externalEditor() tea.Cmd {
 		m.toast = "editor: " + err.Error()
 		return nil
 	}
-	f.WriteString(b.ed.text())
-	f.Close()
+	_, werr := f.WriteString(b.ed.text())
+	if err := errors.Join(werr, f.Close()); err != nil {
+		os.Remove(f.Name())
+		m.toast = "editor: " + err.Error()
+		return nil
+	}
 	argv := append(config.ResolveEditor(m.o.Getenv, runtime.GOOS), f.Name())
 	id, path := b.id, f.Name()
 	return tea.ExecProcess(exec.Command(argv[0], argv[1:]...), func(err error) tea.Msg { return extEditMsg{id, path, err} })
@@ -974,8 +978,10 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 	case "unhide":
 		g.hidden = map[int]bool{}
 	case "find":
-		m.openPrompt(promptState{kind: "find", title: "Find in the loaded rows", labels: []string{"text"},
-			note: fmt.Sprintf("searches the %d loaded page(s) of %d · n / N next and previous", len(g.pages), (g.total+gridPage-1)/gridPage)}, g.find)
+		m.openPrompt(promptState{
+			kind: "find", title: "Find in the loaded rows", labels: []string{"text"},
+			note: fmt.Sprintf("searches the %d loaded page(s) of %d · n / N next and previous", len(g.pages), (g.total+gridPage-1)/gridPage),
+		}, g.find)
 		return nil
 	case "findnext":
 		return m.findNext(1)
@@ -1028,8 +1034,10 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 			return nil
 		}
 		path := m.be.DefaultExportPath(export.CSV)
-		m.openPrompt(promptState{kind: "export", title: fmt.Sprintf("Export %s rows", format.Count(g.total)), labels: []string{"file"}, format: export.CSV,
-			note: "tab changes the format (csv, json, ndjson) · enter exports · esc cancels"}, path)
+		m.openPrompt(promptState{
+			kind: "export", title: fmt.Sprintf("Export %s rows", format.Count(g.total)), labels: []string{"file"}, format: export.CSV,
+			note: "tab changes the format (csv, json, ndjson) · enter exports · esc cancels",
+		}, path)
 		return nil
 	}
 	return m.gridEnsure()
@@ -1040,8 +1048,11 @@ func (m *Model) copyRow(g *grid, pick func(cols []api.PreviewColumn, full []api.
 	row, cols := g.row, g.cols
 	return func() tea.Msg {
 		page, err := g.src(m.ctx, row, 1, format.Options{})
-		if err != nil || len(page.Rows) != 1 {
-			return clipMsg{err: fmt.Errorf("could not read the row: %v", err)}
+		if err != nil {
+			return clipMsg{err: fmt.Errorf("could not read the row: %w", err)}
+		}
+		if len(page.Rows) != 1 {
+			return clipMsg{err: errors.New("could not read the row")}
 		}
 		text, toast := pick(cols, page.Rows[0])
 		return clipMsg{text: text, toast: toast}

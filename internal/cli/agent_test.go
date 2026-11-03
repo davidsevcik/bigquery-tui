@@ -28,7 +28,9 @@ func golden(t *testing.T, name, got string) {
 	pretty, _ := json.MarshalIndent(v, "", "  ")
 	path := filepath.Join("testdata", name+".json")
 	if *update {
-		os.MkdirAll("testdata", 0o755)
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(path, append(pretty, '\n'), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -43,10 +45,10 @@ func golden(t *testing.T, name, got string) {
 	}
 }
 
-func syncedSandbox(t *testing.T, extra string) *sandbox {
+func syncedSandbox(t *testing.T) *sandbox {
 	t.Helper()
 	s := newSandbox(t)
-	s.writeConfig("projects = [\"proj-a\"]\n" + extra)
+	s.writeConfig("projects = [\"proj-a\"]\n")
 	if code, _, errOut := s.run("sync"); code != 0 {
 		t.Fatalf("sync: %d %s", code, errOut)
 	}
@@ -54,7 +56,7 @@ func syncedSandbox(t *testing.T, extra string) *sandbox {
 }
 
 func TestQueryJSONContractAndPaging(t *testing.T) {
-	s := syncedSandbox(t, "")
+	s := syncedSandbox(t)
 	s.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(60) }
 	// flags after the SQL, a parameter with a forced type
 	code, out, errOut := s.run("query", "select n, label from t where d > @d", "--limit", "3", "--param", "d=DATE:2024-01-31")
@@ -89,13 +91,15 @@ func TestQueryJSONContractAndPaging(t *testing.T) {
 }
 
 func TestQueryFromStdinAndFile(t *testing.T) {
-	s := syncedSandbox(t, "")
+	s := syncedSandbox(t)
 	s.stdin = "-- a comment first\nselect 1"
 	if code, _, errOut := s.run("query"); code != 0 {
 		t.Fatalf("stdin: %d %s", code, errOut)
 	}
 	f := filepath.Join(s.dir, "q.sql")
-	os.WriteFile(f, []byte("select 2"), 0o644)
+	if err := os.WriteFile(f, []byte("select 2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if code, _, errOut := s.run("query", "--file", f, "--dry-run"); code != 0 {
 		t.Fatalf("file: %d %s", code, errOut)
 	}
@@ -108,7 +112,7 @@ func TestQueryFromStdinAndFile(t *testing.T) {
 }
 
 func TestQueryRefusalsAndExitCodes(t *testing.T) {
-	s := syncedSandbox(t, "")
+	s := syncedSandbox(t)
 	s.fake.OnQuery = func(sql string) bqtest.QueryScript {
 		switch {
 		case strings.HasPrefix(sql, "insert"):
@@ -158,7 +162,7 @@ func TestQueryRefusalsAndExitCodes(t *testing.T) {
 }
 
 func TestSchemaHistoryAndFavorites(t *testing.T) {
-	s := syncedSandbox(t, "")
+	s := syncedSandbox(t)
 	code, out, errOut := s.run("schema", "proj-a.sales.orders")
 	if code != 0 {
 		t.Fatalf("%d %s", code, errOut)
@@ -169,8 +173,12 @@ func TestSchemaHistoryAndFavorites(t *testing.T) {
 	}
 
 	dir := filepath.Join(s.dir, "data", "favorites")
-	os.MkdirAll(dir, 0o755)
-	os.WriteFile(filepath.Join(dir, "dau.sql"), []byte("-- description: Daily users\n-- param: n INT64 = 7\nSELECT @n AS n\n"), 0o644)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "dau.sql"), []byte("-- description: Daily users\n-- param: n INT64 = 7\nSELECT @n AS n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	code, out, _ = s.run("favorites", "list")
 	if code != 0 {
 		t.Fatal(code)
@@ -248,7 +256,7 @@ func TestFormatFlagReadsLikeTheParser(t *testing.T) {
 			t.Errorf("%q: got %q, want %q", args, got, want)
 		}
 	}
-	s := syncedSandbox(t, "")
+	s := syncedSandbox(t)
 	if code, _, errOut := s.run("query", "--format=text\nSELECT 1"); code != 0 {
 		t.Fatalf("SQL starting with a comment that looks like a flag: %d %s", code, errOut)
 	}

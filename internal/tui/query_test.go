@@ -404,9 +404,13 @@ func TestDraftsSurviveAndAreOfferedForRestore(t *testing.T) {
 
 	// drafts older than 30 days are deleted
 	old := filepath.Join(dir, "deadbeef0000.sql")
-	os.WriteFile(old, []byte("select 'old'"), 0o600)
+	if err := os.WriteFile(old, []byte("select 'old'"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	past := r.now.Add(-31 * 24 * time.Hour)
-	os.Chtimes(old, past, past)
+	if err := os.Chtimes(old, past, past); err != nil {
+		t.Fatal(err)
+	}
 	m3.scanOrphans()
 	if _, err := os.Stat(old); !os.IsNotExist(err) || len(m3.orphans) != 0 {
 		t.Fatal("an old draft must be removed")
@@ -416,7 +420,9 @@ func TestDraftsSurviveAndAreOfferedForRestore(t *testing.T) {
 func TestFileBufferSavesBack(t *testing.T) {
 	r := newRig(t, 120, 30)
 	path := filepath.Join(r.dir, "q.sql")
-	os.WriteFile(path, []byte("select 1\n"), 0o644)
+	if err := os.WriteFile(path, []byte("select 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	m := New(r.m.be, Options{NoBackground: true, StableOutput: true, Now: func() time.Time { return r.now }, File: path})
 	defer m.Close()
 	rf := &rig{t: t, m: m, fake: r.fake, eng: r.eng, now: r.now}
@@ -463,8 +469,10 @@ func wideScript() bqtest.QueryScript {
 		if i%5 == 0 {
 			note = nil
 		}
-		s.Rows = append(s.Rows, []any{itoa(i), "customer-" + itoa(i), "CZ", "Brno", itoa(i * 10), note,
-			[]any{map[string]any{"v": "a"}, map[string]any{"v": "b"}}})
+		s.Rows = append(s.Rows, []any{
+			itoa(i), "customer-" + itoa(i), "CZ", "Brno", itoa(i * 10), note,
+			[]any{map[string]any{"v": "a"}, map[string]any{"v": "b"}},
+		})
 	}
 	s.Rows[17][3] = "Needle City"
 	return s
@@ -702,7 +710,9 @@ func TestConfirmationsQueueInsteadOfReplacingEachOther(t *testing.T) {
 func TestQuitAsksAboutUnsavedFileChanges(t *testing.T) {
 	r := newRig(t, 120, 30)
 	path := filepath.Join(r.dir, "q.sql")
-	os.WriteFile(path, []byte("select 1\n"), 0o644)
+	if err := os.WriteFile(path, []byte("select 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	m := New(r.m.be, Options{NoBackground: true, StableOutput: true, Now: func() time.Time { return r.now }, File: path})
 	defer m.Close()
 	rf := &rig{t: t, m: m, fake: r.fake, eng: r.eng, now: r.now}
@@ -724,7 +734,9 @@ func TestDraftWriteFailureIsRetried(t *testing.T) {
 	b := r.m.buf()
 	dir := r.m.be.DraftDir()
 	// make the draft path unwritable: a directory sits where the temp file goes
-	os.MkdirAll(filepath.Join(r.m.draftPath(b.id)+".tmp", "keep"), 0o700)
+	if err := os.MkdirAll(filepath.Join(r.m.draftPath(b.id)+".tmp", "keep"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	r.typeText("select 1")
 	if b.draftVersion == b.ed.version {
 		t.Fatal("a failed write must not count as saved")

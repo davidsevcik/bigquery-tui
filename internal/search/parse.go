@@ -81,8 +81,10 @@ func parseToken(q *api.ParsedQuery, s, e int, keys map[string]bool, validate fun
 		body, neg = body[1:], true
 	}
 	if ci := strings.IndexByte(body, ':'); ci > 0 && keys[strings.ToLower(body[:ci])] {
-		f := api.QueryFilter{Key: strings.ToLower(body[:ci]), Negated: neg, Status: api.FilterOK,
-			Span: api.Span{Start: s, End: e}, ValueSpan: api.Span{Start: e - (len(body) - ci - 1), End: e}}
+		f := api.QueryFilter{
+			Key: strings.ToLower(body[:ci]), Negated: neg, Status: api.FilterOK,
+			Span: api.Span{Start: s, End: e}, ValueSpan: api.Span{Start: e - (len(body) - ci - 1), End: e},
+		}
 		for _, v := range splitValues(body[ci+1:]) {
 			v = strings.ToLower(strings.Trim(v, `"`))
 			if v != "" {

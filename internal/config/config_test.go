@@ -268,7 +268,9 @@ func TestTUIEditingKey(t *testing.T) {
 	dir := t.TempDir()
 	write := func(body string) string {
 		p := filepath.Join(dir, "c.toml")
-		os.WriteFile(p, []byte("location = \"EU\"\n"+body), 0o600)
+		if err := os.WriteFile(p, []byte("location = \"EU\"\n"+body), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		return p
 	}
 	load := func(body string) (*Config, error) {

@@ -8,8 +8,10 @@ import (
 )
 
 func detail(table string, mut func(*api.TableMeta)) api.TableDetail {
-	t := api.TableMeta{Dataset: "sales", Name: table, Type: api.TypeTable,
-		Columns: []api.ColumnMeta{{FieldPath: "id", Ordinal: 1, DataType: "INT64"}}}
+	t := api.TableMeta{
+		Dataset: "sales", Name: table, Type: api.TypeTable,
+		Columns: []api.ColumnMeta{{FieldPath: "id", Ordinal: 1, DataType: "INT64"}},
+	}
 	if mut != nil {
 		mut(&t)
 	}
@@ -31,21 +33,35 @@ func TestSelectStar(t *testing.T) {
 		cond string
 	}{
 		{"plain table", detail("customers", nil), "`acme-prod.sales.customers`", "true"},
-		{"required DATE", detail("orders", partitionedOn("day", "DATE", true)), "`acme-prod.sales.orders`",
-			"day >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)"},
-		{"required TIMESTAMP", detail("orders", partitionedOn("created_at", "TIMESTAMP", true)), "`acme-prod.sales.orders`",
-			"created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY)"},
-		{"required DATETIME", detail("orders", partitionedOn("event_at", "DATETIME", true)), "`acme-prod.sales.orders`",
-			"event_at >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 1 DAY)"},
-		{"required INT64", detail("orders", partitionedOn("bucket", "INT64", true)), "`acme-prod.sales.orders`",
-			"bucket BETWEEN 0 AND 0  -- set the range"},
-		{"required INTEGER", detail("orders", partitionedOn("bucket", "INTEGER", true)), "`acme-prod.sales.orders`",
-			"bucket BETWEEN 0 AND 0  -- set the range"},
+		{
+			"required DATE", detail("orders", partitionedOn("day", "DATE", true)), "`acme-prod.sales.orders`",
+			"day >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)",
+		},
+		{
+			"required TIMESTAMP", detail("orders", partitionedOn("created_at", "TIMESTAMP", true)), "`acme-prod.sales.orders`",
+			"created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY)",
+		},
+		{
+			"required DATETIME", detail("orders", partitionedOn("event_at", "DATETIME", true)), "`acme-prod.sales.orders`",
+			"event_at >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 1 DAY)",
+		},
+		{
+			"required INT64", detail("orders", partitionedOn("bucket", "INT64", true)), "`acme-prod.sales.orders`",
+			"bucket BETWEEN 0 AND 0  -- set the range",
+		},
+		{
+			"required INTEGER", detail("orders", partitionedOn("bucket", "INTEGER", true)), "`acme-prod.sales.orders`",
+			"bucket BETWEEN 0 AND 0  -- set the range",
+		},
 		{"required, other type", detail("orders", partitionedOn("s", "STRING", true)), "`acme-prod.sales.orders`", "true"},
-		{"required, no partition column", detail("ingest", func(t *api.TableMeta) { t.RequirePartitionFilter = true }),
-			"`acme-prod.sales.ingest`", "_PARTITIONTIME >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY)"},
-		{"required, only the pseudo-column", detail("ingest", partitionedOn("_PARTITIONTIME", "TIMESTAMP", true)),
-			"`acme-prod.sales.ingest`", "_PARTITIONTIME >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY)"},
+		{
+			"required, no partition column", detail("ingest", func(t *api.TableMeta) { t.RequirePartitionFilter = true }),
+			"`acme-prod.sales.ingest`", "_PARTITIONTIME >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY)",
+		},
+		{
+			"required, only the pseudo-column", detail("ingest", partitionedOn("_PARTITIONTIME", "TIMESTAMP", true)),
+			"`acme-prod.sales.ingest`", "_PARTITIONTIME >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY)",
+		},
 		{"required, _PARTITIONDATE before the real column", detail("orders", func(t *api.TableMeta) {
 			t.RequirePartitionFilter = true
 			t.Columns = append(t.Columns, api.ColumnMeta{FieldPath: "_PARTITIONDATE", DataType: "DATE", Partitioning: true},
@@ -54,10 +70,14 @@ func TestSelectStar(t *testing.T) {
 		{"partitioned, not required", detail("orders", partitionedOn("created_at", "TIMESTAMP", false)), "`acme-prod.sales.orders`", "true"},
 		{"view", detail("v_orders", func(t *api.TableMeta) { t.Type = api.TypeView }), "`acme-prod.sales.v_orders`", "true"},
 		{"names-only table", detail("old", func(t *api.TableMeta) { t.NamesOnly, t.Columns = true, nil }), "`acme-prod.sales.old`", "true"},
-		{"column needing backticks", detail("orders", partitionedOn("select", "DATE", true)), "`acme-prod.sales.orders`",
-			"`select` >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)"},
-		{"column with a dash", detail("orders", partitionedOn("order-day", "DATE", true)), "`acme-prod.sales.orders`",
-			"`order-day` >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)"},
+		{
+			"column needing backticks", detail("orders", partitionedOn("select", "DATE", true)), "`acme-prod.sales.orders`",
+			"`select` >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)",
+		},
+		{
+			"column with a dash", detail("orders", partitionedOn("order-day", "DATE", true)), "`acme-prod.sales.orders`",
+			"`order-day` >= DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)",
+		},
 		{"shard family", func() api.TableDetail {
 			d := detail("events_YYYYMMDD", partitionedOn("day", "DATE", true))
 			d.Table.Shard = &api.ShardFamily{Prefix: "events_", First: "20240101", Last: "20240104", Count: 4}

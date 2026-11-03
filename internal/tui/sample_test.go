@@ -341,15 +341,19 @@ func TestSWritesTheFilterTheTableNeeds(t *testing.T) {
 		from  string
 		where string
 	}{
-		{"required partition filter", func(r *rig) { r.onOrders() }, "`acme-prod.sales.orders`",
-			"created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY)"},
+		{
+			"required partition filter", func(r *rig) { r.onOrders() }, "`acme-prod.sales.orders`",
+			"created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY)",
+		},
 		{"shard family", func(r *rig) {
 			r.press("l", "l", "j")
 			r.selected("acme-prod.events.events_YYYYMMDD")
 		}, "`acme-prod.events.events_*`", "_TABLE_SUFFIX = '20240104'"},
 		{"view", func(r *rig) { r.onSalesTable(3, "acme-prod.sales.v_orders") }, "`acme-prod.sales.v_orders`", "true"},
-		{"from the Schema pane", func(r *rig) { r.onOrders(); r.press("enter") }, "`acme-prod.sales.orders`",
-			"created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY)"},
+		{
+			"from the Schema pane", func(r *rig) { r.onOrders(); r.press("enter") }, "`acme-prod.sales.orders`",
+			"created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY)",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

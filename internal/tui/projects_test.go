@@ -310,7 +310,9 @@ func TestClosingTheDialogDuringASyncQueuesTheNewProjects(t *testing.T) {
 func TestAnOutsideChangeKeepsTheDialogCursor(t *testing.T) {
 	r := projectsRig(t)
 	r.press("ctrl+x", "p", "j", "j", "j") // acme-new
-	r.eng.SelectProjects("acme-another")  // bqt projects select, elsewhere: a row above
+	if err := r.eng.SelectProjects("acme-another"); err != nil {
+		t.Fatal(err)
+	} // bqt projects select, elsewhere: a row above
 	r.run(r.m.selectionChanged())
 	r.press("space")
 	if !r.eng.Selection().Has("acme-new") {

@@ -13,9 +13,16 @@ import (
 func TestLayerGraphPutsImportersAbove(t *testing.T) {
 	nodes := []string{"cmd", "cli", "tui", "engine", "store", "bq", "api", "lonely"}
 	edges := []Edge{
-		{"cmd", "cli"}, {"cli", "tui"}, {"cli", "engine"}, {"cli", "api"},
-		{"tui", "engine"}, {"tui", "api"}, {"engine", "store"}, {"engine", "bq"},
-		{"store", "api"}, {"bq", "api"},
+		{"cmd", "cli"},
+		{"cli", "tui"},
+		{"cli", "engine"},
+		{"cli", "api"},
+		{"tui", "engine"},
+		{"tui", "api"},
+		{"engine", "store"},
+		{"engine", "bq"},
+		{"store", "api"},
+		{"bq", "api"},
 	}
 	ranks, layers := layerGraph(nodes, edges)
 

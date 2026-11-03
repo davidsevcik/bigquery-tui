@@ -46,7 +46,7 @@ func (e *Engine) ReloadIndex(ctx context.Context) error {
 func (e *Engine) recent(ctx context.Context, n int) ([]string, error) {
 	if e.o.ReadOnly {
 		if _, err := os.Stat(e.paths.History); err != nil {
-			return nil, nil
+			return nil, nil //nolint:nilerr // read-only must not create the history, and without one nothing is recent
 		}
 	}
 	h, err := e.History()

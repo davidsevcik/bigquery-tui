@@ -67,9 +67,11 @@ func (e *Engine) AgentDryRun(ctx context.Context, q AgentQuery) (api.DryRunResul
 		return api.DryRunResult{}, err
 	}
 	est := info.Estimate
-	return api.DryRunResult{StatementType: est.StatementType, Bytes: est.Bytes, Accuracy: est.Accuracy,
+	return api.DryRunResult{
+		StatementType: est.StatementType, Bytes: est.Bytes, Accuracy: est.Accuracy,
 		Capacity: est.Capacity, ReservationID: est.ReservationID, ApproxUSD: est.ApproxUSD, Columns: est.Columns,
-		Allowed: info.Refusal == nil, Refusal: info.Refusal, Limit: prof.MaxBytes}, nil
+		Allowed: info.Refusal == nil, Refusal: info.Refusal, Limit: prof.MaxBytes,
+	}, nil
 }
 
 // RunAgentQuery runs a query under the policy and returns its first rows.
@@ -93,8 +95,10 @@ func (e *Engine) RunAgentQuery(ctx context.Context, q AgentQuery) (api.QueryResu
 	}
 	if s := info.Stats; s != nil {
 		res.StatementType = s.StatementType
-		res.Stats = &api.QueryStats{BytesProcessed: s.BytesProcessed, SlotMs: s.SlotMs, CacheHit: s.CacheHit,
-			Capacity: s.ReservationID != "", AffectedRows: s.AffectedRows}
+		res.Stats = &api.QueryStats{
+			BytesProcessed: s.BytesProcessed, SlotMs: s.SlotMs, CacheHit: s.CacheHit,
+			Capacity: s.ReservationID != "", AffectedRows: s.AffectedRows,
+		}
 		if !res.Stats.Capacity {
 			res.Stats.BytesBilled = s.BytesBilled
 		}
@@ -114,8 +118,10 @@ func (e *Engine) RunAgentQuery(ctx context.Context, q AgentQuery) (api.QueryResu
 	page, err := e.RunRows(rctx, id, 0, rowLimit(q.Limit), format.Options{MaxChars: policy.CellChars, KeepNewlines: true})
 	if err != nil {
 		if errors.Is(rctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
-			return res, &QueryFailure{Err: api.QueryError{Kind: "timeout",
-				Message: fmt.Sprintf("reading the rows took longer than %s (agent_timeout)", prof.Timeout)}}
+			return res, &QueryFailure{Err: api.QueryError{
+				Kind:    "timeout",
+				Message: fmt.Sprintf("reading the rows took longer than %s (agent_timeout)", prof.Timeout),
+			}}
 		}
 		return res, err
 	}
@@ -238,14 +244,18 @@ func (e *Engine) Schema(ctx context.Context, path string) (api.TableSchema, erro
 // SchemaOf is the compact schema of a table detail.
 func SchemaOf(d api.TableDetail) api.TableSchema {
 	t := d.Table
-	s := api.TableSchema{Table: d.Path.String(), Type: t.Type, Location: d.Location, Description: t.Description,
+	s := api.TableSchema{
+		Table: d.Path.String(), Type: t.Type, Location: d.Location, Description: t.Description,
 		Labels: t.Labels, Shard: d.Shard, ViewSQL: t.ViewSQL, Columns: []api.SchemaColumn{},
-		NamesOnly: d.NamesOnly || t.NamesOnly, SyncedAt: d.SyncedAt, Stale: d.Stale}
+		NamesOnly: d.NamesOnly || t.NamesOnly, SyncedAt: d.SyncedAt, Stale: d.Stale,
+	}
 	cols := append([]api.ColumnMeta(nil), t.Columns...)
 	sort.SliceStable(cols, func(i, j int) bool { return cols[i].Ordinal < cols[j].Ordinal })
 	for _, c := range cols {
-		s.Columns = append(s.Columns, api.SchemaColumn{Name: c.FieldPath, Type: c.DataType, Description: c.Description,
-			Required: c.Required, Partition: c.Partitioning, Clustering: c.ClusteringOrdinal})
+		s.Columns = append(s.Columns, api.SchemaColumn{
+			Name: c.FieldPath, Type: c.DataType, Description: c.Description,
+			Required: c.Required, Partition: c.Partitioning, Clustering: c.ClusteringOrdinal,
+		})
 	}
 	return s
 }
@@ -268,8 +278,10 @@ func (e *Engine) CatalogSearch(ctx context.Context, query string, limit, offset 
 		}
 	}
 	for _, r := range resp.Results {
-		h := api.CatalogHit{Path: r.Path.String(), Kind: r.Kind, Type: r.Type, Description: r.Description,
-			MoreColumns: r.MoreColumns, Stale: r.Stale, Selected: sel.Has(r.Path.Project)}
+		h := api.CatalogHit{
+			Path: r.Path.String(), Kind: r.Kind, Type: r.Type, Description: r.Description,
+			MoreColumns: r.MoreColumns, Stale: r.Stale, Selected: sel.Has(r.Path.Project),
+		}
 		touched = append(touched, r.Path.Project)
 		if r.Kind == api.KindShards && r.Shard != nil {
 			p := r.Path
@@ -384,8 +396,10 @@ func (e *Engine) HistoryList(ctx context.Context, query string, limit, offset in
 	}
 	for _, g := range page.Groups {
 		l := g.Latest
-		it := api.HistoryItem{ID: l.ID, SQL: l.SQL, State: l.State, Error: l.Error, Created: l.Created, Source: l.Source,
-			Favorite: l.FavoritePath, Runs: g.Runs, BytesProcessed: l.BytesProcessed}
+		it := api.HistoryItem{
+			ID: l.ID, SQL: l.SQL, State: l.State, Error: l.Error, Created: l.Created, Source: l.Source,
+			Favorite: l.FavoritePath, Runs: g.Runs, BytesProcessed: l.BytesProcessed,
+		}
 		if c := format.Cell(bq.Field{Type: "STRING"}, l.SQL, format.Options{MaxChars: historySQLChars, KeepNewlines: true}); c.Truncated {
 			it.SQL, it.SQLTruncated = c.Text, true
 		}
@@ -407,8 +421,10 @@ func (e *Engine) Freshness(ctx context.Context) (api.CatalogFreshness, error) {
 	if err != nil {
 		return api.CatalogFreshness{}, err
 	}
-	out := api.CatalogFreshness{SyncNeeded: st.SyncNeeded, SyncReason: st.SyncReason, SyncRunning: st.SyncRunning,
-		SyncTTL: st.SyncTTL, Datasets: st.Datasets, Tables: st.Tables, Projects: []api.ProjectFreshness{}}
+	out := api.CatalogFreshness{
+		SyncNeeded: st.SyncNeeded, SyncReason: st.SyncReason, SyncRunning: st.SyncRunning,
+		SyncTTL: st.SyncTTL, Datasets: st.Datasets, Tables: st.Tables, Projects: []api.ProjectFreshness{},
+	}
 	stale := false
 	for _, p := range st.Projects {
 		pf := api.ProjectFreshness{Project: p.Project, Selected: p.Selected, SyncedAt: p.SyncedAt, Stale: p.Stale}

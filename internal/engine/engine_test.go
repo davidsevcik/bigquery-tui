@@ -138,7 +138,9 @@ func TestStatusReportsConfigChange(t *testing.T) {
 	e.cfg = e.config(`ignore = ["proj-a.us_data"]`)
 	rw := e.open(false)
 	h, _ := rw.StartSync(ctx, api.SyncScope{})
-	h.Wait()
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
 
 	// the user removes an ignore pattern
 	e.cfg = e.config("")
@@ -172,7 +174,9 @@ func TestSecondSyncIsRefusedWhileRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lock must be free after the first sync: %v", err)
 	}
-	h2.Wait()
+	if _, err := h2.Wait(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestWaitWithoutReadingEvents(t *testing.T) {
@@ -180,7 +184,12 @@ func TestWaitWithoutReadingEvents(t *testing.T) {
 	eng := e.open(false)
 	h, _ := eng.StartSync(ctx, api.SyncScope{})
 	done := make(chan struct{})
-	go func() { h.Wait(); close(done) }()
+	go func() {
+		defer close(done)
+		if _, err := h.Wait(); err != nil {
+			t.Error(err)
+		}
+	}()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):

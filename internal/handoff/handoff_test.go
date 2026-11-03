@@ -9,16 +9,20 @@ import (
 )
 
 func TestSchemaMarkdown(t *testing.T) {
-	s := api.TableSchema{Table: "p.d.events_20240102", Type: api.TypeTable, Location: "EU", Description: "Raw\nevents",
+	s := api.TableSchema{
+		Table: "p.d.events_20240102", Type: api.TypeTable, Location: "EU", Description: "Raw\nevents",
 		Shard: &api.ShardFamily{Prefix: "events_", First: "20240101", Last: "20240102", Count: 2},
 		Columns: []api.SchemaColumn{
 			{Name: "user", Type: "STRUCT<id INT64>", Description: "who | what"},
 			{Name: "user.id", Type: "INT64", Required: true},
 			{Name: "d", Type: "DATE", Partition: true, Clustering: 1},
-		}}
+		},
+	}
 	got := SchemaMarkdown(s)
-	for _, want := range []string{"## `p.d.events_20240102` (table, EU)", "`events_*` has 2 tables", "Raw events",
-		"| user | STRUCT<id INT64> | who \\| what |", "| user.id | INT64 | (REQUIRED) |", "| d | DATE | (partitioning, clustering 1) |"} {
+	for _, want := range []string{
+		"## `p.d.events_20240102` (table, EU)", "`events_*` has 2 tables", "Raw events",
+		"| user | STRUCT<id INT64> | who \\| what |", "| user.id | INT64 | (REQUIRED) |", "| d | DATE | (partitioning, clustering 1) |",
+	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in\n%s", want, got)
 		}
@@ -61,11 +65,13 @@ func TestRunSummary(t *testing.T) {
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	end := start.Add(1500 * time.Millisecond)
 	usd := 0.01
-	got := Run(api.RunInfo{SQL: "select 1", State: api.RunDone, ExecutionProject: "exec", Location: "EU",
+	got := Run(api.RunInfo{
+		SQL: "select 1", State: api.RunDone, ExecutionProject: "exec", Location: "EU",
 		Estimate: &api.Estimate{StatementType: "SELECT", Bytes: 2048, Accuracy: "PRECISE", ApproxUSD: &usd},
 		Job:      &api.JobRef{Project: "exec", Location: "EU", ID: "j1"}, Stats: &api.RunStats{BytesProcessed: 2048},
 		HasResult: true, TotalRows: 1, Columns: []api.PreviewColumn{{Name: "f0_", Type: "INTEGER"}}, Started: &start, Ended: &end,
-		Params: []api.QueryParam{{Name: "x", Type: "INT64", Null: true}}})
+		Params: []api.QueryParam{{Name: "x", Type: "INT64", Null: true}},
+	})
 	for _, want := range []string{"Run: done (Execution project exec, location EU)", "SELECT 2.0 KiB", "Job: exec:EU.j1", "1 rows, columns f0_ INTEGER", "Took 1.5s", "@x INT64 = NULL", "```sql\nselect 1\n```"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in\n%s", want, got)

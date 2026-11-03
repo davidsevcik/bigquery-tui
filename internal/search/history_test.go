@@ -20,8 +20,10 @@ func TestParseHistory(t *testing.T) {
 	for _, f := range q.Filters {
 		st[q.Raw[f.Span.Start:f.Span.End]] = f.Status
 	}
-	want := map[string]api.FilterStatus{"status:fail,canc": api.FilterOK, "-source:mcp": api.FilterOK, "p:acme": api.FilterOK,
-		"since:7d": api.FilterOK, "since:2026-10-01": api.FilterOK, "status:nope": api.FilterInvalid, "source:": api.FilterPending}
+	want := map[string]api.FilterStatus{
+		"status:fail,canc": api.FilterOK, "-source:mcp": api.FilterOK, "p:acme": api.FilterOK,
+		"since:7d": api.FilterOK, "since:2026-10-01": api.FilterOK, "status:nope": api.FilterInvalid, "source:": api.FilterPending,
+	}
 	for k, v := range want {
 		if st[k] != v {
 			t.Errorf("%s: %s, want %s", k, st[k], v)

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -133,7 +134,7 @@ func (m *Model) onFilter(msg filterMsg) {
 		return // the column's parent changed while the query ran
 	}
 	if msg.err != nil {
-		if msg.err != context.Canceled {
+		if !errors.Is(msg.err, context.Canceled) {
 			f.err = msg.err.Error()
 		}
 		return

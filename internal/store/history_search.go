@@ -98,13 +98,11 @@ func SQLKey(s string) string {
 }
 
 // fillKeys computes sql_key for rows written before the column existed.
+//
+//nolint:contextcheck // a one-off migration while opening the file, which takes no context
 func (h *History) fillKeys() error {
 	var has int
 	if err := h.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('history') WHERE name='sql_key'").Scan(&has); err != nil || has == 0 {
-		return err
-	}
-	rows, err := h.db.Query("SELECT id, sql FROM history WHERE sql_key IS NULL")
-	if err != nil {
 		return err
 	}
 	type row struct {
@@ -112,16 +110,15 @@ func (h *History) fillKeys() error {
 		sql string
 	}
 	var todo []row
-	for rows.Next() {
+	err := eachRow(context.Background(), h.db, func(rows *sql.Rows) error {
 		var r row
 		if err := rows.Scan(&r.id, &r.sql); err != nil {
-			rows.Close()
 			return err
 		}
 		todo = append(todo, r)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil || len(todo) == 0 {
+		return nil
+	}, "SELECT id, sql FROM history WHERE sql_key IS NULL")
+	if err != nil || len(todo) == 0 {
 		return err
 	}
 	tx, err := h.db.Begin()
@@ -150,9 +147,11 @@ func scanEntry(s scanner, extra ...any) (api.HistoryEntry, error) {
 	var created int64
 	var started, ended sql.NullInt64
 	var processed, billed, dur, slot sql.NullInt64
-	dst := []any{&e.ID, &e.Job.Project, &e.Job.Location, &e.Job.ID, &e.ExecutionProject, &e.SQL, &e.StatementType, &e.Destination, &state, &e.Error,
+	dst := []any{
+		&e.ID, &e.Job.Project, &e.Job.Location, &e.Job.ID, &e.ExecutionProject, &e.SQL, &e.StatementType, &e.Destination, &state, &e.Error,
 		&processed, &billed, &cache, &created, &started, &ended, &dur, &slot,
-		&e.ReservationID, &e.Edition, &e.Source, &e.FavoritePath, &params}
+		&e.ReservationID, &e.Edition, &e.Source, &e.FavoritePath, &params,
+	}
 	if err := s.Scan(append(dst, extra...)...); err != nil {
 		return e, err
 	}

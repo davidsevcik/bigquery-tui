@@ -39,8 +39,10 @@ func ContractScripts(f *Fake) {
 		case ContractBroken:
 			return QueryScript{DryRunErr: QueryError("Syntax error: Unexpected keyword FROM at [2:3]")}
 		case ContractParams:
-			return QueryScript{Schema: []bq.Field{{Name: "d", Type: "DATE"}, {Name: "s", Type: "STRING"}, {Name: "n", Type: "INTEGER"}, {Name: "missing", Type: "STRING"}},
-				Rows: [][]any{{"2024-02-29", "it's", "42", nil}}}
+			return QueryScript{
+				Schema: []bq.Field{{Name: "d", Type: "DATE"}, {Name: "s", Type: "STRING"}, {Name: "n", Type: "INTEGER"}, {Name: "missing", Type: "STRING"}},
+				Rows:   [][]any{{"2024-02-29", "it's", "42", nil}},
+			}
 		case ContractSlow:
 			return QueryScript{Block: block}
 		case ContractScript:
@@ -116,8 +118,12 @@ func RunJobsContract(t *testing.T, jobs bq.Jobs, o JobsContractOptions) {
 
 	t.Run("typed parameters", func(t *testing.T) {
 		r := req(ContractParams)
-		r.Params = []api.QueryParam{{Name: "d", Type: "DATE", Value: "2024-02-29"}, {Name: "s", Type: "STRING", Value: "it's"},
-			{Name: "n", Type: "INT64", Value: "42"}, {Name: "missing", Type: "STRING", Null: true}}
+		r.Params = []api.QueryParam{
+			{Name: "d", Type: "DATE", Value: "2024-02-29"},
+			{Name: "s", Type: "STRING", Value: "it's"},
+			{Name: "n", Type: "INT64", Value: "42"},
+			{Name: "missing", Type: "STRING", Null: true},
+		}
 		ref, err := jobs.StartQuery(ctx, r)
 		if err != nil {
 			t.Fatal(err)

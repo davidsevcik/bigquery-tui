@@ -58,7 +58,7 @@ func lockBlocking(path string) (func(), error) {
 		return nil, fmt.Errorf("flock: %w", err)
 	}
 	return func() {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) // best effort: closing f releases it too
 		f.Close()
 	}, nil
 }

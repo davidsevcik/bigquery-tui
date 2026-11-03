@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -86,7 +87,7 @@ func (m *Model) onSearch(msg searchMsg) {
 		return // superseded by a newer keystroke
 	}
 	if msg.err != nil {
-		if msg.err == context.Canceled {
+		if errors.Is(msg.err, context.Canceled) {
 			return
 		}
 		st.err = msg.err.Error()

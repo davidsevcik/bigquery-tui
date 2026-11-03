@@ -50,7 +50,9 @@ var projectsLine = regexp.MustCompile(`(?m)^projects = \[(.*)\]\n?`)
 // Execution project.
 func (s *sandbox) writeConfig(extra string) {
 	s.t.Helper()
-	os.MkdirAll(filepath.Dir(s.cfgPath), 0o700)
+	if err := os.MkdirAll(filepath.Dir(s.cfgPath), 0o700); err != nil {
+		s.t.Fatal(err)
+	}
 	if m := projectsLine.FindStringSubmatch(extra); m != nil {
 		st := selection.State{Execution: "exec-proj"}
 		for _, p := range strings.Split(m[1], ",") {
@@ -197,7 +199,9 @@ func TestInitCreatesTemplateAndNeverOverwrites(t *testing.T) {
 	if fi, _ := os.Stat(s.cfgPath); fi.Mode().Perm() != 0o600 {
 		t.Fatalf("config must be private, got %v", fi.Mode().Perm())
 	}
-	os.WriteFile(s.cfgPath, []byte("# precious"), 0o600)
+	if err := os.WriteFile(s.cfgPath, []byte("# precious"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	code, _, errOut := s.run("init")
 	if code == 0 || errBody(t, errOut).Code != "exists" {
 		t.Fatalf("%d %s", code, errOut)
@@ -217,7 +221,9 @@ func TestConfigPathAndEdit(t *testing.T) {
 	var argv []string
 	s.edit = func(a []string) {
 		argv = a
-		os.WriteFile(s.cfgPath, []byte("location = \"EU\"\ndata_dir = \""+filepath.Join(s.dir, "data")+"\"\n"), 0o600)
+		if err := os.WriteFile(s.cfgPath, []byte("location = \"EU\"\ndata_dir = \""+filepath.Join(s.dir, "data")+"\"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	code, out, errOut := s.run("config", "edit")
 	if code != 0 {
@@ -232,7 +238,11 @@ func TestConfigPathAndEdit(t *testing.T) {
 	}
 
 	// an edit that breaks the file reports a config error
-	s.edit = func([]string) { os.WriteFile(s.cfgPath, []byte("nonsense = 1\n"), 0o600) }
+	s.edit = func([]string) {
+		if err := os.WriteFile(s.cfgPath, []byte("nonsense = 1\n"), 0o600); err != nil {
+			t.Error(err)
+		}
+	}
 	code, _, errOut = s.run("config", "edit")
 	if code != api.ExitConfig {
 		t.Fatalf("%d %s", code, errOut)
@@ -382,7 +392,9 @@ func TestDoctor(t *testing.T) {
 	}
 
 	// a broken config does not stop doctor from reporting
-	os.WriteFile(s.cfgPath, []byte("nonsense = 1\n"), 0o600)
+	if err := os.WriteFile(s.cfgPath, []byte("nonsense = 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	code, out, _ = s.run("doctor")
 	rep = decode(t, out).Data.(map[string]any)
 	if code != 0 || rep["config_ok"] != false || rep["config_error"] == "" {
@@ -455,7 +467,7 @@ func TestSearchCommand(t *testing.T) {
 
 // Issue #32: a flag after the arguments is a flag, never part of the query.
 func TestFlagsAfterTheArguments(t *testing.T) {
-	s := syncedSandbox(t, "")
+	s := syncedSandbox(t)
 	code, out, errOut := s.run("search", "orders", "--format", "text")
 	if code != 0 || !strings.Contains(out, "proj-a.sales.orders") {
 		t.Fatalf("search QUERY --format text: %d %q %s", code, out, errOut)
@@ -476,8 +488,13 @@ func TestFlagsAfterTheArguments(t *testing.T) {
 	}
 	// commands without arguments refuse one instead of ignoring the flags after it
 	for _, args := range [][]string{
-		{"sync", "now", "--project", "proj-a"}, {"status", "x", "--format", "text"}, {"doctor", "x"},
-		{"version", "x"}, {"init", "x"}, {"config", "path", "x"}, {"history", "prune", "x", "--all"},
+		{"sync", "now", "--project", "proj-a"},
+		{"status", "x", "--format", "text"},
+		{"doctor", "x"},
+		{"version", "x"},
+		{"init", "x"},
+		{"config", "path", "x"},
+		{"history", "prune", "x", "--all"},
 	} {
 		if code, _, errOut := s.run(args...); code != api.ExitUsage || !strings.Contains(errOut, "unexpected argument") {
 			t.Errorf("%v: %d %s", args, code, errOut)
@@ -494,7 +511,9 @@ func TestFlagsAfterTheArguments(t *testing.T) {
 func TestHistoryPrune(t *testing.T) {
 	s := newSandbox(t)
 	s.writeConfig("projects = [\"proj-a\"]\n")
-	os.MkdirAll(filepath.Join(s.dir, "data"), 0o700)
+	if err := os.MkdirAll(filepath.Join(s.dir, "data"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	h, err := store.OpenHistory(filepath.Join(s.dir, "data", "history.db"))
 	if err != nil {
 		t.Fatal(err)

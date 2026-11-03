@@ -102,6 +102,7 @@ func (f fakeCat) Projects() []string {
 	}
 	return out
 }
+
 func (f fakeCat) Datasets(p string) []string {
 	var out []string
 	for d := range f.data[p] {
@@ -110,6 +111,7 @@ func (f fakeCat) Datasets(p string) []string {
 	sortStrings(out)
 	return out
 }
+
 func (f fakeCat) Tables(p, d string) []TableName {
 	var names []string
 	for t := range f.data[p][d] {
@@ -122,6 +124,7 @@ func (f fakeCat) Tables(p, d string) []TableName {
 	}
 	return out
 }
+
 func (f fakeCat) Columns(p, d, t string) []api.ColumnMeta {
 	var out []api.ColumnMeta
 	for i, c := range f.data[p][d][t] {

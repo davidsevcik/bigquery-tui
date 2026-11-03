@@ -1,0 +1,82 @@
+version: "2"
+
+linters:
+  # standard = errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    # Bug-finders.
+    - bodyclose # HTTP response bodies are closed
+    - contextcheck # a function with a ctx passes it on instead of starting a new one
+    - copyloopvar # loop variables copied for no reason since Go 1.22
+    - errorlint # errors compared and asserted with errors.Is/As, so wrapping does not break them
+    - gosec # security scan
+    - nilerr # returning nil after checking err != nil
+    - rowserrcheck # sql.Rows.Err is checked
+    - sqlclosecheck # sql.Rows and sql.Stmt are closed
+    # Maintainability.
+    - dupl
+    - funlen
+    - gocognit
+    - gocyclo
+    - unparam
+  settings:
+    errcheck:
+      exclude-functions:
+        - (*database/sql.Tx).Rollback # deferred after Commit, where it only reports ErrTxDone
+        - (*github.com/davidsevcik/bigquery-tui/internal/store.Lock).Unlock # best effort: the OS drops the lock at exit
+        # bufio.Writer errors are sticky and come back from Flush, which is checked.
+        - (*bufio.Writer).Write
+        - (*bufio.Writer).WriteByte
+        - (*bufio.Writer).WriteString
+    staticcheck:
+      # Match the standalone staticcheck defaults that CI ran before: no quick-fix
+      # suggestions (QF*) and none of the style checks it leaves off.
+      checks: ["all", "-ST1000", "-ST1003", "-ST1016", "-ST1020", "-ST1021", "-ST1022", "-ST1023", "-QF*"]
+    # Complexity and length limits started at cyclomatic 15, cognitive 20 and 80 lines.
+    # About 90 functions exceed those, so each limit is the lowest value today's code
+    # passes (the worst function is the vim key handler, (*vim).key). They stop any new
+    # function from being worse than the worst one; lower them as the functions in the
+    # report's complexity section are simplified.
+    gocyclo:
+      min-complexity: 98
+    gocognit:
+      min-complexity: 113
+    funlen:
+      lines: 269
+      statements: -1
+    dupl:
+      threshold: 150 # the starting value: no duplication found at it
+    gosec:
+      excludes:
+        - G104 # unchecked errors: errcheck already covers them
+        # bqt is a local tool run by the user it serves. These rules flag what it is for:
+        - G204 # running the user's $EDITOR, opener or clipboard command
+        - G304 # reading files the user named (SQL, config, favorites)
+        - G301 # directories and files it writes for the user (SQL, favorites, exports)
+        - G302 # get the usual umask-filtered permissions, like any editor's
+        - G306
+        - G115 # integer conversions of BigQuery counts and in-memory offsets, far from the limits
+  exclusions:
+    generated: lax
+    # Unchecked Close, Fprint*, os.Remove and similar, the usual Go idiom.
+    presets: [std-error-handling]
+    # The scratch directory (.scratch/) needs no rule: ./... skips directories starting with a dot.
+    rules:
+      # Long table tests and repeated test setup are fine; test inputs are not a security surface.
+      - path: _test\.go
+        linters: [dupl, funlen, gosec]
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  # Report every linter's finding, not just the first one on a line.
+  uniq-by-line: false
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/davidsevcik/bigquery-tui

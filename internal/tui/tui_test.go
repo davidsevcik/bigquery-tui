@@ -356,7 +356,9 @@ func TestConfigReloadEvents(t *testing.T) {
 	r.contains("acme-staging") // still running on the last good config
 
 	src := "data_dir = \"" + r.dir + "/data\"\nignore = [\"acme-staging\"]\n"
-	os.WriteFile(r.cfg, []byte(src), 0o600)
+	if err := os.WriteFile(r.cfg, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cfg, err := config.Load(config.LoadOptions{Path: r.cfg, Getenv: func(string) string { return "" }})
 	if err != nil {
 		t.Fatal(err)
@@ -441,7 +443,8 @@ func wideRefunds(r *rig) {
 	}
 	r.fake.TableData["acme-prod.finance.refunds"] = bqtest.TableData{
 		Info: bq.TableInfo{Type: api.TypeTable, Schema: []bq.Field{
-			{Name: "id", Type: "INTEGER"}, {Name: "note", Type: "STRING"},
+			{Name: "id", Type: "INTEGER"},
+			{Name: "note", Type: "STRING"},
 			{Name: "address", Type: "RECORD", Fields: []bq.Field{{Name: "city", Type: "STRING"}, {Name: "tags", Type: "STRING", Mode: "REPEATED"}}},
 		}},
 		Rows: rows,

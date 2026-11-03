@@ -69,16 +69,20 @@ func BuildIndex(snap *store.IndexSnapshot) *Index {
 		}
 		di[d.ID] = len(x.datasets)
 		x.projects[p].datasets = append(x.projects[p].datasets, len(x.datasets))
-		x.datasets = append(x.datasets, dsEntry{id: d.ID, proj: p, name: d.Name, lname: strings.ToLower(d.Name), location: d.Location,
-			desc: d.Description, ldesc: strings.ToLower(d.Description), labels: d.Labels, status: d.Status})
+		x.datasets = append(x.datasets, dsEntry{
+			id: d.ID, proj: p, name: d.Name, lname: strings.ToLower(d.Name), location: d.Location,
+			desc: d.Description, ldesc: strings.ToLower(d.Description), labels: d.Labels, status: d.Status,
+		})
 	}
 	for _, t := range snap.Tables {
 		d, ok := di[t.DatasetID]
 		if !ok {
 			continue
 		}
-		e := tableEntry{id: t.ID, ds: d, name: t.Name, lname: strings.ToLower(t.Name), typ: t.Type,
-			desc: t.Description, ldesc: strings.ToLower(t.Description), namesOnly: t.NamesOnly, shard: t.Shard}
+		e := tableEntry{
+			id: t.ID, ds: d, name: t.Name, lname: strings.ToLower(t.Name), typ: t.Type,
+			desc: t.Description, ldesc: strings.ToLower(t.Description), namesOnly: t.NamesOnly, shard: t.Shard,
+		}
 		for k, v := range t.Labels {
 			e.labels = append(e.labels, strings.ToLower(k+":"+v))
 		}

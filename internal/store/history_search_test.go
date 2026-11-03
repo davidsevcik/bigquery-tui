@@ -14,9 +14,11 @@ var hbase = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 func addRun(t *testing.T, h *History, job, sql string, state api.RunState, source string, at time.Time, billed int64, reservation string) {
 	t.Helper()
 	ended := at.Add(time.Second)
-	r := api.RunInfo{SQL: sql, State: state, Source: source, ExecutionProject: "exec-" + source, Created: at, Started: &at, Ended: &ended,
+	r := api.RunInfo{
+		SQL: sql, State: state, Source: source, ExecutionProject: "exec-" + source, Created: at, Started: &at, Ended: &ended,
 		Job:   &api.JobRef{Project: "exec-" + source, Location: "EU", ID: job},
-		Stats: &api.RunStats{BytesBilled: billed, SlotMs: 1000, ReservationID: reservation}}
+		Stats: &api.RunStats{BytesBilled: billed, SlotMs: 1000, ReservationID: reservation},
+	}
 	if err := h.InsertRun(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +155,9 @@ func TestHistoryEntryFavoriteAndPrune(t *testing.T) {
 		t.Fatalf("pruned %d %v", n, err)
 	}
 	var fts int
-	h.DB().QueryRow(`SELECT COUNT(*) FROM history_fts WHERE history_fts MATCH '"1"'`).Scan(&fts)
+	if err := h.DB().QueryRow(`SELECT COUNT(*) FROM history_fts WHERE history_fts MATCH '"1"'`).Scan(&fts); err != nil {
+		t.Fatal(err)
+	}
 	if fts != 0 {
 		t.Fatal("the search index follows the delete")
 	}
@@ -162,8 +166,10 @@ func TestHistoryEntryFavoriteAndPrune(t *testing.T) {
 func TestHistoryRunFavoriteAndParamsRoundTrip(t *testing.T) {
 	h := historyFixture(t)
 	at := hbase.Add(5 * time.Hour)
-	r := api.RunInfo{SQL: "SELECT @n", State: api.RunDone, Source: "tui", Favorite: "dau.sql", Created: at,
-		Params: []api.QueryParam{{Name: "n", Type: "INT64", Value: "3"}}, Job: &api.JobRef{Project: "p", Location: "EU", ID: "jp"}}
+	r := api.RunInfo{
+		SQL: "SELECT @n", State: api.RunDone, Source: "tui", Favorite: "dau.sql", Created: at,
+		Params: []api.QueryParam{{Name: "n", Type: "INT64", Value: "3"}}, Job: &api.JobRef{Project: "p", Location: "EU", ID: "jp"},
+	}
 	if err := h.InsertRun(ctx, r); err != nil {
 		t.Fatal(err)
 	}

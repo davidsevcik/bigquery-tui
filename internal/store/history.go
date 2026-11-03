@@ -182,7 +182,7 @@ func backupHistory(db *sql.DB, path string, v int) error {
 	if err := os.Remove(dst); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if _, err := db.Exec("VACUUM INTO '" + strings.ReplaceAll(dst, "'", "''") + "'"); err != nil {
+	if _, err := db.Exec("VACUUM INTO ?", dst); err != nil {
 		return err
 	}
 	if err := os.Chmod(dst, 0o600); err != nil {

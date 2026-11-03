@@ -429,14 +429,14 @@ func (m *Model) millerCol(c, w, h int) []string {
 		if selected && c < ml.col {
 			b.bg = selBG2
 		}
-		m.nodeRow(b, nodes[i], c == 0)
+		m.nodeRow(b, nodes[i])
 		out = append(out, b.line(w))
 	}
 	return fillTo(out, w, h)
 }
 
 // nodeRow draws one browse node (shared by Miller columns and the tree).
-func (m *Model) nodeRow(b *rb, n api.BrowseNode, bold bool) {
+func (m *Model) nodeRow(b *rb, n api.BrowseNode) {
 	ns := sBase
 	if n.Stale {
 		ns = sDim
@@ -500,7 +500,7 @@ func (m *Model) treeList(w, h int) []string {
 		default:
 			b.add("  ", sBase)
 		}
-		m.nodeRow(b, r.node, r.depth == 0)
+		m.nodeRow(b, r.node)
 		out = append(out, b.line(w))
 	}
 	return fillTo(out, w, h)

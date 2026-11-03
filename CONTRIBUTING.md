@@ -9,12 +9,15 @@ Bug reports, ideas and pull requests are welcome.
 
 ## Making a change
 
-Needs Go 1.26 or newer.
+Needs Go 1.26 or newer. Before you push, run the checks:
 
 ```sh
-go vet ./... && go test -race ./...
-go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+scripts/quality.sh
 ```
+
+It needs nothing but Go (each tool runs through `go run` at a pinned version) and prints six sections in a fixed order: lint (golangci-lint with `.golangci.yml`, which includes vet and staticcheck), the race-enabled tests with coverage per package, the ten most complex functions, dead code, known vulnerabilities, and whether `go.mod` is tidy. It exits non-zero if lint, tests, the vulnerability scan or the tidiness check fails; coverage, complexity and dead code are only reported. CI runs the same checks.
+
+The lint rules allow no blanket suppressions. If a finding cannot be fixed, suppress it on that line with the linter's name and a reason: `//nolint:gosec // why`.
 
 - Tests use the fakes in `internal/bq/bqtest`; no Google Cloud account is needed. The optional live suite is described below.
 - Core packages must not import UI libraries or frontend packages. `internal/archtest` enforces this.

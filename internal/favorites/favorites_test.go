@@ -241,10 +241,18 @@ func TestDirOperations(t *testing.T) {
 	if _, err := d.Write("events/dau.sql", dau+"-- more\n", true); err != nil {
 		t.Fatal(err)
 	}
-	d.Write("top", "SELECT 2\n", false)
-	os.MkdirAll(filepath.Join(string(d), ".git"), 0o755)
-	os.WriteFile(filepath.Join(string(d), ".git", "x.sql"), []byte("x"), 0o644)
-	os.WriteFile(filepath.Join(string(d), "notes.txt"), []byte("x"), 0o644)
+	if _, err := d.Write("top", "SELECT 2\n", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(string(d), ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(string(d), ".git", "x.sql"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(string(d), "notes.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	fs, err := d.List()
 	if err != nil || len(fs) != 2 || fs[0].ID != "events/dau.sql" || fs[0].Name != "dau" || fs[1].ID != "top.sql" {
 		t.Fatalf("%+v %v", fs, err)
@@ -336,7 +344,6 @@ func TestSearch(t *testing.T) {
 // comment line; every awkward default round-trips.
 func TestDefaultsRoundTrip(t *testing.T) {
 	for _, d := range []string{"first\nsecond", "a\r\nb", `say "hi"`, `back\slash`, "'single'", " edge ", "", "plain value", "null"} {
-		d := d
 		f := api.Favorite{Params: []api.ParamSpec{{Name: "p", Type: "STRING", Default: &d}}, SQL: "SELECT @p\n"}
 		text := Render(f)
 		if strings.Count(text, "\n") != 2 {
@@ -376,8 +383,12 @@ func TestBindStripsTheDeclaredTypePrefix(t *testing.T) {
 func TestRenameAndDeleteActOnTheShownFile(t *testing.T) {
 	root := t.TempDir()
 	a, b := Dir(filepath.Join(root, "a")), Dir(filepath.Join(root, "b"))
-	a.Write("q", "select 1\n", false)
-	b.Write("q", "select 2\n", false)
+	if _, err := a.Write("q", "select 1\n", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Write("q", "select 2\n", false); err != nil {
+		t.Fatal(err)
+	}
 	shown, err := a.Read("q")
 	if err != nil {
 		t.Fatal(err)
@@ -422,7 +433,9 @@ func TestSaveRewritesTheHeader(t *testing.T) {
 	if _, err := d.Save(SaveRequest{Text: text, Name: "sales/daily.sql ", Own: "sales/daily.sql"}); err != nil {
 		t.Fatal(err)
 	}
-	d.Write("taken", "select 0\n", false)
+	if _, err := d.Write("taken", "select 0\n", false); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.Save(SaveRequest{Text: text, Name: "taken", Own: "sales/daily.sql"}); !errors.Is(err, ErrExists) {
 		t.Fatalf("%v", err)
 	}
@@ -442,8 +455,13 @@ func TestFromHistory(t *testing.T) {
 	// a Run from a Favorite's buffer carries its header: it is replaced, not
 	// stacked; the declared default stays; NULL is written as null
 	sql := "-- description: old\n-- tags: a\n-- param: d DATE = 2024-01-01\nselect @d, @p, @n"
-	got := FromHistory(sql, []api.QueryParam{{Name: "d", Type: "DATE", Value: "2025-05-05"}, {Name: "p", Type: "STRING", Null: true},
-		{Name: "n", Type: "INT64", Value: "7"}, {Name: "unused", Type: "INT64", Value: "1"}, {Name: "bad", Type: "STRUCT"}}, "new", nil)
+	got := FromHistory(sql, []api.QueryParam{
+		{Name: "d", Type: "DATE", Value: "2025-05-05"},
+		{Name: "p", Type: "STRING", Null: true},
+		{Name: "n", Type: "INT64", Value: "7"},
+		{Name: "unused", Type: "INT64", Value: "1"},
+		{Name: "bad", Type: "STRUCT"},
+	}, "new", nil)
 	want := "-- description: new\n-- tags: a\n-- param: d DATE = 2024-01-01\n-- param: p STRING = null\n-- param: n INT64 = 7\nselect @d, @p, @n\n"
 	if got != want {
 		t.Fatalf("%q", got)
@@ -456,7 +474,9 @@ func TestFromHistory(t *testing.T) {
 func TestIDOf(t *testing.T) {
 	root := t.TempDir()
 	d := Dir(filepath.Join(root, "favs"))
-	d.Write("a/b", "select 1\n", false)
+	if _, err := d.Write("a/b", "select 1\n", false); err != nil {
+		t.Fatal(err)
+	}
 	for file, want := range map[string]string{
 		filepath.Join(string(d), "a", "b.sql"): "a/b.sql",
 		filepath.Join(root, "x.sql"):           "",
@@ -478,16 +498,28 @@ func TestLinksCannotLeaveTheDirectory(t *testing.T) {
 	root := t.TempDir()
 	d := Dir(filepath.Join(root, "favs"))
 	outside := filepath.Join(root, "outside")
-	os.MkdirAll(outside, 0o755)
-	os.MkdirAll(string(d), 0o755)
-	os.WriteFile(filepath.Join(outside, "secret.sql"), []byte("select secret\n"), 0o644)
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(string(d), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.sql"), []byte("select secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink(outside, filepath.Join(string(d), "out")); err != nil {
 		t.Skip(err)
 	}
-	os.Symlink(filepath.Join(outside, "secret.sql"), filepath.Join(string(d), "leaf.sql"))
+	if err := os.Symlink(filepath.Join(outside, "secret.sql"), filepath.Join(string(d), "leaf.sql")); err != nil {
+		t.Fatal(err)
+	}
 	inside := filepath.Join(string(d), "real")
-	os.MkdirAll(inside, 0o755)
-	os.Symlink(inside, filepath.Join(string(d), "alias"))
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(inside, filepath.Join(string(d), "alias")); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := d.Write("out/new", "x", false); !errors.Is(err, ErrBadID) {
 		t.Errorf("write through a linked folder: %v", err)
@@ -502,7 +534,9 @@ func TestLinksCannotLeaveTheDirectory(t *testing.T) {
 	if err := d.Delete(secret); !errors.Is(err, ErrBadID) {
 		t.Errorf("delete: %v", err)
 	}
-	d.Write("mine", "select 1\n", false)
+	if _, err := d.Write("mine", "select 1\n", false); err != nil {
+		t.Fatal(err)
+	}
 	mine, _ := d.Read("mine")
 	if _, err := d.Rename(mine, "out/mine"); !errors.Is(err, ErrBadID) {
 		t.Errorf("rename out: %v", err)
