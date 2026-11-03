@@ -1033,13 +1033,14 @@ func (m *Model) filterPalette() {
 }
 
 func fuzzyContains(s, q string) bool {
+	qr := []rune(q)
 	i := 0
 	for _, r := range s {
-		if i < len(q) && byte(r) == q[i] {
+		if i < len(qr) && r == qr[i] {
 			i++
 		}
 	}
-	return i == len(q)
+	return i == len(qr)
 }
 
 func (m *Model) paletteKey(msg tea.KeyPressMsg, name string) tea.Cmd {

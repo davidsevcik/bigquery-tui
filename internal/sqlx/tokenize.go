@@ -64,7 +64,7 @@ func Tokenize(text string) []api.Token {
 			}
 			emit(i, j, api.TokParam)
 			i = j
-		case isDigit(c) || (c == '.' && i+1 < n && isDigit(text[i+1]) && !prevIsIdent(out, text, i)):
+		case isDigit(c) || (c == '.' && i+1 < n && isDigit(text[i+1]) && !prevIsIdent(out, i)):
 			end := scanNumber(text, i)
 			emit(i, end, api.TokNumber)
 			i = end
@@ -132,7 +132,7 @@ func prevIsDot(toks []api.Token, text string, at int) bool {
 	return p.End == at && p.Kind == api.TokPunct && text[p.Start:p.End] == "."
 }
 
-func prevIsIdent(toks []api.Token, text string, at int) bool {
+func prevIsIdent(toks []api.Token, at int) bool {
 	if len(toks) == 0 {
 		return false
 	}

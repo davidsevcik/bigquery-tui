@@ -22,7 +22,9 @@ func TestLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lock must be free after Unlock: %v", err)
 	}
-	b.Unlock()
+	if err := b.Unlock(); err != nil {
+		t.Fatal(err)
+	}
 	if err := (*Lock)(nil).Unlock(); err != nil {
 		t.Fatal("nil Unlock is a no-op")
 	}

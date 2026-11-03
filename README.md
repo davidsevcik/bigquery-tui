@@ -69,7 +69,7 @@ Agents can call the commands (Claude Code runs them through Bash) or connect to 
 
 ## Contributing and security
 
-Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers building, testing and releasing. Report security problems privately as described in [SECURITY.md](SECURITY.md).
+Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers building, testing and releasing; run `scripts/quality.sh` before you push. Report security problems privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

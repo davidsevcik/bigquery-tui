@@ -44,8 +44,10 @@ type Profile struct {
 
 // For returns the profile of an entry point (cli or mcp) under cfg.
 func For(cfg *config.Config, source string) Profile {
-	p := Profile{Source: source, MaxBytes: cfg.AgentMaxBytes, Timeout: cfg.AgentTimeout,
-		AllowWrites: source == "cli" && cfg.CLIAllowWrites}
+	p := Profile{
+		Source: source, MaxBytes: cfg.AgentMaxBytes, Timeout: cfg.AgentTimeout,
+		AllowWrites: source == "cli" && cfg.CLIAllowWrites,
+	}
 	if p.MaxBytes <= 0 {
 		p.MaxBytes = config.DefaultAgentMaxBytes
 	}
@@ -108,18 +110,24 @@ func (p Profile) Check(cfg *config.Config, est api.Estimate) *api.Refusal {
 	switch est.Accuracy {
 	case "PRECISE", "LOWER_BOUND", "UPPER_BOUND":
 	default:
-		return &api.Refusal{Code: api.RefuseUnknownEstimate, StatementType: st, Bytes: est.Bytes, Limit: p.MaxBytes,
-			Message: fmt.Sprintf("the dry-run could not estimate the bytes (accuracy %s), so the limit cannot be checked; run it in the TUI", est.Accuracy)}
+		return &api.Refusal{
+			Code: api.RefuseUnknownEstimate, StatementType: st, Bytes: est.Bytes, Limit: p.MaxBytes,
+			Message: fmt.Sprintf("the dry-run could not estimate the bytes (accuracy %s), so the limit cannot be checked; run it in the TUI", est.Accuracy),
+		}
 	}
 	if est.Bytes > p.MaxBytes {
-		return &api.Refusal{Code: api.RefuseOverLimit, StatementType: st, Bytes: est.Bytes, Limit: p.MaxBytes,
+		return &api.Refusal{
+			Code: api.RefuseOverLimit, StatementType: st, Bytes: est.Bytes, Limit: p.MaxBytes,
 			Message: fmt.Sprintf("the query would process %s, over the limit of %s (agent_max_bytes); narrow it (partition filter, fewer columns), run it in the TUI, or raise agent_max_bytes in the config",
-				config.FormatBytes(est.Bytes), config.FormatBytes(p.MaxBytes))}
+				config.FormatBytes(est.Bytes), config.FormatBytes(p.MaxBytes)),
+		}
 	}
 	if t := ConfirmThreshold(cfg, est.Capacity); t > 0 && est.Bytes > t {
-		return &api.Refusal{Code: api.RefuseNeedsConfirmation, StatementType: st, Bytes: est.Bytes, Limit: t,
+		return &api.Refusal{
+			Code: api.RefuseNeedsConfirmation, StatementType: st, Bytes: est.Bytes, Limit: t,
 			Message: fmt.Sprintf("the query would process %s, over confirm_bytes (%s), which only the TUI can confirm; run it there or raise confirm_bytes in the config",
-				config.FormatBytes(est.Bytes), config.FormatBytes(t))}
+				config.FormatBytes(est.Bytes), config.FormatBytes(t)),
+		}
 	}
 	return nil
 }

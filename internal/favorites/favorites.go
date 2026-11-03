@@ -124,7 +124,7 @@ func parseParam(s string) (api.ParamSpec, error) {
 	if hasDef {
 		d := unquote(strings.TrimSpace(def))
 		if _, err := bindValue(api.ParamSpec{Name: name, Type: typ}, d); err != nil {
-			return api.ParamSpec{}, fmt.Errorf("@%s: default: %v", name, err)
+			return api.ParamSpec{}, fmt.Errorf("@%s: default: %w", name, err)
 		}
 		p.Default = &d
 	}

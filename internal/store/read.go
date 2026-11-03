@@ -41,51 +41,40 @@ func (c *Catalog) LoadIndex(ctx context.Context) (*IndexSnapshot, error) {
 	defer tx.Rollback()
 	snap := &IndexSnapshot{}
 
-	rows, err := tx.QueryContext(ctx, "SELECT name FROM projects ORDER BY name")
+	err = eachRow(ctx, tx, func(rows *sql.Rows) error {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return err
+		}
+		snap.Projects = append(snap.Projects, n)
+		return nil
+	}, "SELECT name FROM projects ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
-	for rows.Next() {
-		var n string
-		if err := rows.Scan(&n); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		snap.Projects = append(snap.Projects, n)
-	}
-	rows.Close()
 
-	rows, err = tx.QueryContext(ctx, `SELECT d.id, p.name, d.name, d.location, d.description, d.friendly_name, d.labels, d.status
+	err = eachRow(ctx, tx, func(rows *sql.Rows) error {
+		var d IndexDataset
+		var labels, status string
+		if err := rows.Scan(&d.ID, &d.Project, &d.Name, &d.Location, &d.Description, &d.FriendlyName, &labels, &status); err != nil {
+			return err
+		}
+		d.Labels, d.Status = decodeLabels(labels), api.DatasetStatus(status)
+		snap.Datasets = append(snap.Datasets, d)
+		return nil
+	}, `SELECT d.id, p.name, d.name, d.location, d.description, d.friendly_name, d.labels, d.status
 FROM datasets d JOIN projects p ON p.id = d.project_id ORDER BY p.name, d.name_lc`)
 	if err != nil {
 		return nil, err
 	}
-	for rows.Next() {
-		var d IndexDataset
-		var labels, status string
-		if err := rows.Scan(&d.ID, &d.Project, &d.Name, &d.Location, &d.Description, &d.FriendlyName, &labels, &status); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		d.Labels, d.Status = decodeLabels(labels), api.DatasetStatus(status)
-		snap.Datasets = append(snap.Datasets, d)
-	}
-	rows.Close()
 
-	rows, err = tx.QueryContext(ctx, `SELECT t.id, t.dataset_id, d.name, t.name, t.type, t.created_at, t.description, t.labels, t.expires_at, t.names_only,
- t.shard_prefix, t.shard_first, t.shard_last, t.shard_count
-FROM tables t JOIN datasets d ON d.id = t.dataset_id ORDER BY t.dataset_id, t.name_lc`)
-	if err != nil {
-		return nil, err
-	}
-	for rows.Next() {
+	err = eachRow(ctx, tx, func(rows *sql.Rows) error {
 		var t IndexTable
 		var typ, labels, sp, sf, sl string
 		var created, expires int64
 		var names, sc int
 		if err := rows.Scan(&t.ID, &t.DatasetID, &t.Dataset, &t.Name, &typ, &created, &t.Description, &labels, &expires, &names, &sp, &sf, &sl, &sc); err != nil {
-			rows.Close()
-			return nil, err
+			return err
 		}
 		t.Type, t.Labels, t.NamesOnly = api.TableType(typ), decodeLabels(labels), names != 0
 		if created > 0 {
@@ -99,8 +88,13 @@ FROM tables t JOIN datasets d ON d.id = t.dataset_id ORDER BY t.dataset_id, t.na
 			t.Shard = &api.ShardFamily{Prefix: sp, First: sf, Last: sl, Count: sc}
 		}
 		snap.Tables = append(snap.Tables, t)
+		return nil
+	}, `SELECT t.id, t.dataset_id, d.name, t.name, t.type, t.created_at, t.description, t.labels, t.expires_at, t.names_only,
+ t.shard_prefix, t.shard_first, t.shard_last, t.shard_count
+FROM tables t JOIN datasets d ON d.id = t.dataset_id ORDER BY t.dataset_id, t.name_lc`)
+	if err != nil {
+		return nil, err
 	}
-	rows.Close()
 
 	urows, err := tx.QueryContext(ctx, `SELECT project,location,last_attempt,last_success,status,error,datasets,tables,names_only,inaccessible FROM sync_units ORDER BY project, location`)
 	if err != nil {

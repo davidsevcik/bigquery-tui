@@ -84,8 +84,10 @@ func oauth2Refused(status int, body string) error {
 }
 
 func clientRefused(op string, status int, body string) error {
-	return bq.Wrap(op, &url.Error{Op: "Get", URL: "https://bigquery.googleapis.com/bigquery/v2/projects?alt=json",
-		Err: fmt.Errorf("credentials: status code %d: %s", status, body)})
+	return bq.Wrap(op, &url.Error{
+		Op: "Get", URL: "https://bigquery.googleapis.com/bigquery/v2/projects?alt=json",
+		Err: fmt.Errorf("credentials: status code %d: %s", status, body),
+	})
 }
 
 func TestDoctorNamesARefusedImpersonation(t *testing.T) {

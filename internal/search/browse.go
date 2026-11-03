@@ -87,8 +87,10 @@ func (s *Searcher) Datasets(project string) []api.BrowseNode {
 		out := make([]api.BrowseNode, 0, len(p.datasets))
 		for _, di := range p.datasets {
 			d := &x.datasets[di]
-			n := api.BrowseNode{Kind: api.KindDataset, Path: api.ObjectPath{Project: p.name, Dataset: d.name}, Name: d.name,
-				Description: d.desc, Location: d.location, Children: len(d.tables), Status: d.status}
+			n := api.BrowseNode{
+				Kind: api.KindDataset, Path: api.ObjectPath{Project: p.name, Dataset: d.name}, Name: d.name,
+				Description: d.desc, Location: d.location, Children: len(d.tables), Status: d.status,
+			}
 			n.SyncedAt, n.Stale = s.freshness(x, p.name, d.location)
 			if u, ok := x.units[api.UnitRef{Project: p.name, Location: d.location}]; ok {
 				n.UnitStatus = u.Status
@@ -124,8 +126,10 @@ func (s *Searcher) Tables(project, dataset string) []api.BrowseNode {
 			seen[k] = true
 			fam := *t.shard
 			name := fam.Prefix + "YYYYMMDD"
-			out = append(out, api.BrowseNode{Kind: api.KindShards, Path: api.ObjectPath{Project: project, Dataset: dataset, Table: name},
-				Name: name, Type: t.typ, Children: fam.Count, Shard: &fam, NamesOnly: t.namesOnly})
+			out = append(out, api.BrowseNode{
+				Kind: api.KindShards, Path: api.ObjectPath{Project: project, Dataset: dataset, Table: name},
+				Name: name, Type: t.typ, Children: fam.Count, Shard: &fam, NamesOnly: t.namesOnly,
+			})
 			continue
 		}
 		out = append(out, s.tableNode(x, ti))

@@ -206,8 +206,10 @@ func (m *Model) pickerKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	case "pickr":
 		if s == scopeFavorites {
 			if f, ok := m.pickedFavorite(); ok {
-				m.openPrompt(promptState{kind: "favrename", title: "Rename favorite", labels: []string{"new name"}, back: ovPicker, fav: f,
-					note: "a path under favorites_dir; subfolders are created · enter renames · esc cancels"}, strings.TrimSuffix(f.ID, ".sql"))
+				m.openPrompt(promptState{
+					kind: "favrename", title: "Rename favorite", labels: []string{"new name"}, back: ovPicker, fav: f,
+					note: "a path under favorites_dir; subfolders are created · enter renames · esc cancels",
+				}, strings.TrimSuffix(f.ID, ".sql"))
 			}
 			return nil
 		}
@@ -229,14 +231,18 @@ func (m *Model) pickerKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	case "delete":
 		if f, ok := m.pickedFavorite(); ok {
 			m.ov = ovNone
-			m.askConfirm(confirmState{kind: "favdelete", subject: f, back: ovPicker,
-				lines: []string{"Delete the favorite " + f.ID + "?", "The file is removed; there is no undo (keep favorites_dir in git as a safety net)."}})
+			m.askConfirm(confirmState{
+				kind: "favdelete", subject: f, back: ovPicker,
+				lines: []string{"Delete the favorite " + f.ID + "?", "The file is removed; there is no undo (keep favorites_dir in git as a safety net)."},
+			})
 		}
 		return nil
 	case "promote":
 		if g, ok := m.pickedHistory(); ok {
-			m.openPrompt(promptState{kind: "promote", title: "Save as favorite", labels: []string{"name", "description", "tags"}, back: ovPicker,
-				entryID: g.Latest.ID, note: "the name is a path under favorites_dir (subfolders are created); tags are comma-separated · enter saves · esc cancels"})
+			m.openPrompt(promptState{
+				kind: "promote", title: "Save as favorite", labels: []string{"name", "description", "tags"}, back: ovPicker,
+				entryID: g.Latest.ID, note: "the name is a path under favorites_dir (subfolders are created); tags are comma-separated · enter saves · esc cancels",
+			})
 		}
 		return nil
 	}
@@ -282,7 +288,8 @@ func (m *Model) loadPick(req loadReq) tea.Cmd {
 		m.pendingLoad = &req
 		m.askConfirm(confirmState{kind: "load", lines: []string{
 			"Replace the text of " + b.title() + " with " + req.what + "?",
-			"Its text is not saved to a file. n opens " + req.what + " in a new buffer instead."}})
+			"Its text is not saved to a file. n opens " + req.what + " in a new buffer instead.",
+		}})
 		return nil
 	}
 	return m.finishLoad(req, true)
@@ -410,9 +417,11 @@ func (m *Model) openSaveFavorite() {
 	b := m.buf()
 	f := favorites.Parse(b.ed.text())
 	own := m.be.FavoriteFromID(b.path)
-	m.openPrompt(promptState{kind: "savefav", title: "Save buffer as favorite", labels: []string{"name", "description", "tags"},
+	m.openPrompt(promptState{
+		kind: "savefav", title: "Save buffer as favorite", labels: []string{"name", "description", "tags"},
 		favID: own,
-		note:  "the name is a path under favorites_dir (subfolders are created); tags are comma-separated; -- param: lines in the buffer are kept · enter saves · esc cancels"},
+		note:  "the name is a path under favorites_dir (subfolders are created); tags are comma-separated; -- param: lines in the buffer are kept · enter saves · esc cancels",
+	},
 		strings.TrimSuffix(own, ".sql"), f.Description, strings.Join(f.Tags, ", "))
 }
 
@@ -421,8 +430,10 @@ func (m *Model) openSaveFavorite() {
 func (m *Model) saveBufferAsFavorite(p *promptState) tea.Cmd {
 	b := m.buf()
 	text := b.ed.text()
-	s, err := m.be.SaveFavorite(favorites.SaveRequest{Text: text, Name: p.fields[0].value(),
-		Description: p.fields[1].value(), Tags: splitTags(p.fields[2].value()), Own: p.favID, Overwrite: p.armed})
+	s, err := m.be.SaveFavorite(favorites.SaveRequest{
+		Text: text, Name: p.fields[0].value(),
+		Description: p.fields[1].value(), Tags: splitTags(p.fields[2].value()), Own: p.favID, Overwrite: p.armed,
+	})
 	if errors.Is(err, favorites.ErrExists) && !p.armed {
 		p.armed = true
 		p.note = sWarn.Render("a favorite with that name exists: press enter again to overwrite it")
@@ -503,7 +514,7 @@ func (m *Model) pickerBox(w, h int) []string {
 	if side {
 		prevW = inner - listW - 1
 	}
-	prev := m.pickerPreview(prevW, bodyH-listH*b2i(!side))
+	prev := m.pickerPreview(prevW)
 	if side {
 		sep := vsep(bodyH)
 		prev = fillTo(prev, prevW, bodyH)
@@ -515,13 +526,6 @@ func (m *Model) pickerBox(w, h int) []string {
 		lines = append(lines, fillTo(prev, prevW, bodyH-listH)...)
 	}
 	return popup("Favorites and History", lines, w)
-}
-
-func b2i(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }
 
 // favQuery marks every word of a Favorites search as a term, for colour.
@@ -610,7 +614,8 @@ func shortAgo(now, t time.Time) string {
 
 func oneLine(sql string) string { return strings.Join(strings.Fields(sql), " ") }
 
-func (m *Model) pickerPreview(w, h int) []string {
+// pickerPreview returns the preview lines; the caller trims them to the height.
+func (m *Model) pickerPreview(w int) []string {
 	pk := m.pk
 	var meta []string
 	var sql string

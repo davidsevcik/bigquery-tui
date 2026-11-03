@@ -71,7 +71,7 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 		buf := make([]byte, 32<<10)
 		for {
 			n, err := f.Read(buf)
-			out.Write(buf[:n])
+			_, _ = out.Write(buf[:n]) // capture.Write never fails (in-memory buffer)
 			if err != nil {
 				return
 			}
@@ -82,22 +82,34 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 	// nothing selected: the Projects dialog opens first; closing it shows
 	// the first-run hint
 	waitFor(t, out, "space select", 5*time.Second)
-	f.Write([]byte("\x1b"))
+	if _, err := f.Write([]byte("\x1b")); err != nil {
+		t.Fatal(err)
+	}
 	waitFor(t, out, "ctrl+g starts a short tutorial", 5*time.Second)
-	f.Write([]byte("?"))
+	if _, err := f.Write([]byte("?")); err != nil {
+		t.Fatal(err)
+	}
 	// the first row of the help: on 24 rows the overlay shows only the top of
 	// its list
 	waitFor(t, out, "quit (asks if Runs are in flight)", 5*time.Second)
-	f.Write([]byte("\x1b")) // esc closes the help
+	if _, err := f.Write([]byte("\x1b")); err != nil {
+		t.Fatal(err)
+	} // esc closes the help
 	time.Sleep(150 * time.Millisecond)
 	// ctrl+o goes to the editor; printable keys type there (q must not quit)
-	f.Write([]byte("\x0f"))
+	if _, err := f.Write([]byte("\x0f")); err != nil {
+		t.Fatal(err)
+	}
 	waitFor(t, out, "i inserts", 5*time.Second)
-	f.Write([]byte("iselect q")) // i: the editor starts in vim's Normal mode
+	if _, err := f.Write([]byte("iselect q")); err != nil {
+		t.Fatal(err)
+	} // i: the editor starts in vim's Normal mode
 	// the renderer only sends changed cells, so there is no stable text to
 	// wait for: the draft file checked below proves the keys arrived
 	time.Sleep(500 * time.Millisecond)
-	f.Write([]byte("\x11")) // ctrl+q quits from anywhere
+	if _, err := f.Write([]byte("\x11")); err != nil {
+		t.Fatal(err)
+	} // ctrl+q quits from anywhere
 
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -107,7 +119,9 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 			t.Fatalf("exit: %v", err)
 		}
 	case <-time.After(10 * time.Second):
-		cmd.Process.Kill()
+		if err := cmd.Process.Kill(); err != nil {
+			t.Fatal(err)
+		}
 		t.Fatal("the UI did not quit on ctrl+q")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "data", "catalog.db")); err != nil {

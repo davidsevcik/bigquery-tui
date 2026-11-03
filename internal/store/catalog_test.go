@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -81,8 +82,12 @@ func TestCatalogCreateAndReopen(t *testing.T) {
 func TestCatalogVersionMismatchRecreates(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "catalog.db")
 	c, _ := OpenCatalog(path)
-	c.SetMeta(ctx, "k", "v")
-	c.db.Exec("PRAGMA user_version = 99")
+	if err := c.SetMeta(ctx, "k", "v"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.db.Exec("PRAGMA user_version = 99"); err != nil {
+		t.Fatal(err)
+	}
 	c.Close()
 	c, err := OpenCatalog(path)
 	if err != nil {
@@ -117,7 +122,7 @@ func TestCatalogCorruptRecreates(t *testing.T) {
 
 func TestCatalogReadOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "catalog.db")
-	if _, err := OpenCatalogReadOnly(path); err != ErrNoCatalog {
+	if _, err := OpenCatalogReadOnly(path); !errors.Is(err, ErrNoCatalog) {
 		t.Fatalf("missing: %v", err)
 	}
 	c, _ := OpenCatalog(path)
@@ -173,7 +178,9 @@ func TestApplyUnitRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	var pp string
-	c.db.QueryRow(`SELECT field_path FROM columns WHERE id=?`, parent).Scan(&pp)
+	if err := c.db.QueryRow(`SELECT field_path FROM columns WHERE id=?`, parent).Scan(&pp); err != nil {
+		t.Fatal(err)
+	}
 	if pp != "addr.geo" {
 		t.Fatalf("parent = %q", pp)
 	}
@@ -206,7 +213,9 @@ func TestApplyUnitDiff(t *testing.T) {
 	}
 	// orphan columns must be gone (cascade)
 	var n int
-	c.db.QueryRow("SELECT COUNT(*) FROM columns").Scan(&n)
+	if err := c.db.QueryRow("SELECT COUNT(*) FROM columns").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
 	if n != 1+2+1 {
 		t.Fatalf("column rows = %d", n)
 	}
@@ -260,8 +269,10 @@ func TestKeepOldAndNamesOnly(t *testing.T) {
 		t.Fatalf("%+v", units[0])
 	}
 
-	no := DatasetApply{Meta: api.DatasetMeta{Project: "p", Name: "d1", Location: "EU"}, Mode: ModeNamesOnly, Status: api.DatasetNamesOnly,
-		Tables: []api.TableMeta{{Dataset: "d1", Name: "a", Type: api.TypeTable}, {Dataset: "d1", Name: "z", Type: api.TypeView}}}
+	no := DatasetApply{
+		Meta: api.DatasetMeta{Project: "p", Name: "d1", Location: "EU"}, Mode: ModeNamesOnly, Status: api.DatasetNamesOnly,
+		Tables: []api.TableMeta{{Dataset: "d1", Name: "a", Type: api.TypeTable}, {Dataset: "d1", Name: "z", Type: api.TypeView}},
+	}
 	apply(t, c, unit("p", "EU"), t0.Add(2*time.Hour), no)
 	cols, _ = c.Columns(ctx, "p", "d1", "a")
 	if len(cols) != 0 {
@@ -325,7 +336,9 @@ func TestRecordFailureKeepsSuccessAndData(t *testing.T) {
 		t.Fatal("data must survive")
 	}
 	// A project-level discovery unit that never succeeded.
-	c.RecordUnitFailure(ctx, api.UnitState{UnitRef: unit("q", ""), Status: api.UnitInaccessible, Error: "nope", LastAttempt: &later})
+	if err := c.RecordUnitFailure(ctx, api.UnitState{UnitRef: unit("q", ""), Status: api.UnitInaccessible, Error: "nope", LastAttempt: &later}); err != nil {
+		t.Fatal(err)
+	}
 	us, _ = c.Units(ctx)
 	if len(us) != 2 || us[1].LastSuccess != nil {
 		t.Fatalf("%+v", us)
@@ -355,10 +368,12 @@ func TestRemoveUnitAndLocations(t *testing.T) {
 func TestPrune(t *testing.T) {
 	c := openTemp(t)
 	for _, p := range []string{"keep", "drop", "partial"} {
-		c.ApplyUnit(ctx, ApplyRequest{Unit: unit(p, "EU"), State: okState(t0), Datasets: []DatasetApply{
+		if _, err := c.ApplyUnit(ctx, ApplyRequest{Unit: unit(p, "EU"), State: okState(t0), Datasets: []DatasetApply{
 			{Meta: api.DatasetMeta{Project: p, Name: "tmp_x", Location: "EU"}, Tables: []api.TableMeta{table("tmp_x", "t", "c")}},
 			{Meta: api.DatasetMeta{Project: p, Name: "core", Location: "EU"}, Tables: []api.TableMeta{table("core", "keep_me", "c"), table("core", "tmp_table", "c")}},
-		}})
+		}}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	allowed := map[string]bool{"keep": true, "partial": true}
 	ignored := func(p, d, tb string) bool {
@@ -473,10 +488,12 @@ func TestConcurrentFirstOpens(t *testing.T) {
 
 func TestPruneKeepsReincludedDatasetOfIgnoredProject(t *testing.T) {
 	c := openTemp(t)
-	c.ApplyUnit(ctx, ApplyRequest{Unit: unit("p", "EU"), State: okState(t0), Datasets: []DatasetApply{
+	if _, err := c.ApplyUnit(ctx, ApplyRequest{Unit: unit("p", "EU"), State: okState(t0), Datasets: []DatasetApply{
 		{Meta: api.DatasetMeta{Project: "p", Name: "keep", Location: "EU"}, Tables: []api.TableMeta{table("keep", "t", "c")}},
 		{Meta: api.DatasetMeta{Project: "p", Name: "other", Location: "EU"}, Tables: []api.TableMeta{table("other", "t", "c")}},
-	}})
+	}}); err != nil {
+		t.Fatal(err)
+	}
 	// ignore = ["p", "!p.keep"]
 	ignored := func(p, d, tb string) bool { return d != "keep" }
 	st, err := c.Prune(ctx, map[string]bool{"p": true}, ignored)

@@ -13,7 +13,9 @@ import (
 )
 
 var schema = []bq.Field{
-	{Name: "id", Type: "INTEGER"}, {Name: "note", Type: "STRING"}, {Name: "big", Type: "NUMERIC"},
+	{Name: "id", Type: "INTEGER"},
+	{Name: "note", Type: "STRING"},
+	{Name: "big", Type: "NUMERIC"},
 	{Name: "addr", Type: "RECORD", Fields: []bq.Field{{Name: "city", Type: "STRING"}}},
 	{Name: "tags", Type: "STRING", Mode: "REPEATED"},
 }
@@ -21,8 +23,11 @@ var schema = []bq.Field{
 func rows(n int) [][]any {
 	var out [][]any
 	for i := 0; i < n; i++ {
-		out = append(out, []any{"9007199254740993", "a,\"b\"\nline", "1.10", map[string]any{"f": []any{map[string]any{"v": "Brno"}}},
-			[]any{map[string]any{"v": "x"}, map[string]any{"v": "y"}}})
+		out = append(out, []any{
+			"9007199254740993", "a,\"b\"\nline", "1.10",
+			map[string]any{"f": []any{map[string]any{"v": "Brno"}}},
+			[]any{map[string]any{"v": "x"}, map[string]any{"v": "y"}},
+		})
 	}
 	out[0][1] = nil
 	return out
@@ -69,13 +74,17 @@ func TestJSONAndNDJSONKeepExactNumbers(t *testing.T) {
 		t.Fatalf("%s", b.String())
 	}
 	b.Reset()
-	Write(context.Background(), &b, NDJSON, schema, paged(rows(2)), nil)
+	if _, err := Write(context.Background(), &b, NDJSON, schema, paged(rows(2)), nil); err != nil {
+		t.Fatal(err)
+	}
 	lines := strings.Split(strings.TrimSpace(b.String()), "\n")
 	if len(lines) != 2 || !json.Valid([]byte(lines[1])) || !strings.Contains(lines[1], `"note":"a,\"b\"\nline"`) {
 		t.Fatalf("%q", lines)
 	}
 	b.Reset()
-	Write(context.Background(), &b, JSON, schema, paged(nil), nil)
+	if _, err := Write(context.Background(), &b, JSON, schema, paged(nil), nil); err != nil {
+		t.Fatal(err)
+	}
 	if strings.TrimSpace(b.String()) != "[]" {
 		t.Fatalf("an empty result is an empty array: %q", b.String())
 	}

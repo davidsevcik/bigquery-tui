@@ -287,6 +287,8 @@ func (m *Manager) busyAdd(d int) {
 
 // cancelJob asks BigQuery to cancel a job, in the background, retrying
 // transient failures. onFail runs if the request could not be delivered.
+//
+//nolint:contextcheck // the cancel must outlive the caller, whose context is usually what was just cancelled
 func (m *Manager) cancelJob(jobs bq.Jobs, ref api.JobRef, onFail func(error)) {
 	m.busyAdd(1)
 	go func() {
@@ -389,11 +391,15 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 	exec := m.o.Execution() // outside m.mu: it reads the selection state
 	m.mu.Lock()
 	m.seq++
-	r := &Run{m: m, id: m.seq, exec: exec, ctx: rctx, stop: cancel, policy: pol, confirm: make(chan struct{}), done: make(chan struct{}),
-		changed: make(chan struct{}), pages: map[int64]*bq.ResultPage{}}
-	r.info = api.RunInfo{ID: r.id, Tag: req.Tag, SQL: req.SQL, Params: append([]api.QueryParam(nil), req.Params...),
+	r := &Run{
+		m: m, id: m.seq, exec: exec, ctx: rctx, stop: cancel, policy: pol, confirm: make(chan struct{}), done: make(chan struct{}),
+		changed: make(chan struct{}), pages: map[int64]*bq.ResultPage{},
+	}
+	r.info = api.RunInfo{
+		ID: r.id, Tag: req.Tag, SQL: req.SQL, Params: append([]api.QueryParam(nil), req.Params...),
 		State: api.RunEstimating, DryRunOnly: req.DryRunOnly, Source: m.o.Source, Favorite: req.Favorite,
-		ExecutionProject: exec, Location: cfg.Location, Created: m.o.Now()}
+		ExecutionProject: exec, Location: cfg.Location, Created: m.o.Now(),
+	}
 	r.version, r.first = 1, r.info
 	closed := m.closed
 	m.runs = append(m.runs, r)
@@ -403,7 +409,7 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 		return r
 	}
 	m.publish(r.Info())
-	go r.run(cfg)
+	go r.run(cfg) //nolint:contextcheck // a run outlives the call that starts it; Cancel stops it
 	return r
 }
 
@@ -565,8 +571,10 @@ func (r *Run) Cancel() {
 // cancelled, or failed with a timeout when the agent profile's timeout ran out.
 func (r *Run) markCancelled(i *api.RunInfo) {
 	if r.policy != nil && errors.Is(r.ctx.Err(), context.DeadlineExceeded) {
-		i.State, i.Error = api.RunFailed, &api.QueryError{Kind: "timeout",
-			Message: fmt.Sprintf("the query took longer than %s (agent_timeout) and was cancelled", r.policy.Timeout)}
+		i.State, i.Error = api.RunFailed, &api.QueryError{
+			Kind:    "timeout",
+			Message: fmt.Sprintf("the query took longer than %s (agent_timeout) and was cancelled", r.policy.Timeout),
+		}
 		return
 	}
 	i.State = api.RunCancelled
@@ -604,8 +612,10 @@ func (r *Run) run(cfg *config.Config) {
 		return
 	}
 	m.learn(r.exec, dr, false)
-	est := &api.Estimate{Bytes: dr.BytesProcessed, Accuracy: dr.Accuracy, StatementType: dr.StatementType,
-		ReservationID: dr.ReservationID, Edition: dr.Edition, Capacity: dr.ReservationID != "", Columns: format.Columns(dr.Schema)}
+	est := &api.Estimate{
+		Bytes: dr.BytesProcessed, Accuracy: dr.Accuracy, StatementType: dr.StatementType,
+		ReservationID: dr.ReservationID, Edition: dr.Edition, Capacity: dr.ReservationID != "", Columns: format.Columns(dr.Schema),
+	}
 	if !est.Capacity {
 		usd := float64(dr.BytesProcessed) / float64(1<<40) * OnDemandUSDPerTiB
 		est.ApproxUSD = &usd
@@ -731,8 +741,10 @@ func (r *Run) run(cfg *config.Config) {
 		r.fail(err)
 		return
 	}
-	stats := &api.RunStats{BytesProcessed: res.BytesProcessed, BytesBilled: res.BytesBilled, SlotMs: res.SlotMs, CacheHit: res.CacheHit,
-		AffectedRows: res.AffectedRows, StatementType: res.StatementType, ReservationID: res.ReservationID, Edition: res.Edition, Destination: res.Destination}
+	stats := &api.RunStats{
+		BytesProcessed: res.BytesProcessed, BytesBilled: res.BytesBilled, SlotMs: res.SlotMs, CacheHit: res.CacheHit,
+		AffectedRows: res.AffectedRows, StatementType: res.StatementType, ReservationID: res.ReservationID, Edition: res.Edition, Destination: res.Destination,
+	}
 	if stats.StatementType == "" {
 		stats.StatementType = dr.StatementType
 	}

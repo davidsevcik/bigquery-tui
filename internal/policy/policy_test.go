@@ -10,9 +10,11 @@ import (
 )
 
 func cfg() *config.Config {
-	return &config.Config{AgentMaxBytes: 1 << 30, AgentTimeout: time.Minute,
+	return &config.Config{
+		AgentMaxBytes: 1 << 30, AgentTimeout: time.Minute,
 		ConfirmBytes:   config.ByteLimit{Mode: config.ByteLimitAuto},
-		MaxBytesBilled: config.ByteLimit{Mode: config.ByteLimitValue, Bytes: 1 << 40}}
+		MaxBytesBilled: config.ByteLimit{Mode: config.ByteLimitValue, Bytes: 1 << 40},
+	}
 }
 
 func TestCheckEveryStatementAndAccuracy(t *testing.T) {

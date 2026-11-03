@@ -77,11 +77,15 @@ func impersonationRefused(t *testing.T, rf refusal) string {
 		switch {
 		case r.URL.Path == "/token":
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"access_token":"source-token","token_type":"Bearer","expires_in":3600}`))
+			if _, err := w.Write([]byte(`{"access_token":"source-token","token_type":"Bearer","expires_in":3600}`)); err != nil {
+				t.Errorf("write token: %v", err)
+			}
 		case strings.HasSuffix(r.URL.Path, ":generateAccessToken"):
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(rf.status)
-			w.Write([]byte(rf.body))
+			if _, err := w.Write([]byte(rf.body)); err != nil {
+				t.Errorf("write body: %v", err)
+			}
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusTeapot)

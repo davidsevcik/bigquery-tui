@@ -336,7 +336,7 @@ func Run(ctx context.Context, args []string, env Env) int {
 	case "version":
 		cerr = cmdVersion(o, g, cargs)
 	case "init":
-		cerr = cmdInit(ctx, o, g, cargs)
+		cerr = cmdInit(o, g, cargs)
 	case "config":
 		cerr = cmdConfig(ctx, o, g, cargs)
 	case "sync":

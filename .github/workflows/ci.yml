@@ -12,12 +12,27 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: vet
-        run: go vet ./...
-      - name: staticcheck
-        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+      # The tool versions match scripts/quality.sh; change them in both places.
+      - name: lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+      - name: vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - name: module tidiness
+        run: go mod tidy -diff
       - name: test
-        run: go test -race ./...
+        run: go test -race -coverprofile=coverage.out -coverpkg=./... ./...
+      # Reported, never gated.
+      - name: coverage summary
+        if: ${{ !cancelled() && hashFiles('coverage.out') != '' }}
+        run: |
+          {
+            echo '### Coverage'
+            echo '```'
+            scripts/coverage.sh coverage.out
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       # Never cached: the test runs a freshly built binary, which the Go test cache cannot track.
       - name: pty smoke
         run: go test -count=1 ./internal/smoke

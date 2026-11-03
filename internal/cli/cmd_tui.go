@@ -44,7 +44,7 @@ func cmdTUI(ctx context.Context, o *out, g *globals, args []string) error {
 	if err != nil {
 		return usageErr("%v", err)
 	}
-	defer closeLog()
+	defer func() { _ = closeLog() }() // a failed log close at exit has nobody to tell
 	eng, err := engine.Open(ctx, engine.Options{Config: cfg, Meta: env.Meta, Now: env.Now, Log: log, Source: "tui"})
 	if err != nil {
 		return err

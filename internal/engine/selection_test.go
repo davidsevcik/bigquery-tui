@@ -82,7 +82,9 @@ func TestDeselectKeepsTheCacheButStopsSyncing(t *testing.T) {
 	if err != nil || h == nil {
 		t.Fatalf("auto refresh: %v %v", h, err)
 	}
-	h.Wait()
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
 	if got := syncedProjects(e); got["proj-a"] || !got["proj-b"] {
 		t.Fatalf("auto refresh synced %v", got)
 	}
@@ -111,20 +113,28 @@ func TestExecutionProjectDefaultsToTheEarliestSelected(t *testing.T) {
 	if _, src := eng.ExecutionProject(); src != api.ExecutionNone {
 		t.Fatalf("nothing selected, source %q", src)
 	}
-	eng.SelectProjects("proj-b")
+	if err := eng.SelectProjects("proj-b"); err != nil {
+		t.Fatal(err)
+	}
 	e.now = e.now.Add(time.Minute)
-	eng.SelectProjects("proj-a")
+	if err := eng.SelectProjects("proj-a"); err != nil {
+		t.Fatal(err)
+	}
 	if p, src := eng.ExecutionProject(); p != "proj-b" || src != api.ExecutionFirstSelected {
 		t.Fatalf("default %q %q", p, src)
 	}
 	// selecting it again keeps its place
 	e.now = e.now.Add(time.Minute)
-	eng.SelectProjects("proj-b")
+	if err := eng.SelectProjects("proj-b"); err != nil {
+		t.Fatal(err)
+	}
 	if p, _ := eng.ExecutionProject(); p != "proj-b" {
 		t.Fatalf("reselect moved the default to %q", p)
 	}
 	// deselect it: the next earliest takes over
-	eng.DeselectProjects("proj-b")
+	if err := eng.DeselectProjects("proj-b"); err != nil {
+		t.Fatal(err)
+	}
 	if p, _ := eng.ExecutionProject(); p != "proj-a" {
 		t.Fatalf("after deselect %q", p)
 	}
@@ -133,8 +143,12 @@ func TestExecutionProjectDefaultsToTheEarliestSelected(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.now = e.now.Add(time.Minute)
-	eng.SelectProjects("proj-b")
-	eng.DeselectProjects("proj-a")
+	if err := eng.SelectProjects("proj-b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.DeselectProjects("proj-a"); err != nil {
+		t.Fatal(err)
+	}
 	if p, src := eng.ExecutionProject(); p != "billing" || src != api.ExecutionChosen {
 		t.Fatalf("chosen %q %q", p, src)
 	}
@@ -187,13 +201,17 @@ func TestAnExplicitSyncRefreshesADeselectedCacheWithoutSelectingIt(t *testing.T)
 	e := newEnv(t, "proj-a", "proj-b")
 	eng := e.open(false)
 	fullSync(t, eng)
-	eng.DeselectProjects("proj-b")
+	if err := eng.DeselectProjects("proj-b"); err != nil {
+		t.Fatal(err)
+	}
 	e.fake.Calls = nil
 	h, err := eng.StartSync(ctx, api.SyncScope{Projects: []string{"proj-b"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.Wait()
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
 	if got := syncedProjects(e); !got["proj-b"] {
 		t.Fatalf("synced %v", got)
 	}
@@ -209,7 +227,9 @@ func TestStatusListsSelectedThenCachedProjects(t *testing.T) {
 	e := newEnv(t, "proj-a", "proj-b")
 	eng := e.open(false)
 	fullSync(t, eng)
-	eng.DeselectProjects("proj-a")
+	if err := eng.DeselectProjects("proj-a"); err != nil {
+		t.Fatal(err)
+	}
 	e.now = e.now.Add(25 * time.Hour) // both stale
 	st, err := eng.Status(ctx)
 	if err != nil {
@@ -232,9 +252,13 @@ func TestProjectInfosMergeListedSelectedAndCached(t *testing.T) {
 	e.fake.AddProject("proj-d").ListErr = bqtest.PermissionError("datasets.list")
 	e.fake.AddProject("proj-e").ListErr = bqtest.TransientError("boom")
 	eng := e.open(false)
-	eng.SelectProjects("proj-d", "proj-e")
+	if err := eng.SelectProjects("proj-d", "proj-e"); err != nil {
+		t.Fatal(err)
+	}
 	fullSync(t, eng)
-	eng.DeselectProjects("proj-b")
+	if err := eng.DeselectProjects("proj-b"); err != nil {
+		t.Fatal(err)
+	}
 
 	listed, err := eng.AccessibleProjects(ctx, false)
 	if err != nil {
@@ -282,8 +306,12 @@ func TestProjectInfosMergeListedSelectedAndCached(t *testing.T) {
 func TestAccessibleProjectsAreFetchedOnceUnlessRefreshed(t *testing.T) {
 	e := newEnv(t)
 	eng := e.open(false)
-	eng.AccessibleProjects(ctx, false)
-	eng.AccessibleProjects(ctx, false)
+	if _, err := eng.AccessibleProjects(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := eng.AccessibleProjects(ctx, false); err != nil {
+		t.Fatal(err)
+	}
 	if n := len(e.fake.CallsTo("ListProjects")); n != 1 {
 		t.Fatalf("listed %d times", n)
 	}
@@ -300,7 +328,9 @@ func TestAccessibleProjectsAreFetchedOnceUnlessRefreshed(t *testing.T) {
 func TestTheTUISearchesOnlySelectedProjects(t *testing.T) {
 	e, eng := synced(t, "proj-a", "proj-b")
 	_ = e
-	eng.DeselectProjects("proj-b")
+	if err := eng.DeselectProjects("proj-b"); err != nil {
+		t.Fatal(err)
+	}
 	r, err := eng.Search(ctx, "t", api.SearchOptions{SelectedOnly: true, AllWhenEmpty: true})
 	if err != nil {
 		t.Fatal(err)
@@ -323,9 +353,11 @@ func TestTheTUISearchesOnlySelectedProjects(t *testing.T) {
 func TestAgentsSeeDeselectedCachesRankedLastWithWarnings(t *testing.T) {
 	e, _ := synced(t, "proj-a", "proj-b")
 	e.fake.Projects["proj-b"].Datasets[0].Tables = append(e.fake.Projects["proj-b"].Datasets[0].Tables, bqtest.Table("orders", "id"))
-	rw := e.openWithTables(false)
+	rw := e.openWithTables()
 	fullSync(t, rw)
-	rw.DeselectProjects("proj-a")
+	if err := rw.DeselectProjects("proj-a"); err != nil {
+		t.Fatal(err)
+	}
 	ag := e.agent("mcp")
 
 	hits, err := ag.CatalogSearch(ctx, "orders", 10, 0)
@@ -369,13 +401,15 @@ func TestEachExecutionProjectHasItsOwnClient(t *testing.T) {
 	e := newEnv(t, "proj-a") // exec-proj is chosen
 	var mu sync.Mutex
 	var asked []string
-	eng, err := Open(ctx, Options{Config: e.cfg, Now: func() time.Time { return e.now },
+	eng, err := Open(ctx, Options{
+		Config: e.cfg, Now: func() time.Time { return e.now },
 		Client: func(_ context.Context, exec string) (Client, error) {
 			mu.Lock()
 			asked = append(asked, exec)
 			mu.Unlock()
 			return fakeClient{e.fake}, nil
-		}})
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +419,9 @@ func TestEachExecutionProjectHasItsOwnClient(t *testing.T) {
 	}
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
 	eng.runs.Start(ctx, runs.Request{SQL: "select 1"}).Wait()
-	eng.ChooseExecution("billing")
+	if err := eng.ChooseExecution("billing"); err != nil {
+		t.Fatal(err)
+	}
 	eng.runs.Start(ctx, runs.Request{SQL: "select 1"}).Wait()
 	mu.Lock()
 	defer mu.Unlock()
@@ -403,7 +439,10 @@ func TestAPinnedExecutionProjectSurvivesSelectionChanges(t *testing.T) {
 	if err != nil || pin.Project != "exec-proj" || pin.Source != api.ExecutionChosen {
 		t.Fatalf("%+v %v", pin, err)
 	}
-	e.open(false).ChooseExecution("later-proj") // after the server started
+	// after the server started
+	if err := e.open(false).ChooseExecution("later-proj"); err != nil {
+		t.Fatal(err)
+	}
 	eng, err := Open(ctx, Options{Config: e.cfg, ReadOnly: true, Execution: &pin})
 	if err != nil {
 		t.Fatal(err)
@@ -439,8 +478,12 @@ func TestAFailedRefreshOfACachedProjectShowsAsFailed(t *testing.T) {
 // dataset.table names resolve).
 func TestCompletionLeavesOutDeselectedProjects(t *testing.T) {
 	_, eng := synced(t, "proj-a", "proj-b")
-	eng.ChooseExecution("proj-a")
-	eng.DeselectProjects("proj-b")
+	if err := eng.ChooseExecution("proj-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.DeselectProjects("proj-b"); err != nil {
+		t.Fatal(err)
+	}
 	labels := func(sql string) string {
 		var out []string
 		for _, c := range eng.Complete(sql, len(sql), false) {
@@ -454,8 +497,12 @@ func TestCompletionLeavesOutDeselectedProjects(t *testing.T) {
 	if got := labels("select * from `proj-b.core."); got != "" {
 		t.Fatalf("a deselected project's tables: %s", got)
 	}
-	eng.SelectProjects("proj-b")
-	eng.DeselectProjects("proj-a") // still the Execution project
+	if err := eng.SelectProjects("proj-b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.DeselectProjects("proj-a"); err != nil {
+		t.Fatal(err)
+	} // still the Execution project
 	if got := labels("select * from sales."); !strings.Contains(got, "orders") {
 		t.Fatalf("unqualified names resolve in the Execution project: %s", got)
 	}

@@ -330,20 +330,18 @@ func (c *Catalog) ApplyUnit(ctx context.Context, req ApplyRequest) (ApplyStats, 
 	}
 
 	existing := map[string]int64{}
-	rows, err := tx.QueryContext(ctx, "SELECT name, id FROM datasets WHERE project_id = ? AND location = ?", projectID, req.Unit.Location)
-	if err != nil {
-		return st, err
-	}
-	for rows.Next() {
+	err = eachRow(ctx, tx, func(rows *sql.Rows) error {
 		var n string
 		var id int64
 		if err := rows.Scan(&n, &id); err != nil {
-			rows.Close()
-			return st, err
+			return err
 		}
 		existing[n] = id
+		return nil
+	}, "SELECT name, id FROM datasets WHERE project_id = ? AND location = ?", projectID, req.Unit.Location)
+	if err != nil {
+		return st, err
 	}
-	rows.Close()
 
 	seen := map[string]bool{}
 	var nameOnly, inaccessible int
@@ -446,20 +444,18 @@ type tableRow struct {
 func applyTables(ctx context.Context, tx *sql.Tx, datasetID int64, tables []api.TableMeta, namesOnly bool) (ApplyStats, error) {
 	var st ApplyStats
 	existing := map[string]tableRow{}
-	rows, err := tx.QueryContext(ctx, "SELECT name, id, content_hash FROM tables WHERE dataset_id = ?", datasetID)
-	if err != nil {
-		return st, err
-	}
-	for rows.Next() {
+	err := eachRow(ctx, tx, func(rows *sql.Rows) error {
 		var n string
 		var r tableRow
 		if err := rows.Scan(&n, &r.id, &r.hash); err != nil {
-			rows.Close()
-			return st, err
+			return err
 		}
 		existing[n] = r
+		return nil
+	}, "SELECT name, id, content_hash FROM tables WHERE dataset_id = ?", datasetID)
+	if err != nil {
+		return st, err
 	}
-	rows.Close()
 
 	insTable, err := tx.PrepareContext(ctx, `INSERT INTO tables(dataset_id,name,name_lc,type,created_at,description,labels,expires_at,view_sql,names_only,content_hash,shard_prefix,shard_first,shard_last,shard_count,require_partition_filter) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
@@ -710,6 +706,7 @@ func (c *Catalog) Datasets(ctx context.Context, project string) ([]DatasetRow, e
 
 // Tables lists a dataset's tables (without columns).
 func (c *Catalog) Tables(ctx context.Context, project, dataset string) ([]api.TableMeta, error) {
+	//nolint:gosec // c.rpf is one of two fixed column expressions, never input
 	rows, err := c.db.QueryContext(ctx, `SELECT t.name,t.type,t.created_at,t.description,t.labels,t.expires_at,t.view_sql,t.names_only,t.shard_prefix,t.shard_first,t.shard_last,t.shard_count,`+c.rpf+`
 FROM tables t JOIN datasets d ON d.id=t.dataset_id JOIN projects p ON p.id=d.project_id
 WHERE p.name = ? AND d.name = ? ORDER BY t.name_lc`, project, dataset)
@@ -784,24 +781,22 @@ func (c *Catalog) Prune(ctx context.Context, allowed map[string]bool, ignored fu
 	}
 	defer tx.Rollback()
 
-	rows, err := tx.QueryContext(ctx, "SELECT id, name FROM projects")
-	if err != nil {
-		return st, err
-	}
 	type pr struct {
 		id   int64
 		name string
 	}
 	var projects []pr
-	for rows.Next() {
+	err = eachRow(ctx, tx, func(rows *sql.Rows) error {
 		var p pr
 		if err := rows.Scan(&p.id, &p.name); err != nil {
-			rows.Close()
-			return st, err
+			return err
 		}
 		projects = append(projects, p)
+		return nil
+	}, "SELECT id, name FROM projects")
+	if err != nil {
+		return st, err
 	}
-	rows.Close()
 	for _, p := range projects {
 		// Only the allowlist removes a whole project (nil keeps every
 		// project). An ignored project can still hold re-included datasets
@@ -817,24 +812,22 @@ func (c *Catalog) Prune(ctx context.Context, allowed map[string]bool, ignored fu
 			st.Projects++
 			continue
 		}
-		drows, err := tx.QueryContext(ctx, "SELECT id, name FROM datasets WHERE project_id = ?", p.id)
-		if err != nil {
-			return st, err
-		}
 		type dr struct {
 			id   int64
 			name string
 		}
 		var datasets []dr
-		for drows.Next() {
+		err := eachRow(ctx, tx, func(rows *sql.Rows) error {
 			var d dr
-			if err := drows.Scan(&d.id, &d.name); err != nil {
-				drows.Close()
-				return st, err
+			if err := rows.Scan(&d.id, &d.name); err != nil {
+				return err
 			}
 			datasets = append(datasets, d)
+			return nil
+		}, "SELECT id, name FROM datasets WHERE project_id = ?", p.id)
+		if err != nil {
+			return st, err
 		}
-		drows.Close()
 		for _, d := range datasets {
 			if ignored(p.name, d.name, "") {
 				if _, err := tx.ExecContext(ctx, "DELETE FROM datasets WHERE id = ?", d.id); err != nil {
@@ -843,23 +836,21 @@ func (c *Catalog) Prune(ctx context.Context, allowed map[string]bool, ignored fu
 				st.Datasets++
 				continue
 			}
-			trows, err := tx.QueryContext(ctx, "SELECT id, name FROM tables WHERE dataset_id = ?", d.id)
-			if err != nil {
-				return st, err
-			}
 			var drop []int64
-			for trows.Next() {
+			err := eachRow(ctx, tx, func(rows *sql.Rows) error {
 				var id int64
 				var name string
-				if err := trows.Scan(&id, &name); err != nil {
-					trows.Close()
-					return st, err
+				if err := rows.Scan(&id, &name); err != nil {
+					return err
 				}
 				if ignored(p.name, d.name, name) {
 					drop = append(drop, id)
 				}
+				return nil
+			}, "SELECT id, name FROM tables WHERE dataset_id = ?", d.id)
+			if err != nil {
+				return st, err
 			}
-			trows.Close()
 			for _, id := range drop {
 				if _, err := tx.ExecContext(ctx, "DELETE FROM tables WHERE id = ?", id); err != nil {
 					return st, err

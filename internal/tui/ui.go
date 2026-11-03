@@ -154,6 +154,7 @@ func (b *rb) add(text string, st lipgloss.Style) *rb {
 	return b
 }
 
+//nolint:unparam // returns *rb so it chains like add
 func (b *rb) addR(text string, st lipgloss.Style) *rb {
 	if text != "" {
 		b.r.WriteString(b.style(st).Render(text))

@@ -184,9 +184,15 @@ func TestFavoriteList(t *testing.T) {
 	e, _ := synced(t, "proj-a")
 	eng := e.agent("cli")
 	dir := eng.Config().FavoritesDir
-	os.MkdirAll(filepath.Join(dir, "team"), 0o755)
-	os.WriteFile(filepath.Join(dir, "team", "dau.sql"), []byte("-- description: Daily users\n-- tags: events\n-- param: start DATE = 2024-01-01\n-- param: country STRING\nSELECT 1 WHERE @start > '2000-01-01' AND @country = 'x' AND @n > 0\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "other.sql"), []byte("SELECT 2\n"), 0o644)
+	if err := os.MkdirAll(filepath.Join(dir, "team"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "team", "dau.sql"), []byte("-- description: Daily users\n-- tags: events\n-- param: start DATE = 2024-01-01\n-- param: country STRING\nSELECT 1 WHERE @start > '2000-01-01' AND @country = 'x' AND @n > 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "other.sql"), []byte("SELECT 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	l, err := eng.FavoriteList("", 1, 0, false)
 	if err != nil || l.Total != 2 || len(l.Favorites) != 1 || !l.Truncated || l.NextCursor != "1" || l.Favorites[0].SQL != "" {
 		t.Fatalf("%v %+v", err, l)

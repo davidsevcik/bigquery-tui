@@ -48,8 +48,10 @@ func newRig(t *testing.T, sync bool) *rig {
 		r.sync(t)
 	}
 	srv, err := New(ctx, func(ctx context.Context) (*engine.Engine, error) {
-		return engine.Open(ctx, engine.Options{Config: cfg, ReadOnly: true, Source: "mcp",
-			Jobs: func(context.Context) (bq.Jobs, error) { return r.fake, nil }})
+		return engine.Open(ctx, engine.Options{
+			Config: cfg, ReadOnly: true, Source: "mcp",
+			Jobs: func(context.Context) (bq.Jobs, error) { return r.fake, nil },
+		})
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -124,8 +126,10 @@ func TestToolsAndInstructionsFitClaudeCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"search_catalog": true, "get_schema": true, "catalog_status": true, "dry_run": true,
-		"run_query": true, "get_results": true, "list_favorites": true, "search_history": true}
+	want := map[string]bool{
+		"search_catalog": true, "get_schema": true, "catalog_status": true, "dry_run": true,
+		"run_query": true, "get_results": true, "list_favorites": true, "search_history": true,
+	}
 	if len(tools.Tools) != len(want) {
 		t.Fatalf("%d tools", len(tools.Tools))
 	}
@@ -239,9 +243,17 @@ func TestServerStartedBeforeTheFirstSync(t *testing.T) {
 
 func TestADeselectedProjectIsSearchableWithAWarning(t *testing.T) {
 	r := newRig(t, false)
-	r.engine(t, func(e *engine.Engine) { e.SelectProjects("proj-b") })
+	r.engine(t, func(e *engine.Engine) {
+		if err := e.SelectProjects("proj-b"); err != nil {
+			t.Fatal(err)
+		}
+	})
 	r.sync(t)
-	r.engine(t, func(e *engine.Engine) { e.DeselectProjects("proj-b") })
+	r.engine(t, func(e *engine.Engine) {
+		if err := e.DeselectProjects("proj-b"); err != nil {
+			t.Fatal(err)
+		}
+	})
 	var hits api.CatalogHits
 	deadline := time.Now().Add(5 * time.Second)
 	for {

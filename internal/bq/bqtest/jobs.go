@@ -112,8 +112,10 @@ func (f *Fake) DryRun(ctx context.Context, req bq.QueryRequest) (bq.DryRunResult
 	if loc == "" {
 		loc = "EU"
 	}
-	return bq.DryRunResult{BytesProcessed: s.Bytes, Accuracy: s.Accuracy, StatementType: s.StatementType,
-		ReservationID: s.ReservationID, Edition: s.Edition, Schema: s.Schema, Location: loc}, nil
+	return bq.DryRunResult{
+		BytesProcessed: s.Bytes, Accuracy: s.Accuracy, StatementType: s.StatementType,
+		ReservationID: s.ReservationID, Edition: s.Edition, Schema: s.Schema, Location: loc,
+	}, nil
 }
 
 // StartQuery implements bq.Jobs.
@@ -174,8 +176,10 @@ func (f *Fake) WaitJob(ctx context.Context, ref api.JobRef) (bq.JobResult, error
 		return bq.JobResult{}, err
 	}
 	s := j.script
-	res := bq.JobResult{StatementType: s.StatementType, ReservationID: s.ReservationID, Edition: s.Edition,
-		Created: j.created, Started: j.created.Add(time.Second), Ended: j.created.Add(3 * time.Second)}
+	res := bq.JobResult{
+		StatementType: s.StatementType, ReservationID: s.ReservationID, Edition: s.Edition,
+		Created: j.created, Started: j.created.Add(time.Second), Ended: j.created.Add(3 * time.Second),
+	}
 	if s.Block != nil {
 		f.setHeld(j, true)
 		select {
@@ -195,7 +199,7 @@ func (f *Fake) WaitJob(ctx context.Context, ref api.JobRef) (bq.JobResult, error
 	}
 	if s.JobErr != nil {
 		res.Err = s.JobErr
-		return res, nil
+		return res, nil //nolint:nilerr // the poll worked; the job's own failure travels in res.Err
 	}
 	res.BytesProcessed, res.BytesBilled, res.SlotMs, res.CacheHit, res.AffectedRows = s.Bytes, s.Bytes, s.SlotMs, s.CacheHit, s.AffectedRows
 	res.Destination = "fake-exec._anon." + ref.ID

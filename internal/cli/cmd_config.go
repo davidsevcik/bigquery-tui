@@ -11,7 +11,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 )
 
-func cmdInit(ctx context.Context, o *out, g *globals, args []string) error {
+func cmdInit(o *out, g *globals, args []string) error {
 	fs := commandFlags("init", g)
 	if err := parseNoArgs(fs, args); err != nil {
 		return err

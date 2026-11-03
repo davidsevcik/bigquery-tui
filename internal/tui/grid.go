@@ -64,8 +64,10 @@ type pageMsg struct {
 }
 
 func newGrid(name string, cols []api.PreviewColumn, total int64, src rowSource) *grid {
-	return &grid{name: name, src: src, cols: cols, total: total, hidden: map[int]bool{},
-		pages: map[int64][][]api.Cell{}, loading: map[int64]bool{}}
+	return &grid{
+		name: name, src: src, cols: cols, total: total, hidden: map[int]bool{},
+		pages: map[int64][][]api.Cell{}, loading: map[int64]bool{},
+	}
 }
 
 // runGrid is the grid of a Run's result.

@@ -293,7 +293,9 @@ func (r *rig) golden(name string) {
 	path := filepath.Join("testdata", name+".txt")
 	got := r.screen()
 	if *update {
-		os.MkdirAll("testdata", 0o755)
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			r.t.Fatal(err)
+		}
 		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
 			r.t.Fatal(err)
 		}

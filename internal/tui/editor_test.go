@@ -30,9 +30,11 @@ func edKey(name string) tea.KeyPressMsg {
 		}
 		break
 	}
-	codes := map[string]rune{"enter": tea.KeyEnter, "esc": tea.KeyEscape, "tab": tea.KeyTab, "up": tea.KeyUp, "down": tea.KeyDown,
+	codes := map[string]rune{
+		"enter": tea.KeyEnter, "esc": tea.KeyEscape, "tab": tea.KeyTab, "up": tea.KeyUp, "down": tea.KeyDown,
 		"left": tea.KeyLeft, "right": tea.KeyRight, "backspace": tea.KeyBackspace, "delete": tea.KeyDelete, "home": tea.KeyHome, "end": tea.KeyEnd,
-		"pgup": tea.KeyPgUp, "pgdown": tea.KeyPgDown, "space": tea.KeySpace, "f1": tea.KeyF1, "f6": tea.KeyF6}
+		"pgup": tea.KeyPgUp, "pgdown": tea.KeyPgDown, "space": tea.KeySpace, "f1": tea.KeyF1, "f6": tea.KeyF6,
+	}
 	if c, ok := codes[name]; ok {
 		k := tea.KeyPressMsg{Code: c, Mod: mod}
 		if name == "space" && mod == 0 {

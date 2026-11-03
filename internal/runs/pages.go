@@ -174,11 +174,15 @@ func (m *Manager) Reopen(ctx context.Context, e api.HistoryEntry, tag string) (*
 	close(done)
 	m.mu.Lock()
 	m.seq++
-	r := &Run{m: m, id: m.seq, ctx: rctx, stop: cancel, confirm: make(chan struct{}), done: done, changed: make(chan struct{}),
-		jobs: jobs, schema: page.Schema, pages: map[int64]*bq.ResultPage{0: &page}, pageUse: []int64{0}, final: true, version: 1}
-	r.info = api.RunInfo{ID: r.id, Tag: tag, SQL: e.SQL, Params: e.Params, State: api.RunDone, Source: e.Source, Favorite: e.FavoritePath,
+	r := &Run{
+		m: m, id: m.seq, ctx: rctx, stop: cancel, confirm: make(chan struct{}), done: done, changed: make(chan struct{}),
+		jobs: jobs, schema: page.Schema, pages: map[int64]*bq.ResultPage{0: &page}, pageUse: []int64{0}, final: true, version: 1,
+	}
+	r.info = api.RunInfo{
+		ID: r.id, Tag: tag, SQL: e.SQL, Params: e.Params, State: api.RunDone, Source: e.Source, Favorite: e.FavoritePath,
 		FromHistory: e.ID, ExecutionProject: e.ExecutionProject, Location: ref.Location, Job: &ref, Stats: stats,
-		HasResult: true, TotalRows: page.TotalRows, Columns: format.Columns(page.Schema), Created: e.Created, Started: e.Started, Ended: e.Ended}
+		HasResult: true, TotalRows: page.TotalRows, Columns: format.Columns(page.Schema), Created: e.Created, Started: e.Started, Ended: e.Ended,
+	}
 	m.runs = append(m.runs, r)
 	m.mu.Unlock()
 	m.trimPages()

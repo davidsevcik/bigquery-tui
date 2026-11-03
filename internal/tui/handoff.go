@@ -96,8 +96,10 @@ func (m *Model) handoffItems() []handoffItem {
 			ext string
 		}{{"hosamplemd", handoff.Markdown, "md"}, {"hosampletsv", handoff.TSV, "tsv"}, {"hosamplendjson", handoff.NDJSON, "ndjson"}} {
 			id, sf := r.ID, f.f
-			items = append(items, handoffItem{f.id, fmt.Sprintf("First %d rows of run #%d (%s)", handoff.SampleRows, r.ID, f.ext), fmt.Sprintf("sample-%d.%s", r.ID, f.ext),
-				func(ctx context.Context) (string, error) { return m.be.RunSample(ctx, id, sf) }})
+			items = append(items, handoffItem{
+				f.id, fmt.Sprintf("First %d rows of run #%d (%s)", handoff.SampleRows, r.ID, f.ext), fmt.Sprintf("sample-%d.%s", r.ID, f.ext),
+				func(ctx context.Context) (string, error) { return m.be.RunSample(ctx, id, sf) },
+			})
 		}
 	}
 	info := r
@@ -222,8 +224,10 @@ func (m *Model) handoffOverlayAction(act string) tea.Cmd {
 	case "write":
 		if m.ovSel < n {
 			it := m.hoItems[m.ovSel]
-			m.openPrompt(promptState{kind: "handoff", title: "Write " + it.label, labels: []string{"file"},
-				note: "enter writes · esc cancels", hoItem: it}, filepath.Join(".", handoffDir, it.file))
+			m.openPrompt(promptState{
+				kind: "handoff", title: "Write " + it.label, labels: []string{"file"},
+				note: "enter writes · esc cancels", hoItem: it,
+			}, filepath.Join(".", handoffDir, it.file))
 		}
 	default:
 		if cmd, ok := m.globalAction(act); ok {

@@ -90,7 +90,7 @@ func Complete(text string, cursor int, cat Catalog, o Options) []api.Candidate {
 	}
 
 	// the dotted chain that ends at the cursor
-	k := cur
+	var k int
 	c.pStart, c.pEnd = cursor, cursor
 	if cur >= 0 && cur < len(toks) && isWord(toks[cur]) {
 		t := toks[cur]

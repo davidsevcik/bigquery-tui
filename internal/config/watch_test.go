@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-func watchSetup(t *testing.T, src string) (path string, cur *Config, events <-chan Event, kick chan struct{}) {
+func watchSetup(t *testing.T) (path string, cur *Config, events <-chan Event, kick chan struct{}) {
 	t.Helper()
-	return watchSetupStability(t, src, 30*time.Millisecond)
+	return watchSetupStability(t, baseCfg, 30*time.Millisecond)
 }
 
 func watchSetupStability(t *testing.T, src string, stability time.Duration) (path string, cur *Config, events <-chan Event, kick chan struct{}) {
@@ -79,7 +79,7 @@ func save(t *testing.T, path, src string) {
 const baseCfg = "sync_ttl = \"2h\"\nignore = [\"p-one\"]\n"
 
 func TestWatchReportsChangedKeys(t *testing.T) {
-	path, _, ev, _ := watchSetup(t, baseCfg)
+	path, _, ev, _ := watchSetup(t)
 	quiet(t, ev)
 	save(t, path, "sync_ttl = \"1h\"\nignore = [\"p-one\", \"p-two\"]\nlocation = \"EU\"\n")
 	e := next(t, ev)
@@ -93,7 +93,7 @@ func TestWatchReportsChangedKeys(t *testing.T) {
 }
 
 func TestWatchInvalidThenFixed(t *testing.T) {
-	path, _, ev, _ := watchSetup(t, baseCfg)
+	path, _, ev, _ := watchSetup(t)
 	save(t, path, "ingore = 1\n")
 	e := next(t, ev)
 	if e.Err == nil || e.Config != nil {
@@ -114,10 +114,12 @@ func TestWatchInvalidThenFixed(t *testing.T) {
 }
 
 func TestWatchRestartKeysAndRenameSave(t *testing.T) {
-	path, _, ev, _ := watchSetup(t, baseCfg)
+	path, _, ev, _ := watchSetup(t)
 	// editors often save by writing a temp file and renaming it over the target
 	tmp := path + ".tmp"
-	os.WriteFile(tmp, []byte(baseCfg+"data_dir = \"/elsewhere\"\n"), 0o600)
+	if err := os.WriteFile(tmp, []byte(baseCfg+"data_dir = \"/elsewhere\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Rename(tmp, path); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +137,9 @@ func TestWatchWaitsForStability(t *testing.T) {
 	i := 0
 	for time.Now().Before(deadline) {
 		i++
-		os.WriteFile(path, []byte(baseCfg+"# edit "+string(rune('a'+i%26))+"\nlocation = \"L"+string(rune('a'+i%26))+"\"\n"), 0o600)
+		if err := os.WriteFile(path, []byte(baseCfg+"# edit "+string(rune('a'+i%26))+"\nlocation = \"L"+string(rune('a'+i%26))+"\"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		select {
 		case e := <-ev:
 			t.Fatalf("applied a half-written config: %+v", e)
@@ -149,7 +153,7 @@ func TestWatchWaitsForStability(t *testing.T) {
 }
 
 func TestWatchDeletedFileIsAnError(t *testing.T) {
-	path, _, ev, _ := watchSetup(t, baseCfg)
+	path, _, ev, _ := watchSetup(t)
 	os.Remove(path)
 	if e := next(t, ev); e.Err == nil {
 		t.Fatalf("%+v", e)

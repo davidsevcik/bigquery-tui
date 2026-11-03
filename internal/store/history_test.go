@@ -31,9 +31,15 @@ func TestHistoryCreateFTSAndRecent(t *testing.T) {
 		t.Fatal("(project, location, job_id) must be unique")
 	}
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	h.TouchRecent(ctx, "p.d.a", "table", base)
-	h.TouchRecent(ctx, "p.d.b", "table", base.Add(time.Minute))
-	h.TouchRecent(ctx, "p.d.a", "table", base.Add(2*time.Minute))
+	if err := h.TouchRecent(ctx, "p.d.a", "table", base); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.TouchRecent(ctx, "p.d.b", "table", base.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.TouchRecent(ctx, "p.d.a", "table", base.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
 	rec, _ := h.Recent(ctx, 10)
 	if len(rec) != 2 || rec[0] != "p.d.a" {
 		t.Fatalf("%v", rec)
@@ -129,7 +135,9 @@ func TestHistoryNewerThanBinaryRefused(t *testing.T) {
 func TestHistoryCorruptIsMovedAside(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "history.db")
-	os.WriteFile(path, []byte("garbage garbage garbage garbage garbage garbage garbage garbage garbage"), 0o600)
+	if err := os.WriteFile(path, []byte("garbage garbage garbage garbage garbage garbage garbage garbage garbage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Date(2026, 10, 13, 9, 8, 7, 0, time.UTC)
 	h, err := openHistory(path, historyMigrations, func() time.Time { return now })
 	if err != nil {

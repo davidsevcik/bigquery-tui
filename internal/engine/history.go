@@ -16,6 +16,8 @@ const retentionEvery = time.Hour
 
 // applyRetention deletes entries older than history_retention_days, at most
 // once an hour and again whenever the setting changes. The caller holds e.mu.
+//
+//nolint:contextcheck // housekeeping with its own timeout, not part of the caller's request
 func (e *Engine) applyRetention(h *store.History) {
 	days := e.Config().HistoryRetentionDays
 	now := e.o.Now()

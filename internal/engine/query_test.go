@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,7 +26,7 @@ func TestRunIsRecordedInHistoryAndPaged(t *testing.T) {
 	if err != nil || len(page.Rows) != 1 || page.Rows[0][1].Text != "row 699" {
 		t.Fatalf("%v %+v", err, page)
 	}
-	if _, err := eng.RunRows(ctx, 999, 0, 1, format.Options{}); err != ErrUnknownRun {
+	if _, err := eng.RunRows(ctx, 999, 0, 1, format.Options{}); !errors.Is(err, ErrUnknownRun) {
 		t.Fatalf("%v", err)
 	}
 	h, _ := eng.History()
@@ -84,7 +85,7 @@ func TestExportStreamsToAFileAndCleansUpOnCancel(t *testing.T) {
 		t.Fatalf("partial files left: %v", left)
 	}
 
-	if _, err := eng.StartExport(ctx, 12345, path, export.CSV); err != ErrUnknownRun {
+	if _, err := eng.StartExport(ctx, 12345, path, export.CSV); !errors.Is(err, ErrUnknownRun) {
 		t.Fatalf("%v", err)
 	}
 }

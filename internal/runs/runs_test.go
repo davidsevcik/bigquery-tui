@@ -29,9 +29,11 @@ func (r *rig) setExec(p string) { r.mu.Lock(); r.exec = p; r.mu.Unlock() }
 
 func newRig(t *testing.T) *rig {
 	r := &rig{t: t, fake: bqtest.New(), exec: "exec"}
-	r.cfg = &config.Config{MaxConcurrentQueries: 2,
-		ConfirmBytes:   config.ByteLimit{Mode: config.ByteLimitAuto},
-		MaxBytesBilled: config.ByteLimit{Mode: config.ByteLimitValue, Bytes: config.DefaultMaxBytesBilled}}
+	r.cfg = &config.Config{
+		MaxConcurrentQueries: 2,
+		ConfirmBytes:         config.ByteLimit{Mode: config.ByteLimitAuto},
+		MaxBytesBilled:       config.ByteLimit{Mode: config.ByteLimitValue, Bytes: config.DefaultMaxBytesBilled},
+	}
 	r.m = New(Options{
 		Jobs: func(_ context.Context, exec string) (bq.Jobs, error) {
 			r.mu.Lock()

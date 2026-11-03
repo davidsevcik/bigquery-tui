@@ -63,7 +63,9 @@ func (r *rig) favDir() string { return r.m.be.Config().FavoritesDir }
 func (r *rig) writeFav(id, text string) {
 	r.t.Helper()
 	p := filepath.Join(r.favDir(), id)
-	os.MkdirAll(filepath.Dir(p), 0o755)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		r.t.Fatal(err)
+	}
 	if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
 		r.t.Fatal(err)
 	}
@@ -326,8 +328,12 @@ func TestFavoriteDeleteIsBoundToTheShownFile(t *testing.T) {
 	r.writeFav("q.sql", "select 1\n")
 	r.press("ctrl+x", "f", "ctrl+d")
 	other := filepath.Join(r.dir, "other")
-	os.MkdirAll(other, 0o755)
-	os.WriteFile(filepath.Join(other, "q.sql"), []byte("select 2\n"), 0o644)
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "q.sql"), []byte("select 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	old := r.m.be.Config().FavoritesDir
 	cfg := *r.m.be.Config()
 	cfg.FavoritesDir = other

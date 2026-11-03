@@ -651,8 +651,12 @@ func TestACatalogFromBeforeTheProjectsDialogNeedsNoSync(t *testing.T) {
 	twoProjectFake(h.fake)
 	h.run(api.SyncScope{})
 	// the stored filter also had the old `projects` list
-	h.cat.SetMeta(ctx, MetaConfigHash, "an older hash")
-	h.cat.SetMeta(ctx, MetaFilter, `{"projects":["proj-a"],"ignore":["proj-a.logs"]}`)
+	if err := h.cat.SetMeta(ctx, MetaConfigHash, "an older hash"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.cat.SetMeta(ctx, MetaFilter, `{"projects":["proj-a"],"ignore":["proj-a.logs"]}`); err != nil {
+		t.Fatal(err)
+	}
 	if pending, reason, _ := PendingConfigChange(ctx, h.cat, h.cfg); pending {
 		t.Fatalf("nothing that matters changed: %s", reason)
 	}
