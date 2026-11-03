@@ -17,7 +17,6 @@ import (
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
-	"github.com/davidsevcik/bigquery-tui/internal/format"
 	"github.com/davidsevcik/bigquery-tui/internal/runs"
 )
 
@@ -92,7 +91,6 @@ type Model struct {
 	autoProjs bool                // nothing selected at start: open the dialog
 
 	hoItems []handoffItem // the hand-off popup's entries
-	hoTop   int           // first entry line in the popup
 
 	mil  miller
 	tree tree
@@ -720,6 +718,9 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return m.gridEnsure() // the panel takes or gives back rows
 	}
 
+	if o := m.overlay(); o != nil {
+		return o.key(m, msg, name, m.overlayFrame(o))
+	}
 	switch m.ov {
 	case ovPrompt:
 		return m.promptKey(msg, name)
@@ -737,35 +738,14 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	if m.ov == ovPalette {
 		return m.paletteKey(msg, name)
 	}
-	if m.ov == ovProjects && m.pd != nil && m.pd.typing {
-		return m.projectsKey(msg, name)
-	}
 	zone := m.zone
-	if m.ov != ovNone {
-		zone = ZoneOverlay
-	}
 	if zone == ZoneEditor {
 		return m.editorKey(msg, name)
 	}
-	if m.pendingKey != "" {
-		name = m.pendingKey + " " + name
-		m.pendingKey = ""
-	} else if keys.chordPrefix(zone, name) {
-		m.pendingKey = name
-		return nil
-	}
-	act := keys.action(zone, name)
+	act, ok := m.chordAction(zone, name)
 	switch {
-	case m.ov == ovRuns:
-		return m.runsOverlayAction(act)
-	case m.ov == ovBuffers:
-		return m.buffersOverlayAction(act)
-	case m.ov == ovProjects:
-		return m.projectsOverlayAction(act)
-	case m.ov == ovHandoff:
-		return m.handoffOverlayAction(act)
-	case m.ov != ovNone:
-		return m.overlayAction(act)
+	case !ok:
+		return nil
 	case zone == ZoneResults:
 		return m.resultsAction(act)
 	case zone == ZoneSchema:
@@ -849,39 +829,6 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 		return nil, true
 	}
 	return nil, false
-}
-
-func (m *Model) overlayAction(act string) tea.Cmd {
-	half := max(1, (m.h-6)/2)
-	switch act {
-	case "back", "open":
-		m.ov = ovNone
-	case "next", "prev":
-		if m.ov == ovRecord {
-			if act == "prev" {
-				return m.recordStep(-1)
-			}
-			return m.recordStep(1)
-		}
-	case "copy":
-		if m.ov == ovRecord && m.rec != nil && m.rec.cells != nil {
-			m.toast = "copied the record as JSON"
-			return tea.SetClipboard(format.RowJSON(m.rec.cols, m.rec.cells))
-		}
-	case "down":
-		m.ovOff++
-	case "up":
-		m.ovOff = max(0, m.ovOff-1)
-	case "halfdown":
-		m.ovOff += half
-	case "halfup":
-		m.ovOff = max(0, m.ovOff-half)
-	default:
-		if cmd, ok := m.globalAction(act); ok {
-			return cmd
-		}
-	}
-	return nil
 }
 
 func (m *Model) explorerAction(act string) tea.Cmd {

@@ -79,37 +79,31 @@ func (m *Model) render() []string {
 	bodyH := h - 2
 	body := m.panesBody(w, bodyH)
 
+	if o := m.overlay(); o != nil {
+		f := o.frame(m, w, bodyH)
+		body = drawOver(body, f.lines, f.x, f.y, w)
+	}
 	switch m.ov {
 	case ovPicker:
 		bw := clamp(w-4, 40, 170)
 		bh := max(8, bodyH-2)
-		body = overlay(body, m.pickerBox(bw, bh), (w-bw)/2, 1, w)
+		body = drawOver(body, m.pickerBox(bw, bh), (w-bw)/2, 1, w)
 	case ovJump:
 		bw := clamp(w-8, 30, 96)
 		bh := clamp(bodyH-4, 8, 24)
-		body = overlay(body, m.jumpBox(bw, bh), (w-bw)/2, max(0, (bodyH-bh)/3), w)
+		body = drawOver(body, m.jumpBox(bw, bh), (w-bw)/2, max(0, (bodyH-bh)/3), w)
 	case ovPalette:
 		bw := clamp(w-12, 30, 70)
 		bh := clamp(bodyH-4, 6, 18)
-		body = overlay(body, m.paletteBox(bw, bh), (w-bw)/2, max(0, (bodyH-bh)/3), w)
+		body = drawOver(body, m.paletteBox(bw, bh), (w-bw)/2, max(0, (bodyH-bh)/3), w)
 	case ovPrompt:
 		bw := clamp(w-8, 30, 90)
 		box := m.promptBox(bw)
-		body = overlay(body, box, (w-bw)/2, max(0, (bodyH-len(box))/3), w)
+		body = drawOver(body, box, (w-bw)/2, max(0, (bodyH-len(box))/3), w)
 	case ovConfirm:
 		bw := clamp(w-8, 30, 80)
 		box := m.confirmBox(bw)
-		body = overlay(body, box, (w-bw)/2, max(0, (bodyH-len(box))/3), w)
-	case ovHelp, ovProblems, ovSync, ovRecord, ovRuns, ovBuffers, ovProjects, ovHandoff:
-		bw := clamp(w-6, 30, 96)
-		if m.ov == ovProjects || m.ov == ovHandoff {
-			bw = clamp(w-8, 30, 84)
-		}
-		if m.ov == ovRuns || m.ov == ovBuffers {
-			bw = clamp(w-4, 30, 140)
-		}
-		box := m.infoBox(bw, bodyH-2)
-		body = overlay(body, box, (w-bw)/2, max(0, (bodyH-len(box))/2), w)
+		body = drawOver(body, box, (w-bw)/2, max(0, (bodyH-len(box))/3), w)
 	}
 	if m.tut != nil {
 		body = append(body, m.tutorialPanel(w)...)
@@ -199,15 +193,12 @@ func (m *Model) footerLine(w int) string {
 		return fit(" "+sWarn.Render(m.toast), w)
 	}
 	var hint string
+	o := m.overlay()
 	switch {
+	case o != nil:
+		hint = o.hints(m)
 	case m.ov == ovJump:
 		hint = "type to search · ↑↓ select · " + footerHints(ZoneSearch)
-	case m.ov == ovRecord:
-		hint = "n/N next/previous row · j/k scroll · y copy as JSON · " + footerHints(ZoneOverlay)
-	case m.ov == ovRuns:
-		hint = "↑↓ select · enter show the result · c cancel the run · esc close"
-	case m.ov == ovBuffers:
-		hint = "↑↓ select · enter open or restore · esc close"
 	case m.ov == ovPrompt || m.ov == ovConfirm:
 		hint = ""
 	case m.ov == ovPicker:
@@ -923,54 +914,6 @@ func (m *Model) jumpBox(bw, bh int) []string {
 	lines := []string{b.line(inner), " " + chips(st.parsed, inner-1, "")}
 	lines = append(lines, m.resultsList(st, inner, bh-4, false)...)
 	return popup("Jump to table", lines, bw)
-}
-
-func (m *Model) infoBox(bw, maxH int) []string {
-	var ttl string
-	var head, lines []string
-	body := max(1, maxH-2)
-	cur := -1 // the line the window follows; -1 scrolls freely
-	switch m.ov {
-	case ovHelp:
-		ttl, lines = "Help", helpLines(bw-2)
-	case ovProblems:
-		ttl, lines = "Sync problems", m.problemLines(bw-4)
-	case ovSync:
-		ttl, lines = "Sync progress", m.syncLines()
-	case ovRecord:
-		ttl, lines = m.recordLines(bw - 2)
-	case ovRuns:
-		ttl, lines, cur = "Runs", m.runsLines(bw-2), m.ovSel
-	case ovBuffers:
-		ttl, lines, cur = "Buffers", m.buffersLines(bw-2), m.ovSel
-		if cur >= len(m.bufs) {
-			cur += 2 // the "Restore drafts" heading
-		}
-	case ovProjects:
-		ttl = "Projects"
-		head, lines = m.projectsLines(bw-2, body)
-		if m.pd != nil {
-			cur = m.pd.sel
-		}
-	case ovHandoff:
-		ttl, lines, cur = "Hand-off to an agent", m.handoffLines(bw-2), m.ovSel+m.hoTop
-	}
-	return m.scrollBox(ttl, head, lines, cur, bw, body)
-}
-
-// scrollBox is a popup of body lines: head stays put and rows scroll below
-// it, following row cur (cur < 0: scrolled by the keys alone).
-func (m *Model) scrollBox(ttl string, head, rows []string, cur, bw, body int) []string {
-	h := max(1, body-len(head))
-	if cur >= 0 {
-		window(cur, &m.ovOff, len(rows), h)
-	}
-	m.ovOff = clamp(m.ovOff, 0, max(0, len(rows)-h))
-	end := min(len(rows), m.ovOff+h)
-	if len(rows) > h {
-		ttl += fmt.Sprintf("  (%d-%d/%d)", m.ovOff+1, end, len(rows))
-	}
-	return popup(ttl, append(slices.Clip(head), rows[m.ovOff:end]...), bw)
 }
 
 func (m *Model) syncLines() []string {

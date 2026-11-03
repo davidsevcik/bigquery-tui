@@ -209,12 +209,9 @@ func execText(p string, src api.ExecutionSource) string {
 }
 
 // projectsLines are the dialog's header, fitted to the h lines of the popup
-// body, and its rows.
-func (m *Model) projectsLines(w, h int) (head, rows []string) {
+// body, and its rows, the cursor on row sel.
+func (m *Model) projectsLines(w, h, sel int) (head, rows []string) {
 	pd := m.pd
-	if pd == nil {
-		return nil, nil
-	}
 	head = m.projectsHead(w, h)
 	if id := pd.addRow(); id != "" {
 		r := newRB(true)
@@ -229,10 +226,9 @@ func (m *Model) projectsLines(w, h int) (head, rows []string) {
 		}
 		return head, []string{" " + sDim.Render(msg)}
 	}
-	pd.sel = clamp(pd.sel, 0, len(vis)-1)
 	for i, id := range vis {
 		p := pd.infos[id]
-		r := newRB(i == pd.sel)
+		r := newRB(i == sel)
 		box, st := "[ ] ", sDim
 		if p.Selected {
 			box, st = "[x] ", sAcc
@@ -333,6 +329,35 @@ func (m *Model) projectSyncing(p api.ProjectInfo) bool {
 	return false
 }
 
+// projectsPopup is the Projects dialog's popup. While its filter is typed,
+// projectsOverlay gives it the keys.
+type projectsPopup struct{}
+
+type projectsOverlay struct{ scrollOverlay }
+
+func (projectsPopup) width(w int) int { return clamp(w-8, 30, 84) }
+
+func (projectsPopup) page(m *Model, inner, body int) scrollPage {
+	pd := m.pd
+	if pd == nil {
+		return scrollPage{title: "Projects", cur: -1}
+	}
+	n := pd.rows()
+	sel := clamp(pd.sel, 0, max(0, n-1))
+	head, rows := m.projectsLines(inner, body, sel)
+	return scrollPage{title: "Projects", head: head, rows: rows, cur: sel, sel: &pd.sel, items: n}
+}
+
+func (projectsPopup) hints(*Model) string { return footerHints(ZoneOverlay) }
+
+func (o projectsOverlay) key(m *Model, k tea.KeyPressMsg, name string, f ovFrame) tea.Cmd {
+	if m.pd != nil && m.pd.typing {
+		return o.keep(m, f, func(scrollPage) tea.Cmd { return m.projectsKey(k, name) })
+	}
+	return o.scrollOverlay.key(m, k, name, f)
+}
+
+// projectsKey handles a key while the filter is typed.
 func (m *Model) projectsKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	pd := m.pd
 	switch keys.action(ZoneSearch, name) {
@@ -352,14 +377,23 @@ func (m *Model) projectsKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	return nil
 }
 
-func (m *Model) projectsOverlayAction(act string) tea.Cmd {
+var projectsActions = map[string]bool{
+	"halfdown": true, "halfup": true, "filter": true, "reloadlist": true, "sync": true, "syncall": true,
+	"back": true, "open": true, "toggle": true, "only": true, "exec": true,
+}
+
+func (projectsPopup) act(m *Model, act string) (tea.Cmd, bool) {
+	if m.pd == nil || !projectsActions[act] {
+		return nil, false
+	}
+	return m.projectsAction(act), true
+}
+
+// projectsAction applies a Popups action to the dialog's cursor row.
+func (m *Model) projectsAction(act string) tea.Cmd {
 	pd := m.pd
 	cur := pd.current()
 	switch act {
-	case "down":
-		pd.sel = min(pd.sel+1, max(0, pd.rows()-1))
-	case "up":
-		pd.sel = max(0, pd.sel-1)
 	case "halfdown":
 		pd.sel = min(pd.sel+10, max(0, pd.rows()-1))
 	case "halfup":
@@ -416,10 +450,6 @@ func (m *Model) projectsOverlayAction(act string) tea.Cmd {
 			return nil
 		}
 		return m.projectChange(func() error { return m.be.ChooseExecution(cur) }, "")
-	default:
-		if cmd, ok := m.globalAction(act); ok {
-			return cmd
-		}
 	}
 	return nil
 }

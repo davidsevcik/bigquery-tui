@@ -1077,34 +1077,24 @@ func (m *Model) findNext(dir int) tea.Cmd {
 
 // --- list overlays: runs and buffers
 
-func (m *Model) runsOverlayAction(act string) tea.Cmd {
+// runsPopup is the run list (ctrl+x l, gr).
+type runsPopup struct{}
+
+func (runsPopup) width(w int) int { return clamp(w-4, 30, 140) }
+
+func (runsPopup) page(m *Model, inner, _ int) scrollPage {
+	n := len(m.runs.List())
+	sel := clamp(m.ovSel, 0, max(0, n-1))
+	return scrollPage{title: "Runs", rows: m.runsLines(inner, sel), cur: sel, sel: &m.ovSel, items: n}
+}
+
+func (runsPopup) act(m *Model, act string) (tea.Cmd, bool) {
 	list := m.runs.List()
 	switch act {
-	case "down":
-		m.ovSel = min(m.ovSel+1, max(0, len(list)-1))
-	case "up":
-		m.ovSel = max(0, m.ovSel-1)
-	case "back":
-		m.ov = ovNone
 	case "open":
 		m.ov = ovNone
 		if m.ovSel < len(list) {
-			r := list[m.ovSel]
-			if r.State == api.RunNeedsOK {
-				m.askConfirm(confirmState{kind: "run", runID: r.ID, lines: confirmLines(r)})
-				return nil
-			}
-			if _, i := m.bufferOf(r.Tag); i >= 0 {
-				m.cur = i
-			}
-			m.buf().viewID = r.ID
-			m.showRun()
-			if r.HasResult && m.grids[r.ID] == nil {
-				m.grids[r.ID] = m.runGrid(r)
-			}
-			m.revealPane(ZoneResults)
-			m.setZone(ZoneResults)
-			return m.gridEnsure()
+			return m.showListedRun(list[m.ovSel]), true
 		}
 	case "cancelrun":
 		if m.ovSel < len(list) {
@@ -1112,43 +1102,70 @@ func (m *Model) runsOverlayAction(act string) tea.Cmd {
 			m.toast = fmt.Sprintf("cancel requested for run #%d", list[m.ovSel].ID)
 		}
 	default:
-		if cmd, ok := m.globalAction(act); ok {
-			return cmd
-		}
+		return nil, false
 	}
-	return nil
+	return nil, true
 }
 
-func (m *Model) buffersOverlayAction(act string) tea.Cmd {
-	n := len(m.bufs) + len(m.orphans)
-	switch act {
-	case "down":
-		m.ovSel = min(m.ovSel+1, max(0, n-1))
-	case "up":
-		m.ovSel = max(0, m.ovSel-1)
-	case "back":
-		m.ov = ovNone
-	case "open":
-		m.ov = ovNone
-		switch {
-		case m.ovSel < len(m.bufs):
-			m.cur = m.ovSel
-		case m.ovSel < n:
-			o := m.orphans[m.ovSel-len(m.bufs)]
-			if err := m.restoreOrphan(o); err != nil {
-				m.toast = err.Error()
-				return nil
-			}
-			m.toast = "draft restored"
-		}
-		m.setZone(ZoneEditor)
-		return m.gridEnsure()
-	default:
-		if cmd, ok := m.globalAction(act); ok {
-			return cmd
-		}
+func (runsPopup) hints(*Model) string {
+	return "↑↓ select · enter show the result · c cancel the run · esc close"
+}
+
+// showListedRun shows a Run picked in the run list in the Results, or asks
+// again when it waits for a confirmation.
+func (m *Model) showListedRun(r api.RunInfo) tea.Cmd {
+	if r.State == api.RunNeedsOK {
+		m.askConfirm(confirmState{kind: "run", runID: r.ID, lines: confirmLines(r)})
+		return nil
 	}
-	return nil
+	if _, i := m.bufferOf(r.Tag); i >= 0 {
+		m.cur = i
+	}
+	m.buf().viewID = r.ID
+	m.showRun()
+	if r.HasResult && m.grids[r.ID] == nil {
+		m.grids[r.ID] = m.runGrid(r)
+	}
+	m.revealPane(ZoneResults)
+	m.setZone(ZoneResults)
+	return m.gridEnsure()
+}
+
+// buffersPopup lists the buffers and the drafts to restore (ctrl+x b).
+type buffersPopup struct{}
+
+func (buffersPopup) width(w int) int { return clamp(w-4, 30, 140) }
+
+func (buffersPopup) page(m *Model, inner, _ int) scrollPage {
+	n := len(m.bufs) + len(m.orphans)
+	sel := clamp(m.ovSel, 0, max(0, n-1))
+	cur := sel
+	if cur >= len(m.bufs) {
+		cur += 2 // the "Restore drafts" heading
+	}
+	return scrollPage{title: "Buffers", rows: m.buffersLines(inner, sel), cur: cur, sel: &m.ovSel, items: n}
+}
+
+func (buffersPopup) act(m *Model, act string) (tea.Cmd, bool) {
+	if act != "open" {
+		return nil, false
+	}
+	m.ov = ovNone
+	if m.ovSel >= len(m.bufs) && m.ovSel < len(m.bufs)+len(m.orphans) {
+		if err := m.restoreOrphan(m.orphans[m.ovSel-len(m.bufs)]); err != nil {
+			m.toast = err.Error()
+			return nil, true
+		}
+		m.toast = "draft restored"
+	} else if m.ovSel < len(m.bufs) {
+		m.cur = m.ovSel
+	}
+	m.setZone(ZoneEditor)
+	return m.gridEnsure(), true
+}
+
+func (buffersPopup) hints(*Model) string {
+	return "↑↓ select · enter open or restore · esc close"
 }
 
 // insertPath puts a qualified table name into the editor (the explorer's i).

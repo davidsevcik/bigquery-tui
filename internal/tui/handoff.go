@@ -191,51 +191,56 @@ func (m *Model) onHandoff(msg handoffMsg) tea.Cmd {
 	return nil
 }
 
-func (m *Model) handoffLines(w int) []string {
+// handoffPopup lists what can be handed off to an agent (ctrl+x y).
+type handoffPopup struct{}
+
+func (handoffPopup) width(w int) int { return clamp(w-8, 30, 84) }
+
+func (handoffPopup) page(m *Model, inner, _ int) scrollPage {
+	n := len(m.hoItems)
+	sel := clamp(m.ovSel, 0, max(0, n-1))
+	rows, top := m.handoffLines(inner, sel)
+	return scrollPage{title: "Hand-off to an agent", rows: rows, cur: sel + top, sel: &m.ovSel, items: n}
+}
+
+// handoffLines are the popup's rows, the cursor on entry sel, and the row
+// of the first entry.
+func (m *Model) handoffLines(w, sel int) (rows []string, top int) {
 	var out []string
 	for _, l := range wrap("enter copies to the clipboard · w writes a file · esc closes", w-2) {
 		out = append(out, " "+sDim.Render(l))
 	}
 	out = append(out, "")
-	m.hoTop = len(out)
+	top = len(out)
 	if len(m.hoItems) == 0 {
-		return append(out, " "+sDim.Render("nothing to hand off: select a table in the explorer, or run a query"))
+		return append(out, " "+sDim.Render("nothing to hand off: select a table in the explorer, or run a query")), top
 	}
 	for i, it := range m.hoItems {
-		out = append(out, newRB(i == m.ovSel).add(" "+it.label, sBase).line(w))
+		out = append(out, newRB(i == sel).add(" "+it.label, sBase).line(w))
 	}
-	return out
+	return out, top
 }
 
-func (m *Model) handoffOverlayAction(act string) tea.Cmd {
-	n := len(m.hoItems)
-	switch act {
-	case "down":
-		m.ovSel = min(m.ovSel+1, max(0, n-1))
-	case "up":
-		m.ovSel = max(0, m.ovSel-1)
-	case "back":
-		m.ov = ovNone
-	case "open", "copy":
-		if m.ovSel < n {
-			m.ov = ovNone
-			return m.handoffCopy(m.hoItems[m.ovSel])
-		}
-	case "write":
-		if m.ovSel < n {
-			it := m.hoItems[m.ovSel]
-			m.openPrompt(promptState{
-				kind: "handoff", title: "Write " + it.label, labels: []string{"file"},
-				note: "enter writes · esc cancels", hoItem: it,
-			}, filepath.Join(".", handoffDir, it.file))
-		}
-	default:
-		if cmd, ok := m.globalAction(act); ok {
-			return cmd
-		}
+func (handoffPopup) act(m *Model, act string) (tea.Cmd, bool) {
+	if act != "open" && act != "copy" && act != "write" {
+		return nil, false
 	}
-	return nil
+	if m.ovSel >= len(m.hoItems) {
+		return nil, true
+	}
+	it := m.hoItems[m.ovSel]
+	if act == "write" {
+		m.openPrompt(promptState{
+			kind: "handoff", title: "Write " + it.label, labels: []string{"file"},
+			note: "enter writes · esc cancels", hoItem: it,
+		}, filepath.Join(".", handoffDir, it.file))
+		return nil, true
+	}
+	m.ov = ovNone
+	return m.handoffCopy(it), true
 }
+
+func (handoffPopup) hints(*Model) string { return footerHints(ZoneOverlay) }
 
 // handoffSubmit writes the prompt's file (asking once before overwriting).
 func (m *Model) handoffSubmit(p *promptState) tea.Cmd {

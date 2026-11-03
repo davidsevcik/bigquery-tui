@@ -170,7 +170,7 @@ func (m *Model) withCompletion(body []string, ed rect, w int) []string {
 		y = max(0, cy-len(box))
 	}
 	x := clamp(cx-2, 0, max(0, w-wid(box[0])))
-	return overlay(body, box, x, y, w)
+	return drawOver(body, box, x, y, w)
 }
 
 func (m *Model) resultsPane(w, h int) []string {
@@ -386,15 +386,15 @@ func (m *Model) confirmBox(bw int) []string {
 	return popup("Confirm", lines, bw)
 }
 
-func (m *Model) runsLines(w int) []string {
+// runsLines are the run list's rows, the cursor on row sel.
+func (m *Model) runsLines(w, sel int) []string {
 	list := m.runs.List()
 	if len(list) == 0 {
 		return []string{" " + sDim.Render("no runs in this session yet")}
 	}
-	m.ovSel = clamp(m.ovSel, 0, len(list)-1)
 	var out []string
 	for i, r := range list {
-		b := newRB(i == m.ovSel)
+		b := newRB(i == sel)
 		b.add(fmt.Sprintf(" #%-3d ", r.ID), sDim).add(fit(stateWord(r), 17), stateStyle(r.State))
 		size := ""
 		switch {
@@ -422,11 +422,11 @@ func (m *Model) runsLines(w int) []string {
 	return out
 }
 
-func (m *Model) buffersLines(w int) []string {
+// buffersLines are the buffer list's rows, the cursor on entry sel.
+func (m *Model) buffersLines(w, sel int) []string {
 	var out []string
-	m.ovSel = clamp(m.ovSel, 0, max(0, len(m.bufs)+len(m.orphans)-1))
 	for i, b := range m.bufs {
-		r := newRB(i == m.ovSel)
+		r := newRB(i == sel)
 		mark := "  "
 		if i == m.cur {
 			mark = "▸ "
@@ -453,7 +453,7 @@ func (m *Model) buffersLines(w int) []string {
 	if len(m.orphans) > 0 {
 		out = append(out, "", " "+sBold.Render("Restore drafts")+sDim.Render("  from earlier sessions (kept 30 days)"))
 		for i, o := range m.orphans {
-			r := newRB(len(m.bufs)+i == m.ovSel)
+			r := newRB(len(m.bufs)+i == sel)
 			r.add("   "+fit(agoPhrase(m.o.Now(), &o.modTime), 12), sDim).add(fit(fmt.Sprintf("%d lines", o.lines), 12), sDim).add(o.first, sFaint)
 			out = append(out, r.line(w))
 		}
