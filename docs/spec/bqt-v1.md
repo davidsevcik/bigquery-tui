@@ -1,8 +1,8 @@
 # bqt v1 specification
 
-Status: draft for build, assembled 2026-10-13 from the planning effort in `.scratch/bqt/` (map, tickets 01–18, research notes 01–04). Domain terms are defined in [`CONTEXT.md`](../../CONTEXT.md): **Favorite**, **History entry**, **Run**, **Execution project**, **Accessible project**, **Selected project**, **Cached project**. Use them exactly.
+Status: draft for build, assembled 2026-10-13 from the planning effort: the map [#49](https://github.com/davidsevcik/bigquery-tui/issues/49), tickets 01–18 (#50–#67) and research notes 01–04 (`docs/research/`). Domain terms are defined in [`CONTEXT.md`](../../CONTEXT.md): **Favorite**, **History entry**, **Run**, **Execution project**, **Accessible project**, **Selected project**, **Cached project**. Use them exactly.
 
-How to read this: phases 1 and 2 (the MVP) are specified sharply, with acceptance criteria. Phases 3 to 5 are specified more coarsely, but every risky decision in them is locked. Section 17 lists what is still unverified. Section 18 is the GUI-readiness check. Ticket references in brackets point to the decision record in `.scratch/bqt/issues/`.
+How to read this: phases 1 and 2 (the MVP) are specified sharply, with acceptance criteria. Phases 3 to 5 are specified more coarsely, but every risky decision in them is locked. Section 17 lists what is still unverified. Section 18 is the GUI-readiness check. Ticket references in brackets, such as [08], are the closed planning issues under the map [#49](https://github.com/davidsevcik/bigquery-tui/issues/49): ticket NN is issue #(49 + NN), so [08] is [#57](https://github.com/davidsevcik/bigquery-tui/issues/57). The decision index (section 20) links each one.
 
 ## 1. What bqt is
 
@@ -609,24 +609,24 @@ Each phase keeps the build green with the fakes; the live suite runs before a ph
 
 | Topic | Ticket |
 |---|---|
-| Metadata enumeration research | `issues/01-research-metadata-enumeration.md` |
-| Query execution research | `issues/02-research-query-execution.md` |
-| Editor and SQL tooling research | `issues/03-research-editor-and-sql-tooling.md` |
-| MCP Go SDK research | `issues/04-research-mcp-go-sdk.md` |
-| Config and ignore patterns (and reload) | `issues/05-config-and-ignore-file.md` |
-| Local store layout | `issues/06-local-store-layout.md` |
-| Sync strategy | `issues/07-sync-strategy.md` |
-| Explorer UX prototype | `issues/08-explorer-ux-prototype.md` |
-| Search syntax and ranking | `issues/09-search-syntax-and-ranking.md` |
-| Editor and autocomplete | `issues/10-editor-and-autocomplete.md` |
-| Query run and results | `issues/11-query-run-and-results.md` |
-| History and Favorites | `issues/12-history-and-favorites.md` |
-| Agent surface and safety | `issues/13-agent-surface-and-safety.md` |
-| Core library boundary | `issues/14-core-library-boundary.md` |
-| Results viewer details | `issues/15-results-viewer-details.md` |
-| Testing strategy | `issues/16-testing-strategy.md` |
-| Keybindings and help | `issues/17-keybindings-and-help.md` |
+| Metadata enumeration research | [#50](https://github.com/davidsevcik/bigquery-tui/issues/50), notes in [`docs/research/01-metadata-enumeration.md`](../research/01-metadata-enumeration.md) |
+| Query execution research | [#51](https://github.com/davidsevcik/bigquery-tui/issues/51), notes in [`docs/research/02-query-execution.md`](../research/02-query-execution.md) |
+| Editor and SQL tooling research | [#52](https://github.com/davidsevcik/bigquery-tui/issues/52), notes in [`docs/research/03-editor-and-sql-tooling.md`](../research/03-editor-and-sql-tooling.md) |
+| MCP Go SDK research | [#53](https://github.com/davidsevcik/bigquery-tui/issues/53), notes in [`docs/research/04-mcp-go-sdk.md`](../research/04-mcp-go-sdk.md) |
+| Config and ignore patterns (and reload) | [#54](https://github.com/davidsevcik/bigquery-tui/issues/54) |
+| Local store layout | [#55](https://github.com/davidsevcik/bigquery-tui/issues/55) |
+| Sync strategy | [#56](https://github.com/davidsevcik/bigquery-tui/issues/56) |
+| Explorer UX prototype | [#57](https://github.com/davidsevcik/bigquery-tui/issues/57) |
+| Search syntax and ranking | [#58](https://github.com/davidsevcik/bigquery-tui/issues/58) |
+| Editor and autocomplete | [#59](https://github.com/davidsevcik/bigquery-tui/issues/59) |
+| Query run and results | [#60](https://github.com/davidsevcik/bigquery-tui/issues/60) |
+| History and Favorites | [#61](https://github.com/davidsevcik/bigquery-tui/issues/61) |
+| Agent surface and safety | [#62](https://github.com/davidsevcik/bigquery-tui/issues/62) |
+| Core library boundary | [#63](https://github.com/davidsevcik/bigquery-tui/issues/63) |
+| Results viewer details | [#64](https://github.com/davidsevcik/bigquery-tui/issues/64) |
+| Testing strategy | [#65](https://github.com/davidsevcik/bigquery-tui/issues/65) |
+| Keybindings and help | [#66](https://github.com/davidsevcik/bigquery-tui/issues/66) |
 | Flexible Layout, Sample, `SELECT` shortcut (2026-10-28) | ADR 0002, `docs/research/flexible-layout.md`, #17 (phases #18–#21) |
-| Platform and diagnostics | `issues/18-platform-and-diagnostics.md` |
+| Platform and diagnostics | [#67](https://github.com/davidsevcik/bigquery-tui/issues/67) |
 
-Research notes with measurements and citations are in `.scratch/bqt/research/`. The throwaway explorer prototype is in `.scratch/bqt/prototype/explorer/`. Both are gitignored; this spec is self-contained for the decisions, and the tickets are the place for the reasoning.
+Research notes with measurements and citations are in [`docs/research/`](../research/). The throwaway explorer prototype was deleted; its README, with the observations, is a comment on [#57](https://github.com/davidsevcik/bigquery-tui/issues/57). This spec is self-contained for the decisions, and the tickets are the place for the reasoning.
