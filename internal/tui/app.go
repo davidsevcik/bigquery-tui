@@ -721,22 +721,11 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	if o := m.overlay(); o != nil {
 		return o.key(m, msg, name, m.overlayFrame(o))
 	}
-	switch m.ov {
-	case ovPrompt:
-		return m.promptKey(msg, name)
-	case ovConfirm:
-		return m.confirmKey(name)
-	case ovPicker:
-		return m.pickerKey(msg, name)
-	}
 	if st := m.typingState(); st != nil {
 		return m.searchKey(st, msg, name)
 	}
 	if f := m.typingFilter(); f != nil {
 		return m.filterKey(f, msg, name)
-	}
-	if m.ov == ovPalette {
-		return m.paletteKey(msg, name)
 	}
 	zone := m.zone
 	if zone == ZoneEditor {
@@ -962,67 +951,6 @@ func (m *Model) back() tea.Cmd {
 		f := m.styleFilter()
 		f.clear()
 		return m.refilter(f)
-	}
-	return nil
-}
-
-// --- palette
-
-func (m *Model) filterPalette() {
-	q := strings.ToLower(m.pal.value())
-	m.palCmds = m.palCmds[:0]
-	for _, c := range paletteCommands() {
-		if q == "" || fuzzyContains(strings.ToLower(c.name), q) {
-			m.palCmds = append(m.palCmds, c)
-		}
-	}
-	m.palSel = clamp(m.palSel, 0, max(0, len(m.palCmds)-1))
-}
-
-func fuzzyContains(s, q string) bool {
-	qr := []rune(q)
-	i := 0
-	for _, r := range s {
-		if i < len(qr) && r == qr[i] {
-			i++
-		}
-	}
-	return i == len(qr)
-}
-
-func (m *Model) paletteKey(msg tea.KeyPressMsg, name string) tea.Cmd {
-	switch keys.action(ZoneSearch, name) {
-	case "back":
-		m.ov = ovNone
-		return nil
-	case "down":
-		m.palSel = min(m.palSel+1, max(0, len(m.palCmds)-1))
-		return nil
-	case "up":
-		m.palSel = max(0, m.palSel-1)
-		return nil
-	case "open":
-		m.ov = ovNone
-		if m.palSel < len(m.palCmds) {
-			c := m.palCmds[m.palSel]
-			switch c.zone {
-			case ZoneEditor:
-				m.setZone(ZoneEditor)
-				return m.editorAction(c.action)
-			case ZoneResults:
-				m.setZone(ZoneResults)
-				return m.resultsAction(c.action)
-			case ZoneGlobal:
-				cmd, _ := m.globalAction(c.action)
-				return cmd
-			}
-			return m.explorerAction(c.action)
-		}
-		return nil
-	}
-	if m.pal.handle(msg) {
-		m.palSel = 0
-		m.filterPalette()
 	}
 	return nil
 }

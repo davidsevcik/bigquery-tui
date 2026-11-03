@@ -194,3 +194,32 @@ func (m *Model) maybeMore(st *searchState) tea.Cmd {
 	}
 	return nil
 }
+
+// jumpOverlay is Jump to table (ctrl+t): a search of the catalog's tables.
+type jumpOverlay struct{}
+
+func (jumpOverlay) frame(m *Model, w, h int) ovFrame {
+	bw := clamp(w-8, 30, 96)
+	bh := clamp(h-4, 8, 24)
+	return ovFrame{x: (w - bw) / 2, y: max(0, (h-bh)/3), lines: m.jumpBox(bw, bh), rows: bh - 4}
+}
+
+func (jumpOverlay) key(m *Model, k tea.KeyPressMsg, name string, _ ovFrame) tea.Cmd {
+	return m.searchKey(m.jump, k, name)
+}
+
+func (jumpOverlay) hints(*Model) string {
+	return "type to search · ↑↓ select · " + footerHints(ZoneSearch)
+}
+
+func (m *Model) jumpBox(bw, bh int) []string {
+	inner := bw - 2
+	st := m.jump
+	b := newRB(false)
+	b.add(" ⌕ ", sAcc)
+	b.l.WriteString(st.in.render(st.parsed, true, "table name, p:prod, d:events …"))
+	b.addR(m.searchInfo(st)+" ", sDim)
+	lines := []string{b.line(inner), " " + chips(st.parsed, inner-1, "")}
+	lines = append(lines, m.resultsList(st, inner, bh-4, false)...)
+	return popup("Jump to table", lines, bw)
+}

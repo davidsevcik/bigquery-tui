@@ -515,6 +515,22 @@ func confirmLines(info api.RunInfo) []string {
 
 // --- prompts
 
+// promptOverlay asks for one or more values (a file name, query parameters,
+// a Favorite's name…); its box shows the keys.
+type promptOverlay struct{}
+
+func (promptOverlay) frame(m *Model, w, h int) ovFrame {
+	bw := clamp(w-8, 30, 90)
+	box := m.promptBox(bw)
+	return ovFrame{x: (w - bw) / 2, y: max(0, (h-len(box))/3), lines: box, rows: len(m.prompt.fields)}
+}
+
+func (promptOverlay) key(m *Model, k tea.KeyPressMsg, name string, _ ovFrame) tea.Cmd {
+	return m.promptKey(k, name)
+}
+
+func (promptOverlay) hints(*Model) string { return "" }
+
 func (m *Model) openPrompt(p promptState, values ...string) {
 	p.fields = make([]input, len(p.labels))
 	for i := range p.fields {
@@ -715,6 +731,21 @@ func (m *Model) onExport(msg exportMsg) tea.Cmd {
 }
 
 // --- confirmations
+
+// confirmOverlay is a yes/no question; its box shows the keys.
+type confirmOverlay struct{}
+
+func (confirmOverlay) frame(m *Model, w, h int) ovFrame {
+	bw := clamp(w-8, 30, 80)
+	box := m.confirmBox(bw)
+	return ovFrame{x: (w - bw) / 2, y: max(0, (h-len(box))/3), lines: box}
+}
+
+func (confirmOverlay) key(m *Model, _ tea.KeyPressMsg, name string, _ ovFrame) tea.Cmd {
+	return m.confirmKey(name)
+}
+
+func (confirmOverlay) hints(*Model) string { return "" }
 
 // askConfirm shows a question now, or after the popup that is open.
 func (m *Model) askConfirm(c confirmState) {

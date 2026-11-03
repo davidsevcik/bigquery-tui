@@ -36,6 +36,11 @@ type ovFrame struct {
 
 // overlays are the overlay kinds' modules (none for ovNone).
 var overlays = [...]overlay{
+	ovJump:     jumpOverlay{},
+	ovPalette:  paletteOverlay{},
+	ovPrompt:   promptOverlay{},
+	ovConfirm:  confirmOverlay{},
+	ovPicker:   pickerOverlay{},
 	ovHelp:     scrollOverlay{helpPopup{}},
 	ovProblems: scrollOverlay{problemsPopup{}},
 	ovSync:     scrollOverlay{syncPopup{}},

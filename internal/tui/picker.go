@@ -468,7 +468,30 @@ func (m *Model) saveBufferAsFavorite(p *promptState) tea.Cmd {
 	return nil
 }
 
-// --- rendering
+// --- the overlay
+
+// pickerOverlay is the Favorites and History picker (ctrl+x f, ctrl+x r).
+type pickerOverlay struct{}
+
+func (pickerOverlay) frame(m *Model, w, h int) ovFrame {
+	bw := clamp(w-4, 40, 170)
+	bh := max(8, h-2)
+	return ovFrame{x: (w - bw) / 2, y: 1, lines: m.pickerBox(bw, bh)}
+}
+
+func (pickerOverlay) key(m *Model, k tea.KeyPressMsg, name string, _ ovFrame) tea.Cmd {
+	return m.pickerKey(k, name)
+}
+
+func (pickerOverlay) hints(m *Model) string {
+	hint := "type to search · ↑↓ select · enter open · tab favorites/history · "
+	if m.pk.scope == scopeFavorites {
+		hint += "ctrl+r rename · ctrl+d delete"
+	} else {
+		hint += "ctrl+r show result · ctrl+s save as favorite"
+	}
+	return hint + " · ctrl+e/y scroll · esc close"
+}
 
 func (m *Model) pickerBox(w, h int) []string {
 	pk := m.pk
