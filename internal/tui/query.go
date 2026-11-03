@@ -771,71 +771,93 @@ func (m *Model) nextConfirm() {
 	}
 }
 
-func (m *Model) confirmKey(name string) tea.Cmd {
-	c := m.confirm
-	switch c.kind {
-	case "load":
-		req := m.pendingLoad
-		if req == nil {
-			m.ov = ovNone
-			return nil
-		}
-		switch name {
-		case "y", "Y", "enter":
-			m.ov, m.pendingLoad = ovNone, nil
-			return m.finishLoad(*req, true)
-		case "n", "N":
-			m.ov, m.pendingLoad = ovNone, nil
-			return m.finishLoad(*req, false)
-		case "esc", "q", "ctrl+c":
-			m.ov, m.pendingLoad = ovNone, nil
-		}
-		return nil
-	case "favdelete":
-		switch name {
-		case "y", "Y", "enter":
-			m.ov = c.back
-			switch err := m.be.DeleteFavorite(c.subject); {
-			case errors.Is(err, favorites.ErrMoved):
-				m.toast = "favorites_dir changed since the question: nothing was deleted"
-			case err != nil:
-				m.toast = "delete: " + err.Error()
-			default:
-				m.toast = "deleted favorite " + c.subject.ID
-			}
-			if m.pk != nil {
-				m.reloadFavorites()
-			}
-		case "n", "N", "esc", "q", "ctrl+c":
-			m.ov = c.back
-		}
-		return nil
-	}
+// answer is what a key says to a question.
+type answer int
+
+const (
+	noAnswer answer = iota
+	answerYes
+	answerNo
+	answerDismiss // no, for every question but "replace the buffer?"
+)
+
+// answerOf reads a key as an answer: y or enter is yes, n is no, and esc,
+// q or ctrl+c dismisses the question.
+func answerOf(name string) answer {
 	switch name {
 	case "y", "Y", "enter":
-		m.ov = ovNone
-		switch c.kind {
-		case "run":
-			m.runs.Confirm(c.runID)
-			if m.o.NoBackground {
-				return m.followRun(c.runID)
-			}
-		case "quit":
-			m.runs.CancelAll()
-			return m.quit()
-		case "closebuf":
-			m.closeBuffer()
+		return answerYes
+	case "n", "N":
+		return answerNo
+	case "esc", "q", "ctrl+c":
+		return answerDismiss
+	}
+	return noAnswer
+}
+
+func (m *Model) confirmKey(name string) tea.Cmd {
+	c := m.confirm
+	a := answerOf(name)
+	switch {
+	case c.kind == "load":
+		return m.answerLoad(a)
+	case a == noAnswer:
+		return nil
+	case c.kind == "favdelete":
+		m.ov = c.back
+		if a == answerYes {
+			m.deleteFavorite(c.subject)
 		}
-	case "n", "N", "esc", "q", "ctrl+c":
-		m.ov = ovNone
-		if c.kind == "run" {
-			m.runs.Cancel(c.runID)
-			if m.o.NoBackground {
-				return m.followRun(c.runID)
-			}
-		}
+		return nil
+	}
+	m.ov = ovNone
+	switch {
+	case c.kind == "run" && a == answerYes:
+		m.runs.Confirm(c.runID)
+	case c.kind == "run":
+		m.runs.Cancel(c.runID)
+	case c.kind == "quit" && a == answerYes:
+		m.runs.CancelAll()
+		return m.quit()
+	case c.kind == "closebuf" && a == answerYes:
+		m.closeBuffer()
+	}
+	if c.kind == "run" && m.o.NoBackground {
+		return m.followRun(c.runID)
 	}
 	return nil
+}
+
+// answerLoad answers "replace the buffer with the pick?": n opens the pick
+// in a new buffer instead.
+func (m *Model) answerLoad(a answer) tea.Cmd {
+	req := m.pendingLoad
+	if req == nil || a == noAnswer {
+		if req == nil {
+			m.ov = ovNone
+		}
+		return nil
+	}
+	m.ov, m.pendingLoad = ovNone, nil
+	if a == answerDismiss {
+		return nil
+	}
+	return m.finishLoad(*req, a == answerYes)
+}
+
+// deleteFavorite deletes the Favorite file the question showed.
+func (m *Model) deleteFavorite(f api.Favorite) {
+	switch err := m.be.DeleteFavorite(f); {
+	case errors.Is(err, favorites.ErrMoved):
+		m.toast = "favorites_dir changed since the question: nothing was deleted"
+	case err != nil:
+		m.toast = "delete: " + err.Error()
+	default:
+		m.toast = "deleted favorite " + f.ID
+	}
+	if m.pk != nil {
+		m.reloadFavorites()
+	}
 }
 
 func (m *Model) quit() tea.Cmd {

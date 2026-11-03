@@ -225,6 +225,25 @@ func TestScrollPopupFollowsItsCursor(t *testing.T) {
 	}
 }
 
+// A question closes on an answer only, and a "close the buffer?" no keeps
+// the buffer.
+func TestQuestionsCloseOnAnAnswer(t *testing.T) {
+	for name, want := range map[string]answer{"y": answerYes, "enter": answerYes, "N": answerNo, "q": answerDismiss, "ctrl+c": answerDismiss, "x": noAnswer} {
+		if got := answerOf(name); got != want {
+			t.Errorf("%s: %d, want %d", name, got, want)
+		}
+	}
+	m := &Model{ov: ovConfirm, confirm: confirmState{kind: "closebuf"}}
+	m.confirmKey("x")
+	if m.ov != ovConfirm {
+		t.Fatal("x is no answer")
+	}
+	m.confirmKey("esc")
+	if m.ov != ovNone {
+		t.Fatal("esc answers no")
+	}
+}
+
 // The overlays' footers name the keys the Keymap binds.
 func TestOverlayHintsComeFromTheKeymap(t *testing.T) {
 	m := &Model{pk: &picker{}}
