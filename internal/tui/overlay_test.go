@@ -225,6 +225,21 @@ func TestScrollPopupFollowsItsCursor(t *testing.T) {
 	}
 }
 
+// Every overlay kind has its module.
+func TestEveryOverlayKindHasAModule(t *testing.T) {
+	if overlays[ovNone] != nil {
+		t.Fatal("ovNone is no overlay")
+	}
+	for k := ovNone + 1; int(k) < len(overlays); k++ {
+		if overlays[k] == nil {
+			t.Errorf("overlay kind %d has no module", k)
+		}
+	}
+	if len(overlays) != int(ovHandoff)+1 {
+		t.Errorf("%d modules for %d kinds", len(overlays)-1, ovHandoff)
+	}
+}
+
 // A question closes on an answer only, and a "close the buffer?" no keeps
 // the buffer.
 func TestQuestionsCloseOnAnAnswer(t *testing.T) {
