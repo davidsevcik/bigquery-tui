@@ -224,3 +224,28 @@ func TestScrollPopupFollowsItsCursor(t *testing.T) {
 		t.Fatalf("the last row is drawn last: %q", f.lines[len(f.lines)-2])
 	}
 }
+
+// The overlays' footers name the keys the Keymap binds.
+func TestOverlayHintsComeFromTheKeymap(t *testing.T) {
+	m := &Model{pk: &picker{}}
+	for kind, want := range map[overlayKind]string{
+		ovRuns:    "↑↓ select · enter show the result · c cancel the run · esc close",
+		ovBuffers: "↑↓ select · enter open or restore · esc close",
+		ovRecord:  "n/N next/previous row · j/k scroll · y copy as JSON · esc close",
+		ovJump:    "type to search · ↑↓ select · enter open · esc close",
+		ovPicker:  "type to search · ↑↓ select · enter open · tab favorites/history · ctrl+r rename · ctrl+d delete · ctrl+e/y scroll · esc close",
+		ovHelp:    "esc close",
+		ovPrompt:  "",
+	} {
+		if got := overlays[kind].hints(m); got != want {
+			t.Errorf("overlay %d: %q, want %q", kind, got, want)
+		}
+	}
+	m.pk.scope = scopeHistory
+	if got := overlays[ovPicker].hints(m); !strings.Contains(got, "ctrl+r show result · ctrl+s save as favorite") {
+		t.Errorf("History: %q", got)
+	}
+	if got := keyHint(ZoneEditor, "buffers", "prevbuf", "nextbuf"); got != "ctrl+x [/ctrl+x ] buffers" {
+		t.Errorf("chords are written in full: %q", got)
+	}
+}

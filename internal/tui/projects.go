@@ -253,7 +253,10 @@ func (m *Model) projectsHead(w, h int) []string {
 	exec, src := m.be.ExecutionProject()
 	execLine := " " + sDim.Render("Execution project: ") + sAcc.Render(execText(exec, src))
 	var keys []string
-	for _, l := range wrap("space select · o only this · e execution · s sync · S sync all · / filter · r reload list · esc close", w-2) {
+	z := ZoneOverlay
+	hint := joinHints(keyHint(z, "select", "toggle"), keyHint(z, "only this", "only"), keyHint(z, "execution", "exec"), keyHint(z, "sync", "sync"),
+		keyHint(z, "sync all", "syncall"), keyHint(z, "filter", "filter"), keyHint(z, "reload list", "reloadlist"), keyHint(z, "close", "back"))
+	for _, l := range wrap(hint, w-2) {
 		keys = append(keys, " "+sDim.Render(l))
 	}
 	sel := 0

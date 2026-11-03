@@ -540,13 +540,13 @@ func (pickerOverlay) key(m *Model, k tea.KeyPressMsg, name string, f ovFrame) te
 }
 
 func (pickerOverlay) hints(m *Model) string {
-	hint := "type to search · ↑↓ select · enter open · tab favorites/history · "
-	if m.pk.scope == scopeFavorites {
-		hint += "ctrl+r rename · ctrl+d delete"
-	} else {
-		hint += "ctrl+r show result · ctrl+s save as favorite"
+	z := ZonePicker
+	own := []string{keyHint(z, "rename", "pickr"), keyHint(z, "delete", "delete")}
+	if m.pk.scope == scopeHistory {
+		own = []string{keyHint(z, "show result", "pickr"), keyHint(z, "save as favorite", "promote")}
 	}
-	return hint + " · ctrl+e/y scroll · esc close"
+	return joinHints("type to search", selectHint(z), keyHint(z, "open", "open"), keyHint(z, "favorites/history", "scope"),
+		own[0], own[1], keyHint(z, "scroll", "detaildown", "detailup"), keyHint(z, "close", "back"))
 }
 
 // pickerBox draws the picker in its layout, the list's window from off on.

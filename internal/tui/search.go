@@ -209,7 +209,7 @@ func (jumpOverlay) key(m *Model, k tea.KeyPressMsg, name string, f ovFrame) tea.
 }
 
 func (jumpOverlay) hints(*Model) string {
-	return "type to search · ↑↓ select · " + footerHints(ZoneSearch)
+	return joinHints("type to search", selectHint(ZoneSearch), footerHints(ZoneSearch))
 }
 
 func (m *Model) jumpBox(bw, bh int) []string {

@@ -207,7 +207,9 @@ func (handoffPopup) page(m *Model, inner, _ int) scrollPage {
 // of the first entry.
 func (m *Model) handoffLines(w, sel int) (rows []string, top int) {
 	var out []string
-	for _, l := range wrap("enter copies to the clipboard · w writes a file · esc closes", w-2) {
+	z := ZoneOverlay
+	hint := joinHints(keyHint(z, "copies to the clipboard", "open"), keyHint(z, "writes a file", "write"), keyHint(z, "closes", "back"))
+	for _, l := range wrap(hint, w-2) {
 		out = append(out, " "+sDim.Render(l))
 	}
 	out = append(out, "")

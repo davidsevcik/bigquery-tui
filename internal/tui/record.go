@@ -105,7 +105,8 @@ func (recordPopup) act(m *Model, act string) (tea.Cmd, bool) {
 }
 
 func (recordPopup) hints(*Model) string {
-	return "n/N next/previous row · j/k scroll · y copy as JSON · " + footerHints(ZoneOverlay)
+	return joinHints(keyHint(ZoneOverlay, "next/previous row", "next", "prev"), keyHint(ZoneOverlay, "scroll", "down", "up"),
+		keyHint(ZoneOverlay, "copy as JSON", "copy"), footerHints(ZoneOverlay))
 }
 
 func (m *Model) recordLines(w int) (string, []string) {

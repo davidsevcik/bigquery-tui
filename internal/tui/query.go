@@ -1139,7 +1139,8 @@ func (runsPopup) act(m *Model, act string) (tea.Cmd, bool) {
 }
 
 func (runsPopup) hints(*Model) string {
-	return "↑↓ select · enter show the result · c cancel the run · esc close"
+	return joinHints(selectHint(ZoneOverlay), keyHint(ZoneOverlay, "show the result", "open"),
+		keyHint(ZoneOverlay, "cancel the run", "cancelrun"), footerHints(ZoneOverlay))
 }
 
 // showListedRun shows a Run picked in the run list in the Results, or asks
@@ -1196,7 +1197,7 @@ func (buffersPopup) act(m *Model, act string) (tea.Cmd, bool) {
 }
 
 func (buffersPopup) hints(*Model) string {
-	return "↑↓ select · enter open or restore · esc close"
+	return joinHints(selectHint(ZoneOverlay), keyHint(ZoneOverlay, "open or restore", "open"), footerHints(ZoneOverlay))
 }
 
 // insertPath puts a qualified table name into the editor (the explorer's i).
