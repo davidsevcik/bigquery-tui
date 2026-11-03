@@ -34,15 +34,15 @@ linters:
       checks: ["all", "-ST1000", "-ST1003", "-ST1016", "-ST1020", "-ST1021", "-ST1022", "-ST1023", "-QF*"]
     # Complexity and length limits started at cyclomatic 15, cognitive 20 and 80 lines.
     # About 90 functions exceed those, so each limit is the lowest value today's code
-    # passes (the worst function is the vim key handler, (*vim).key). They stop any new
+    # passes, set by the worst function for it (named below). They stop any new
     # function from being worse than the worst one; lower them as the functions in the
     # report's complexity section are simplified.
     gocyclo:
-      min-complexity: 98
+      min-complexity: 58 # (*Model).update in internal/tui/app.go
     gocognit:
-      min-complexity: 113
+      min-complexity: 107 # RunMetadataContract in internal/bq/bqtest/contract.go
     funlen:
-      lines: 269
+      lines: 171 # (*Run).run in internal/runs/runs.go
       statements: -1
     dupl:
       threshold: 150 # the starting value: no duplication found at it
