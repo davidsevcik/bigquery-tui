@@ -722,7 +722,7 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return o.key(m, msg, name, m.overlayFrame(o))
 	}
 	if st := m.typingState(); st != nil {
-		return m.searchKey(st, msg, name)
+		return m.searchKey(st, msg, name, max(1, m.listHeight()/2))
 	}
 	if f := m.typingFilter(); f != nil {
 		return m.filterKey(f, msg, name)

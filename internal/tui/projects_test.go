@@ -376,7 +376,9 @@ func TestALongProjectsListScrolls(t *testing.T) {
 			if !r.eng.Selection().Has("acme-x39") {
 				t.Fatalf("space hit another project: %v", r.eng.Selection().IDs())
 			}
-			r.press("ctrl+u", "ctrl+u", "ctrl+u", "ctrl+u", "ctrl+u")
+			for range 25 { // half a page at a time
+				r.press("ctrl+u")
+			}
 			r.contains("] acme-prod")
 
 			// filtered: the filter row stays above the scrolled rows

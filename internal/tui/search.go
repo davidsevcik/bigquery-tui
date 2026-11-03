@@ -123,9 +123,9 @@ func (m *Model) onSearch(msg searchMsg) {
 	st.cur = clamp(st.cur, 0, max(0, len(st.results)-1))
 }
 
-// searchKey handles a key while a search input has the focus.
-func (m *Model) searchKey(st *searchState, msg tea.KeyPressMsg, name string) tea.Cmd {
-	half := max(1, m.listHeight()/2)
+// searchKey handles a key while a search input has the focus; half is half
+// the rows its list shows.
+func (m *Model) searchKey(st *searchState, msg tea.KeyPressMsg, name string, half int) tea.Cmd {
 	// Printable keys type; only non-text keys are looked up in the registry.
 	isText := msg.Key().Text != "" && msg.Key().Mod&^tea.ModShift == 0
 	if !isText {
@@ -204,8 +204,8 @@ func (jumpOverlay) frame(m *Model, w, h int) ovFrame {
 	return ovFrame{x: (w - bw) / 2, y: max(0, (h-bh)/3), lines: m.jumpBox(bw, bh), rows: bh - 4}
 }
 
-func (jumpOverlay) key(m *Model, k tea.KeyPressMsg, name string, _ ovFrame) tea.Cmd {
-	return m.searchKey(m.jump, k, name)
+func (jumpOverlay) key(m *Model, k tea.KeyPressMsg, name string, f ovFrame) tea.Cmd {
+	return m.searchKey(m.jump, k, name, max(1, f.rows/2))
 }
 
 func (jumpOverlay) hints(*Model) string {

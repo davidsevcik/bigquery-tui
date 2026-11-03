@@ -172,9 +172,9 @@ func (s scrollOverlay) common(m *Model, act string, p scrollPage, f ovFrame) tea
 	switch {
 	case act == "back" || act == "open":
 		m.ov = ovNone
-	case p.sel != nil && (act == "down" || act == "up"):
+	case d != 0 && p.sel != nil:
 		*p.sel = clamp(*p.sel+d, 0, max(0, p.items-1))
-	case p.sel == nil && d != 0:
+	case d != 0:
 		m.ovOff = max(0, m.ovOff+d)
 	default:
 		cmd, _ := m.globalAction(act)

@@ -378,7 +378,7 @@ func (m *Model) projectsKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 }
 
 var projectsActions = map[string]bool{
-	"halfdown": true, "halfup": true, "filter": true, "reloadlist": true, "sync": true, "syncall": true,
+	"filter": true, "reloadlist": true, "sync": true, "syncall": true,
 	"back": true, "open": true, "toggle": true, "only": true, "exec": true,
 }
 
@@ -394,10 +394,6 @@ func (m *Model) projectsAction(act string) tea.Cmd {
 	pd := m.pd
 	cur := pd.current()
 	switch act {
-	case "halfdown":
-		pd.sel = min(pd.sel+10, max(0, pd.rows()-1))
-	case "halfup":
-		pd.sel = max(0, pd.sel-10)
 	case "filter":
 		pd.typing = true
 	case "reloadlist":
