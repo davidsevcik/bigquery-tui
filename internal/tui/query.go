@@ -1077,7 +1077,7 @@ func (m *Model) findNext(dir int) tea.Cmd {
 
 // --- list overlays: runs and buffers
 
-func (m *Model) runsOverlayAction(act string, name string) tea.Cmd {
+func (m *Model) runsOverlayAction(act string) tea.Cmd {
 	list := m.runs.List()
 	switch act {
 	case "down":
@@ -1106,11 +1106,12 @@ func (m *Model) runsOverlayAction(act string, name string) tea.Cmd {
 			m.setZone(ZoneResults)
 			return m.gridEnsure()
 		}
-	default:
-		if name == "c" && m.ovSel < len(list) {
+	case "cancelrun":
+		if m.ovSel < len(list) {
 			m.runs.Cancel(list[m.ovSel].ID)
 			m.toast = fmt.Sprintf("cancel requested for run #%d", list[m.ovSel].ID)
 		}
+	default:
 		if cmd, ok := m.globalAction(act); ok {
 			return cmd
 		}

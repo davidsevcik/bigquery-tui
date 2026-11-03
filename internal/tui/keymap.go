@@ -219,6 +219,7 @@ var Keymap = []Binding{
 	{ZoneOverlay, []string{"s"}, "sync", "projects popup: sync the project now, even when its cache is fresh", "", ""},
 	{ZoneOverlay, []string{"S"}, "syncall", "projects popup: sync every selected project now", "", ""},
 	{ZoneOverlay, []string{"w"}, "write", "hand-off popup: write to a file", "", ""},
+	{ZoneOverlay, []string{"c"}, "cancelrun", "run list: cancel the selected Run", "", ""},
 	{ZoneOverlay, []string{"esc", "q"}, "back", "close", "", "esc close"},
 }
 

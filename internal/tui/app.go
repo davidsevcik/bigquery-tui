@@ -757,7 +757,7 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	act := keys.action(zone, name)
 	switch {
 	case m.ov == ovRuns:
-		return m.runsOverlayAction(act, name)
+		return m.runsOverlayAction(act)
 	case m.ov == ovBuffers:
 		return m.buffersOverlayAction(act)
 	case m.ov == ovProjects:
