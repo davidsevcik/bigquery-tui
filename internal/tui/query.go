@@ -515,6 +515,22 @@ func confirmLines(info api.RunInfo) []string {
 
 // --- prompts
 
+// promptOverlay asks for one or more values (a file name, query parameters,
+// a Favorite's name…); its box shows the keys.
+type promptOverlay struct{}
+
+func (promptOverlay) frame(m *Model, w, h int) ovFrame {
+	bw := clamp(w-8, 30, 90)
+	box := m.promptBox(bw)
+	return ovFrame{x: (w - bw) / 2, y: max(0, (h-len(box))/3), lines: box, rows: len(m.prompt.fields)}
+}
+
+func (promptOverlay) key(m *Model, k tea.KeyPressMsg, name string, _ ovFrame) tea.Cmd {
+	return m.promptKey(k, name)
+}
+
+func (promptOverlay) hints(*Model) string { return "" }
+
 func (m *Model) openPrompt(p promptState, values ...string) {
 	p.fields = make([]input, len(p.labels))
 	for i := range p.fields {
@@ -716,6 +732,21 @@ func (m *Model) onExport(msg exportMsg) tea.Cmd {
 
 // --- confirmations
 
+// confirmOverlay is a yes/no question; its box shows the keys.
+type confirmOverlay struct{}
+
+func (confirmOverlay) frame(m *Model, w, h int) ovFrame {
+	bw := clamp(w-8, 30, 80)
+	box := m.confirmBox(bw)
+	return ovFrame{x: (w - bw) / 2, y: max(0, (h-len(box))/3), lines: box}
+}
+
+func (confirmOverlay) key(m *Model, _ tea.KeyPressMsg, name string, _ ovFrame) tea.Cmd {
+	return m.confirmKey(name)
+}
+
+func (confirmOverlay) hints(*Model) string { return "" }
+
 // askConfirm shows a question now, or after the popup that is open.
 func (m *Model) askConfirm(c confirmState) {
 	if m.ov != ovNone {
@@ -740,71 +771,93 @@ func (m *Model) nextConfirm() {
 	}
 }
 
-func (m *Model) confirmKey(name string) tea.Cmd {
-	c := m.confirm
-	switch c.kind {
-	case "load":
-		req := m.pendingLoad
-		if req == nil {
-			m.ov = ovNone
-			return nil
-		}
-		switch name {
-		case "y", "Y", "enter":
-			m.ov, m.pendingLoad = ovNone, nil
-			return m.finishLoad(*req, true)
-		case "n", "N":
-			m.ov, m.pendingLoad = ovNone, nil
-			return m.finishLoad(*req, false)
-		case "esc", "q", "ctrl+c":
-			m.ov, m.pendingLoad = ovNone, nil
-		}
-		return nil
-	case "favdelete":
-		switch name {
-		case "y", "Y", "enter":
-			m.ov = c.back
-			switch err := m.be.DeleteFavorite(c.subject); {
-			case errors.Is(err, favorites.ErrMoved):
-				m.toast = "favorites_dir changed since the question: nothing was deleted"
-			case err != nil:
-				m.toast = "delete: " + err.Error()
-			default:
-				m.toast = "deleted favorite " + c.subject.ID
-			}
-			if m.pk != nil {
-				m.reloadFavorites()
-			}
-		case "n", "N", "esc", "q", "ctrl+c":
-			m.ov = c.back
-		}
-		return nil
-	}
+// answer is what a key says to a question.
+type answer int
+
+const (
+	noAnswer answer = iota
+	answerYes
+	answerNo
+	answerDismiss // no, for every question but "replace the buffer?"
+)
+
+// answerOf reads a key as an answer: y or enter is yes, n is no, and esc,
+// q or ctrl+c dismisses the question.
+func answerOf(name string) answer {
 	switch name {
 	case "y", "Y", "enter":
-		m.ov = ovNone
-		switch c.kind {
-		case "run":
-			m.runs.Confirm(c.runID)
-			if m.o.NoBackground {
-				return m.followRun(c.runID)
-			}
-		case "quit":
-			m.runs.CancelAll()
-			return m.quit()
-		case "closebuf":
-			m.closeBuffer()
+		return answerYes
+	case "n", "N":
+		return answerNo
+	case "esc", "q", "ctrl+c":
+		return answerDismiss
+	}
+	return noAnswer
+}
+
+func (m *Model) confirmKey(name string) tea.Cmd {
+	c := m.confirm
+	a := answerOf(name)
+	switch {
+	case c.kind == "load":
+		return m.answerLoad(a)
+	case a == noAnswer:
+		return nil
+	case c.kind == "favdelete":
+		m.ov = c.back
+		if a == answerYes {
+			m.deleteFavorite(c.subject)
 		}
-	case "n", "N", "esc", "q", "ctrl+c":
-		m.ov = ovNone
-		if c.kind == "run" {
-			m.runs.Cancel(c.runID)
-			if m.o.NoBackground {
-				return m.followRun(c.runID)
-			}
-		}
+		return nil
+	}
+	m.ov = ovNone
+	switch {
+	case c.kind == "run" && a == answerYes:
+		m.runs.Confirm(c.runID)
+	case c.kind == "run":
+		m.runs.Cancel(c.runID)
+	case c.kind == "quit" && a == answerYes:
+		m.runs.CancelAll()
+		return m.quit()
+	case c.kind == "closebuf" && a == answerYes:
+		m.closeBuffer()
+	}
+	if c.kind == "run" && m.o.NoBackground {
+		return m.followRun(c.runID)
 	}
 	return nil
+}
+
+// answerLoad answers "replace the buffer with the pick?": n opens the pick
+// in a new buffer instead.
+func (m *Model) answerLoad(a answer) tea.Cmd {
+	req := m.pendingLoad
+	if req == nil || a == noAnswer {
+		if req == nil {
+			m.ov = ovNone
+		}
+		return nil
+	}
+	m.ov, m.pendingLoad = ovNone, nil
+	if a == answerDismiss {
+		return nil
+	}
+	return m.finishLoad(*req, a == answerYes)
+}
+
+// deleteFavorite deletes the Favorite file the question showed.
+func (m *Model) deleteFavorite(f api.Favorite) {
+	switch err := m.be.DeleteFavorite(f); {
+	case errors.Is(err, favorites.ErrMoved):
+		m.toast = "favorites_dir changed since the question: nothing was deleted"
+	case err != nil:
+		m.toast = "delete: " + err.Error()
+	default:
+		m.toast = "deleted favorite " + f.ID
+	}
+	if m.pk != nil {
+		m.reloadFavorites()
+	}
 }
 
 func (m *Model) quit() tea.Cmd {
@@ -1077,77 +1130,96 @@ func (m *Model) findNext(dir int) tea.Cmd {
 
 // --- list overlays: runs and buffers
 
-func (m *Model) runsOverlayAction(act string, name string) tea.Cmd {
+// runsPopup is the run list (ctrl+x l, gr).
+type runsPopup struct{}
+
+func (runsPopup) width(w int) int { return clamp(w-4, 30, 140) }
+
+func (runsPopup) page(m *Model, inner, _ int) scrollPage {
+	n := len(m.runs.List())
+	sel := clamp(m.ovSel, 0, max(0, n-1))
+	return scrollPage{title: "Runs", rows: m.runsLines(inner, sel), cur: sel, sel: &m.ovSel, items: n}
+}
+
+func (runsPopup) act(m *Model, act string) (tea.Cmd, bool) {
 	list := m.runs.List()
 	switch act {
-	case "down":
-		m.ovSel = min(m.ovSel+1, max(0, len(list)-1))
-	case "up":
-		m.ovSel = max(0, m.ovSel-1)
-	case "back":
-		m.ov = ovNone
 	case "open":
 		m.ov = ovNone
 		if m.ovSel < len(list) {
-			r := list[m.ovSel]
-			if r.State == api.RunNeedsOK {
-				m.askConfirm(confirmState{kind: "run", runID: r.ID, lines: confirmLines(r)})
-				return nil
-			}
-			if _, i := m.bufferOf(r.Tag); i >= 0 {
-				m.cur = i
-			}
-			m.buf().viewID = r.ID
-			m.showRun()
-			if r.HasResult && m.grids[r.ID] == nil {
-				m.grids[r.ID] = m.runGrid(r)
-			}
-			m.revealPane(ZoneResults)
-			m.setZone(ZoneResults)
-			return m.gridEnsure()
+			return m.showListedRun(list[m.ovSel]), true
 		}
-	default:
-		if name == "c" && m.ovSel < len(list) {
+	case "cancelrun":
+		if m.ovSel < len(list) {
 			m.runs.Cancel(list[m.ovSel].ID)
 			m.toast = fmt.Sprintf("cancel requested for run #%d", list[m.ovSel].ID)
 		}
-		if cmd, ok := m.globalAction(act); ok {
-			return cmd
-		}
+	default:
+		return nil, false
 	}
-	return nil
+	return nil, true
 }
 
-func (m *Model) buffersOverlayAction(act string) tea.Cmd {
-	n := len(m.bufs) + len(m.orphans)
-	switch act {
-	case "down":
-		m.ovSel = min(m.ovSel+1, max(0, n-1))
-	case "up":
-		m.ovSel = max(0, m.ovSel-1)
-	case "back":
-		m.ov = ovNone
-	case "open":
-		m.ov = ovNone
-		switch {
-		case m.ovSel < len(m.bufs):
-			m.cur = m.ovSel
-		case m.ovSel < n:
-			o := m.orphans[m.ovSel-len(m.bufs)]
-			if err := m.restoreOrphan(o); err != nil {
-				m.toast = err.Error()
-				return nil
-			}
-			m.toast = "draft restored"
-		}
-		m.setZone(ZoneEditor)
-		return m.gridEnsure()
-	default:
-		if cmd, ok := m.globalAction(act); ok {
-			return cmd
-		}
+func (runsPopup) hints(*Model) string {
+	return joinHints(selectHint(ZoneOverlay), keyHint(ZoneOverlay, "show the result", "open"),
+		keyHint(ZoneOverlay, "cancel the run", "cancelrun"), footerHints(ZoneOverlay))
+}
+
+// showListedRun shows a Run picked in the run list in the Results, or asks
+// again when it waits for a confirmation.
+func (m *Model) showListedRun(r api.RunInfo) tea.Cmd {
+	if r.State == api.RunNeedsOK {
+		m.askConfirm(confirmState{kind: "run", runID: r.ID, lines: confirmLines(r)})
+		return nil
 	}
-	return nil
+	if _, i := m.bufferOf(r.Tag); i >= 0 {
+		m.cur = i
+	}
+	m.buf().viewID = r.ID
+	m.showRun()
+	if r.HasResult && m.grids[r.ID] == nil {
+		m.grids[r.ID] = m.runGrid(r)
+	}
+	m.revealPane(ZoneResults)
+	m.setZone(ZoneResults)
+	return m.gridEnsure()
+}
+
+// buffersPopup lists the buffers and the drafts to restore (ctrl+x b).
+type buffersPopup struct{}
+
+func (buffersPopup) width(w int) int { return clamp(w-4, 30, 140) }
+
+func (buffersPopup) page(m *Model, inner, _ int) scrollPage {
+	n := len(m.bufs) + len(m.orphans)
+	sel := clamp(m.ovSel, 0, max(0, n-1))
+	cur := sel
+	if cur >= len(m.bufs) {
+		cur += 2 // the "Restore drafts" heading
+	}
+	return scrollPage{title: "Buffers", rows: m.buffersLines(inner, sel), cur: cur, sel: &m.ovSel, items: n}
+}
+
+func (buffersPopup) act(m *Model, act string) (tea.Cmd, bool) {
+	if act != "open" {
+		return nil, false
+	}
+	m.ov = ovNone
+	if m.ovSel >= len(m.bufs) && m.ovSel < len(m.bufs)+len(m.orphans) {
+		if err := m.restoreOrphan(m.orphans[m.ovSel-len(m.bufs)]); err != nil {
+			m.toast = err.Error()
+			return nil, true
+		}
+		m.toast = "draft restored"
+	} else if m.ovSel < len(m.bufs) {
+		m.cur = m.ovSel
+	}
+	m.setZone(ZoneEditor)
+	return m.gridEnsure(), true
+}
+
+func (buffersPopup) hints(*Model) string {
+	return joinHints(selectHint(ZoneOverlay), keyHint(ZoneOverlay, "open or restore", "open"), footerHints(ZoneOverlay))
 }
 
 // insertPath puts a qualified table name into the editor (the explorer's i).

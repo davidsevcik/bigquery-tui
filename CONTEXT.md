@@ -36,6 +36,10 @@ _Avoid_: Stale project, archived project
 One of the four areas of the TUI: Explorer, Schema, Editor and Results. Overlays (the palette, pickers, popups) are not Panes.
 _Avoid_: Zone (the old word, still used in code), window, view (a BigQuery table type)
 
+**Overlay**:
+A popup drawn over the Panes that takes the keys while it is open: the palette, Jump to table, the Favorites and History picker, a prompt or question, help, the run and buffer lists, the Projects dialog, the record and the hand-off. One is open at a time. The Editor's completion popup is not an Overlay: it belongs to the Editor, which keeps the keys.
+_Avoid_: Modal, layer, window
+
 **Layout**:
 How the four Panes are arranged on screen: a split tree, either one of the named presets (`classic`, `query`, `browse`, `tall`, `focus`) or the user's edit of one (`custom`). Switched inside the TUI and remembered in its state file, never set in the config (ADR 0002).
 _Avoid_: Screen, arrangement; "layout" for the Explorer's columns/tree/list drawing (that is the Explorer style)

@@ -245,8 +245,8 @@ func title(text string, w int, focused bool) string {
 	return st.Render(pad(text, w))
 }
 
-// overlay draws box onto base at (x,y).
-func overlay(base []string, box []string, x, y, W int) []string {
+// drawOver draws box onto base at (x,y).
+func drawOver(base []string, box []string, x, y, W int) []string {
 	out := append([]string(nil), base...)
 	for i, bl := range box {
 		r := y + i

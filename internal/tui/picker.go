@@ -158,9 +158,20 @@ func (m *Model) pickedHistory() (api.HistoryGroup, bool) {
 	return pk.hist[pk.sel[1]], true
 }
 
-func (m *Model) pickerRows() int { return max(3, m.h-2-2-5) }
+// pickedSQL is the SQL of the entry under the cursor, which the preview
+// shows.
+func (m *Model) pickedSQL() string {
+	if f, ok := m.pickedFavorite(); ok {
+		return f.SQL
+	}
+	if g, ok := m.pickedHistory(); ok {
+		return g.Latest.SQL
+	}
+	return ""
+}
 
-func (m *Model) pickerKey(msg tea.KeyPressMsg, name string) tea.Cmd {
+// pickerKey handles a key in the picker; page is the rows its list shows.
+func (m *Model) pickerKey(msg tea.KeyPressMsg, name string, page int) tea.Cmd {
 	pk := m.pk
 	act := keys[ZonePicker][name]
 	if act == "" && strings.HasPrefix(name, "ctrl+") {
@@ -188,18 +199,21 @@ func (m *Model) pickerKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	case "up":
 		return move(-1)
 	case "pagedown":
-		return move(m.pickerRows())
+		return move(page)
 	case "pageup":
-		return move(-m.pickerRows())
+		return move(-page)
 	case "scope":
 		pk.scope = 1 - pk.scope
 		pk.poff = 0
 		return nil
-	case "detaildown":
-		pk.poff++
-		return nil
-	case "detailup":
-		pk.poff = max(0, pk.poff-1)
+	case "detaildown", "detailup":
+		last := strings.Count(m.pickedSQL(), "\n") // the preview's last SQL line
+		pk.poff = clamp(pk.poff, 0, last)
+		if act == "detaildown" {
+			pk.poff = min(pk.poff+1, last)
+		} else {
+			pk.poff = max(0, pk.poff-1)
+		}
 		return nil
 	case "open":
 		return m.pickOpen()
@@ -468,11 +482,77 @@ func (m *Model) saveBufferAsFavorite(p *promptState) tea.Cmd {
 	return nil
 }
 
-// --- rendering
+// --- the overlay
 
-func (m *Model) pickerBox(w, h int) []string {
+// pickerOverlay is the Favorites and History picker (ctrl+x f, ctrl+x r).
+type pickerOverlay struct{}
+
+// pickerGeom is the picker's layout in a w×h box: under a header of
+// pickerHead rows, the list beside the preview when the box is wide, above
+// it when not.
+type pickerGeom struct {
+	w, inner, body int // the box's width, the cells inside its border, the rows under the header
+	listW, listH   int
+	side           bool
+}
+
+const pickerHead = 4 // the tabs, the search, its chips and a rule
+
+// pickerPlace lays the picker out over a body of w×h cells: the box is at
+// (x, 1).
+func pickerPlace(w, h int) (x int, g pickerGeom) {
+	bw := clamp(w-4, 40, 170)
+	bh := max(8, h-2)
+	g = pickerGeom{w: bw, inner: bw - 2, body: max(3, bh-2-pickerHead)}
+	g.side = g.inner >= 90
+	g.listW, g.listH = g.inner, max(3, g.body/2)
+	if g.side {
+		g.listW, g.listH = g.inner*45/100, g.body
+	}
+	return (w - bw) / 2, g
+}
+
+// pickerOff is where the list's window starts: where it was, moved just
+// enough to show the cursor.
+func (m *Model) pickerOff(g pickerGeom) int {
 	pk := m.pk
-	inner := w - 2
+	off := pk.off[pk.scope]
+	window(pk.sel[pk.scope], &off, pk.count(), g.listH)
+	return off
+}
+
+func (pickerOverlay) frame(m *Model, w, h int) ovFrame {
+	x, g := pickerPlace(w, h)
+	off := m.pickerOff(g)
+	return ovFrame{x: x, y: 1, lines: m.pickerBox(g, off), rows: g.listH, off: off}
+}
+
+// key pages by the rows the list shows, and keeps the window where it was
+// drawn.
+func (pickerOverlay) key(m *Model, k tea.KeyPressMsg, name string, f ovFrame) tea.Cmd {
+	m.pk.off[m.pk.scope] = f.off
+	cmd := m.pickerKey(k, name, f.rows)
+	if m.ov == ovPicker {
+		_, g := pickerPlace(m.w, m.h-2)
+		m.pk.off[m.pk.scope] = m.pickerOff(g)
+	}
+	return cmd
+}
+
+func (pickerOverlay) hints(m *Model) string {
+	z := ZonePicker
+	own := []string{keyHint(z, "rename", "pickr"), keyHint(z, "delete", "delete")}
+	if m.pk.scope == scopeHistory {
+		own = []string{keyHint(z, "show result", "pickr"), keyHint(z, "save as favorite", "promote")}
+	}
+	return joinHints("type to search", selectHint(z), keyHint(z, "open", "open"), keyHint(z, "favorites/history", "scope"),
+		own[0], own[1], keyHint(z, "scroll", "detaildown", "detailup"), keyHint(z, "close", "back"))
+}
+
+// pickerBox draws the picker in its layout, the list's window from off on.
+func (m *Model) pickerBox(g pickerGeom, off int) []string {
+	pk := m.pk
+	inner := g.inner
 	tab := func(label string, n int, on bool) string {
 		t := fmt.Sprintf(" %s %d ", label, n)
 		if on {
@@ -499,17 +579,8 @@ func (m *Model) pickerBox(w, h int) []string {
 		lines = append(lines, "")
 	}
 	lines = append(lines, sFaint.Render(strings.Repeat("─", inner)))
-	bodyH := max(3, h-2-len(lines))
-	listW := inner
-	side := inner >= 90
-	if side {
-		listW = inner * 45 / 100
-	}
-	listH := bodyH
-	if !side {
-		listH = max(3, bodyH/2)
-	}
-	list := m.pickerList(listW, listH)
+	bodyH, listW, listH, side := g.body, g.listW, g.listH, g.side
+	list := m.pickerList(listW, listH, off)
 	prevW := inner
 	if side {
 		prevW = inner - listW - 1
@@ -525,7 +596,7 @@ func (m *Model) pickerBox(w, h int) []string {
 		lines = append(lines, list...)
 		lines = append(lines, fillTo(prev, prevW, bodyH-listH)...)
 	}
-	return popup("Favorites and History", lines, w)
+	return popup("Favorites and History", lines, g.w)
 }
 
 // favQuery marks every word of a Favorites search as a term, for colour.
@@ -540,7 +611,8 @@ func favQuery(raw string) api.ParsedQuery {
 	return q
 }
 
-func (m *Model) pickerList(w, h int) []string {
+// pickerList draws the list in w×h cells, the window from off on.
+func (m *Model) pickerList(w, h, off int) []string {
 	pk := m.pk
 	s := pk.scope
 	n := pk.count()
@@ -557,7 +629,7 @@ func (m *Model) pickerList(w, h int) []string {
 	case n == 0:
 		return fillTo([]string{" " + sDim.Render("nothing matches")}, w, h)
 	}
-	from, to := window(pk.sel[s], &pk.off[s], n, h)
+	from, to := off, min(n, off+h)
 	now := m.o.Now()
 	for i := from; i < to; i++ {
 		b := newRB(i == pk.sel[s])
@@ -690,8 +762,8 @@ func (m *Model) pickerPreview(w int) []string {
 	}
 	lines := append(meta, sFaint.Render(" "+strings.Repeat("─", max(0, w-2))))
 	body := sqlLines(sql, m.be.Tokenize(sql), spans, w-1)
-	pk.poff = clamp(pk.poff, 0, max(0, len(body)-1))
-	for _, l := range body[pk.poff:] {
+	poff := clamp(pk.poff, 0, max(0, len(body)-1))
+	for _, l := range body[poff:] {
 		lines = append(lines, " "+l)
 	}
 	return lines

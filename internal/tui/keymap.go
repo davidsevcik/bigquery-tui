@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"sort"
 	"strings"
 )
@@ -219,6 +220,7 @@ var Keymap = []Binding{
 	{ZoneOverlay, []string{"s"}, "sync", "projects popup: sync the project now, even when its cache is fresh", "", ""},
 	{ZoneOverlay, []string{"S"}, "syncall", "projects popup: sync every selected project now", "", ""},
 	{ZoneOverlay, []string{"w"}, "write", "hand-off popup: write to a file", "", ""},
+	{ZoneOverlay, []string{"c"}, "cancelrun", "run list: cancel the selected Run", "", ""},
 	{ZoneOverlay, []string{"esc", "q"}, "back", "close", "", "esc close"},
 }
 
@@ -287,6 +289,59 @@ func footerHints(zones ...Zone) string {
 	}
 	return strings.Join(parts, " · ")
 }
+
+// keyHint is a hint for actions bound in zone z: the first key the Keymap
+// binds to each, then text, as in "n/N next/previous row". Keys with the
+// same modifier write it once: "ctrl+e/y scroll".
+func keyHint(z Zone, text string, actions ...string) string {
+	var ks []string
+	for _, a := range actions {
+		for _, b := range Keymap {
+			if b.Zone == z && b.Action == a && len(b.Keys) > 0 {
+				ks = append(ks, b.Keys[0])
+				break
+			}
+		}
+	}
+	if len(ks) == 0 {
+		return text
+	}
+	if i := strings.LastIndex(ks[0], "+"); i > 0 && len(ks[0]) > i+1 && !strings.Contains(strings.Join(ks, ""), " ") {
+		mod := ks[0][:i+1]
+		short := []string{ks[0]}
+		for _, k := range ks[1:] {
+			if !strings.HasPrefix(k, mod) {
+				short = ks
+				break
+			}
+			short = append(short, strings.TrimPrefix(k, mod))
+		}
+		ks = short
+	}
+	return strings.Join(ks, "/") + " " + text
+}
+
+// selectHint is "↑↓ select" when zone z binds up and down to the arrow
+// keys.
+func selectHint(z Zone) string {
+	const text = "select"
+	arrow := map[string]string{"up": "↑", "down": "↓"}
+	out := ""
+	for _, a := range []string{"up", "down"} {
+		for _, b := range Keymap {
+			if b.Zone == z && b.Action == a && slices.Contains(b.Keys, a) {
+				out += arrow[a]
+			}
+		}
+	}
+	if out != "↑↓" {
+		return keyHint(z, text, "up", "down")
+	}
+	return out + " " + text
+}
+
+// joinHints joins footer hints.
+func joinHints(h ...string) string { return strings.Join(h, " · ") }
 
 type command struct {
 	name, action, key string
