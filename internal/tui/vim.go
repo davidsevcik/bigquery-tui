@@ -444,105 +444,134 @@ func (e *editor) searchFrom(pat string, dir int) (int, int, bool) {
 	return 0, 0, false
 }
 
+// objectBrackets are the bracket text objects' keys and their pairs.
+var objectBrackets = map[string][2]rune{
+	"(": {'(', ')'}, ")": {'(', ')'}, "b": {'(', ')'},
+	"[": {'[', ']'}, "]": {'[', ']'},
+	"{": {'{', '}'}, "}": {'{', '}'}, "B": {'{', '}'},
+	"<": {'<', '>'}, ">": {'<', '>'},
+}
+
 // textObject resolves i/a + key to a range (end exclusive).
 func (e *editor) textObject(around bool, key string) (r1, c1, r2, c2 int, ok bool) {
-	r, c := e.row, e.col
-	line := e.lines[r]
 	switch key {
 	case "w", "W":
-		if len(line) == 0 {
-			return r, 0, r, 0, true
-		}
-		c = min(c, len(line)-1)
-		big := key == "W"
-		cls := classOf(line[c], big)
-		a, b := c, c+1
-		for a > 0 && classOf(line[a-1], big) == cls {
-			a--
-		}
-		for b < len(line) && classOf(line[b], big) == cls {
-			b++
-		}
-		if around {
-			end := b
-			for end < len(line) && unicode.IsSpace(line[end]) && cls != 0 {
-				end++
-			}
-			if end == b { // no trailing blanks: take the leading ones
-				for a > 0 && unicode.IsSpace(line[a-1]) && cls != 0 {
-					a--
-				}
-			}
-			b = end
-		}
-		return r, a, r, b, true
+		return e.wordObject(around, key == "W")
 	case `"`, "'", "`":
-		q := []rune(key)[0]
-		var qs []int
-		for i, ch := range line {
-			if ch == q {
-				qs = append(qs, i)
+		return e.quoteObject(around, []rune(key)[0])
+	}
+	if pair, isBracket := objectBrackets[key]; isBracket {
+		return e.bracketObject(around, pair[0], pair[1])
+	}
+	return 0, 0, 0, 0, false
+}
+
+// wordObject is iw aw iW aW on the cursor line. aw takes the blanks after the
+// word, or those before it when none follow.
+func (e *editor) wordObject(around, big bool) (r1, c1, r2, c2 int, ok bool) {
+	r := e.row
+	line := e.lines[r]
+	if len(line) == 0 {
+		return r, 0, r, 0, true
+	}
+	c := min(e.col, len(line)-1)
+	cls := classOf(line[c], big)
+	a, b := c, c+1
+	for a > 0 && classOf(line[a-1], big) == cls {
+		a--
+	}
+	for b < len(line) && classOf(line[b], big) == cls {
+		b++
+	}
+	if around && cls != 0 {
+		end := b
+		for end < len(line) && unicode.IsSpace(line[end]) {
+			end++
+		}
+		if end == b {
+			for a > 0 && unicode.IsSpace(line[a-1]) {
+				a--
 			}
 		}
-		for i := 0; i+1 < len(qs); i += 2 {
-			if c <= qs[i+1] { // inside this pair, or before it on the line
-				if c < qs[i] && i > 0 {
-					continue
-				}
-				if around {
-					return r, qs[i], r, qs[i+1] + 1, true
-				}
-				return r, qs[i] + 1, r, qs[i+1], true
-			}
+		b = end
+	}
+	return r, a, r, b, true
+}
+
+// quoteObject is i" a" and the other quotes: the pair the cursor is in, or
+// the first one after it on the line. Quotes pair up from the line start.
+func (e *editor) quoteObject(around bool, q rune) (r1, c1, r2, c2 int, ok bool) {
+	r, c := e.row, e.col
+	var qs []int
+	for i, ch := range e.lines[r] {
+		if ch == q {
+			qs = append(qs, i)
 		}
+	}
+	for i := 0; i+1 < len(qs); i += 2 {
+		if c <= qs[i+1] { // inside this pair, or before it on the line
+			if c < qs[i] && i > 0 {
+				continue
+			}
+			if around {
+				return r, qs[i], r, qs[i+1] + 1, true
+			}
+			return r, qs[i] + 1, r, qs[i+1], true
+		}
+	}
+	return 0, 0, 0, 0, false
+}
+
+// bracketObject is i( a( and the other brackets: the pair around the cursor,
+// across lines.
+func (e *editor) bracketObject(around bool, open, closeCh rune) (r1, c1, r2, c2 int, ok bool) {
+	or, oc, found := e.enclosingOpener(open, closeCh)
+	if !found {
 		return 0, 0, 0, 0, false
 	}
-	var open, closeCh rune
-	switch key {
-	case "(", ")", "b":
-		open, closeCh = '(', ')'
-	case "[", "]":
-		open, closeCh = '[', ']'
-	case "{", "}", "B":
-		open, closeCh = '{', '}'
-	case "<", ">":
-		open, closeCh = '<', '>'
-	default:
+	cr, cc, found := e.matchingCloser(or, oc, open, closeCh)
+	if !found {
 		return 0, 0, 0, 0, false
 	}
-	// the enclosing opener, searching backwards from the cursor
-	or, oc, depth := r, c, 0
-	found := false
+	if around {
+		return or, oc, cr, cc + 1, true
+	}
+	// inside: step past the opener (to the next line when it ends its line)
+	return or, oc + 1, cr, cc, true
+}
+
+// enclosingOpener finds the opener of the pair around the cursor, searching
+// backwards and skipping the pairs closed on the way.
+func (e *editor) enclosingOpener(open, closeCh rune) (int, int, bool) {
+	r, c, depth := e.row, e.col, 0
 	for {
-		ch, has := e.charAt(or, oc)
-		if has {
+		if ch, has := e.charAt(r, c); has {
 			switch {
-			case ch == closeCh && !(or == r && oc == c):
+			case ch == closeCh && (r != e.row || c != e.col):
 				depth++
+			case ch == open && depth == 0:
+				return r, c, true
 			case ch == open:
-				if depth == 0 {
-					found = true
-				} else {
-					depth--
-				}
+				depth--
 			}
 		}
-		if found {
-			break
-		}
-		if oc > 0 {
-			oc--
-		} else if or > 0 {
-			or--
-			oc = max(0, e.lineLen(or)-1)
-		} else {
-			return 0, 0, 0, 0, false
+		switch {
+		case c > 0:
+			c--
+		case r > 0:
+			r--
+			c = max(0, e.lineLen(r)-1)
+		default:
+			return 0, 0, false
 		}
 	}
-	cr, cc, depth := or, oc, 0
+}
+
+// matchingCloser finds the closer of the opener at r, c.
+func (e *editor) matchingCloser(r, c int, open, closeCh rune) (int, int, bool) {
+	depth := 0
 	for {
-		ch, has := e.charAt(cr, cc)
-		if has {
+		if ch, has := e.charAt(r, c); has {
 			switch ch {
 			case open:
 				depth++
@@ -550,23 +579,18 @@ func (e *editor) textObject(around bool, key string) (r1, c1, r2, c2 int, ok boo
 				depth--
 			}
 			if depth == 0 {
-				break
+				return r, c, true
 			}
 		}
-		if cc+1 < e.lineLen(cr) {
-			cc++
-		} else if cr < len(e.lines)-1 {
-			cr, cc = cr+1, 0
-		} else {
-			return 0, 0, 0, 0, false
+		switch {
+		case c+1 < e.lineLen(r):
+			c++
+		case r < len(e.lines)-1:
+			r, c = r+1, 0
+		default:
+			return 0, 0, false
 		}
 	}
-	if around {
-		return or, oc, cr, cc + 1, true
-	}
-	// inside: step past the opener (to the next line when it ends its line)
-	ir, ic := or, oc+1
-	return ir, ic, cr, cc, true
 }
 
 // --- the layer
@@ -599,75 +623,103 @@ func (v *vim) motionFor(e *editor, key string, page int) motion {
 	case "$", "end":
 		r = min(len(e.lines)-1, r+n-1)
 		return motion{r: r, c: e.lineLen(r), ok: true}
-	case "w", "W":
-		for i := 0; i < n; i++ {
-			r, c = e.wordForward(r, c, key == "W")
-		}
-		return motion{r: r, c: c, ok: true}
-	case "b", "B":
-		for i := 0; i < n; i++ {
-			r, c = e.wordBack(r, c, key == "B")
-		}
-		return motion{r: r, c: c, ok: true}
-	case "e", "E":
-		for i := 0; i < n; i++ {
-			r, c = e.wordEnd(r, c, key == "E")
-		}
-		return motion{r: r, c: c, inclusive: true, ok: true}
-	case "G":
-		r = len(e.lines) - 1
-		if v.hasCount || v.opCount > 0 {
-			r = clamp(n-1, 0, len(e.lines)-1)
-		}
-		return motion{r: r, c: e.firstNonBlank(r), linewise: true, ok: true}
-	case "gg":
-		r = 0
-		if v.hasCount || v.opCount > 0 {
-			r = clamp(n-1, 0, len(e.lines)-1)
-		}
-		return motion{r: r, c: e.firstNonBlank(r), linewise: true, ok: true}
+	case "w", "W", "b", "B", "e", "E":
+		return e.wordMotion(key, n)
+	case "G", "gg":
+		return v.lineJump(e, key)
 	case "{":
-		r = e.paragraph(-1, n)
-		return motion{r: r, c: 0, ok: true}
+		return motion{r: e.paragraph(-1, n), c: 0, ok: true}
 	case "}":
-		r = e.paragraph(1, n)
-		return motion{r: r, c: 0, ok: true}
+		return motion{r: e.paragraph(1, n), c: 0, ok: true}
 	case "%":
 		if mr, mc, ok := e.matchBracket(); ok {
 			return motion{r: mr, c: mc, inclusive: true, ok: true}
 		}
-		return motion{}
 	case ";", ",":
-		if v.findKind == "" {
-			return motion{}
-		}
-		kind := v.findKind
-		if key == "," {
-			kind = map[string]string{"f": "F", "F": "f", "t": "T", "T": "t"}[kind]
-		}
-		if fc, ok := e.findChar(kind, v.findCh, n); ok {
-			return motion{r: r, c: fc, inclusive: kind == "f" || kind == "t", ok: true}
-		}
-		return motion{}
+		return v.repeatFind(e, key == ",", n)
 	case "ctrl+d", "ctrl+u", "ctrl+f", "ctrl+b", "pgdown", "pgup":
-		d := max(1, page/2)
-		if key == "ctrl+f" || key == "ctrl+b" || key == "pgdown" || key == "pgup" {
-			d = max(1, page-1)
-		}
-		if key == "ctrl+u" || key == "ctrl+b" || key == "pgup" {
-			d = -d
-		}
-		r = clamp(r+d, 0, len(e.lines)-1)
-		return motion{r: r, c: e.want, linewise: true, keepWant: true, ok: true}
+		return e.pageMotion(key, page)
 	case "n", "N":
-		dir := 1
-		if key == "N" {
-			dir = -1
-		}
-		if sr, sc, ok := e.searchFrom(v.search, dir); ok {
-			return motion{r: sr, c: sc, ok: true}
-		}
+		return v.searchMotion(e, key == "N")
+	}
+	return motion{}
+}
+
+// wordMotion is w b e and W B E, n times.
+func (e *editor) wordMotion(key string, n int) motion {
+	step := e.wordForward
+	switch key {
+	case "b", "B":
+		step = e.wordBack
+	case "e", "E":
+		step = e.wordEnd
+	}
+	big := key == "W" || key == "B" || key == "E"
+	r, c := e.row, e.col
+	for range n {
+		r, c = step(r, c, big)
+	}
+	return motion{r: r, c: c, inclusive: key == "e" || key == "E", ok: true}
+}
+
+// lineJump is G (the last line) and gg (the first); with a count both go to
+// that line.
+func (v *vim) lineJump(e *editor, key string) motion {
+	r := 0
+	if key == "G" {
+		r = len(e.lines) - 1
+	}
+	if v.hasCount || v.opCount > 0 {
+		r = clamp(v.n()-1, 0, len(e.lines)-1)
+	}
+	return motion{r: r, c: e.firstNonBlank(r), linewise: true, ok: true}
+}
+
+// findMotion is f F t T: to (or next to) the n-th ch on the cursor line.
+func (e *editor) findMotion(kind string, ch rune, n int) motion {
+	fc, ok := e.findChar(kind, ch, n)
+	if !ok {
 		return motion{}
+	}
+	return motion{r: e.row, c: fc, inclusive: kind == "f" || kind == "t", ok: true}
+}
+
+// repeatFind is ; (the last f F t T again) and , (the same in reverse).
+func (v *vim) repeatFind(e *editor, reverse bool, n int) motion {
+	if v.findKind == "" {
+		return motion{}
+	}
+	kind := v.findKind
+	if reverse {
+		kind = map[string]string{"f": "F", "F": "f", "t": "T", "T": "t"}[kind]
+	}
+	return e.findMotion(kind, v.findCh, n)
+}
+
+// pageMotion is ctrl+d and ctrl+u (half a page) and ctrl+f, ctrl+b, pgdown
+// and pgup (a page less one line), down and up.
+func (e *editor) pageMotion(key string, page int) motion {
+	d := max(1, page/2)
+	switch key {
+	case "ctrl+f", "ctrl+b", "pgdown", "pgup":
+		d = max(1, page-1)
+	}
+	switch key {
+	case "ctrl+u", "ctrl+b", "pgup":
+		d = -d
+	}
+	r := clamp(e.row+d, 0, len(e.lines)-1)
+	return motion{r: r, c: e.want, linewise: true, keepWant: true, ok: true}
+}
+
+// searchMotion is n (the next match of the last search) and N (the previous).
+func (v *vim) searchMotion(e *editor, back bool) motion {
+	dir := 1
+	if back {
+		dir = -1
+	}
+	if sr, sc, ok := e.searchFrom(v.search, dir); ok {
+		return motion{r: sr, c: sc, ok: true}
 	}
 	return motion{}
 }
@@ -797,7 +849,7 @@ func (v *vim) visualRange(e *editor) (r1, c1, r2, c2 int) {
 
 // syncSelection shows Visual mode's range as the editor's selection.
 func (v *vim) syncSelection(e *editor) {
-	if v.mode != vimVisual && v.mode != vimVisualLine {
+	if !v.visual() {
 		e.vis = nil
 		return
 	}
@@ -810,290 +862,390 @@ func (v *vim) enterInsert(e *editor) {
 	e.selOn = false
 }
 
+func (v *vim) visual() bool { return v.mode == vimVisual || v.mode == vimVisualLine }
+
 // key handles one key in Normal or a Visual mode. key is the printable text
 // or the key's name; page is the viewport height.
+//
+// A key finishes what is pending first: the second key of a two-key command,
+// a digit of the count, then Visual mode's keys or what follows an operator.
+// Otherwise it starts a Normal-mode command.
 func (v *vim) key(e *editor, key string, page int) vimOut {
-	var out vimOut
-	visual := v.mode == vimVisual || v.mode == vimVisualLine
 	defer func() {
 		if v.mode != vimInsert {
 			e.clampNormal()
 		}
 		v.syncSelection(e)
 	}()
-
-	// a key that completes a two-key command
 	if w := v.wait; w != "" {
 		v.wait = ""
-		switch w {
-		case "f", "F", "t", "T":
-			rs := []rune(key)
-			if key == "space" {
-				rs = []rune{' '}
-			}
-			if len(rs) != 1 {
-				v.reset()
-				return out
-			}
-			v.findKind, v.findCh = w, rs[0]
-			fc, ok := e.findChar(w, rs[0], v.n())
-			if !ok {
-				v.reset()
-				return out
-			}
-			v.applyMotion(e, motion{r: e.row, c: fc, inclusive: w == "f" || w == "t", ok: true}, &out)
-			return out
-		case "r":
-			rs := []rune(key)
-			if key == "space" {
-				rs = []rune{' '}
-			}
-			n := v.n()
-			if len(rs) == 1 && e.col+n <= e.lineLen(e.row) {
-				e.push(false)
-				for i := 0; i < n; i++ {
-					e.lines[e.row][e.col+i] = rs[0]
-				}
-				e.col += n - 1
-				e.changed()
-			}
-			v.reset()
-			return out
-		case "g":
-			switch key {
-			case "g":
-				v.applyMotion(e, v.motionFor(e, "gg", page), &out)
-			case "r":
-				out.action = "runs"
-				v.reset()
-			default:
-				v.reset()
-			}
-			return out
-		case "i", "a":
-			r1, c1, r2, c2, ok := e.textObject(w == "a", key)
-			if !ok {
-				v.reset()
-				return out
-			}
-			if visual {
-				v.mode = vimVisual
-				v.anchorR, v.anchorC = r1, c1
-				e.row, e.col = r2, max(c1, c2-1)
-				if r2 > r1 && c2 == 0 {
-					e.row, e.col = r2-1, max(0, e.lineLen(r2-1)-1)
-				}
-				return out
-			}
-			op := v.op
-			v.reset()
-			v.operate(e, op, r1, c1, r2, c2, false, &out)
-			return out
-		case "leader":
-			v.reset()
-			out.action = map[string]string{
-				"r": "run", "d": "dryrun", "e": "exteditor", "l": "runs", "n": "newbuf", "b": "buflist",
-				"w": "closebuf", "[": "prevbuf", "]": "nextbuf", "s": "save", "f": "favorites", "h": "history", "F": "savefav", "p": "projects", "y": "handoff",
-			}[key]
-			if out.action == "" {
-				out.toast = "space " + key + " is not bound (space r runs, space d dry-runs)"
-			}
-			return out
-		}
+		return v.secondKey(e, w, key, page)
 	}
-
-	// counts
-	if len(key) == 1 && key[0] >= '0' && key[0] <= '9' && (key != "0" || v.hasCount) {
-		v.count = min(v.count*10+int(key[0]-'0'), 100000)
-		v.hasCount = true
-		return out
+	if v.countDigit(key) {
+		return vimOut{}
 	}
-
-	if visual {
+	if v.visual() {
 		return v.visualKey(e, key, page)
 	}
-
-	// an operator is pending: a motion, a text object, or the operator again
 	if v.op != "" {
-		switch {
-		case key == v.op: // dd, cc, yy, >>, <<
-			n := v.n()
-			op := v.op
-			v.reset()
-			v.operate(e, op, e.row, 0, min(len(e.lines)-1, e.row+n-1), 0, true, &out)
-		case key == "i" || key == "a":
-			v.wait = key
-		case key == "f" || key == "F" || key == "t" || key == "T" || key == "g":
-			v.wait = key
-		case isMotionKey(key):
-			// cw changes to the end of the word, like ce (the blanks stay)
-			if ch, ok := e.charAt(e.row, e.col); v.op == "c" && (key == "w" || key == "W") && ok && !unicode.IsSpace(ch) {
-				key = map[string]string{"w": "e", "W": "E"}[key]
-				// ce from the last character of a word must not run into the next one
-				if nx, has := e.charAt(e.row, e.col+1); !has || classOf(nx, key == "E") != classOf(ch, key == "E") {
-					n := v.n()
-					if n == 1 {
-						v.reset()
-						v.operate(e, "c", e.row, e.col, e.row, e.col+1, false, &out)
-						return out
-					}
-				}
-			}
-			v.applyMotion(e, v.motionFor(e, key, page), &out)
-		default:
-			v.reset()
-		}
-		return out
+		return v.operatorKey(e, key, page)
 	}
+	return v.normalKey(e, key, page)
+}
 
-	n := v.n()
-	switch key {
-	case "esc":
+// countDigit adds key to the count when it is a digit. 0 is a digit only
+// after another one; on its own it is the motion.
+func (v *vim) countDigit(key string) bool {
+	if len(key) != 1 || key[0] < '0' || key[0] > '9' || (key == "0" && !v.hasCount) {
+		return false
+	}
+	v.count = min(v.count*10+int(key[0]-'0'), 100000)
+	v.hasCount = true
+	return true
+}
+
+// keyRune is the character a key types, for the second key of f and r.
+func keyRune(key string) (rune, bool) {
+	if key == "space" {
+		return ' ', true
+	}
+	rs := []rune(key)
+	if len(rs) != 1 {
+		return 0, false
+	}
+	return rs[0], true
+}
+
+// secondKey completes a two-key command whose first key, w, is waiting.
+func (v *vim) secondKey(e *editor, w, key string, page int) vimOut {
+	var out vimOut
+	switch w {
+	case "f", "F", "t", "T":
+		v.find(e, w, key, &out)
+	case "r":
+		v.replaceChars(e, key)
+	case "g":
+		v.gKey(e, key, page, &out)
+	case "i", "a":
+		v.textObjectKey(e, w == "a", key, &out)
+	case "leader":
 		v.reset()
+		out = leaderKey(key)
+	}
+	return out
+}
+
+// find is f F t T: a motion to the character key types.
+func (v *vim) find(e *editor, kind, key string, out *vimOut) {
+	ch, ok := keyRune(key)
+	if !ok {
+		v.reset()
+		return
+	}
+	v.findKind, v.findCh = kind, ch
+	v.applyMotion(e, e.findMotion(kind, ch, v.n()), out)
+}
+
+// replaceChars is r: the count characters from the cursor become the one key
+// types, if the line has that many.
+func (v *vim) replaceChars(e *editor, key string) {
+	n := v.n()
+	v.reset()
+	ch, ok := keyRune(key)
+	if !ok || e.col+n > e.lineLen(e.row) {
+		return
+	}
+	e.push(false)
+	for i := range n {
+		e.lines[e.row][e.col+i] = ch
+	}
+	e.col += n - 1
+	e.changed()
+}
+
+// gKey is the key after g: gg is a motion, gr opens the run list.
+func (v *vim) gKey(e *editor, key string, page int, out *vimOut) {
+	switch key {
+	case "g":
+		v.applyMotion(e, v.motionFor(e, "gg", page), out)
+		return
+	case "r":
+		out.action = "runs"
+	}
+	v.reset()
+}
+
+// textObjectKey is the key after i or a: Visual mode selects the object, an
+// operator applies to it.
+func (v *vim) textObjectKey(e *editor, around bool, key string, out *vimOut) {
+	r1, c1, r2, c2, ok := e.textObject(around, key)
+	switch {
+	case !ok:
+		v.reset()
+	case v.visual():
+		v.mode = vimVisual
+		v.anchorR, v.anchorC = r1, c1
+		e.row, e.col = r2, max(c1, c2-1)
+		if r2 > r1 && c2 == 0 {
+			e.row, e.col = r2-1, max(0, e.lineLen(r2-1)-1)
+		}
+	default:
+		op := v.op
+		v.reset()
+		v.operate(e, op, r1, c1, r2, c2, false, out)
+	}
+}
+
+// leaderActions are the editor actions of the space leader's second key.
+var leaderActions = map[string]string{
+	"r": "run", "d": "dryrun", "e": "exteditor", "l": "runs", "n": "newbuf", "b": "buflist",
+	"w": "closebuf", "[": "prevbuf", "]": "nextbuf", "s": "save", "f": "favorites", "h": "history", "F": "savefav", "p": "projects", "y": "handoff",
+}
+
+// leaderKey is the key after space.
+func leaderKey(key string) vimOut {
+	if action := leaderActions[key]; action != "" {
+		return vimOut{action: action}
+	}
+	return vimOut{toast: "space " + key + " is not bound (space r runs, space d dry-runs)"}
+}
+
+// operatorKey handles the key after an operator: the operator again for whole
+// lines (dd, cc, yy, >>, <<), a text object, or a motion. Any other key
+// cancels the operator.
+func (v *vim) operatorKey(e *editor, key string, page int) vimOut {
+	var out vimOut
+	switch {
+	case key == v.op:
+		n, op := v.n(), v.op
+		v.reset()
+		v.operate(e, op, e.row, 0, min(len(e.lines)-1, e.row+n-1), 0, true, &out)
+	case key == "i" || key == "a" || key == "f" || key == "F" || key == "t" || key == "T" || key == "g":
+		v.wait = key
+	case isMotionKey(key):
+		if key = v.changeWord(e, key, &out); key != "" {
+			v.applyMotion(e, v.motionFor(e, key, page), &out)
+		}
+	default:
+		v.reset()
+	}
+	return out
+}
+
+// changeWord makes cw and cW change to the end of the word, like ce and cE,
+// so the blanks after it stay. It returns the motion to apply, or "" when it
+// changed the word's last letter itself (ce from there would run into the
+// next word).
+func (v *vim) changeWord(e *editor, key string, out *vimOut) string {
+	ch, ok := e.charAt(e.row, e.col)
+	if v.op != "c" || (key != "w" && key != "W") || !ok || unicode.IsSpace(ch) {
+		return key
+	}
+	big := key == "W"
+	key = "e"
+	if big {
+		key = "E"
+	}
+	if nx, has := e.charAt(e.row, e.col+1); (!has || classOf(nx, big) != classOf(ch, big)) && v.n() == 1 {
+		v.reset()
+		v.operate(e, "c", e.row, e.col, e.row, e.col+1, false, out)
+		return ""
+	}
+	return key
+}
+
+// startPending begins a command that needs more keys: an operator (taking
+// the count typed so far), a two-key command, or the space leader. With a
+// count, space is the motion instead.
+func (v *vim) startPending(key string) bool {
+	switch key {
 	case "d", "c", "y", ">", "<":
 		v.op = key
 		if v.hasCount {
 			v.opCount, v.count, v.hasCount = v.count, 0, false
 		}
-		return out
 	case "f", "F", "t", "T", "r", "g":
 		v.wait = key
-		return out
 	case "space":
 		if v.hasCount {
-			v.applyMotion(e, v.motionFor(e, key, page), &out)
-			return out
+			return false
 		}
 		v.wait = "leader"
+	default:
+		return false
+	}
+	return true
+}
+
+// normalActions are the Normal-mode keys the model handles.
+var normalActions = map[string]string{":": "palette", "?": "help", "enter": "run", ".": "vimrepeat"}
+
+// normalKey handles a key in Normal mode with nothing pending but a count.
+func (v *vim) normalKey(e *editor, key string, page int) vimOut {
+	var out vimOut
+	if v.startPending(key) {
 		return out
-	case "i":
-		v.enterInsert(e)
-	case "a":
-		e.col = min(e.col+1, e.lineLen(e.row))
-		v.enterInsert(e)
-	case "I":
-		e.col = e.firstNonBlank(e.row)
-		v.enterInsert(e)
-	case "A":
-		e.col = e.lineLen(e.row)
-		v.enterInsert(e)
-	case "o", "O":
-		e.push(false)
-		indent := append([]rune(nil), e.lines[e.row][:e.firstNonBlank(e.row)]...)
-		at := e.row + 1
-		if key == "O" {
-			at = e.row
-		}
-		nl := make([][]rune, 0, len(e.lines)+1)
-		nl = append(nl, e.lines[:at]...)
-		nl = append(nl, indent)
-		nl = append(nl, e.lines[at:]...)
-		e.lines = nl
-		e.row, e.col = at, len(indent)
-		e.changed()
-		v.enterInsert(e)
-	case "x", "delete":
-		if e.lineLen(e.row) > 0 {
-			v.operate(e, "d", e.row, e.col, e.row, min(e.col+n, e.lineLen(e.row)), false, &out)
-		}
-	case "X":
-		if e.col > 0 {
-			v.operate(e, "d", e.row, max(0, e.col-n), e.row, e.col, false, &out)
-		}
-	case "s":
-		v.operate(e, "c", e.row, e.col, e.row, min(e.col+n, e.lineLen(e.row)), false, &out)
-		v.mode = vimInsert
-	case "S":
-		v.operate(e, "c", e.row, 0, min(len(e.lines)-1, e.row+n-1), 0, true, &out)
-	case "D":
-		v.operate(e, "d", e.row, e.col, e.row, e.lineLen(e.row), false, &out)
-	case "C":
-		v.operate(e, "c", e.row, e.col, e.row, e.lineLen(e.row), false, &out)
-		v.mode = vimInsert
-	case "Y":
-		v.operate(e, "y", e.row, 0, min(len(e.lines)-1, e.row+n-1), 0, true, &out)
-	case "p":
-		v.paste(e, false, n)
-	case "P":
-		v.paste(e, true, n)
+	}
+	n := v.n()
+	switch key {
+	case "esc":
+	case "i", "a", "I", "A", "o", "O":
+		v.insert(e, key)
+	case "x", "delete", "X", "s", "S", "D", "C", "Y":
+		v.shorthand(e, key, n, &out)
+	case "p", "P":
+		v.paste(e, key == "P", n)
 	case "u":
-		for i := 0; i < n; i++ {
-			if !e.doUndo() {
-				out.toast = "already at the oldest change"
-				break
-			}
-		}
+		out.toast = e.undoTimes(n, false)
 	case "ctrl+r":
-		for i := 0; i < n; i++ {
-			if !e.doRedo() {
-				out.toast = "already at the newest change"
-				break
-			}
-		}
+		out.toast = e.undoTimes(n, true)
 	case "J":
-		joins := max(1, n-1)
-		e.push(false)
-		for i := 0; i < joins && e.row < len(e.lines)-1; i++ {
-			left := []rune(strings.TrimRight(string(e.lines[e.row]), " \t"))
-			right := []rune(strings.TrimLeft(string(e.lines[e.row+1]), " \t"))
-			at := len(left)
-			if len(left) > 0 && len(right) > 0 {
-				left = append(left, ' ')
-			}
-			e.lines[e.row] = append(left, right...)
-			e.lines = append(e.lines[:e.row+1], e.lines[e.row+2:]...)
-			e.col = at
-		}
-		e.changed()
+		e.joinLines(max(1, n-1))
 	case "~":
-		if e.lineLen(e.row) > 0 {
-			e.push(false)
-			for i := 0; i < n && e.col < e.lineLen(e.row); i++ {
-				ch := e.lines[e.row][e.col]
-				if unicode.IsUpper(ch) {
-					ch = unicode.ToLower(ch)
-				} else {
-					ch = unicode.ToUpper(ch)
-				}
-				e.lines[e.row][e.col] = ch
-				e.col++
-			}
-			e.changed()
-		}
+		e.flipCaseAtCursor(n)
 	case "v":
 		v.mode, v.anchorR, v.anchorC = vimVisual, e.row, e.col
 	case "V":
 		v.mode, v.anchorR, v.anchorC = vimVisualLine, e.row, e.col
-	case ":":
-		out.action = "palette"
-	case "?":
-		out.action = "help"
+	case ":", "?", "enter", ".":
+		out.action = normalActions[key]
 	case "/":
 		out.prompt = true
 	case "*":
-		if r1, c1, _, c2, ok := e.textObject(false, "w"); ok && c2 > c1 {
-			v.search = string(e.lines[r1][c1:c2])
-			v.applyMotion(e, v.motionFor(e, "n", page), &out)
-			return out
-		}
-	case "enter":
-		out.action = "run"
-	case ".":
-		out.action = "vimrepeat"
+		v.searchWord(e, page, &out)
 	default:
 		if isMotionKey(key) {
 			v.applyMotion(e, v.motionFor(e, key, page), &out)
-			return out
 		}
 	}
 	v.reset()
 	return out
 }
 
+// insert is i a I A o O: each starts Insert mode in its own place.
+func (v *vim) insert(e *editor, key string) {
+	switch key {
+	case "a":
+		e.col = min(e.col+1, e.lineLen(e.row))
+	case "I":
+		e.col = e.firstNonBlank(e.row)
+	case "A":
+		e.col = e.lineLen(e.row)
+	case "o", "O":
+		e.openLine(key == "O")
+	}
+	v.enterInsert(e)
+}
+
+// openLine is o and O: a new line below or above the cursor, with its indent.
+func (e *editor) openLine(above bool) {
+	e.push(false)
+	indent := append([]rune(nil), e.lines[e.row][:e.firstNonBlank(e.row)]...)
+	at := e.row + 1
+	if above {
+		at = e.row
+	}
+	nl := make([][]rune, 0, len(e.lines)+1)
+	nl = append(nl, e.lines[:at]...)
+	nl = append(nl, indent)
+	nl = append(nl, e.lines[at:]...)
+	e.lines = nl
+	e.row, e.col = at, len(indent)
+	e.changed()
+}
+
+// shorthand is x X s S D C Y, each an operator over a range: x is dl, X is
+// dh, s is cl, S is cc, D is d$, C is c$ and Y is yy.
+func (v *vim) shorthand(e *editor, key string, n int, out *vimOut) {
+	row, col, end := e.row, e.col, e.lineLen(e.row)
+	last := min(len(e.lines)-1, row+n-1)
+	switch key {
+	case "x", "delete":
+		if end > 0 {
+			v.operate(e, "d", row, col, row, min(col+n, end), false, out)
+		}
+	case "X":
+		if col > 0 {
+			v.operate(e, "d", row, max(0, col-n), row, col, false, out)
+		}
+	case "s":
+		v.operate(e, "c", row, col, row, min(col+n, end), false, out)
+	case "S":
+		v.operate(e, "c", row, 0, last, 0, true, out)
+	case "D":
+		v.operate(e, "d", row, col, row, end, false, out)
+	case "C":
+		v.operate(e, "c", row, col, row, end, false, out)
+	case "Y":
+		v.operate(e, "y", row, 0, last, 0, true, out)
+	}
+}
+
+// undoTimes is u (or ctrl+r, redo) n times. It returns a toast when it runs
+// out of changes.
+func (e *editor) undoTimes(n int, redo bool) string {
+	step, toast := e.doUndo, "already at the oldest change"
+	if redo {
+		step, toast = e.doRedo, "already at the newest change"
+	}
+	for range n {
+		if !step() {
+			return toast
+		}
+	}
+	return ""
+}
+
+// joinLines is J: the next line joins the cursor line, joins times, with one
+// space between them.
+func (e *editor) joinLines(joins int) {
+	e.push(false)
+	for i := 0; i < joins && e.row < len(e.lines)-1; i++ {
+		left := []rune(strings.TrimRight(string(e.lines[e.row]), " \t"))
+		right := []rune(strings.TrimLeft(string(e.lines[e.row+1]), " \t"))
+		at := len(left)
+		if len(left) > 0 && len(right) > 0 {
+			left = append(left, ' ')
+		}
+		e.lines[e.row] = append(left, right...)
+		e.lines = append(e.lines[:e.row+1], e.lines[e.row+2:]...)
+		e.col = at
+	}
+	e.changed()
+}
+
+func flipCase(ch rune) rune {
+	if unicode.IsUpper(ch) {
+		return unicode.ToLower(ch)
+	}
+	return unicode.ToUpper(ch)
+}
+
+// flipCaseAtCursor is ~: n characters from the cursor change case, and the
+// cursor moves past them.
+func (e *editor) flipCaseAtCursor(n int) {
+	if e.lineLen(e.row) == 0 {
+		return
+	}
+	e.push(false)
+	for i := 0; i < n && e.col < e.lineLen(e.row); i++ {
+		e.lines[e.row][e.col] = flipCase(e.lines[e.row][e.col])
+		e.col++
+	}
+	e.changed()
+}
+
+// searchWord is *: search for the word under the cursor.
+func (v *vim) searchWord(e *editor, page int, out *vimOut) {
+	if r1, c1, _, c2, ok := e.textObject(false, "w"); ok && c2 > c1 {
+		v.search = string(e.lines[r1][c1:c2])
+		v.applyMotion(e, v.motionFor(e, "n", page), out)
+	}
+}
+
 // applyMotion moves the cursor, or applies the pending operator over the motion.
 func (v *vim) applyMotion(e *editor, mo motion, out *vimOut) {
-	op := v.op
-	visual := v.mode == vimVisual || v.mode == vimVisualLine
+	op, visual := v.op, v.visual()
 	v.reset()
 	if !mo.ok {
 		return
@@ -1129,113 +1281,117 @@ func (v *vim) applyMotion(e *editor, mo motion, out *vimOut) {
 	v.operate(e, op, r1, c1, r2, c2, false, out)
 }
 
+// visualOperators are the operators Visual mode applies to the selection.
+var visualOperators = map[string]string{"d": "d", "x": "d", "delete": "d", "y": "y", "c": "c", "s": "c", ">": ">", "<": "<"}
+
+// caseChanges are Visual mode's ~ (flip), u (lower) and U (upper).
+var caseChanges = map[string]func(rune) rune{"~": flipCase, "u": unicode.ToLower, "U": unicode.ToUpper}
+
 // visualKey handles a key in Visual and Visual-line mode.
 func (v *vim) visualKey(e *editor, key string, page int) vimOut {
 	var out vimOut
-	leave := func() {
-		v.mode = vimNormal
-		v.reset()
-	}
 	r1, c1, r2, c2 := v.visualRange(e)
 	line := v.mode == vimVisualLine
+	if op, ok := visualOperators[key]; ok {
+		v.leaveVisual()
+		v.operate(e, op, r1, c1, r2, c2, line, &out)
+		return out
+	}
+	if change, ok := caseChanges[key]; ok {
+		v.leaveVisual()
+		e.changeCase(r1, c1, r2, c2, line, change)
+		return out
+	}
 	switch key {
 	case "esc":
-		leave()
+		v.leaveVisual()
 	case "v":
-		if v.mode == vimVisual {
-			leave()
-		} else {
-			v.mode = vimVisual
-		}
+		v.toggleVisual(vimVisual)
 	case "V":
-		if line {
-			leave()
-		} else {
-			v.mode = vimVisualLine
-		}
+		v.toggleVisual(vimVisualLine)
 	case "o":
 		v.anchorR, e.row = e.row, v.anchorR
 		v.anchorC, e.col = e.col, v.anchorC
-	case "d", "x", "delete", "y", "c", "s", ">", "<":
-		op := key
-		switch key {
-		case "x", "delete":
-			op = "d"
-		case "s":
-			op = "c"
-		}
-		leave()
-		v.operate(e, op, r1, c1, r2, c2, line, &out)
 	case "p", "P":
-		reg, regLine := v.reg, v.regLine
-		leave()
-		var discard vimOut
-		v.operate(e, "d", r1, c1, r2, c2, line, &discard)
-		v.reg, v.regLine = reg, regLine
-		if reg != "" {
-			e.push(false)
-			if regLine || line {
-				v.regLine = true
-				v.paste(e, true, 1)
-			} else {
-				e.insertRaw(reg)
-				e.col = max(0, e.col-1)
-				e.changed()
-			}
-		}
+		v.leaveVisual()
+		v.replaceSelection(e, r1, c1, r2, c2, line)
 	case "J":
-		leave()
+		v.leaveVisual()
 		e.row, e.col = r1, 0
 		v.count, v.hasCount = r2-r1+1, true
 		return v.key(e, "J", page)
-	case "~", "u", "U":
-		leave()
-		e.push(false)
-		for r := r1; r <= r2; r++ {
-			from, to := 0, e.lineLen(r)
-			if !line {
-				if r == r1 {
-					from = c1
-				}
-				if r == r2 {
-					to = c2
-				}
-			}
-			for c := from; c < to; c++ {
-				ch := e.lines[r][c]
-				switch {
-				case key == "u":
-					ch = unicode.ToLower(ch)
-				case key == "U":
-					ch = unicode.ToUpper(ch)
-				case unicode.IsUpper(ch):
-					ch = unicode.ToLower(ch)
-				default:
-					ch = unicode.ToUpper(ch)
-				}
-				e.lines[r][c] = ch
-			}
-		}
-		e.row, e.col = r1, c1
-		e.changed()
-	case "i", "a":
+	case "i", "a", "f", "F", "t", "T", "g":
 		v.wait = key
-	case "f", "F", "t", "T", "g":
-		v.wait = key
+	case "space":
+		v.wait = "leader"
 	case "enter":
 		out.action = "run" // runs the selection
 	case ":":
 		out.action = "palette"
 	case "/":
 		out.prompt = true
-	case "space":
-		v.wait = "leader"
 	default:
 		if isMotionKey(key) {
 			v.applyMotion(e, v.motionFor(e, key, page), &out)
 		}
 	}
 	return out
+}
+
+func (v *vim) leaveVisual() {
+	v.mode = vimNormal
+	v.reset()
+}
+
+// toggleVisual is v and V in Visual mode: the same mode again leaves it, the
+// other one switches to it.
+func (v *vim) toggleVisual(mode vimMode) {
+	if v.mode == mode {
+		v.leaveVisual()
+		return
+	}
+	v.mode = mode
+}
+
+// replaceSelection is p and P in Visual mode: the register replaces the
+// selection, which is deleted without changing the register.
+func (v *vim) replaceSelection(e *editor, r1, c1, r2, c2 int, line bool) {
+	reg, regLine := v.reg, v.regLine
+	var discard vimOut
+	v.operate(e, "d", r1, c1, r2, c2, line, &discard)
+	v.reg, v.regLine = reg, regLine
+	if reg == "" {
+		return
+	}
+	e.push(false)
+	if regLine || line {
+		v.regLine = true
+		v.paste(e, true, 1)
+		return
+	}
+	e.insertRaw(reg)
+	e.col = max(0, e.col-1)
+	e.changed()
+}
+
+// changeCase applies change to every character of a range (end exclusive),
+// or of whole lines, and puts the cursor at its start.
+func (e *editor) changeCase(r1, c1, r2, c2 int, linewise bool, change func(rune) rune) {
+	e.push(false)
+	for r := r1; r <= r2; r++ {
+		from, to := 0, e.lineLen(r)
+		if !linewise && r == r1 {
+			from = c1
+		}
+		if !linewise && r == r2 {
+			to = c2
+		}
+		for c := from; c < to; c++ {
+			e.lines[r][c] = change(e.lines[r][c])
+		}
+	}
+	e.row, e.col = r1, c1
+	e.changed()
 }
 
 // --- model side
