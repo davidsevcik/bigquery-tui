@@ -12,6 +12,16 @@ import (
 // text may hold one "|" for the cursor.
 func vimDo(t *testing.T, text string, keys ...string) (*editor, *vim) {
 	t.Helper()
+	e, v, _ := vimDoOut(t, text, keys...)
+	return e, v
+}
+
+// vimDoOut is vimDo that also returns what the keys asked of the model: the
+// last action, toast and clipboard text, and whether any key opened the
+// search prompt.
+func vimDoOut(t *testing.T, text string, keys ...string) (*editor, *vim, vimOut) {
+	t.Helper()
+	var all vimOut
 	at := strings.Index(text, "|")
 	e := newEditor(strings.Replace(text, "|", "", 1))
 	e.row, e.col = 0, 0
@@ -35,7 +45,17 @@ func vimDo(t *testing.T, text string, keys ...string) (*editor, *vim) {
 				e.handle(edKey(k), 10)
 			}
 		} else {
-			v.key(e, k, 10)
+			out := v.key(e, k, 10)
+			all.prompt = all.prompt || out.prompt
+			if out.action != "" {
+				all.action = out.action
+			}
+			if out.toast != "" {
+				all.toast = out.toast
+			}
+			if out.clip != "" {
+				all.clip = out.clip
+			}
 		}
 		if v.idle() {
 			e.endGroup()
@@ -54,7 +74,7 @@ func vimDo(t *testing.T, text string, keys ...string) (*editor, *vim) {
 		}
 		feed(k)
 	}
-	return e, v
+	return e, v, all
 }
 
 // marked renders the text with the cursor as "|".
@@ -396,5 +416,178 @@ func TestCtrlPOpensThePaletteInNormalMode(t *testing.T) {
 	r.press("ctrl+p")
 	if r.m.ov != ovPalette {
 		t.Fatalf("ctrl+p in Normal mode: overlay %v", r.m.ov)
+	}
+}
+
+// TestVimKeyPaths covers the key paths the motion and operator table above
+// leaves out: the second key of a two-key command, counts, the leader, what
+// the keys ask of the model, and Visual mode's own keys. pending is what is
+// still pending after the keys, as the pane title shows it ("" when idle).
+// The clipboard text is compared only where a case names it.
+func TestVimKeyPaths(t *testing.T) {
+	cases := []struct {
+		name, in string
+		keys     []string
+		want     string
+		mode     vimMode
+		out      vimOut
+		pending  string
+	}{
+		// the second key of f F t T, r and g
+		{name: "f space", in: "|a b", keys: []string{"f "}, want: "a| b"},
+		{name: "f then a named key cancels it and the count", in: "|abc", keys: []string{"2f", "esc", "x"}, want: "|bc"},
+		{name: "f with no match cancels the count", in: "|abc", keys: []string{"2fzx"}, want: "|bc"},
+		{name: "r space", in: "a|bc", keys: []string{"r "}, want: "a| c"},
+		{name: "r past the line end does nothing", in: "|ab", keys: []string{"3rx"}, want: "|ab"},
+		{name: "r then a named key cancels it", in: "|ab", keys: []string{"r", "esc"}, want: "|ab"},
+		{name: "gr opens the run list", in: "|ab", keys: []string{"gr"}, want: "|ab", out: vimOut{action: "runs"}},
+		{name: "g then an unknown key cancels it", in: "|ab", keys: []string{"gzx"}, want: "|b"},
+		{name: "count gg", in: "one\ntwo\n|three", keys: []string{"2gg"}, want: "one\n|two\nthree"},
+		{name: "dgg", in: "one\n|two\nthree", keys: []string{"dgg"}, want: "|three"},
+
+		// the space leader
+		{name: "space r runs", in: "|a", keys: []string{"space", "r"}, want: "|a", out: vimOut{action: "run"}},
+		{name: "space y hands off", in: "|a", keys: []string{"space", "y"}, want: "|a", out: vimOut{action: "handoff"}},
+		{name: "space then an unbound key", in: "|a", keys: []string{"space", "z"}, want: "|a", out: vimOut{toast: "space z is not bound (space r runs, space d dry-runs)"}},
+		{name: "space waits for the leader key", in: "|a", keys: []string{"space"}, want: "|a", pending: "leader"},
+		{name: "a count makes space a motion", in: "|abc", keys: []string{"2", "space"}, want: "ab|c"},
+
+		// counts and pending operators
+		{name: "esc clears a count", in: "|abc", keys: []string{"2", "esc", "x"}, want: "|bc"},
+		{name: "a count is pending", in: "|abc", keys: []string{"12"}, want: "|abc", pending: "12"},
+		{name: "an operator count is pending", in: "|abc", keys: []string{"2d3"}, want: "|abc", pending: "32d"},
+		{name: "operator count times motion count", in: "|a b c d e f g h", keys: []string{"2d3w"}, want: "|g h"},
+		{name: "0 after a count is a digit", in: "|" + strings.Repeat("x", 12), keys: []string{"10x"}, want: "|xx"},
+		{name: "d i then an unknown object cancels it", in: "|a b", keys: []string{"diz"}, want: "|a b"},
+		{name: "a text object that is not there cancels the operator", in: "|abc", keys: []string{`di"x`}, want: "|bc"},
+		{name: "db deletes backwards", in: "a b |c", keys: []string{"db"}, want: "a |c"},
+		{name: "dk", in: "one\n|two\nthree", keys: []string{"dk"}, want: "|three"},
+		{name: "k", in: "one\n|two", keys: []string{"k"}, want: "|one\ntwo"},
+		{name: "d3w stops before blank lines", in: "|a b\n\nc", keys: []string{"d3w"}, want: "|\n\nc"},
+		{name: "d% with no bracket does nothing", in: "|abc", keys: []string{"d%"}, want: "|abc"},
+		{name: "; before any f does nothing", in: "|a,b", keys: []string{";"}, want: "|a,b"},
+		{name: "{", in: "a\n\nb\n|c", keys: []string{"{"}, want: "a\n|\nb\nc"},
+
+		// cw
+		{name: "cw on the last letter of a word", in: "selec|t a", keys: []string{"cwX", "esc"}, want: "selec|X a"},
+		{name: "2cw on the last letter of a word is 2ce", in: "selec|t a b", keys: []string{"2cwX", "esc"}, want: "selec|X"},
+		{name: "cW", in: "|a.b c", keys: []string{"cWX", "esc"}, want: "|X c"},
+		{name: "cw on blanks changes them", in: "a|  b", keys: []string{"cwX", "esc"}, want: "a|Xb"},
+
+		// commands that ask the model
+		{name: ": opens the palette", in: "|a", keys: []string{":"}, want: "|a", out: vimOut{action: "palette"}},
+		{name: "? opens the help", in: "|a", keys: []string{"?"}, want: "|a", out: vimOut{action: "help"}},
+		{name: "/ opens the search prompt", in: "|a", keys: []string{"/"}, want: "|a", out: vimOut{prompt: true}},
+		{name: "enter runs", in: "|a", keys: []string{"enter"}, want: "|a", out: vimOut{action: "run"}},
+		{name: ". repeats", in: "|a", keys: []string{"."}, want: "|a", out: vimOut{action: "vimrepeat"}},
+		{name: "* on an empty line does nothing", in: "a\n|\na", keys: []string{"*"}, want: "a\n|\na"},
+		{name: "u at the oldest change", in: "|a", keys: []string{"u"}, want: "|a", out: vimOut{toast: "already at the oldest change"}},
+		{name: "ctrl+r at the newest change", in: "|a", keys: []string{"ctrl+r"}, want: "|a", out: vimOut{toast: "already at the newest change"}},
+		{name: "Y yanks lines", in: "|one\ntwo", keys: []string{"Yp"}, want: "one\n|one\ntwo", out: vimOut{clip: "one"}},
+		{name: "3Y says how many lines", in: "|a\nb\nc", keys: []string{"3Y"}, want: "|a\nb\nc", out: vimOut{clip: "a\nb\nc", toast: "3 lines yanked"}},
+		{name: "<< takes a tab", in: "\t|a", keys: []string{"<<"}, want: "|a"},
+		{name: "J with a count joins count-1 times", in: "|a\nb\nc\nd", keys: []string{"3J"}, want: "a b| c\nd"},
+		{name: "x on an empty line does nothing", in: "|\na", keys: []string{"x"}, want: "|\na"},
+		{name: "~ on an empty line does nothing", in: "|\na", keys: []string{"~"}, want: "|\na"},
+
+		// text objects
+		{name: "diw on an empty line", in: "a\n|\nb", keys: []string{"diw"}, want: "a\n|\nb"},
+		{name: "daw takes the leading blanks at the line end", in: "a |b", keys: []string{"daw"}, want: "|a"},
+		{name: `di" between two pairs`, in: `"a" | "b"`, keys: []string{`di"`}, want: `"a" | "b"`},
+		{name: `di" before the first pair`, in: `x| "a"`, keys: []string{`di"`}, want: `x "|"`},
+		{name: "di{", in: "f{a|b}", keys: []string{"di{"}, want: "f{|}"},
+		{name: "diB", in: "f{a|b}", keys: []string{"diB"}, want: "f{|}"},
+		{name: "di<", in: "a<b|c>", keys: []string{"di<"}, want: "a<|>"},
+		{name: "di( skips a closed pair before the cursor", in: "(a (b) |c)", keys: []string{"di("}, want: "(|)"},
+		{name: "di( with no opener", in: "a|b)", keys: []string{"di("}, want: "a|b)"},
+		{name: "di( with no closer", in: "(a|b", keys: []string{"di("}, want: "(a|b"},
+
+		// Visual mode
+		{name: "v esc", in: "|abc", keys: []string{"vl", "esc"}, want: "a|bc"},
+		{name: "v v leaves", in: "|abc", keys: []string{"vlv"}, want: "a|bc"},
+		{name: "V v is charwise", in: "|abc", keys: []string{"Vlv"}, want: "a|bc", mode: vimVisual},
+		{name: "V V leaves", in: "|abc", keys: []string{"VV"}, want: "|abc"},
+		{name: "v V is linewise", in: "|abc", keys: []string{"vV"}, want: "|abc", mode: vimVisualLine},
+		{name: "v x", in: "|abc", keys: []string{"vlx"}, want: "|c"},
+		{name: "v delete", in: "|abc", keys: []string{"vl", "delete"}, want: "|c"},
+		{name: "v s", in: "|abc", keys: []string{"vlsX", "esc"}, want: "|Xc"},
+		{name: "v p with a line register", in: "|one\ntwo", keys: []string{"yyjvp"}, want: "one\n|one\nwo"},
+		{name: "V p with a charwise register", in: "|ab\ncd\nef", keys: []string{"yljVp"}, want: "ab\n|a\nef"},
+		{name: "v p with an empty register", in: "|ab", keys: []string{"vp"}, want: "|b"},
+		{name: "V J", in: "|a\nb\nc", keys: []string{"VjJ"}, want: "a| b\nc"},
+		{name: "v u", in: "|ABC", keys: []string{"veu"}, want: "|abc"},
+		{name: "v ~ on capitals", in: "|aBc", keys: []string{"ve~"}, want: "|AbC"},
+		{name: "V U", in: "|ab\ncd", keys: []string{"VU"}, want: "|AB\ncd"},
+		{name: "v f", in: "|a,b", keys: []string{"vf,d"}, want: "|b"},
+		{name: "v gg", in: "a\n|b", keys: []string{"vggd"}, want: "|"},
+		{name: "v count", in: "|abcd", keys: []string{"v2ld"}, want: "|d"},
+		{name: "v i( across lines", in: "in (\n  1,\n  |2\n)", keys: []string{"vi(d"}, want: "in |(\n)"},
+		{name: "v i( that is not there stays in Visual mode", in: "|abc", keys: []string{"vi("}, want: "|abc", mode: vimVisual},
+		{name: "v :", in: "|a", keys: []string{"v:"}, want: "|a", mode: vimVisual, out: vimOut{action: "palette"}},
+		{name: "v /", in: "|a", keys: []string{"v/"}, want: "|a", mode: vimVisual, out: vimOut{prompt: true}},
+		{name: "v enter", in: "|a", keys: []string{"v", "enter"}, want: "|a", mode: vimVisual, out: vimOut{action: "run"}},
+		{name: "v space r", in: "|a", keys: []string{"v", "space", "r"}, want: "|a", mode: vimVisual, out: vimOut{action: "run"}},
+		{name: "v y", in: "|ab cd", keys: []string{"vey"}, want: "|ab cd", out: vimOut{clip: "ab"}},
+		{name: "v an unknown key", in: "|ab", keys: []string{"vz"}, want: "|ab", mode: vimVisual},
+	}
+	for _, c := range cases {
+		e, v, out := vimDoOut(t, c.in, c.keys...)
+		if got := marked(e); got != c.want {
+			t.Errorf("%s: %q + %q\n  got  %q\n  want %q", c.name, c.in, c.keys, got, c.want)
+		}
+		if v.mode != c.mode {
+			t.Errorf("%s: ends in %s, want %s", c.name, v.mode, c.mode)
+		}
+		if c.out.clip == "" {
+			out.clip = ""
+		}
+		if out != c.out {
+			t.Errorf("%s: out %+v, want %+v", c.name, out, c.out)
+		}
+		pending := ""
+		if v.hasCount {
+			pending += itoa(v.count)
+		}
+		if v.opCount > 0 {
+			pending += itoa(v.opCount)
+		}
+		pending += v.op + v.wait
+		if pending != c.pending {
+			t.Errorf("%s: pending %q, want %q", c.name, pending, c.pending)
+		}
+	}
+}
+
+// TestVimScrollAndSearchMisses covers the page motions, which move by the
+// viewport height, and a search with no match.
+func TestVimScrollAndSearchMisses(t *testing.T) {
+	var lines []string
+	for i := range 40 {
+		lines = append(lines, "l"+itoa(i))
+	}
+	text := strings.Join(lines, "\n")
+	for _, c := range []struct {
+		keys []string
+		row  int
+	}{
+		{[]string{"ctrl+d"}, 5},
+		{[]string{"ctrl+f"}, 9},
+		{[]string{"pgdown"}, 9},
+		{[]string{"G", "ctrl+u"}, 34},
+		{[]string{"G", "ctrl+b"}, 30},
+		{[]string{"G", "pgup"}, 30},
+		{[]string{"ctrl+u"}, 0},
+		{[]string{"2", "ctrl+d"}, 5}, // the count does not scale a page
+	} {
+		e, _ := vimDo(t, text, c.keys...)
+		if e.row != c.row {
+			t.Errorf("%q: row %d, want %d", c.keys, e.row, c.row)
+		}
+	}
+	e, v := vimDo(t, "a |b c")
+	v.search = "zzz"
+	v.key(e, "n", 10)
+	if marked(e) != "a |b c" {
+		t.Fatalf("a search with no match stays: %q", marked(e))
 	}
 }
