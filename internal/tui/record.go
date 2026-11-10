@@ -80,6 +80,35 @@ func (m *Model) recordStep(d int) tea.Cmd {
 	return tea.Batch(m.openGridRecord(g), m.gridEnsure())
 }
 
+// recordPopup shows a row of the Results as a full record (enter, v).
+type recordPopup struct{ textPopup }
+
+func (recordPopup) page(m *Model, inner, _ int) scrollPage {
+	ttl, rows := m.recordLines(inner)
+	return scrollPage{title: ttl, rows: rows, cur: -1}
+}
+
+func (recordPopup) act(m *Model, act string) (tea.Cmd, bool) {
+	switch act {
+	case "next":
+		return m.recordStep(1), true
+	case "prev":
+		return m.recordStep(-1), true
+	case "copy":
+		if m.rec != nil && m.rec.cells != nil {
+			m.toast = "copied the record as JSON"
+			return tea.SetClipboard(format.RowJSON(m.rec.cols, m.rec.cells)), true
+		}
+		return nil, true
+	}
+	return nil, false
+}
+
+func (recordPopup) hints(*Model) string {
+	return joinHints(keyHint(ZoneOverlay, "next/previous row", "next", "prev"), keyHint(ZoneOverlay, "scroll", "down", "up"),
+		keyHint(ZoneOverlay, "copy as JSON", "copy"), footerHints(ZoneOverlay))
+}
+
 func (m *Model) recordLines(w int) (string, []string) {
 	r := m.rec
 	if r == nil {

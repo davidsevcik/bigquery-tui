@@ -17,7 +17,6 @@ import (
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
-	"github.com/davidsevcik/bigquery-tui/internal/format"
 	"github.com/davidsevcik/bigquery-tui/internal/runs"
 )
 
@@ -92,7 +91,6 @@ type Model struct {
 	autoProjs bool                // nothing selected at start: open the dialog
 
 	hoItems []handoffItem // the hand-off popup's entries
-	hoTop   int           // first entry line in the popup
 
 	mil  miller
 	tree tree
@@ -720,52 +718,23 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 		return m.gridEnsure() // the panel takes or gives back rows
 	}
 
-	switch m.ov {
-	case ovPrompt:
-		return m.promptKey(msg, name)
-	case ovConfirm:
-		return m.confirmKey(name)
-	case ovPicker:
-		return m.pickerKey(msg, name)
+	if o := m.overlay(); o != nil {
+		return o.key(m, msg, name, m.overlayFrame(o))
 	}
 	if st := m.typingState(); st != nil {
-		return m.searchKey(st, msg, name)
+		return m.searchKey(st, msg, name, max(1, m.listHeight()/2))
 	}
 	if f := m.typingFilter(); f != nil {
 		return m.filterKey(f, msg, name)
 	}
-	if m.ov == ovPalette {
-		return m.paletteKey(msg, name)
-	}
-	if m.ov == ovProjects && m.pd != nil && m.pd.typing {
-		return m.projectsKey(msg, name)
-	}
 	zone := m.zone
-	if m.ov != ovNone {
-		zone = ZoneOverlay
-	}
 	if zone == ZoneEditor {
 		return m.editorKey(msg, name)
 	}
-	if m.pendingKey != "" {
-		name = m.pendingKey + " " + name
-		m.pendingKey = ""
-	} else if keys.chordPrefix(zone, name) {
-		m.pendingKey = name
-		return nil
-	}
-	act := keys.action(zone, name)
+	act, ok := m.chordAction(zone, name)
 	switch {
-	case m.ov == ovRuns:
-		return m.runsOverlayAction(act, name)
-	case m.ov == ovBuffers:
-		return m.buffersOverlayAction(act)
-	case m.ov == ovProjects:
-		return m.projectsOverlayAction(act)
-	case m.ov == ovHandoff:
-		return m.handoffOverlayAction(act)
-	case m.ov != ovNone:
-		return m.overlayAction(act)
+	case !ok:
+		return nil
 	case zone == ZoneResults:
 		return m.resultsAction(act)
 	case zone == ZoneSchema:
@@ -849,39 +818,6 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 		return nil, true
 	}
 	return nil, false
-}
-
-func (m *Model) overlayAction(act string) tea.Cmd {
-	half := max(1, (m.h-6)/2)
-	switch act {
-	case "back", "open":
-		m.ov = ovNone
-	case "next", "prev":
-		if m.ov == ovRecord {
-			if act == "prev" {
-				return m.recordStep(-1)
-			}
-			return m.recordStep(1)
-		}
-	case "copy":
-		if m.ov == ovRecord && m.rec != nil && m.rec.cells != nil {
-			m.toast = "copied the record as JSON"
-			return tea.SetClipboard(format.RowJSON(m.rec.cols, m.rec.cells))
-		}
-	case "down":
-		m.ovOff++
-	case "up":
-		m.ovOff = max(0, m.ovOff-1)
-	case "halfdown":
-		m.ovOff += half
-	case "halfup":
-		m.ovOff = max(0, m.ovOff-half)
-	default:
-		if cmd, ok := m.globalAction(act); ok {
-			return cmd
-		}
-	}
-	return nil
 }
 
 func (m *Model) explorerAction(act string) tea.Cmd {
@@ -1015,67 +951,6 @@ func (m *Model) back() tea.Cmd {
 		f := m.styleFilter()
 		f.clear()
 		return m.refilter(f)
-	}
-	return nil
-}
-
-// --- palette
-
-func (m *Model) filterPalette() {
-	q := strings.ToLower(m.pal.value())
-	m.palCmds = m.palCmds[:0]
-	for _, c := range paletteCommands() {
-		if q == "" || fuzzyContains(strings.ToLower(c.name), q) {
-			m.palCmds = append(m.palCmds, c)
-		}
-	}
-	m.palSel = clamp(m.palSel, 0, max(0, len(m.palCmds)-1))
-}
-
-func fuzzyContains(s, q string) bool {
-	qr := []rune(q)
-	i := 0
-	for _, r := range s {
-		if i < len(qr) && r == qr[i] {
-			i++
-		}
-	}
-	return i == len(qr)
-}
-
-func (m *Model) paletteKey(msg tea.KeyPressMsg, name string) tea.Cmd {
-	switch keys.action(ZoneSearch, name) {
-	case "back":
-		m.ov = ovNone
-		return nil
-	case "down":
-		m.palSel = min(m.palSel+1, max(0, len(m.palCmds)-1))
-		return nil
-	case "up":
-		m.palSel = max(0, m.palSel-1)
-		return nil
-	case "open":
-		m.ov = ovNone
-		if m.palSel < len(m.palCmds) {
-			c := m.palCmds[m.palSel]
-			switch c.zone {
-			case ZoneEditor:
-				m.setZone(ZoneEditor)
-				return m.editorAction(c.action)
-			case ZoneResults:
-				m.setZone(ZoneResults)
-				return m.resultsAction(c.action)
-			case ZoneGlobal:
-				cmd, _ := m.globalAction(c.action)
-				return cmd
-			}
-			return m.explorerAction(c.action)
-		}
-		return nil
-	}
-	if m.pal.handle(msg) {
-		m.palSel = 0
-		m.filterPalette()
 	}
 	return nil
 }

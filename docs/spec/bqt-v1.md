@@ -501,6 +501,9 @@ Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks
 | Global | `ctrl+x y` (vim: `space y`) | Hand-off to an agent: `enter`/`y` copies, `w` writes a file |
 | Picker | `tab`, `enter`, `ctrl+e`/`ctrl+y`, `esc` | Switch list, load into the editor, scroll the preview, close |
 | Picker | `ctrl+r`, `ctrl+d`, `ctrl+s` | Favorites: rename, delete; History: show the result again, save as a Favorite |
+| Picker | `pgdown`, `pgup` | A page: as many entries as the list shows |
+| Popups | `j`/`k`, `ctrl+d`/`ctrl+u` (`pgdown`/`pgup`), `esc`/`q` | A line, half the rows the popup shows (the cursor of a list popup, else the text), close |
+| Popups | `c` (run list) | Cancel the selected Run |
 | Results | `h` `j` `k` `l` | Move the cell cursor |
 | Results | `Enter`, `v` | Single-record view; `n`/`p` next and previous record |
 | Results | `f`, `H`, `U`, `/`, `n`/`N` | Freeze first column, hide column, show hidden columns, find in loaded pages, next and previous match |
@@ -512,6 +515,8 @@ Tutorial (user request 2026-10-15): `ctrl+g` (or the palette's "Tutorial") docks
 | Results | `gr` | Run list |
 
 `ctrl+a` and `ctrl+b` stay with the textarea; move them if the user's tmux prefix is one of them. The registry is checked by a test that finds duplicate bindings within a zone.
+
+Each Overlay (the palette, Jump to table, the picker, a prompt or question, and the scrolling popups) is laid out by one function that drawing and the keys both use, as the Panes are (ADR 0002): a page is what the popup shows, and drawing changes no state. The footers and the key lines of the popups name the keys the registry binds.
 
 ## 16. Testing and CI [16]
 
