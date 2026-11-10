@@ -345,11 +345,6 @@ func (e *Engine) Status(ctx context.Context) (api.CatalogStatus, error) {
 			others = append(others, p)
 		}
 	}
-	for p := range pendingIn {
-		if _, ok := byProject[p]; !ok && !isSel[p] {
-			others = append(others, p)
-		}
-	}
 	for _, n := range e.search.Projects() {
 		if _, ok := byProject[n.Name]; !ok && !isSel[n.Name] {
 			others = append(others, n.Name)
