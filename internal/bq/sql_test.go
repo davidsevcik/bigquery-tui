@@ -36,6 +36,36 @@ func TestScopeFilters(t *testing.T) {
 	}
 }
 
+// The Go client reads a result through one Storage Read stream, in order,
+// when ORDER BY appears in the SQL outside parentheses. The field paths need
+// that; the other views do not and keep parallel streams.
+func TestFieldPathsAreReadInOrder(t *testing.T) {
+	rootHasOrderBy := func(sql string) bool {
+		depth, root := 0, ""
+		for _, c := range sql {
+			switch {
+			case c == '(':
+				depth++
+			case c == ')':
+				depth--
+			case depth == 0:
+				root += string(c)
+			}
+		}
+		return strings.Contains(strings.ToUpper(root), "ORDER BY")
+	}
+	for _, s := range []scope{regionScope("p", "US"), datasetScope("p", "ds")} {
+		if q := s.fieldPathsSQL(); !rootHasOrderBy(q) || strings.ContainsAny(readInOrder, "()") {
+			t.Fatalf("not read in order:\n%s", q)
+		}
+		for _, q := range []string{s.tablesSQL(), s.columnsSQL(), s.tableOptionsSQL(), s.viewsSQL()} {
+			if rootHasOrderBy(q) {
+				t.Fatalf("read in order without need:\n%s", q)
+			}
+		}
+	}
+}
+
 func TestQuoteIdentEscapesBackticks(t *testing.T) {
 	if got := quoteIdent("a`b"); got != "`a\\`b`" {
 		t.Fatal(got)

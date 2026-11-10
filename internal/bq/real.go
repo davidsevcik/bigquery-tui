@@ -14,6 +14,7 @@ import (
 	bqv2 "google.golang.org/api/bigquery/v2"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
@@ -25,11 +26,20 @@ const SyncMaxBytesBilled = 10 << 30
 
 // Client is the real bq.Metadata backed by BigQuery.
 type Client struct {
-	bq          *bqapi.Client
-	svc         *bqv2.Service
-	execProject string
-	log         *slog.Logger
-	jobs        jobTable
+	// bq reads through REST paging: Runs, Samples and agent queries depend on
+	// its page-by-page semantics (spec 10.4), and sync uses it once the
+	// Storage Read API is out of reach.
+	bq *bqapi.Client
+	// syncBQ has the Storage Read client enabled and runs sync's
+	// INFORMATION_SCHEMA queries only; nil when there is no Execution project
+	// or the endpoint is overridden (BQT_BIGQUERY_ENDPOINT).
+	syncBQ        *bqapi.Client
+	reads         readPath
+	sessionBudget time.Duration
+	svc           *bqv2.Service
+	execProject   string
+	log           *slog.Logger
+	jobs          jobTable
 }
 
 // Options configures NewClient.
@@ -37,6 +47,11 @@ type Options struct {
 	// ExtraClientOptions are appended (tests, custom endpoints).
 	ExtraClientOptions []option.ClientOption
 	Log                *slog.Logger
+	// NoStorageRead makes sync read its results through REST paging only.
+	NoStorageRead bool
+	// StorageReadOptions are appended to the Storage Read client's options
+	// (tests: a fake server).
+	StorageReadOptions []option.ClientOption
 }
 
 // NewClient creates a client whose jobs run in executionProject using
@@ -63,7 +78,34 @@ func NewClient(ctx context.Context, executionProject string, o Options) (*Client
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(discardWriter{}, nil))
 	}
-	return &Client{bq: c, svc: svc, execProject: executionProject, log: log}, nil
+	client := &Client{bq: c, svc: svc, execProject: executionProject, log: log, sessionBudget: defaultReadSessionBudget}
+	if executionProject != "" && !o.NoStorageRead && EndpointOptions() == nil {
+		client.syncBQ, err = newStorageReadClient(ctx, executionProject, opts, o.StorageReadOptions)
+		if err != nil {
+			// Sync still works through REST paging.
+			log.Warn("Storage Read client not created, sync reads results through REST paging", "execution_project", executionProject, "err", err)
+		}
+	}
+	return client, nil
+}
+
+// newStorageReadClient returns a BigQuery client whose query results are read
+// through the Storage Read API, watched by sessionInterceptor.
+func newStorageReadClient(ctx context.Context, executionProject string, opts, storageOpts []option.ClientOption) (*bqapi.Client, error) {
+	c, err := bqapi.NewClient(ctx, executionProject, opts...)
+	if err != nil {
+		return nil, err
+	}
+	ropts := []option.ClientOption{
+		option.WithQuotaProject(executionProject),
+		option.WithGRPCDialOption(grpc.WithChainUnaryInterceptor(sessionInterceptor)),
+	}
+	ropts = append(ropts, storageOpts...)
+	if err := c.EnableStorageReadClient(ctx, ropts...); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
+	return c, nil
 }
 
 type discardWriter struct{}
@@ -71,7 +113,13 @@ type discardWriter struct{}
 func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
 
 // Close releases the clients.
-func (c *Client) Close() error { return c.bq.Close() }
+func (c *Client) Close() error {
+	err := c.bq.Close()
+	if c.syncBQ != nil {
+		err = errors.Join(err, c.syncBQ.Close())
+	}
+	return err
+}
 
 // ListProjects implements Metadata using REST projects.list.
 func (c *Client) ListProjects(ctx context.Context) ([]api.ListedProject, error) {
@@ -225,12 +273,12 @@ func (c *Client) snapshot(ctx context.Context, sc scope, location string, params
 		g.Go(func() error {
 			start := time.Now()
 			n := 0
-			err := c.query(gctx, location, sql, params, func(r []bqapi.Value) error {
+			read, err := c.query(gctx, location, sql, params, func(r []bqapi.Value) error {
 				fn(r)
 				n++
 				return nil
 			})
-			c.log.Debug("information_schema query", "view", name, "location", location, "rows", n, "took", time.Since(start).Round(time.Millisecond), "err", err)
+			c.log.Debug("information_schema query", "view", name, "location", location, "read", read, "rows", n, "took", time.Since(start).Round(time.Millisecond), "err", err)
 			return err
 		})
 	}
@@ -365,29 +413,69 @@ func mergeSnapshot(dsOpts []dsOptRow, tables []tableRow, opts []optRow, views []
 }
 
 // query runs one labelled, capped, explicitly located query and streams rows.
-func (c *Client) query(ctx context.Context, location, sql string, params []bqapi.QueryParameter, fn func(row []bqapi.Value) error) error {
-	q := c.bq.Query(sql)
+// It reads the result through the Storage Read API while the client may, and
+// returns the read path it took (readStorage, readREST or readRESTFallback).
+func (c *Client) query(ctx context.Context, location, sql string, params []bqapi.QueryParameter, fn func(row []bqapi.Value) error) (string, error) {
+	client, watch := c.bq, (*sessionWatch)(nil)
+	if c.syncBQ != nil {
+		if storage, warning := c.reads.storage(); storage {
+			client, watch = c.syncBQ, &sessionWatch{budget: c.sessionBudget}
+			ctx = watchSessions(ctx, watch)
+		} else {
+			Warn(ctx, warning) // the sync run dedupes it: one warning per run
+		}
+	}
+	q := client.Query(sql)
 	q.Location = location
 	q.Parameters = params
 	q.MaxBytesBilled = SyncMaxBytesBilled
 	q.Labels = map[string]string{"bqt": "1", "bqt_source": "sync"}
 	it, err := q.Read(ctx)
 	if err != nil {
-		return err
+		return readREST, err
 	}
+	read := c.readOutcome(ctx, watch)
 	for {
 		var row []bqapi.Value
 		err := it.Next(&row)
 		if errors.Is(err, iterator.Done) {
-			return nil
+			return read, nil
 		}
 		if err != nil {
-			return err
+			return read, err
 		}
 		if err := fn(row); err != nil {
-			return err
+			return read, err
 		}
 	}
+}
+
+// readOutcome names the read path q.Read took and acts on a failed read
+// session. The Go client has already fallen back to REST paging for this
+// query, so the same job's result is read and nothing runs again. A result
+// that came whole in the first REST response needed no read session.
+func (c *Client) readOutcome(ctx context.Context, watch *sessionWatch) string {
+	if watch == nil {
+		return readREST
+	}
+	attempted, err := watch.outcome()
+	switch {
+	case !attempted:
+		return readREST
+	case err == nil:
+		return readStorage
+	}
+	warning, first := c.reads.sessionFailed(c.execProject, err)
+	switch {
+	case first:
+		c.log.Warn("Storage Read API not available, sync reads results through REST paging", "execution_project", c.execProject, "err", err)
+		Warn(ctx, warning)
+	case warning != "":
+		Warn(ctx, warning)
+	default:
+		c.log.Info("read session failed, this result is read through REST paging", "execution_project", c.execProject, "err", err)
+	}
+	return readRESTFallback
 }
 
 // ListTableNames implements Metadata with REST tables.list.
