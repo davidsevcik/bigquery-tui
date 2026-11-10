@@ -12,6 +12,9 @@ type ProjectStatus struct {
 	// SyncedAt is the oldest successful unit sync, nil if any unit never succeeded.
 	SyncedAt *time.Time `json:"synced_at,omitempty"`
 	Stale    bool       `json:"stale,omitempty"`
+	// Pending counts the datasets BigQuery lists whose tables no sync has
+	// read yet (DatasetPending).
+	Pending int `json:"pending_datasets,omitempty"`
 }
 
 // CatalogStatus is the freshness report behind `bqt status`.

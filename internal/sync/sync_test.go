@@ -104,6 +104,22 @@ func (h *harness) unit(project, loc string) api.UnitState {
 	return api.UnitState{}
 }
 
+// statuses maps "project.dataset" to its catalog status.
+func (h *harness) statuses(projects ...string) map[string]api.DatasetStatus {
+	h.t.Helper()
+	out := map[string]api.DatasetStatus{}
+	for _, p := range projects {
+		ds, err := h.cat.Datasets(ctx, p)
+		if err != nil {
+			h.t.Fatal(err)
+		}
+		for _, d := range ds {
+			out[p+"."+d.Name] = d.Status
+		}
+	}
+	return out
+}
+
 func (h *harness) counts() store.Counts {
 	n, err := h.cat.Counts(ctx)
 	if err != nil {
@@ -498,12 +514,21 @@ func TestSyncCancelKeepsCommittedUnits(t *testing.T) {
 	if !res.Cancelled {
 		t.Fatalf("%+v", res)
 	}
-	n := h.counts()
-	if n.Datasets == 0 {
-		t.Fatal("the unit committed before the cancel must stay")
+	st := h.statuses("proj-a", "proj-b")
+	committed, pending := 0, 0
+	for _, s := range st {
+		switch s {
+		case api.DatasetOK:
+			committed++
+		case api.DatasetPending:
+			pending++
+		}
 	}
-	if n.Datasets >= 4 {
-		t.Fatalf("not everything should have been synced: %+v", n)
+	if committed == 0 {
+		t.Fatalf("the unit committed before the cancel must stay: %v", st)
+	}
+	if pending == 0 || committed+pending != 4 {
+		t.Fatalf("the cancelled units' datasets stay listed, pending: %v", st)
 	}
 	if v, _, _ := h.cat.Meta(ctx, MetaSyncNeeded); v != "1" {
 		t.Fatal("a cancelled sync must not clear sync_needed")
@@ -707,5 +732,143 @@ func TestUnreachableLocationKeepsItsData(t *testing.T) {
 	locs, _ := h.cat.Locations(ctx, "proj-a")
 	if len(locs) != 2 {
 		t.Fatalf("%v", locs)
+	}
+}
+
+// Issue 82: the listed datasets are in the catalog, pending, before any unit
+// is read; each committed unit replaces its pending rows.
+func TestSyncListedDatasetsArePendingUntilTheirUnitCommits(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a", "proj-b"]`)
+	twoProjectFake(h.fake)
+	var first gosync.Once
+	var mid map[string]api.DatasetStatus
+	var midRows []store.DatasetRow
+	h.fake.OnCall = func(c bqtest.Call) {
+		if c.Method == "RegionSnapshot" {
+			first.Do(func() {
+				mid = h.statuses("proj-a", "proj-b")
+				midRows, _ = h.cat.Datasets(ctx, "proj-a")
+			})
+		}
+	}
+	h.fake.Projects["proj-a"].Datasets[2].Meta.FriendlyName = "US data"
+	h.fake.Projects["proj-a"].Datasets[2].Meta.Labels = map[string]string{"team": "us"}
+	h.run(api.SyncScope{})
+
+	want := map[string]api.DatasetStatus{"proj-a.sales": api.DatasetPending, "proj-a.logs": api.DatasetPending, "proj-a.us_data": api.DatasetPending, "proj-b.core": api.DatasetPending}
+	if fmt.Sprint(mid) != fmt.Sprint(want) {
+		t.Fatalf("before the first unit: %v", mid)
+	}
+	for _, d := range midRows {
+		if d.Tables != 0 {
+			t.Fatalf("a pending dataset has no tables: %+v", d)
+		}
+		if d.Name == "us_data" && (d.Location != "US" || d.FriendlyName != "US data" || d.Labels["team"] != "us") {
+			t.Fatalf("a pending row carries the listing's location, friendly name and labels: %+v", d)
+		}
+	}
+	for k, s := range h.statuses("proj-a", "proj-b") {
+		if s != api.DatasetOK {
+			t.Fatalf("%s: a committed unit clears pending, got %s", k, s)
+		}
+	}
+	var discovered []api.UnitRef
+	for _, e := range h.events {
+		if e.Kind == api.EventDiscovered {
+			discovered = e.Units
+		}
+	}
+	if len(discovered) != 3 || discovered[0] != (api.UnitRef{Project: "proj-a", Location: "EU"}) {
+		t.Fatalf("the discovered event names the units: %v", discovered)
+	}
+}
+
+func TestSyncFailedUnitLeavesItsDatasetsPending(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a"]`)
+	twoProjectFake(h.fake)
+	h.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Project: "proj-a", Location: "US", Err: bqtest.TransientError("still down")})
+	res := h.run(api.SyncScope{})
+	if res.UnitsFailed != 1 || res.UnitsOK != 1 {
+		t.Fatalf("%+v", res)
+	}
+	st := h.statuses("proj-a")
+	if st["proj-a.us_data"] != api.DatasetPending || st["proj-a.sales"] != api.DatasetOK {
+		t.Fatalf("%v", st)
+	}
+	if u := h.unit("proj-a", "US"); u.Status != api.UnitInaccessible || u.Error == "" || u.LastSuccess != nil {
+		t.Fatalf("the failed unit says why: %+v", u)
+	}
+
+	// The next sync that reaches the unit clears it.
+	h.fake.Failures = nil
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	if st := h.statuses("proj-a"); st["proj-a.us_data"] != api.DatasetOK {
+		t.Fatalf("%v", st)
+	}
+}
+
+func TestSyncExistingDatasetsKeepTheirTablesWhileTheirUnitRefreshes(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a"]`)
+	twoProjectFake(h.fake)
+	h.run(api.SyncScope{})
+	p := h.fake.Projects["proj-a"]
+	p.Datasets = append(p.Datasets, bqtest.DS("added", "EU", bqtest.Table("a1", "x")))
+	var mid []store.DatasetRow
+	var once gosync.Once
+	h.fake.OnCall = func(c bqtest.Call) {
+		if c.Method == "RegionSnapshot" {
+			once.Do(func() { mid, _ = h.cat.Datasets(ctx, "proj-a") })
+		}
+	}
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	got := map[string]string{}
+	for _, d := range mid {
+		got[d.Name] = fmt.Sprintf("%s/%d", d.Status, d.Tables)
+	}
+	want := map[string]string{"added": "pending/0", "logs": "ok/1", "sales": "ok/2", "us_data": "ok/1"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("during the refresh: %v", got)
+	}
+}
+
+func TestSyncCompleteListingRemovesVanishedPendingDatasets(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a"]`)
+	twoProjectFake(h.fake)
+	h.run(api.SyncScope{})
+	p := h.fake.Projects["proj-a"]
+	all := p.Datasets
+	p.Datasets = append(append([]bqtest.Dataset(nil), all...), bqtest.DS("fresh", "EU", bqtest.Table("f", "x")), bqtest.DS("asia_ds", "asia-east1", bqtest.Table("a", "x")))
+	h.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Project: "proj-a", Err: bqtest.TransientError("down")})
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	if st := h.statuses("proj-a"); st["proj-a.fresh"] != api.DatasetPending || st["proj-a.asia_ds"] != api.DatasetPending {
+		t.Fatalf("%v", st)
+	}
+
+	// An incomplete listing (unreachable locations) removes nothing.
+	p.Datasets = all
+	p.Unreachable = []string{"asia-east1"}
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	if st := h.statuses("proj-a"); st["proj-a.fresh"] != api.DatasetPending || st["proj-a.asia_ds"] != api.DatasetPending {
+		t.Fatalf("an incomplete listing keeps pending rows: %v", st)
+	}
+
+	// A complete listing removes both: one in a location still listed
+	// (whose unit fails again), one in a location gone.
+	p.Unreachable = nil
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	st := h.statuses("proj-a")
+	if _, ok := st["proj-a.fresh"]; ok {
+		t.Fatalf("%v", st)
+	}
+	if _, ok := st["proj-a.asia_ds"]; ok {
+		t.Fatalf("%v", st)
+	}
+	if st["proj-a.sales"] != api.DatasetOK || len(st) != 3 {
+		t.Fatalf("the synced datasets stay: %v", st)
 	}
 }

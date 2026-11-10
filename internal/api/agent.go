@@ -129,7 +129,10 @@ type CatalogHit struct {
 	// Columns are the matched columns (col: filters and column-name hits).
 	Columns     []string `json:"columns,omitempty"`
 	MoreColumns int      `json:"more_columns,omitempty"`
-	Stale       bool     `json:"stale,omitempty"`
+	// Pending marks a dataset BigQuery lists whose tables are not in the
+	// catalog yet (its sync has not finished): not an empty dataset.
+	Pending bool `json:"pending,omitempty"`
+	Stale   bool `json:"stale,omitempty"`
 	// Selected is false for a result in a deselected (cached) project;
 	// those rank after the Selected projects' results.
 	Selected bool `json:"selected"`
