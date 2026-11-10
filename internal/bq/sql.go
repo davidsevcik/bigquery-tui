@@ -71,14 +71,14 @@ FROM %s
 WHERE %s`, s.view("VIEWS"), s.filter("table_schema"))
 }
 
-func (s scope) columnsSQL() string {
+func (s scope) columnsSQL(where string) string {
 	return fmt.Sprintf(`SELECT table_schema, table_name, column_name, ordinal_position, is_partitioning_column, clustering_ordinal_position, is_nullable, data_type
 FROM %s
-WHERE %s`, s.view("COLUMNS"), s.filter("table_schema"))
+WHERE %s AND %s`, s.view("COLUMNS"), s.filter("table_schema"), where)
 }
 
-func (s scope) fieldPathsSQL() string {
+func (s scope) fieldPathsSQL(where string) string {
 	return fmt.Sprintf(`SELECT table_schema, table_name, column_name, field_path, data_type, description
 FROM %s
-WHERE %s`, s.view("COLUMN_FIELD_PATHS"), s.filter("table_schema"))
+WHERE %s AND %s`, s.view("COLUMN_FIELD_PATHS"), s.filter("table_schema"), where)
 }

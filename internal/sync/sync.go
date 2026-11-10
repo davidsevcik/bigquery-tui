@@ -20,6 +20,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
+	"github.com/davidsevcik/bigquery-tui/internal/shard"
 	"github.com/davidsevcik/bigquery-tui/internal/store"
 )
 
@@ -143,15 +144,24 @@ func (r *run) warn(project, msg string) {
 }
 
 // Run syncs the scope and emits structured events. It returns early with
-// Cancelled set when ctx is cancelled; committed units stay.
+// Cancelled set when ctx is cancelled; committed units stay. A scope with a
+// Table syncs that one table (see syncTable).
 func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.SyncEvent)) (api.SyncResult, error) {
 	res := api.SyncResult{Started: s.o.Now()}
-	projects, full, err := s.resolveScope(scope)
-	if err != nil {
-		return res, err
+	var projects []string
+	var full bool
+	if scope.Table == nil {
+		var err error
+		if projects, full, err = s.resolveScope(scope); err != nil {
+			return res, err
+		}
 	}
 	r := &run{s: s, emit: emit}
-	r.event(api.SyncEvent{Kind: api.EventRunStarted, Message: fmt.Sprintf("%d project(s)", len(projects))})
+	msg := fmt.Sprintf("%d project(s)", len(projects))
+	if scope.Table != nil {
+		msg = "table " + scope.Table.String()
+	}
+	r.event(api.SyncEvent{Kind: api.EventRunStarted, Message: msg})
 
 	rec, err := ReconcileConfig(ctx, s.o.Catalog, s.o.Config)
 	if err != nil {
@@ -160,28 +170,17 @@ func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.Syn
 	if rec.Pruned.Projects+rec.Pruned.Datasets+rec.Pruned.Tables > 0 {
 		r.warn("", fmt.Sprintf("config changed: pruned %d project(s), %d dataset(s), %d table(s) from the catalog", rec.Pruned.Projects, rec.Pruned.Datasets, rec.Pruned.Tables))
 	}
+	if rec.Reason == ReasonDateRuleGone {
+		r.warn("", ReasonDateRuleGone)
+	}
 
-	// Phase A: discover datasets and group them into units.
-	disc := make([]discovery, len(projects))
-	s.parallel(ctx, len(projects), func(i int) { disc[i] = s.discover(ctx, projects[i], r) })
-	var jobs []unitJob
-	var failed []api.UnitState
-	for _, d := range disc {
-		jobs = append(jobs, d.units...)
-		if d.failed && d.state != nil {
-			failed = append(failed, *d.state)
+	if scope.Table != nil {
+		if err := s.syncTable(ctx, *scope.Table, r); err != nil {
+			return res, err
 		}
+	} else {
+		s.syncProjects(ctx, projects, r)
 	}
-	r.mu.Lock()
-	r.total = len(jobs) + len(failed)
-	r.mu.Unlock()
-	r.event(api.SyncEvent{Kind: api.EventDiscovered, Message: fmt.Sprintf("%d unit(s)", len(jobs))})
-	for _, st := range failed {
-		r.finishUnit(st, api.EventUnitFailed)
-	}
-
-	// Phase B: process units.
-	s.parallel(ctx, len(jobs), func(i int) { s.processUnit(ctx, jobs[i], r) })
 
 	res.Finished = s.o.Now()
 	res.Cancelled = ctx.Err() != nil
@@ -214,6 +213,29 @@ func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.Syn
 	}
 	r.event(api.SyncEvent{Kind: api.EventRunFinished, Message: fmt.Sprintf("%d ok, %d degraded, %d failed", res.UnitsOK, res.UnitsDegraded, res.UnitsFailed)})
 	return res, nil
+}
+
+// syncProjects discovers the projects' datasets, groups them into units and
+// processes the units.
+func (s *Syncer) syncProjects(ctx context.Context, projects []string, r *run) {
+	disc := make([]discovery, len(projects))
+	s.parallel(ctx, len(projects), func(i int) { disc[i] = s.discover(ctx, projects[i], r) })
+	var jobs []unitJob
+	var failed []api.UnitState
+	for _, d := range disc {
+		jobs = append(jobs, d.units...)
+		if d.failed && d.state != nil {
+			failed = append(failed, *d.state)
+		}
+	}
+	r.mu.Lock()
+	r.total = len(jobs) + len(failed)
+	r.mu.Unlock()
+	r.event(api.SyncEvent{Kind: api.EventDiscovered, Message: fmt.Sprintf("%d unit(s)", len(jobs))})
+	for _, st := range failed {
+		r.finishUnit(st, api.EventUnitFailed)
+	}
+	s.parallel(ctx, len(jobs), func(i int) { s.processUnit(ctx, jobs[i], r) })
 }
 
 // resolveScope returns the projects to sync and whether they cover every
@@ -340,19 +362,27 @@ func (s *Syncer) processUnit(ctx context.Context, job unitJob, r *run) {
 	}
 	r.event(api.SyncEvent{Kind: api.EventUnitStarted, Project: job.ref.Project, Location: job.ref.Location, Datasets: len(names)})
 
-	snap, err := retry(ctx, s, "region snapshot "+job.ref.Project+"/"+job.ref.Location, func() (*api.Snapshot, error) {
-		return s.o.Meta.RegionSnapshot(ctx, bq.RegionRequest{Project: job.ref.Project, Location: job.ref.Location, Datasets: names})
+	marks := s.ownSchemaMarks(ctx, job.ref)
+	req := bq.RegionRequest{Project: job.ref.Project, Location: job.ref.Location, Datasets: names}
+	where := job.ref.Project + "/" + job.ref.Location
+	snap, err := retry(ctx, s, "region tables "+where, func() (*api.Snapshot, error) {
+		return s.o.Meta.RegionTables(ctx, req)
 	})
-
 	var applies []store.DatasetApply
+	if err == nil {
+		applies = s.fromSnapshot(job, snap, marks)
+		err = s.readColumns(ctx, job.ref.Project, applies, "region columns "+where, r, func(f bq.ColumnFilter) ([]bq.TableColumns, error) {
+			return s.o.Meta.RegionColumns(ctx, req, f)
+		})
+	}
+
 	switch {
 	case err == nil:
-		applies = s.fromSnapshot(job, snap)
 	case ctx.Err() != nil:
 		return
 	case bq.KindOf(err) == bq.KindPermission:
 		s.o.Log.Info("region views not accessible, falling back to per-dataset", "project", job.ref.Project, "location", job.ref.Location, "err", err)
-		applies = s.ladder(ctx, job)
+		applies = s.ladder(ctx, job, marks, r)
 		if ctx.Err() != nil {
 			return
 		}
@@ -421,7 +451,7 @@ func (s *Syncer) failUnit(ctx context.Context, job unitJob, now time.Time, err e
 // fromSnapshot turns a full region snapshot into dataset applies, dropping
 // datasets that were not requested (region views can leak deleted and
 // temporary datasets) and tables the ignore rules exclude.
-func (s *Syncer) fromSnapshot(job unitJob, snap *api.Snapshot) []store.DatasetApply {
+func (s *Syncer) fromSnapshot(job unitJob, snap *api.Snapshot, marks map[string]bool) []store.DatasetApply {
 	meta := map[string]api.DatasetMeta{}
 	for _, d := range job.datasets {
 		meta[d.Name] = d
@@ -454,7 +484,10 @@ func (s *Syncer) fromSnapshot(job unitJob, snap *api.Snapshot) []store.DatasetAp
 	for _, d := range job.datasets {
 		tables := byDS[d.Name]
 		sort.Slice(tables, func(i, j int) bool { return tables[i].Name < tables[j].Name })
-		AssignShards(tables)
+		shard.Assign(tables, s.o.Config.Shards())
+		for i := range tables {
+			tables[i].OwnSchema = marks[d.Name+"."+tables[i].Name]
+		}
 		m := meta[d.Name]
 		m.Project = job.ref.Project
 		m.Location = job.ref.Location
@@ -465,11 +498,11 @@ func (s *Syncer) fromSnapshot(job unitJob, snap *api.Snapshot) []store.DatasetAp
 
 // ladder handles a unit whose region views are not accessible: per dataset it
 // tries dataset-scope views, then table names only, then keeps old data.
-func (s *Syncer) ladder(ctx context.Context, job unitJob) []store.DatasetApply {
+func (s *Syncer) ladder(ctx context.Context, job unitJob, marks map[string]bool, r *run) []store.DatasetApply {
 	out := make([]store.DatasetApply, len(job.datasets))
 	keep := make([]bool, len(job.datasets))
 	s.parallel(ctx, len(job.datasets), func(i int) {
-		a, ok := s.fallbackDataset(ctx, job, job.datasets[i])
+		a, ok := s.fallbackDataset(ctx, job, job.datasets[i], marks, r)
 		out[i], keep[i] = a, ok
 	})
 	res := out[:0]
@@ -481,7 +514,7 @@ func (s *Syncer) ladder(ctx context.Context, job unitJob) []store.DatasetApply {
 	return res
 }
 
-func (s *Syncer) fallbackDataset(ctx context.Context, job unitJob, d api.DatasetMeta) (store.DatasetApply, bool) {
+func (s *Syncer) fallbackDataset(ctx context.Context, job unitJob, d api.DatasetMeta, marks map[string]bool, r *run) (store.DatasetApply, bool) {
 	proj := job.ref.Project
 	m := d
 	m.Project, m.Location = proj, job.ref.Location
@@ -490,11 +523,18 @@ func (s *Syncer) fallbackDataset(ctx context.Context, job unitJob, d api.Dataset
 		return store.DatasetApply{Meta: m, Mode: store.ModeKeepOld, Status: api.DatasetInaccessible}, true
 	}
 
-	snap, err := retry(ctx, s, "dataset snapshot "+proj+"."+d.Name, func() (*api.Snapshot, error) {
-		return s.o.Meta.DatasetSnapshot(ctx, bq.DatasetRequest{Project: proj, Location: job.ref.Location, Dataset: d.Name})
+	req := bq.DatasetRequest{Project: proj, Location: job.ref.Location, Dataset: d.Name}
+	snap, err := retry(ctx, s, "dataset tables "+proj+"."+d.Name, func() (*api.Snapshot, error) {
+		return s.o.Meta.DatasetTables(ctx, req)
 	})
+	var sub []store.DatasetApply
 	if err == nil {
-		sub := s.fromSnapshot(unitJob{ref: job.ref, datasets: []api.DatasetMeta{d}}, snap)
+		sub = s.fromSnapshot(unitJob{ref: job.ref, datasets: []api.DatasetMeta{d}}, snap, marks)
+		err = s.readColumns(ctx, proj, sub, "dataset columns "+proj+"."+d.Name, r, func(f bq.ColumnFilter) ([]bq.TableColumns, error) {
+			return s.o.Meta.DatasetColumns(ctx, req, f)
+		})
+	}
+	if err == nil {
 		if len(sub) == 1 {
 			return s.withDatasetOptions(ctx, sub[0]), true
 		}
@@ -524,7 +564,7 @@ func (s *Syncer) fallbackDataset(ctx context.Context, job unitJob, d api.Dataset
 			kept = append(kept, t)
 		}
 		sort.Slice(kept, func(i, j int) bool { return kept[i].Name < kept[j].Name })
-		AssignShards(kept)
+		shard.Assign(kept, s.o.Config.Shards())
 		return s.withDatasetOptions(ctx, store.DatasetApply{Meta: m, Mode: store.ModeNamesOnly, Status: api.DatasetNamesOnly, Tables: kept}), true
 	}
 	if ctx.Err() != nil {

@@ -46,7 +46,7 @@ type Project struct {
 
 // Failure injects an error into matching calls. Empty fields are wildcards.
 type Failure struct {
-	Method   string // "ListProjects", "ListDatasets", "GetDataset", "RegionSnapshot", "DatasetSnapshot", "ListTableNames"
+	Method   string // "ListProjects", "ListDatasets", "GetDataset", "RegionTables", "RegionColumns", "DatasetTables", "DatasetColumns", "ListTableNames", "GetTableMeta"
 	Project  string
 	Location string
 	Dataset  string
@@ -63,6 +63,9 @@ type Call struct {
 	Location string
 	Dataset  string
 	Datasets []string
+	// Table is set for GetTableMeta; Filter for the column calls.
+	Table  string
+	Filter bq.ColumnFilter
 }
 
 // Fake implements bq.Metadata, bq.Tables and bq.Jobs.
@@ -90,6 +93,13 @@ type Fake struct {
 	// ListRowsLimit caps the rows one ListRows call returns, the same way.
 	// 0 means no cap.
 	ListRowsLimit int
+	// MissColumns names "project.dataset.table" tables whose columns a
+	// filtered column call leaves out although bqt kept them, as when
+	// BigQuery's regex matching differs from Go's. A re-read by name (the
+	// filter's Only) still returns them.
+	MissColumns map[string]bool
+
+	columnReads []string
 
 	queries []QueryCall
 	jobs    map[string]*fakeJob
@@ -264,81 +274,6 @@ func (f *Fake) GetDataset(ctx context.Context, project, dataset string) (api.Dat
 		return m, nil
 	}
 	return api.DatasetMeta{}, &bq.Error{Kind: bq.KindNotFound, Op: "fake", Err: fmt.Errorf("dataset %s.%s not found", project, dataset)}
-}
-
-// RegionSnapshot implements bq.Metadata.
-func (f *Fake) RegionSnapshot(ctx context.Context, req bq.RegionRequest) (*api.Snapshot, error) {
-	if err := f.begin(ctx, Call{Method: "RegionSnapshot", Project: req.Project, Location: req.Location, Datasets: append([]string(nil), req.Datasets...)}); err != nil {
-		return nil, err
-	}
-	p, err := f.project(req.Project)
-	if err != nil {
-		return nil, err
-	}
-	want := map[string]bool{}
-	for _, d := range req.Datasets {
-		want[d] = true
-	}
-	snap := &api.Snapshot{}
-	add := func(d Dataset, requestedOnly bool) error {
-		if !strings.EqualFold(d.Meta.Location, req.Location) {
-			return nil
-		}
-		if requestedOnly && !want[d.Meta.Name] {
-			return nil
-		}
-		if d.Denied {
-			return PermissionError(fmt.Sprintf("region view for %s.%s", req.Project, d.Meta.Name))
-		}
-		m := d.Meta
-		m.Project = req.Project
-		snap.Datasets = append(snap.Datasets, m)
-		for _, t := range d.Tables {
-			t.Dataset = d.Meta.Name
-			snap.Tables = append(snap.Tables, cloneTable(t))
-		}
-		return nil
-	}
-	for _, d := range p.Datasets {
-		if err := add(d, true); err != nil {
-			return nil, err
-		}
-	}
-	for _, d := range p.Leak {
-		if err := add(d, false); err != nil {
-			return nil, err
-		}
-	}
-	return snap, nil
-}
-
-// DatasetSnapshot implements bq.Metadata.
-func (f *Fake) DatasetSnapshot(ctx context.Context, req bq.DatasetRequest) (*api.Snapshot, error) {
-	if err := f.begin(ctx, Call{Method: "DatasetSnapshot", Project: req.Project, Location: req.Location, Dataset: req.Dataset}); err != nil {
-		return nil, err
-	}
-	p, err := f.project(req.Project)
-	if err != nil {
-		return nil, err
-	}
-	for _, d := range p.Datasets {
-		if d.Meta.Name != req.Dataset {
-			continue
-		}
-		if d.Denied {
-			return nil, PermissionError(fmt.Sprintf("dataset %s.%s", req.Project, req.Dataset))
-		}
-		// SCHEMATA_OPTIONS has no dataset scope: no description, friendly
-		// name or labels.
-		m := api.DatasetMeta{Project: req.Project, Name: d.Meta.Name, Location: d.Meta.Location}
-		snap := &api.Snapshot{Datasets: []api.DatasetMeta{m}}
-		for _, t := range d.Tables {
-			t.Dataset = d.Meta.Name
-			snap.Tables = append(snap.Tables, cloneTable(t))
-		}
-		return snap, nil
-	}
-	return nil, &bq.Error{Kind: bq.KindNotFound, Op: "fake", Err: fmt.Errorf("dataset %s.%s not found", req.Project, req.Dataset)}
 }
 
 // ListTableNames implements bq.Metadata.

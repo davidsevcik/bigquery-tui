@@ -131,7 +131,7 @@ func TestSyncBasicGroupsByProjectAndRegion(t *testing.T) {
 	if res.UnitsTotal != 3 || res.UnitsOK != 3 || res.UnitsFailed != 0 || res.Cancelled {
 		t.Fatalf("%+v", res)
 	}
-	calls := h.fake.CallsTo("RegionSnapshot")
+	calls := h.fake.CallsTo("RegionTables")
 	if len(calls) != 3 {
 		t.Fatalf("one region query per (project, location), got %d: %+v", len(calls), calls)
 	}
@@ -193,7 +193,7 @@ ignore = ["proj-a.logs", "proj-a.sales.items"]
 	h.fake.Projects["proj-a"].Leak = []bqtest.Dataset{bqtest.DS("ghost", "EU", bqtest.Table("g", "c"))}
 	h.run(api.SyncScope{})
 
-	for _, c := range h.fake.CallsTo("RegionSnapshot") {
+	for _, c := range h.fake.CallsTo("RegionTables") {
 		if c.Location == "EU" {
 			if len(c.Datasets) != 1 || c.Datasets[0] != "sales" {
 				t.Fatalf("ignored datasets must not be requested: %+v", c)
@@ -253,7 +253,7 @@ func TestSyncPermissionLadder(t *testing.T) {
 	if st["open"] != api.DatasetOK || st["names"] != api.DatasetNamesOnly || st["locked"] != api.DatasetInaccessible {
 		t.Fatalf("%v", st)
 	}
-	if len(h.fake.CallsTo("DatasetSnapshot")) < 3 {
+	if len(h.fake.CallsTo("DatasetTables")) < 3 {
 		t.Fatal("ladder should query each dataset")
 	}
 }
@@ -270,7 +270,7 @@ func TestSyncDatasetScopeFallbackKeepsDatasetOptions(t *testing.T) {
 	names := bqtest.DS("names", "US", bqtest.Table("t2", "a"))
 	names.Denied, names.NamesOK = true, true
 	p.Datasets = []bqtest.Dataset{granted, bqtest.DS("broken", "US", bqtest.Table("t3", "a")), names}
-	h.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Err: bqtest.PermissionError("region-us")})
+	h.fake.Fail(bqtest.Failure{Method: "RegionTables", Err: bqtest.PermissionError("region-us")})
 	h.fake.Fail(bqtest.Failure{Method: "GetDataset", Dataset: "broken", Err: bqtest.TransientError("datasets.get")})
 
 	h.run(api.SyncScope{})
@@ -325,13 +325,13 @@ func TestSyncAllDatasetsInaccessible(t *testing.T) {
 func TestSyncTransientRetries(t *testing.T) {
 	h := newHarness(t, `projects = ["proj-a"]`)
 	twoProjectFake(h.fake)
-	h.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Project: "proj-a", Location: "EU", Err: bqtest.TransientError("blip"), Times: 2})
+	h.fake.Fail(bqtest.Failure{Method: "RegionTables", Project: "proj-a", Location: "EU", Err: bqtest.TransientError("blip"), Times: 2})
 	res := h.run(api.SyncScope{})
 	if res.UnitsOK != 2 || res.UnitsFailed != 0 {
 		t.Fatalf("two transient failures are retried: %+v", res)
 	}
 	var euCalls int
-	for _, c := range h.fake.CallsTo("RegionSnapshot") {
+	for _, c := range h.fake.CallsTo("RegionTables") {
 		if c.Location == "EU" {
 			euCalls++
 		}
@@ -346,7 +346,7 @@ func TestSyncTransientExhaustedKeepsOldData(t *testing.T) {
 	twoProjectFake(h.fake)
 	h.run(api.SyncScope{})
 	before := h.counts()
-	h.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Project: "proj-a", Location: "EU", Err: bqtest.TransientError("still down")})
+	h.fake.Fail(bqtest.Failure{Method: "RegionTables", Project: "proj-a", Location: "EU", Err: bqtest.TransientError("still down")})
 	h.now = h.now.Add(time.Hour)
 	res := h.run(api.SyncScope{})
 	if res.UnitsFailed != 1 || res.UnitsOK != 1 {
@@ -486,7 +486,7 @@ func TestSyncCancelKeepsCommittedUnits(t *testing.T) {
 	cctx, cancel := context.WithCancel(ctx)
 	var regionCalls atomic.Int32
 	h.fake.OnCall = func(c bqtest.Call) {
-		if c.Method == "RegionSnapshot" && regionCalls.Add(1) == 2 {
+		if c.Method == "RegionTables" && regionCalls.Add(1) == 2 {
 			cancel()
 		}
 	}
@@ -519,7 +519,7 @@ func TestSyncRespectsParallelism(t *testing.T) {
 	var cur, max atomic.Int32
 	h.fake.Delay = 15 * time.Millisecond
 	h.fake.OnCall = func(c bqtest.Call) {
-		if c.Method != "RegionSnapshot" {
+		if c.Method != "RegionTables" {
 			return
 		}
 		n := cur.Add(1)
@@ -544,7 +544,7 @@ func TestSyncRespectsParallelism(t *testing.T) {
 }
 
 func TestSyncStoresShardFamilies(t *testing.T) {
-	h := newHarness(t, `projects = ["p"]`)
+	h := newHarness(t, "projects = [\"p\"]\nshard_patterns = ['.+(\\d{8})']\n")
 	p := h.fake.AddProject("p")
 	p.Datasets = []bqtest.Dataset{bqtest.DS("ev", "EU",
 		bqtest.Table("events_20240101", "c"), bqtest.Table("events_20240103", "c"), bqtest.Table("events_20240102", "c"),
@@ -556,7 +556,7 @@ func TestSyncStoresShardFamilies(t *testing.T) {
 		got[tb.Name] = tb.Shard
 	}
 	f := got["events_20240102"]
-	if f == nil || f.Prefix != "events_" || f.Count != 3 || f.First != "20240101" || f.Last != "20240103" {
+	if f == nil || f.Prefix != "events_" || !f.Date || f.Name != "events_YYYYMMDD" || f.Count != 3 || f.First != "20240101" || f.Last != "20240103" || f.Newest != "events_20240103" {
 		t.Fatalf("%+v", f)
 	}
 	if got["lonely_20240101"] != nil || got["plain"] != nil {
@@ -659,34 +659,6 @@ func TestACatalogFromBeforeTheProjectsDialogNeedsNoSync(t *testing.T) {
 	}
 	if pending, reason, _ := PendingConfigChange(ctx, h.cat, h.cfg); pending {
 		t.Fatalf("nothing that matters changed: %s", reason)
-	}
-}
-
-func TestShardAssign(t *testing.T) {
-	mk := func(names ...string) []api.TableMeta {
-		var ts []api.TableMeta
-		for _, n := range names {
-			ts = append(ts, api.TableMeta{Name: n, Type: api.TypeTable})
-		}
-		return ts
-	}
-	ts := mk("a_20240101", "a_20240102", "a_20241301" /* bad month */, "b20240101", "b20240105", "20240101", "20240102", "c_2024010", "d_20240101_x")
-	AssignShards(ts)
-	want := map[string]string{"a_20240101": "a_", "a_20240102": "a_", "b20240101": "b", "b20240105": "b"}
-	for _, tb := range ts {
-		w, in := want[tb.Name]
-		switch {
-		case in && (tb.Shard == nil || tb.Shard.Prefix != w || tb.Shard.Count != 2):
-			t.Errorf("%s: %+v", tb.Name, tb.Shard)
-		case !in && tb.Shard != nil:
-			t.Errorf("%s must not be sharded: %+v", tb.Name, tb.Shard)
-		}
-	}
-	// same prefix but different types are different families
-	mixed := []api.TableMeta{{Name: "x_20240101", Type: api.TypeTable}, {Name: "x_20240102", Type: api.TypeView}}
-	AssignShards(mixed)
-	if mixed[0].Shard != nil || mixed[1].Shard != nil {
-		t.Fatal("tables and views do not share a family")
 	}
 }
 

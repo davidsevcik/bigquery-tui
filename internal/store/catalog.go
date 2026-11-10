@@ -23,8 +23,16 @@ const CatalogSchemaVersion = 3
 // writer open adds any an existing file lacks, and the read-only open reads
 // a missing one as its default. Older binaries name their columns, so they
 // never see these.
-var addedColumns = []struct{ table, column, decl string }{
-	{"tables", "require_partition_filter", "INTEGER NOT NULL DEFAULT 0"},
+var addedColumns = []struct{ table, column, decl, def string }{
+	{"tables", "require_partition_filter", "INTEGER NOT NULL DEFAULT 0", "0"},
+	// shard families from shard_patterns (spec section 8.3)
+	{"tables", "shard_name", "TEXT NOT NULL DEFAULT ''", "''"},
+	{"tables", "shard_suffix", "TEXT NOT NULL DEFAULT ''", "''"},
+	{"tables", "shard_date", "INTEGER NOT NULL DEFAULT 0", "0"},
+	{"tables", "shard_newest", "TEXT NOT NULL DEFAULT ''", "''"},
+	{"tables", "shard_newest_created", "INTEGER NOT NULL DEFAULT 0", "0"},
+	{"tables", "shared_schema", "INTEGER NOT NULL DEFAULT 0", "0"},
+	{"tables", "own_schema", "INTEGER NOT NULL DEFAULT 0", "0"},
 }
 
 const catalogSchema = `
@@ -65,6 +73,13 @@ CREATE TABLE tables (
   shard_first  TEXT NOT NULL DEFAULT '',
   shard_last   TEXT NOT NULL DEFAULT '',
   shard_count  INTEGER NOT NULL DEFAULT 0,
+  shard_name   TEXT NOT NULL DEFAULT '',
+  shard_suffix TEXT NOT NULL DEFAULT '',
+  shard_date   INTEGER NOT NULL DEFAULT 0,
+  shard_newest TEXT NOT NULL DEFAULT '',
+  shard_newest_created INTEGER NOT NULL DEFAULT 0,
+  shared_schema INTEGER NOT NULL DEFAULT 0,
+  own_schema   INTEGER NOT NULL DEFAULT 0,
   UNIQUE (dataset_id, name)
 );
 CREATE INDEX tables_name_lc ON tables(name_lc);
@@ -111,9 +126,9 @@ type Catalog struct {
 	path      string
 	readOnly  bool
 	recreated string
-	// rpf is what the readers select for tables.require_partition_filter:
-	// the column, or 0 in a read-only file that predates it.
-	rpf string
+	// missing lists the added tables columns a read-only file predates:
+	// the readers select their defaults instead (see tcol).
+	missing map[string]bool
 }
 
 // OpenCatalog opens (creating if needed) the catalog for writing. A schema
@@ -143,7 +158,7 @@ func OpenCatalog(path string) (*Catalog, error) {
 					db.Close()
 					return nil, err
 				}
-				return &Catalog{db: db, path: path, rpf: "t.require_partition_filter"}, nil
+				return &Catalog{db: db, path: path}, nil
 			case v == 0:
 				// empty file: fall through to create
 			default:
@@ -163,7 +178,7 @@ func OpenCatalog(path string) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Catalog{db: db, path: path, recreated: reason, rpf: "t.require_partition_filter"}
+	c := &Catalog{db: db, path: path, recreated: reason}
 	if err := c.create(); err != nil {
 		db.Close()
 		return nil, err
@@ -188,14 +203,19 @@ func OpenCatalogReadOnly(path string) (*Catalog, error) {
 		}
 		return nil, err
 	}
-	c := &Catalog{db: db, path: path, readOnly: true, rpf: "t.require_partition_filter"}
-	has, err := hasColumn(db, "tables", "require_partition_filter")
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	if !has {
-		c.rpf = "0" // written before the column: "unknown = false"
+	c := &Catalog{db: db, path: path, readOnly: true}
+	for _, a := range addedColumns {
+		has, err := hasColumn(db, a.table, a.column)
+		if err != nil {
+			db.Close()
+			return nil, err
+		}
+		if !has {
+			if c.missing == nil {
+				c.missing = map[string]bool{}
+			}
+			c.missing[a.column] = true // written before the column: read its default
+		}
 	}
 	return c, nil
 }
@@ -457,22 +477,22 @@ func applyTables(ctx context.Context, tx *sql.Tx, datasetID int64, tables []api.
 		return st, err
 	}
 
-	insTable, err := tx.PrepareContext(ctx, `INSERT INTO tables(dataset_id,name,name_lc,type,created_at,description,labels,expires_at,view_sql,names_only,content_hash,shard_prefix,shard_first,shard_last,shard_count,require_partition_filter) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	insTable, err := tx.PrepareContext(ctx, `INSERT INTO tables(dataset_id,name,name_lc,type,created_at,description,labels,expires_at,view_sql,names_only,content_hash,require_partition_filter,shard_prefix,shard_first,shard_last,shard_count,shard_name,shard_suffix,shard_date,shard_newest,shard_newest_created,shared_schema,own_schema) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return st, err
 	}
 	defer insTable.Close()
-	updTable, err := tx.PrepareContext(ctx, `UPDATE tables SET type=?,created_at=?,description=?,labels=?,expires_at=?,view_sql=?,names_only=?,content_hash=?,shard_prefix=?,shard_first=?,shard_last=?,shard_count=?,require_partition_filter=? WHERE id=?`)
+	updTable, err := tx.PrepareContext(ctx, `UPDATE tables SET type=?,created_at=?,description=?,labels=?,expires_at=?,view_sql=?,names_only=?,content_hash=?,require_partition_filter=?,`+shardAssign+` WHERE id=?`)
 	if err != nil {
 		return st, err
 	}
 	defer updTable.Close()
-	updShard, err := tx.PrepareContext(ctx, `UPDATE tables SET shard_prefix=?,shard_first=?,shard_last=?,shard_count=? WHERE id=?`)
+	updShard, err := tx.PrepareContext(ctx, `UPDATE tables SET `+shardAssign+` WHERE id=?`)
 	if err != nil {
 		return st, err
 	}
 	defer updShard.Close()
-	insCol, err := tx.PrepareContext(ctx, `INSERT INTO columns(table_id,parent_id,field_path,field_path_lc,top_level,ordinal,data_type,description,partitioning,clustering_ordinal,required) VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
+	insCol, err := tx.PrepareContext(ctx, insertColumnSQL)
 	if err != nil {
 		return st, err
 	}
@@ -494,16 +514,17 @@ func applyTables(ctx context.Context, tx *sql.Tx, datasetID int64, tables []api.
 			t.Columns = nil
 		}
 		hash := t.ContentHash()
-		sp, sf, sl, sc := shardCols(t.Shard)
+		sv := shardValues(t)
 		old, found := existing[t.Name]
 		switch {
 		case found && old.hash == hash:
-			if _, err := updShard.ExecContext(ctx, sp, sf, sl, sc, old.id); err != nil {
+			if _, err := updShard.ExecContext(ctx, append(sv, old.id)...); err != nil {
 				return st, err
 			}
 			st.TablesUnchanged++
 		case found:
-			if _, err := updTable.ExecContext(ctx, string(t.Type), unix(t.CreatedAt), t.Description, encodeLabels(t.Labels), unixPtr(t.ExpiresAt), t.ViewSQL, b2i(t.NamesOnly), hash, sp, sf, sl, sc, b2i(t.RequirePartitionFilter), old.id); err != nil {
+			args := append([]any{string(t.Type), unix(t.CreatedAt), t.Description, encodeLabels(t.Labels), unixPtr(t.ExpiresAt), t.ViewSQL, b2i(t.NamesOnly), hash, b2i(t.RequirePartitionFilter)}, sv...)
+			if _, err := updTable.ExecContext(ctx, append(args, old.id)...); err != nil {
 				return st, err
 			}
 			if _, err := tx.ExecContext(ctx, "DELETE FROM columns WHERE table_id = ?", old.id); err != nil {
@@ -514,7 +535,8 @@ func applyTables(ctx context.Context, tx *sql.Tx, datasetID int64, tables []api.
 			}
 			st.TablesUpdated++
 		default:
-			res, err := insTable.ExecContext(ctx, datasetID, t.Name, strings.ToLower(t.Name), string(t.Type), unix(t.CreatedAt), t.Description, encodeLabels(t.Labels), unixPtr(t.ExpiresAt), t.ViewSQL, b2i(t.NamesOnly), hash, sp, sf, sl, sc, b2i(t.RequirePartitionFilter))
+			args := append([]any{datasetID, t.Name, strings.ToLower(t.Name), string(t.Type), unix(t.CreatedAt), t.Description, encodeLabels(t.Labels), unixPtr(t.ExpiresAt), t.ViewSQL, b2i(t.NamesOnly), hash, b2i(t.RequirePartitionFilter)}, sv...)
+			res, err := insTable.ExecContext(ctx, args...)
 			if err != nil {
 				return st, err
 			}
@@ -706,8 +728,8 @@ func (c *Catalog) Datasets(ctx context.Context, project string) ([]DatasetRow, e
 
 // Tables lists a dataset's tables (without columns).
 func (c *Catalog) Tables(ctx context.Context, project, dataset string) ([]api.TableMeta, error) {
-	//nolint:gosec // c.rpf is one of two fixed column expressions, never input
-	rows, err := c.db.QueryContext(ctx, `SELECT t.name,t.type,t.created_at,t.description,t.labels,t.expires_at,t.view_sql,t.names_only,t.shard_prefix,t.shard_first,t.shard_last,t.shard_count,`+c.rpf+`
+	//nolint:gosec // tcol and shardSelect are fixed column expressions, never input
+	rows, err := c.db.QueryContext(ctx, `SELECT t.name,t.type,t.created_at,t.description,t.labels,t.expires_at,t.view_sql,t.names_only,`+c.tcol("require_partition_filter")+`,`+c.shardSelect()+`
 FROM tables t JOIN datasets d ON d.id=t.dataset_id JOIN projects p ON p.id=d.project_id
 WHERE p.name = ? AND d.name = ? ORDER BY t.name_lc`, project, dataset)
 	if err != nil {
@@ -720,9 +742,8 @@ WHERE p.name = ? AND d.name = ? ORDER BY t.name_lc`, project, dataset)
 		var typ, labels string
 		var created, expires int64
 		var names, rpf int
-		var sp, sf, sl string
-		var sc int
-		if err := rows.Scan(&t.Name, &typ, &created, &t.Description, &labels, &expires, &t.ViewSQL, &names, &sp, &sf, &sl, &sc, &rpf); err != nil {
+		var sr shardRow
+		if err := rows.Scan(append([]any{&t.Name, &typ, &created, &t.Description, &labels, &expires, &t.ViewSQL, &names, &rpf}, sr.dest()...)...); err != nil {
 			return nil, err
 		}
 		t.RequirePartitionFilter = rpf != 0
@@ -737,9 +758,7 @@ WHERE p.name = ? AND d.name = ? ORDER BY t.name_lc`, project, dataset)
 		}
 		t.Labels = decodeLabels(labels)
 		t.NamesOnly = names != 0
-		if sc > 0 {
-			t.Shard = &api.ShardFamily{Prefix: sp, First: sf, Last: sl, Count: sc}
-		}
+		sr.apply(&t)
 		out = append(out, t)
 	}
 	return out, rows.Err()
@@ -864,12 +883,7 @@ func (c *Catalog) Prune(ctx context.Context, allowed map[string]bool, ignored fu
 
 // --- helpers
 
-func shardCols(s *api.ShardFamily) (string, string, string, int) {
-	if s == nil {
-		return "", "", "", 0
-	}
-	return s.Prefix, s.First, s.Last, s.Count
-}
+const insertColumnSQL = `INSERT INTO columns(table_id,parent_id,field_path,field_path_lc,top_level,ordinal,data_type,description,partitioning,clustering_ordinal,required) VALUES(?,?,?,?,?,?,?,?,?,?,?)`
 
 func unix(t time.Time) int64 {
 	if t.IsZero() {

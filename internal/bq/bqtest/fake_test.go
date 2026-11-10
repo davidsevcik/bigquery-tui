@@ -18,7 +18,7 @@ func sampleFake() *Fake {
 	view.ViewSQL = "SELECT 1"
 	nested := Table("orders", "id", "addr", "addr.city")
 	p.Datasets = []Dataset{
-		DS("sales", "EU", nested, Table("items", "sku"), view),
+		DS("sales", "EU", nested, Table("items", "sku"), view, Table("events_20240101", "e"), Table("events_20240102", "e"), Table("events_20240103", "e")),
 		DS("logs", "EU", Table("l1", "msg")),
 		DS("us_data", "US", Table("u1", "x")),
 	}
@@ -26,13 +26,15 @@ func sampleFake() *Fake {
 }
 
 func TestFakeSatisfiesContract(t *testing.T) {
-	RunMetadataContract(t, sampleFake(), ContractOptions{Project: "proj"})
+	RunMetadataContract(t, sampleFake(), ContractOptions{Project: "proj", Family: &FamilyCase{
+		Location: "EU", Dataset: "sales", Patterns: []string{`.+(\d{8})`}, Keep: []string{"events_20240103"},
+	}})
 }
 
-func TestRegionSnapshotFiltersToRequestedAndLocation(t *testing.T) {
+func TestRegionTablesFiltersToRequestedAndLocation(t *testing.T) {
 	f := sampleFake()
 	f.Projects["proj"].Leak = []Dataset{DS("ghost", "EU", Table("t", "c"))}
-	s, err := f.RegionSnapshot(context.Background(), bq.RegionRequest{Project: "proj", Location: "eu", Datasets: []string{"sales"}})
+	s, err := f.RegionTables(context.Background(), bq.RegionRequest{Project: "proj", Location: "eu", Datasets: []string{"sales"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,17 +51,17 @@ func TestRegionSnapshotFiltersToRequestedAndLocation(t *testing.T) {
 func TestFailureInjection(t *testing.T) {
 	f := sampleFake()
 	boom := TransientError("boom")
-	f.Fail(Failure{Method: "RegionSnapshot", Project: "proj", Location: "EU", Err: boom, Times: 2})
+	f.Fail(Failure{Method: "RegionTables", Project: "proj", Location: "EU", Err: boom, Times: 2})
 	req := bq.RegionRequest{Project: "proj", Location: "EU", Datasets: []string{"sales"}}
 	for i := 0; i < 2; i++ {
-		if _, err := f.RegionSnapshot(context.Background(), req); !errors.Is(err, boom) {
+		if _, err := f.RegionTables(context.Background(), req); !errors.Is(err, boom) {
 			t.Fatalf("call %d: %v", i, err)
 		}
 	}
-	if _, err := f.RegionSnapshot(context.Background(), req); err != nil {
+	if _, err := f.RegionTables(context.Background(), req); err != nil {
 		t.Fatalf("failure should be exhausted: %v", err)
 	}
-	if n := len(f.CallsTo("RegionSnapshot")); n != 3 {
+	if n := len(f.CallsTo("RegionTables")); n != 3 {
 		t.Fatalf("calls recorded: %d", n)
 	}
 }
@@ -68,10 +70,10 @@ func TestDeniedDatasetLadder(t *testing.T) {
 	f := sampleFake()
 	f.Projects["proj"].Datasets[0].Denied = true
 	ctx := context.Background()
-	if _, err := f.RegionSnapshot(ctx, bq.RegionRequest{Project: "proj", Location: "EU", Datasets: []string{"sales", "logs"}}); bq.KindOf(err) != bq.KindPermission {
+	if _, err := f.RegionTables(ctx, bq.RegionRequest{Project: "proj", Location: "EU", Datasets: []string{"sales", "logs"}}); bq.KindOf(err) != bq.KindPermission {
 		t.Fatalf("%v", err)
 	}
-	if _, err := f.DatasetSnapshot(ctx, bq.DatasetRequest{Project: "proj", Location: "EU", Dataset: "sales"}); bq.KindOf(err) != bq.KindPermission {
+	if _, err := f.DatasetTables(ctx, bq.DatasetRequest{Project: "proj", Location: "EU", Dataset: "sales"}); bq.KindOf(err) != bq.KindPermission {
 		t.Fatalf("%v", err)
 	}
 	if _, err := f.ListTableNames(ctx, "proj", "sales"); bq.KindOf(err) != bq.KindPermission {
@@ -79,7 +81,7 @@ func TestDeniedDatasetLadder(t *testing.T) {
 	}
 	f.Projects["proj"].Datasets[0].NamesOK = true
 	names, err := f.ListTableNames(ctx, "proj", "sales")
-	if err != nil || len(names) != 3 || !names[0].NamesOnly {
+	if err != nil || len(names) != 6 || !names[0].NamesOnly {
 		t.Fatalf("%v %v", names, err)
 	}
 }

@@ -4,7 +4,7 @@ import "testing"
 
 func TestMergeSnapshotMarksRequiredTopLevelColumns(t *testing.T) {
 	k := tkey{"d", "t"}
-	snap := mergeSnapshot(nil, []tableRow{{key: k, typ: "BASE TABLE"}}, nil, nil,
+	cols := mergeColumns(
 		[]colRow{{key: k, col: "id", ordinal: 1, required: true}, {key: k, col: "addr", ordinal: 2, required: true}, {key: k, col: "name", ordinal: 3}},
 		[]fieldRow{
 			{key: k, col: "id", path: "id", typ: "INT64"},
@@ -13,7 +13,7 @@ func TestMergeSnapshotMarksRequiredTopLevelColumns(t *testing.T) {
 			{key: k, col: "name", path: "name", typ: "STRING"},
 		})
 	got := map[string]bool{}
-	for _, c := range snap.Tables[0].Columns {
+	for _, c := range cols[0].Columns {
 		got[c.FieldPath] = c.Required
 	}
 	// the metadata views carry no mode for nested fields
@@ -31,7 +31,7 @@ func TestMergeSnapshotReadsTheRequiredPartitionFilterOption(t *testing.T) {
 		opts = append(opts, optRow{k, "require_partition_filter", val})
 	}
 	tables = append(tables, tableRow{key: tkey{"d", "none"}, typ: "BASE TABLE"})
-	snap := mergeSnapshot(nil, tables, opts, nil, nil, nil)
+	snap := mergeTables(nil, tables, opts, nil)
 	got := map[string]bool{}
 	for _, tb := range snap.Tables {
 		got[tb.Name] = tb.RequirePartitionFilter

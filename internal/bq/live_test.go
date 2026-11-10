@@ -32,7 +32,19 @@ func TestLiveMetadataContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	bqtest.RunMetadataContract(t, c, bqtest.ContractOptions{Project: proj, MaxDatasets: 40, MaxLocations: 2, FallbackSamples: 3})
+	o := bqtest.ContractOptions{Project: proj, MaxDatasets: 40, MaxLocations: 2, FallbackSamples: 3}
+	// BQT_LIVE_SHARD_DATASET (in BQT_LIVE_PROJECT, at BQT_LIVE_SHARD_LOCATION)
+	// holds a family that BQT_LIVE_SHARD_PATTERN matches; BQT_LIVE_SHARD_KEEP
+	// names members (comma-separated) to keep: the phase 2 column filter is
+	// then checked against it.
+	if ds, pat := os.Getenv("BQT_LIVE_SHARD_DATASET"), os.Getenv("BQT_LIVE_SHARD_PATTERN"); ds != "" && pat != "" {
+		f := &bqtest.FamilyCase{Location: os.Getenv("BQT_LIVE_SHARD_LOCATION"), Dataset: ds, Patterns: []string{pat}}
+		if k := os.Getenv("BQT_LIVE_SHARD_KEEP"); k != "" {
+			f.Keep = strings.Split(k, ",")
+		}
+		o.Family = f
+	}
+	bqtest.RunMetadataContract(t, c, o)
 }
 
 // TestLiveJobsContract runs a handful of queries that read no tables.
@@ -123,9 +135,21 @@ func TestLivePartitionFilterMetadata(t *testing.T) {
 			if loc == "" {
 				t.Fatalf("dataset %s.%s not listed", p.Project, p.Dataset)
 			}
-			snap, err := c.DatasetSnapshot(ctx, bq.DatasetRequest{Project: p.Project, Location: loc, Dataset: p.Dataset})
+			req := bq.DatasetRequest{Project: p.Project, Location: loc, Dataset: p.Dataset}
+			snap, err := c.DatasetTables(ctx, req)
 			if err != nil {
 				t.Fatal(err)
+			}
+			cols, err := c.DatasetColumns(ctx, req, bq.ColumnFilter{Only: []string{p.Dataset + "." + p.Table}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i := range snap.Tables {
+				for _, tc := range cols {
+					if tc.Table == snap.Tables[i].Name {
+						snap.Tables[i].Columns = tc.Columns
+					}
+				}
 			}
 			var tm *api.TableMeta
 			for i := range snap.Tables {
