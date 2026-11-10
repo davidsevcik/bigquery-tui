@@ -181,6 +181,15 @@ func (s *Searcher) ShardMembers(project, dataset, prefix string) []api.BrowseNod
 	return out
 }
 
+// Dataset returns a dataset (its project, name and location).
+func (s *Searcher) Dataset(project, dataset string) (api.DatasetMeta, bool) {
+	d := s.Index().findDataset(project, dataset)
+	if d == nil {
+		return api.DatasetMeta{}, false
+	}
+	return api.DatasetMeta{Project: project, Name: d.name, Location: d.location}, true
+}
+
 func (x *Index) findDataset(project, dataset string) *dsEntry {
 	for pi := range x.projects {
 		if x.projects[pi].name != project {

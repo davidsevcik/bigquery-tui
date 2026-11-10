@@ -208,7 +208,11 @@ func (e *Engine) cachedProjects(ctx context.Context) (map[string][]api.UnitState
 	if err != nil {
 		return nil, err
 	}
-	for _, u := range units {
+	pending, err := e.pendingUnits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, u := range withPending(units, pending) {
 		out[u.Project] = append(out[u.Project], u)
 	}
 	return out, nil
