@@ -102,6 +102,8 @@ type run struct {
 	states []api.UnitState
 	failed map[api.UnitRef]bool
 	warns  []string
+	// clientWarns are the bq.Warn messages already added.
+	clientWarns map[string]bool
 }
 
 func (r *run) event(e api.SyncEvent) {
@@ -136,10 +138,29 @@ func (r *run) finishUnit(st api.UnitState, kind api.SyncEventKind) {
 }
 
 func (r *run) warn(project, msg string) {
+	line := msg
+	if project != "" {
+		line = project + ": " + msg
+	}
 	r.mu.Lock()
-	r.warns = append(r.warns, project+": "+msg)
+	r.warns = append(r.warns, line)
 	r.mu.Unlock()
 	r.event(api.SyncEvent{Kind: api.EventWarning, Project: project, Message: msg})
+}
+
+// clientWarn adds a warning the BigQuery client reported (bq.Warn) once per
+// run, however many queries report it.
+func (r *run) clientWarn(msg string) {
+	r.mu.Lock()
+	seen := r.clientWarns[msg]
+	if r.clientWarns == nil {
+		r.clientWarns = map[string]bool{}
+	}
+	r.clientWarns[msg] = true
+	r.mu.Unlock()
+	if !seen {
+		r.warn("", msg)
+	}
 }
 
 // Run syncs the scope and emits structured events. It returns early with
@@ -151,6 +172,7 @@ func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.Syn
 		return res, err
 	}
 	r := &run{s: s, emit: emit}
+	ctx = bq.WithWarnings(ctx, r.clientWarn)
 	r.event(api.SyncEvent{Kind: api.EventRunStarted, Message: fmt.Sprintf("%d project(s)", len(projects))})
 
 	rec, err := ReconcileConfig(ctx, s.o.Catalog, s.o.Config)

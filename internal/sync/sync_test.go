@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
+	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 	"github.com/davidsevcik/bigquery-tui/internal/store"
@@ -398,6 +399,48 @@ func TestSyncUnreachableWarning(t *testing.T) {
 	u := h.unit("proj-b", "")
 	if u.Status != api.UnitDegraded {
 		t.Fatalf("%+v", u)
+	}
+}
+
+// warningMeta reports a client warning (bq.Warn) on every dataset listing,
+// as the real client does on every query once it reads through REST paging.
+type warningMeta struct{ *bqtest.Fake }
+
+func (m warningMeta) ListDatasets(ctx context.Context, project string) (bq.DatasetList, error) {
+	bq.Warn(ctx, "sync reads results through REST paging")
+	return m.Fake.ListDatasets(ctx, project)
+}
+
+func TestSyncAddsAClientWarningOncePerRun(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a", "proj-b"]`)
+	twoProjectFake(h.fake)
+	s := New(Options{
+		Config: h.cfg, Selected: h.selected, Meta: warningMeta{h.fake}, Catalog: h.cat,
+		Now: func() time.Time { return h.now }, Backoff: func(int) time.Duration { return 0 },
+	})
+	for i := 1; i <= 2; i++ {
+		var events []api.SyncEvent
+		var mu gosync.Mutex
+		res, err := s.Run(ctx, api.SyncScope{}, func(e api.SyncEvent) {
+			mu.Lock()
+			events = append(events, e)
+			mu.Unlock()
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Warnings) != 1 || res.Warnings[0] != "sync reads results through REST paging" {
+			t.Fatalf("run %d: warnings %q", i, res.Warnings)
+		}
+		n := 0
+		for _, e := range events {
+			if e.Kind == api.EventWarning {
+				n++
+			}
+		}
+		if n != 1 || res.UnitsOK != 3 {
+			t.Fatalf("run %d: %d warning events, %d units ok", i, n, res.UnitsOK)
+		}
 	}
 }
 
