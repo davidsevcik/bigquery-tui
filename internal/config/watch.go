@@ -135,6 +135,7 @@ func Diff(a, b *Config) []string {
 	}
 	add("location", a.Location, b.Location)
 	add("ignore", a.Filter().Ignore, b.Filter().Ignore)
+	add("shard_patterns", a.Shards().Sources(), b.Shards().Sources())
 	add("data_dir", a.DataDir, b.DataDir)
 	add("favorites_dir", a.FavoritesDir, b.FavoritesDir)
 	add("export_dir", a.ExportDir, b.ExportDir)

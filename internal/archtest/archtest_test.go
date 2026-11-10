@@ -16,7 +16,7 @@ var corePackages = []string{
 	"internal/api", "internal/config", "internal/store", "internal/sync",
 	"internal/bq", "internal/bq/bqtest", "internal/engine", "internal/logging", "internal/version",
 	"internal/search", "internal/format", "internal/sqlx", "internal/runs", "internal/export", "internal/favorites",
-	"internal/policy", "internal/handoff", "internal/selection",
+	"internal/policy", "internal/handoff", "internal/selection", "internal/shard",
 }
 
 var forbiddenPrefixes = []string{

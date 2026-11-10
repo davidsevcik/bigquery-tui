@@ -17,6 +17,8 @@ import (
 	"time"
 
 	toml "github.com/pelletier/go-toml/v2"
+
+	"github.com/davidsevcik/bigquery-tui/internal/shard"
 )
 
 // Defaults.
@@ -52,6 +54,8 @@ type Config struct {
 	ExecutionOverrideFrom string
 	Location              string
 	Ignore                []string
+	// ShardPatterns are the configured shard patterns (RE2), in order.
+	ShardPatterns         []string
 	DataDir               string
 	FavoritesDir          string
 	ExportDir             string // empty: the working directory
@@ -69,10 +73,32 @@ type Config struct {
 	Path string
 
 	matcher *Matcher
+	shards  *shard.Patterns
 }
 
 // Matcher returns the compiled ignore matcher.
 func (c *Config) Matcher() *Matcher { return c.matcher }
+
+// Shards returns the compiled shard patterns (spec section 8.3).
+func (c *Config) Shards() *shard.Patterns {
+	if c.shards == nil {
+		return &shard.Patterns{}
+	}
+	return c.shards
+}
+
+// DefaultFamilyRows is how many of an expanded family's newest members the
+// tree shows by default ([tui] family_rows).
+const DefaultFamilyRows = 20
+
+// FamilyRows is how many of an expanded shard family's newest members the
+// TUI's tree style shows ([tui] family_rows).
+func (c *Config) FamilyRows() int {
+	if n, ok := c.TUI["family_rows"].(int64); ok && n >= 0 {
+		return int(n)
+	}
+	return DefaultFamilyRows
+}
 
 // Filter is the part of the configuration that decides what the catalog
 // contains: the ignore patterns (the Selected projects decide what is synced,
@@ -188,6 +214,7 @@ type fileConfig struct {
 	Location             *string        `toml:"location"`
 	Projects             []string       `toml:"projects"`
 	Ignore               []string       `toml:"ignore"`
+	ShardPatterns        []string       `toml:"shard_patterns"`
 	DataDir              *string        `toml:"data_dir"`
 	FavoritesDir         *string        `toml:"favorites_dir"`
 	ExportDir            *string        `toml:"export_dir"`
@@ -321,7 +348,7 @@ func Parse(raw []byte, path string, opts LoadOptions) (*Config, error) {
 		}
 	}
 
-	c := &Config{Path: path, TUI: fc.TUI, Ignore: fc.Ignore}
+	c := &Config{Path: path, TUI: fc.TUI, Ignore: fc.Ignore, ShardPatterns: fc.ShardPatterns}
 	if c.TUI == nil {
 		c.TUI = map[string]any{}
 	}
@@ -331,6 +358,10 @@ func Parse(raw []byte, path string, opts LoadOptions) (*Config, error) {
 		case "editing":
 			if s, ok := v.(string); !ok || (s != EditingVim && s != EditingPlain) {
 				errs = append(errs, &Error{Key: "tui.editing", Line: b.lineOfKey("editing"), Msg: fmt.Sprintf(`must be "%s" or "%s"`, EditingVim, EditingPlain)})
+			}
+		case "family_rows":
+			if n, ok := v.(int64); !ok || n < 0 {
+				errs = append(errs, &Error{Key: "tui.family_rows", Line: b.lineOfKey("family_rows"), Msg: "must be a whole number, 0 or more (0 shows only the … N more row)"})
 			}
 		default:
 			errs = append(errs, &Error{Key: "tui." + k, Line: b.lineOfKey(k), Msg: "unknown key"})
@@ -342,6 +373,16 @@ func Parse(raw []byte, path string, opts LoadOptions) (*Config, error) {
 		errs = append(errs, &Error{Key: fmt.Sprintf("ignore[%d]", pe.Index), Line: b.lineOfValue(pe.Pattern), Msg: fmt.Sprintf("invalid pattern %q: %s", pe.Pattern, pe.Reason)})
 	}
 	c.matcher = m
+
+	sp, serrs := shard.Compile(c.ShardPatterns)
+	for _, se := range serrs {
+		line := b.lineOfValue(se.Pattern)
+		if line == 0 {
+			line = b.lineOfKey("shard_patterns")
+		}
+		errs = append(errs, &Error{Key: fmt.Sprintf("shard_patterns[%d]", se.Index), Line: line, Msg: fmt.Sprintf("invalid pattern %q: %s", se.Pattern, se.Reason)})
+	}
+	c.shards = sp
 
 	if len(errs) > 0 {
 		return nil, errs

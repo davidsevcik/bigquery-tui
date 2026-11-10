@@ -25,6 +25,18 @@ const template = `# bqt configuration. Unknown keys are errors, so typos do not 
 #   "!analytics-prod.tmp_keep",
 # ]
 
+# Shard families: tables that differ only in an id or a date inside the name
+# show as one Explorer row (orders_* ×24,001), and sync reads columns for each
+# family's newest shard only. Each RE2 pattern is matched against the whole
+# table name, and its one capturing group marks the part that varies; write
+# other groups as (?:…). No pattern, no family: nothing collapses by itself.
+# shard_patterns = [
+#   '.+(\d{8})',                          # dates: events_YYYYMMDD
+#   '.+_([0-9a-f]{24})(?:_history)?',     # hex object ids: orders_<id>, orders_<id>_history
+#   '.+_([0-9a-f]{8}(?:[-_][0-9a-f]{4}){3}[-_][0-9a-f]{12})', # UUIDs: sessions_<uuid>
+#   '.+_(\d+)',                           # numeric ids: customer_123
+# ]
+
 # Where catalog.db, history.db, drafts and logs live.
 # data_dir = "~/.local/share/bqt"
 
@@ -54,4 +66,5 @@ const template = `# bqt configuration. Unknown keys are errors, so typos do not 
 # Settings that only the terminal UI reads.
 # [tui]
 # editing = "vim"   # the query editor: "vim" (modes, motions, operators) or "plain" (modeless)
+# family_rows = 20  # newest members an expanded shard family shows in the tree (0: only "… N more")
 `
