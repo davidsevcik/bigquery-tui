@@ -9,9 +9,10 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 )
 
-func datasetNodes(eng *Engine, project string) map[string]api.BrowseNode {
+// datasetNodes are proj-a's datasets by name.
+func datasetNodes(eng *Engine) map[string]api.BrowseNode {
 	out := map[string]api.BrowseNode{}
-	for _, n := range eng.Datasets(project) {
+	for _, n := range eng.Datasets("proj-a") {
 		out[n.Name] = n
 	}
 	return out
@@ -43,7 +44,7 @@ func TestPendingDatasetsSyncOnlyWhileTheirUnitIsInFlight(t *testing.T) {
 	if err := rw.ReloadIndex(ctx); err != nil {
 		t.Fatal(err)
 	}
-	ds := datasetNodes(rw, "proj-a")
+	ds := datasetNodes(rw)
 	if ds["us_data"].Status != api.DatasetPending || !ds["us_data"].Syncing {
 		t.Fatalf("the US unit is in flight: %+v", ds["us_data"])
 	}
@@ -57,7 +58,7 @@ func TestPendingDatasetsSyncOnlyWhileTheirUnitIsInFlight(t *testing.T) {
 
 	// Another process never sees "syncing": sync events reach only the writer.
 	ro := e.open(true)
-	if n := datasetNodes(ro, "proj-a")["us_data"]; n.Status != api.DatasetPending || n.Syncing {
+	if n := datasetNodes(ro)["us_data"]; n.Status != api.DatasetPending || n.Syncing {
 		t.Fatalf("%+v", n)
 	}
 	hits, err := ro.CatalogSearch(ctx, "sales", 10, 0)
@@ -73,7 +74,7 @@ func TestPendingDatasetsSyncOnlyWhileTheirUnitIsInFlight(t *testing.T) {
 	if _, err := h.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	ds = datasetNodes(rw, "proj-a")
+	ds = datasetNodes(rw)
 	if ds["us_data"].Status != api.DatasetOK || ds["us_data"].Children != 1 {
 		t.Fatalf("%+v", ds["us_data"])
 	}
@@ -113,7 +114,7 @@ func TestAProjectWithPendingDatasetsInAnUnsyncedLocationNeedsASync(t *testing.T)
 	if need, _ := rw.NeedsSync(ctx, []string{"proj-a"}); len(need) != 1 {
 		t.Fatalf("%v", need)
 	}
-	if n := datasetNodes(rw, "proj-a")["big"]; n.Status != api.DatasetPending || n.Syncing || n.Location != "asia-east1" {
+	if n := datasetNodes(rw)["big"]; n.Status != api.DatasetPending || n.Syncing || n.Location != "asia-east1" {
 		t.Fatalf("%+v", n)
 	}
 }
