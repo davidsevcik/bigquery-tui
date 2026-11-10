@@ -427,7 +427,7 @@ func (e *Engine) Freshness(ctx context.Context) (api.CatalogFreshness, error) {
 	}
 	stale := false
 	for _, p := range st.Projects {
-		pf := api.ProjectFreshness{Project: p.Project, Selected: p.Selected, SyncedAt: p.SyncedAt, Stale: p.Stale}
+		pf := api.ProjectFreshness{Project: p.Project, Selected: p.Selected, SyncedAt: p.SyncedAt, Stale: p.Stale, Pending: p.Pending}
 		stale = stale || (p.Stale && p.Selected)
 		for _, u := range p.Units {
 			if u.Status != api.UnitOK && u.Status != "" {

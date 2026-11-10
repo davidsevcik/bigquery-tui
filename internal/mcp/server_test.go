@@ -278,3 +278,28 @@ func TestADeselectedProjectIsSearchableWithAWarning(t *testing.T) {
 		t.Fatalf("%+v", st.Projects)
 	}
 }
+
+// Issue 82: search_catalog and catalog_status mark a dataset whose tables
+// are not synced yet, so an agent does not conclude it has none.
+func TestPendingDatasetIsMarked(t *testing.T) {
+	r := newRig(t, false)
+	r.fake.Projects["proj-a"].Datasets = append(r.fake.Projects["proj-a"].Datasets, bqtest.DS("landing", "US", bqtest.Table("drops", "id")))
+	r.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Location: "US", Err: bqtest.TransientError("down")})
+	r.sync(t)
+	var hits api.CatalogHits
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		e := r.call(t, "search_catalog", map[string]any{"query": "landing"}, &hits)
+		if e == "" || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if len(hits.Hits) != 1 || !hits.Hits[0].Pending || hits.Hits[0].Path != "proj-a.landing" {
+		t.Fatalf("%+v", hits)
+	}
+	var st api.CatalogFreshness
+	if e := r.call(t, "catalog_status", map[string]any{}, &st); e != "" || st.Projects[0].Pending != 1 {
+		t.Fatalf("%s %+v", e, st)
+	}
+}

@@ -85,6 +85,9 @@ func printStatus(w io.Writer, st api.CatalogStatus) {
 			note = "  (not selected)"
 		}
 		fmt.Fprintf(w, "%s %-32s synced %s%s\n", mark, p.Project, ago(st.Now, p.SyncedAt), note)
+		if p.Pending > 0 {
+			fmt.Fprintf(w, "       %d dataset(s) listed but not synced yet (no tables in the catalog)\n", p.Pending)
+		}
 		for _, u := range p.Units {
 			loc := u.Location
 			if loc == "" {

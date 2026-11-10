@@ -228,4 +228,7 @@ type ProjectFreshness struct {
 	Stale    bool       `json:"stale,omitempty"`
 	// Problems lists the regions that failed to sync, with the error.
 	Problems []string `json:"problems,omitempty"`
+	// Pending counts the datasets BigQuery lists whose tables are not in
+	// the catalog yet (their sync has not finished).
+	Pending int `json:"pending_datasets,omitempty"`
 }
