@@ -1,0 +1,20 @@
+ [Explorer]  Schema  Editor  Results   ctrl+o next
+ Projects 1/2         │ Datasets 4/6
+acme-prod        ⚠ 3h │events                             5
+acme-staging     ✓ 3h │finance                            2
+   ╭─ Sync problems ────────────────────────────────────╮ 2
+   │ ⚠ acme-prod / US  degraded · last success 3h       │ed
+   │    transient: backend error: region views          │ 4
+   │    unavailable                                     │ 1
+   │    1 dataset not synced, so without tables:        │
+   │    raw_landing                                     │
+   │                                                    │
+   │ Failed units keep their previous data. r retries t…│
+   ╰────────────────────────────────────────────────────╯
+                      │
+                      │
+                      │
+                      │
+                      │
+ bqt exec acme-exec  layout: classi… 7 datasets · 15 tables
+ esc close

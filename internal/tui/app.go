@@ -580,8 +580,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitSync(msg.run)
 	case syncEventMsg:
 		m.onSyncEvent(msg.ev)
-		if msg.ev.Kind == api.EventUnitDone || msg.ev.Kind == api.EventUnitFailed {
+		switch msg.ev.Kind {
+		case api.EventUnitDone, api.EventUnitFailed:
 			m.refreshProjects() // the dialog's rows follow the sync
+			fallthrough
+		case api.EventDiscovered:
+			// a pending dataset's "syncing" flag follows its unit
+			m.reloadBrowse()
+			return m, tea.Batch(waitSync(m.syncRun), m.rerunSearches())
 		}
 		return m, waitSync(m.syncRun)
 	case syncDoneMsg:
@@ -653,7 +659,6 @@ func (m *Model) onSyncEvent(ev api.SyncEvent) {
 		line = fmt.Sprintf("%s: reading %d datasets", where, ev.Datasets)
 	case api.EventUnitDone:
 		line = fmt.Sprintf("%s: %d datasets, %d tables (%s)", where, ev.Datasets, ev.Tables, ev.Status)
-		m.reloadBrowse()
 	case api.EventUnitFailed:
 		line = fmt.Sprintf("%s: FAILED: %s", where, ev.Error)
 	case api.EventWarning:

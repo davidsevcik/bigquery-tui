@@ -1,0 +1,24 @@
+ Datasets 4/6               │ SQL · query 1   1:1
+events                    5 │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · ta…
+finance                   2 │~
+ml_features               2 │~
+raw_landing    ● not synced │~
+sales                     4 │~
+us_archive                1 │~
+   ╭─ Sync problems ────────────────────────────────────────────────────────╮
+   │ ⚠ acme-prod / US  degraded · last success 3h                           │
+   │    transient: backend error: region views unavailable                  │
+   │    1 dataset not synced, so without tables: raw_landing                │
+   │                                                                        │
+   │ Failed units keep their previous data. r retries the selected project. │ct…
+   ╰────────────────────────────────────────────────────────────────────────╯
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+ bqt exec acme-exec  layout: classic (small terminal)  … 7 datasets · 15 tables
+ esc close

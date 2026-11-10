@@ -1,0 +1,36 @@
+ filter ▸ type a name, or p… 6/12 · 0.0ms │ SQL · query 1   1:1
+ p: d: type: col: label: desc:  -neg  a,b…│ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+ T clicks  acme-prod.events           now │~
+ T events_YYYYMMDD ×4  acme-prod.ev…  now │~
+ T invoices  acme-prod.finance        now │~
+ T refunds  acme-prod.finance         now │~
+ D ml_features  acme-prod       ⟳ syncing │~
+▌D raw_landing  acme-prod    ● not synced │~
+ T customers  acme-prod.sales         now │~
+ T order_items  acme-prod.sales       now │~
+ T orders  acme-prod.sales            now │~
+ V v_orders  acme-prod.sales          now │~
+ T orders_2019  acme-prod.us_archive   3h │~
+ T orders  acme-staging.sales          3h │~
+                                          │~
+                                          │~
+                                          │~
+ Schema · acme-prod.raw_landing           │ Results
+ acme-prod.raw_landing  dataset           │ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
+ US · 0 tables                            │
+ ● not synced: BigQuery lists this        │
+ dataset, but no sync has read its        │
+ tables yet                               │
+ the US unit failed: transient: backend   │
+ error: region views unavailable          │
+ r syncs the project                      │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+ bqt exec acme-exec  layout: classic  list  ⟳ sync 2/3 units  2 projects                         7 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · ctrl+o pane · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial

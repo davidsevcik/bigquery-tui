@@ -1,0 +1,24 @@
+ Datasets 4/6               │ SQL · query 1   1:1
+events                    5 │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · ta…
+finance                   2 │~
+ml_features       ⟳ syncing │~
+raw_landing    ● not synced │~
+sales                     4 │~
+us_archive                1 │~
+                            │~
+                            │~
+                            │~
+                            │~
+                            │ Results
+                            │ no run yet: ctrl+r runs the buffer (or the select…
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+ bqt exec acme-exec  layout: classic (small terminal)  … 7 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · ctrl+o pane · ctrl+p…

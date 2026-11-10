@@ -691,9 +691,11 @@ func (s *Searcher) materialize(ctx context.Context, x *Index, c *compiled, h hit
 		setSpans(r.Spans, "name", d.name, d.lname, mergeSpans(append(termSpans(d.lname, terms, false), subSpans(d.lname, c.filterValues("d"))...)))
 		setSpans(r.Spans, "project", p.name, p.lname, subSpans(p.lname, c.filterValues("p")))
 		setSpans(r.Spans, "description", d.desc, d.ldesc, subSpans(d.ldesc, terms))
-		r.MatchedField, r.Tier = "name", tierName(h.max)
-		if h.max >= descScore {
-			r.MatchedField = "description"
+		if len(terms) > 0 { // a pending dataset is listed without a term too
+			r.MatchedField, r.Tier = "name", tierName(h.max)
+			if h.max >= descScore {
+				r.MatchedField = "description"
+			}
 		}
 		r.NamesOnly = d.status == api.DatasetNamesOnly
 		r.Pending = d.status == api.DatasetPending
