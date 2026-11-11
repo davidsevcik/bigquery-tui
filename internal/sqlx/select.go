@@ -7,27 +7,42 @@ import (
 )
 
 // QuoteTable writes a table path as GoogleSQL: one pair of backticks around
-// the whole path. A shard family path (the table ends in YYYYMMDD) becomes
-// the wildcard `p.d.prefix*`.
+// the whole path. A shard family path (its name holds YYYYMMDD or *, as in
+// events_YYYYMMDD or orders_*_history) becomes the wildcard `p.d.prefix*`:
+// BigQuery allows the * only at the end.
 func QuoteTable(p api.ObjectPath) string {
-	if prefix, ok := strings.CutSuffix(p.Table, "YYYYMMDD"); ok {
+	if prefix, ok := FamilyPrefix(p.Table); ok {
 		return "`" + p.Project + "." + p.Dataset + "." + prefix + "*`"
 	}
 	return "`" + p.String() + "`"
 }
 
+// FamilyPrefix returns the prefix of a shard family name: the text before its
+// YYYYMMDD or * marker. A table name holds neither.
+func FamilyPrefix(name string) (string, bool) {
+	i := strings.Index(name, "*")
+	if j := strings.Index(name, "YYYYMMDD"); j >= 0 && (i < 0 || j < i) {
+		i = j
+	}
+	if i < 0 {
+		return "", false
+	}
+	return name[:i], true
+}
+
 // SelectStar is the SELECT the Explorer's s writes for a table: one clause per
 // line, and a WHERE condition the table accepts. It returns the text and the
 // byte offset of the condition, where the cursor goes. A shard family (Path is
-// the family path, prefix + YYYYMMDD, and Table.Shard is set) reads its newest
-// shard through _TABLE_SUFFIX. A table that requires a partition filter gets a
-// one-day filter on its partition column; everything else gets `true`.
+// the family path and Table.Shard is set) reads its newest shard through its
+// wildcard, with _TABLE_SUFFIX pinned to that one shard. A table that requires
+// a partition filter gets a one-day filter on its partition column; everything
+// else gets `true`.
 func SelectStar(t api.TableDetail) (text string, cursor int) {
 	from := QuoteTable(t.Path)
 	cond := "true"
 	switch sh := shard(t); {
 	case sh != nil:
-		cond = "_TABLE_SUFFIX = '" + sh.Last + "'"
+		cond = "_TABLE_SUFFIX = '" + strings.ReplaceAll(sh.TableSuffix(sh.Newest), "'", "\\'") + "'"
 	case t.Table.RequirePartitionFilter:
 		cond = partitionFilter(t.Table.Columns)
 	}
@@ -40,8 +55,11 @@ func shard(t api.TableDetail) *api.ShardFamily {
 	if sh == nil {
 		sh = t.Shard
 	}
-	if sh == nil || sh.Last == "" || !strings.HasSuffix(t.Path.Table, "YYYYMMDD") {
+	if sh == nil || sh.Newest == "" {
 		return nil
+	}
+	if _, family := FamilyPrefix(t.Path.Table); !family {
+		return nil // a member: it reads itself
 	}
 	return sh
 }

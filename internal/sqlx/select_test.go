@@ -80,9 +80,19 @@ func TestSelectStar(t *testing.T) {
 		},
 		{"shard family", func() api.TableDetail {
 			d := detail("events_YYYYMMDD", partitionedOn("day", "DATE", true))
-			d.Table.Shard = &api.ShardFamily{Prefix: "events_", First: "20240101", Last: "20240104", Count: 4}
+			d.Table.Shard = &api.ShardFamily{Name: "events_YYYYMMDD", Prefix: "events_", Date: true, First: "20240101", Last: "20240104", Count: 4, Newest: "events_20240104"}
 			return d
 		}(), "`acme-prod.sales.events_*`", "_TABLE_SUFFIX = '20240104'"},
+		{"non-date family with a suffix", func() api.TableDetail {
+			d := detail("orders_*_history", nil)
+			d.Table.Shard = &api.ShardFamily{Name: "orders_*_history", Prefix: "orders_", Suffix: "_history", Count: 9, Newest: "orders_0a1b_history"}
+			return d
+		}(), "`acme-prod.sales.orders_*`", "_TABLE_SUFFIX = '0a1b_history'"},
+		{"a member reads itself", func() api.TableDetail {
+			d := detail("orders_0a1b", nil)
+			d.Table.Shard = &api.ShardFamily{Name: "orders_*", Prefix: "orders_", Count: 9, Newest: "orders_0a1c"}
+			return d
+		}(), "`acme-prod.sales.orders_0a1b`", "true"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -106,6 +116,9 @@ func TestQuoteTable(t *testing.T) {
 		{api.ObjectPath{Project: "acme-prod", Dataset: "sales", Table: "orders"}, "`acme-prod.sales.orders`"},
 		{api.ObjectPath{Project: "p", Dataset: "d", Table: "events_YYYYMMDD"}, "`p.d.events_*`"},
 		{api.ObjectPath{Project: "p", Dataset: "d", Table: "events_20240101"}, "`p.d.events_20240101`"},
+		{api.ObjectPath{Project: "p", Dataset: "d", Table: "orders_*"}, "`p.d.orders_*`"},
+		{api.ObjectPath{Project: "p", Dataset: "d", Table: "orders_*_history"}, "`p.d.orders_*`"},
+		{api.ObjectPath{Project: "p", Dataset: "d", Table: "x_YYYYMMDD_v2"}, "`p.d.x_*`"},
 	}
 	for _, c := range cases {
 		if got := QuoteTable(c.in); got != c.want {
