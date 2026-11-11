@@ -2,7 +2,7 @@ module github.com/davidsevcik/bigquery-tui
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	charm.land/bubbletea/v2 v2.1.0
@@ -10,12 +10,15 @@ require (
 	cloud.google.com/go/bigquery v1.85.0
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/creack/pty v1.1.24
+	github.com/googleapis/gax-go/v2 v2.26.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sync v0.24.0
 	golang.org/x/term v0.47.0
 	google.golang.org/api v0.302.0
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261005182115-fad411399dd8
+	google.golang.org/grpc v1.84.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	modernc.org/sqlite v1.60.1
 )
@@ -45,7 +48,6 @@ require (
 	github.com/google/s2a-go v0.1.11 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.23 // indirect
-	github.com/googleapis/gax-go/v2 v2.26.2 // indirect
 	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
@@ -79,8 +81,6 @@ require (
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/genproto v0.0.0-20260715232425-e75dac1f907d // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260715232425-e75dac1f907d // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261005182115-fad411399dd8 // indirect
-	google.golang.org/grpc v1.84.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	modernc.org/libc v1.77.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
