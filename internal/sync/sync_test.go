@@ -915,3 +915,43 @@ func TestSyncCompleteListingRemovesVanishedPendingDatasets(t *testing.T) {
 		t.Fatalf("the synced datasets stay: %v", st)
 	}
 }
+
+// A dataset recreated in another location is a new, unsynced dataset there.
+// Its row moves with the listing, so it stays visible when the new location's
+// unit fails: whether the old location is gone (fresh) or still listed (logs),
+// and whether the old row was pending (fresh) or synced (logs).
+func TestSyncDatasetRecreatedElsewhereStaysListedWhenItsUnitFails(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a"]`)
+	twoProjectFake(h.fake)
+	p := h.fake.Projects["proj-a"]
+	p.Datasets = append(p.Datasets, bqtest.DS("fresh", "asia-east1", bqtest.Table("f", "x")))
+	h.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Project: "proj-a", Location: "asia-east1", Err: bqtest.TransientError("down")})
+	h.run(api.SyncScope{})
+	if st := h.statuses("proj-a"); st["proj-a.fresh"] != api.DatasetPending || st["proj-a.logs"] != api.DatasetOK {
+		t.Fatalf("%v", st)
+	}
+
+	p.Datasets = []bqtest.Dataset{
+		bqtest.DS("sales", "EU", bqtest.Table("orders", "id", "amount"), bqtest.Table("items", "sku")),
+		bqtest.DS("logs", "US", bqtest.Table("l2", "msg")),
+		bqtest.DS("us_data", "US", bqtest.Table("u1", "x")),
+		bqtest.DS("fresh", "US", bqtest.Table("f", "x")),
+	}
+	h.fake.Failures = nil
+	h.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Project: "proj-a", Location: "US", Err: bqtest.TransientError("down")})
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	rows, err := h.cat.Datasets(ctx, "proj-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, d := range rows {
+		got[d.Name] = d.Location + " " + string(d.Status)
+	}
+	for name, want := range map[string]string{"fresh": "US pending", "logs": "US pending", "sales": "EU ok", "us_data": "US ok"} {
+		if got[name] != want {
+			t.Fatalf("%s: got %q, want %q (all: %v)", name, got[name], want, got)
+		}
+	}
+}

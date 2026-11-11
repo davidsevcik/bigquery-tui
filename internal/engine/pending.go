@@ -17,7 +17,10 @@ import (
 type syncTrack struct {
 	projects   map[string]bool // the run's projects, until discovery is done
 	discovered bool
-	queued     map[api.UnitRef]bool // discovered units not finished yet
+	// queued holds the discovered units that have not failed. A committed
+	// unit stays: its datasets are pending in the search index until it
+	// reloads, and they are syncing, not "not synced", until then.
+	queued map[api.UnitRef]bool
 }
 
 func newSyncTrack(projects []string) *syncTrack {
@@ -35,7 +38,7 @@ func (t *syncTrack) observe(ev api.SyncEvent) {
 		for _, u := range ev.Units {
 			t.queued[u] = true
 		}
-	case api.EventUnitDone, api.EventUnitFailed:
+	case api.EventUnitFailed:
 		delete(t.queued, api.UnitRef{Project: ev.Project, Location: ev.Location})
 	}
 }

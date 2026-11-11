@@ -605,9 +605,13 @@ func (c *Catalog) RecordEmptyProject(ctx context.Context, project string, at tim
 // RecordListing stores a project's dataset listing before its units sync.
 // Every listed dataset the catalog does not hold yet is inserted as pending,
 // with the listing's location, friendly name and labels and no tables; rows
-// the catalog already holds are never touched. When the listing is complete
-// (no unreachable locations), pending rows it no longer returns are deleted.
-// It reports how many rows it added and removed.
+// the catalog already holds in the listed location are never touched. A
+// dataset listed in another location than its row was recreated there, so
+// its row is replaced by a pending one in the new location: otherwise the
+// old location's unit or its vanished-location removal would delete it, and
+// it would be missing until the new location's unit commits. When the
+// listing is complete (no unreachable locations), pending rows it no longer
+// returns are deleted. It reports how many rows it added and removed.
 func (c *Catalog) RecordListing(ctx context.Context, project string, listed []api.DatasetMeta, complete bool) (added, removed int, err error) {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -628,25 +632,35 @@ func (c *Catalog) RecordListing(ctx context.Context, project string, listed []ap
 			return 0, 0, err
 		}
 	}
-	held := map[string]api.DatasetStatus{}
+	type heldRow struct {
+		status   api.DatasetStatus
+		location string
+	}
+	held := map[string]heldRow{}
 	err = eachRow(ctx, tx, func(rows *sql.Rows) error {
-		var n, s string
-		if err := rows.Scan(&n, &s); err != nil {
+		var n, s, l string
+		if err := rows.Scan(&n, &s, &l); err != nil {
 			return err
 		}
-		held[n] = api.DatasetStatus(s)
+		held[n] = heldRow{api.DatasetStatus(s), l}
 		return nil
-	}, "SELECT name, status FROM datasets WHERE project_id = ?", projectID)
+	}, "SELECT name, status, location FROM datasets WHERE project_id = ?", projectID)
 	if err != nil {
 		return 0, 0, err
 	}
 	seen := map[string]bool{}
 	for _, d := range listed {
 		seen[d.Name] = true
-		if _, ok := held[d.Name]; ok {
-			continue
+		if h, ok := held[d.Name]; ok {
+			if h.location == d.Location {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, "DELETE FROM datasets WHERE project_id = ? AND name = ?", projectID, d.Name); err != nil {
+				return 0, 0, err
+			}
+			removed++
 		}
-		held[d.Name] = api.DatasetPending
+		held[d.Name] = heldRow{api.DatasetPending, d.Location}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO datasets(project_id,name,name_lc,location,friendly_name,labels,status) VALUES(?,?,?,?,?,?,?)`,
 			projectID, d.Name, strings.ToLower(d.Name), d.Location, d.FriendlyName, encodeLabels(d.Labels), string(api.DatasetPending)); err != nil {
 			return 0, 0, err
@@ -654,8 +668,8 @@ func (c *Catalog) RecordListing(ctx context.Context, project string, listed []ap
 		added++
 	}
 	if complete {
-		for name, s := range held {
-			if s != api.DatasetPending || seen[name] {
+		for name, h := range held {
+			if h.status != api.DatasetPending || seen[name] {
 				continue
 			}
 			if _, err := tx.ExecContext(ctx, "DELETE FROM datasets WHERE project_id = ? AND name = ?", projectID, name); err != nil {

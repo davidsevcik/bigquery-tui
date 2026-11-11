@@ -118,3 +118,52 @@ func TestAProjectWithPendingDatasetsInAnUnsyncedLocationNeedsASync(t *testing.T)
 		t.Fatalf("%+v", n)
 	}
 }
+
+// A committed unit's datasets are pending in the search index until it
+// reloads (the catalog watcher does that within a second). They must read
+// "syncing" in that gap, not "not synced" as if their unit had failed.
+func TestACommittedUnitIsNotShownNotSyncedBeforeTheIndexReloads(t *testing.T) {
+	e := newEnv(t, "proj-a")
+	eu, us := make(chan struct{}), make(chan struct{})
+	e.fake.OnCall = func(c bqtest.Call) {
+		if c.Method == "RegionSnapshot" && c.Location == "EU" {
+			<-eu
+		}
+		if c.Method == "RegionSnapshot" && c.Location == "US" {
+			<-us
+		}
+	}
+	rw := e.open(false)
+	h, err := rw.StartSync(ctx, api.SyncScope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for ev := range h.Events() {
+		if ev.Kind == api.EventDiscovered {
+			break
+		}
+	}
+	// The watcher picks up the listing: the datasets show pending.
+	if err := rw.ReloadIndex(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := datasetNodes(rw)["sales"]; n.Status != api.DatasetPending || !n.Syncing {
+		t.Fatalf("listed, before its unit: %+v", n)
+	}
+	close(eu)
+	for ev := range h.Events() {
+		if ev.Kind == api.EventUnitDone && ev.Location == "EU" {
+			break
+		}
+	}
+	if n := datasetNodes(rw)["sales"]; n.Status == api.DatasetPending && !n.Syncing {
+		t.Fatalf("the EU unit committed, but its dataset reads not synced: %+v", n)
+	}
+	close(us)
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if n := datasetNodes(rw)["sales"]; n.Status != api.DatasetOK || n.Syncing {
+		t.Fatalf("after the run: %+v", n)
+	}
+}
