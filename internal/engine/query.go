@@ -114,7 +114,7 @@ func (c completionCatalog) Tables(project, dataset string) []sqlx.TableName {
 		fam := *n.Shard
 		members := func() []string {
 			var names []string
-			for _, m := range c.e.search.ShardMembers(project, dataset, fam.Name) {
+			for _, m := range c.e.search.ShardMembers(project, dataset, fam.Name, n.Type) {
 				names = append(names, m.Name)
 			}
 			return names

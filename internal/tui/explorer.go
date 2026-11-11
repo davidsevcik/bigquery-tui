@@ -98,7 +98,7 @@ func (m *Model) milLoad(c int) {
 			ml.family = nil
 		}
 		if ml.family != nil {
-			ts = m.be.ShardMembers(d.Path.Project, d.Path.Dataset, ml.family.Shard.Name)
+			ts = m.be.ShardMembers(d.Path.Project, d.Path.Dataset, ml.family.Shard.Name, ml.family.Type)
 			if len(ts) == 0 {
 				ml.family = nil
 			}
@@ -276,7 +276,7 @@ func (m *Model) treeBuild() {
 // (and the member the tree was asked to show), then a "… N more" row.
 func (m *Model) familyRows(rows []treeRow, fam api.BrowseNode, filtered bool) []treeRow {
 	t := &m.tree
-	members := m.be.ShardMembers(fam.Path.Project, fam.Path.Dataset, fam.Shard.Name)
+	members := m.be.ShardMembers(fam.Path.Project, fam.Path.Dataset, fam.Shard.Name, fam.Type)
 	if filtered {
 		for _, mem := range members {
 			if t.f.set[openKey(mem)] {

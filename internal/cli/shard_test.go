@@ -47,3 +47,22 @@ func TestSyncTableSyncsOneTablesSchema(t *testing.T) {
 		t.Fatal("--table and --project do not combine")
 	}
 }
+
+// A date family without a suffix is reported by its wildcard events_*, as it
+// always was, in bqt search as in the MCP tools.
+func TestSearchNamesADateFamilyByItsWildcard(t *testing.T) {
+	s := newSandbox(t)
+	s.writeConfig("projects = [\"proj-a\"]\nshard_patterns = ['.+(\\d{8})']\n")
+	ds := &s.fake.Projects["proj-a"].Datasets[0]
+	ds.Tables = append(ds.Tables, bqtest.Table("events_20240101", "id"), bqtest.Table("events_20240102", "id"))
+	if code, out, errOut := s.run("sync"); code != 0 {
+		t.Fatalf("%d %s %s", code, out, errOut)
+	}
+	code, out, _ := s.run("search", "events_")
+	if code != 0 || !strings.Contains(out, `"table":"events_*"`) || strings.Contains(out, `"table":"events_YYYYMMDD"`) {
+		t.Fatalf("%s", out)
+	}
+	if code, out, _ = s.run("schema", "proj-a.sales.events_*"); code != 0 || !strings.Contains(out, "events_20240102") {
+		t.Fatalf("the reported name is accepted: %d %s", code, out)
+	}
+}

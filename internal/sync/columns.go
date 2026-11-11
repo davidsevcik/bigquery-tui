@@ -119,9 +119,11 @@ func (s *Syncer) readColumns(ctx context.Context, project string, applies []stor
 
 // syncTable syncs one table's row and schema with REST tables.get (gs, bqt
 // sync --table). A family member read this way is marked as having its own
-// schema, so later unit syncs keep reading its columns; the family's newest
-// shard and a plain table are only refreshed.
-func (s *Syncer) syncTable(ctx context.Context, p api.ObjectPath, r *run) error {
+// schema, so later unit syncs keep reading its columns, the newest shard
+// included (it keeps them once a newer shard comes). family is set when the
+// user named the family: its newest shard is then only refreshed, and keeps
+// any mark it had. A plain table is only refreshed.
+func (s *Syncer) syncTable(ctx context.Context, p api.ObjectPath, family bool, r *run) error {
 	stored, err := s.o.Catalog.StoredTable(ctx, p)
 	if err != nil {
 		return err
@@ -141,7 +143,7 @@ func (s *Syncer) syncTable(ctx context.Context, p api.ObjectPath, r *run) error 
 	})
 	if err == nil {
 		t.Dataset, t.Name = p.Dataset, p.Table
-		own := stored.Table.Shard != nil && stored.Table.Shard.Newest != p.Table
+		own := stored.Table.Shard != nil && (!family || stored.Table.OwnSchema)
 		err = s.o.Catalog.ApplyTable(ctx, p.Project, t, own)
 	}
 	if err != nil {

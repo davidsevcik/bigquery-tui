@@ -109,20 +109,54 @@ func TestSelectStar(t *testing.T) {
 }
 
 func TestQuoteTable(t *testing.T) {
+	// A table is quoted as written, whatever its name holds.
+	for _, name := range []string{"orders", "events_20240101", "report_YYYYMMDD_backup", "x_YYYYMMDD"} {
+		p := api.ObjectPath{Project: "p", Dataset: "d", Table: name}
+		if got, want := QuoteTable(p), "`p.d."+name+"`"; got != want {
+			t.Errorf("%s: got %s want %s", name, got, want)
+		}
+	}
+}
+
+func TestQuoteFamily(t *testing.T) {
+	date := &api.ShardFamily{Name: "events_YYYYMMDD", Prefix: "events_", Date: true}
+	hist := &api.ShardFamily{Name: "orders_*_history", Prefix: "orders_", Suffix: "_history"}
+	odd := &api.ShardFamily{Name: "r_YYYYMMDD_*", Prefix: "r_YYYYMMDD_"}
 	cases := []struct {
-		in   api.ObjectPath
-		want string
+		table string
+		f     *api.ShardFamily
+		want  string
 	}{
-		{api.ObjectPath{Project: "acme-prod", Dataset: "sales", Table: "orders"}, "`acme-prod.sales.orders`"},
-		{api.ObjectPath{Project: "p", Dataset: "d", Table: "events_YYYYMMDD"}, "`p.d.events_*`"},
-		{api.ObjectPath{Project: "p", Dataset: "d", Table: "events_20240101"}, "`p.d.events_20240101`"},
-		{api.ObjectPath{Project: "p", Dataset: "d", Table: "orders_*"}, "`p.d.orders_*`"},
-		{api.ObjectPath{Project: "p", Dataset: "d", Table: "orders_*_history"}, "`p.d.orders_*`"},
-		{api.ObjectPath{Project: "p", Dataset: "d", Table: "x_YYYYMMDD_v2"}, "`p.d.x_*`"},
+		{"events_YYYYMMDD", date, "`p.d.events_*`"},
+		{"events_YYYYMMDD", nil, "`p.d.events_*`"},
+		{"orders_*_history", hist, "`p.d.orders_*`"},
+		{"orders_*_history", nil, "`p.d.orders_*`"},
+		// a prefix that holds YYYYMMDD itself
+		{"r_YYYYMMDD_*", odd, "`p.d.r_YYYYMMDD_*`"},
+		{"r_YYYYMMDD_*", nil, "`p.d.r_YYYYMMDD_*`"},
+		{"x_YYYYMMDD_v2_YYYYMMDD", nil, "`p.d.x_YYYYMMDD_v2_*`"},
+		{"orders", nil, "`p.d.orders`"},
 	}
 	for _, c := range cases {
-		if got := QuoteTable(c.in); got != c.want {
-			t.Errorf("%v: got %s want %s", c.in, got, c.want)
+		if got := QuoteFamily(api.ObjectPath{Project: "p", Dataset: "d", Table: c.table}, c.f); got != c.want {
+			t.Errorf("%s (%v): got %s want %s", c.table, c.f != nil, got, c.want)
 		}
+	}
+}
+
+// A plain table whose name holds YYYYMMDD reads itself: s must not turn it
+// into a wildcard over every table with its prefix.
+func TestSelectStarOnALiteralMarkerInATableName(t *testing.T) {
+	for _, name := range []string{"report_YYYYMMDD_backup", "report_YYYYMMDD"} {
+		text, _ := SelectStar(detail(name, nil))
+		if want := "FROM `acme-prod.sales." + name + "`\nWHERE true"; !strings.Contains(text, want) {
+			t.Fatalf("%s:\n%s", name, text)
+		}
+	}
+	// nor does a member of a family whose prefix holds it
+	d := detail("r_YYYYMMDD_0a1b", nil)
+	d.Table.Shard = &api.ShardFamily{Name: "r_YYYYMMDD_*", Prefix: "r_YYYYMMDD_", Count: 2, Newest: "r_YYYYMMDD_0a1c"}
+	if text, _ := SelectStar(d); !strings.Contains(text, "FROM `acme-prod.sales.r_YYYYMMDD_0a1b`\nWHERE true") {
+		t.Fatal(text)
 	}
 }

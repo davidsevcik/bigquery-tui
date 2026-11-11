@@ -84,7 +84,7 @@ func TestSearchAndBrowseAfterSync(t *testing.T) {
 	if len(ts) != 3 || ts[0].Kind != api.KindShards || ts[0].Children != 2 {
 		t.Fatalf("shards collapse in browse: %+v", ts)
 	}
-	if m := e2.ShardMembers("proj-a", "sales", "events_YYYYMMDD"); len(m) != 2 {
+	if m := e2.ShardMembers("proj-a", "sales", "events_YYYYMMDD", ""); len(m) != 2 {
 		t.Fatalf("%+v", m)
 	}
 }

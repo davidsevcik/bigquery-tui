@@ -53,7 +53,7 @@ func TestPatternFamiliesBrowse(t *testing.T) {
 		t.Fatalf("%+v", ts[1])
 	}
 	var members []string
-	for _, n := range s.ShardMembers("acme-prod", "shop", "orders_*") {
+	for _, n := range s.ShardMembers("acme-prod", "shop", "orders_*", "") {
 		members = append(members, n.Name)
 	}
 	eq(t, members, "orders_"+idB, "orders_"+idC, "orders_"+idA) // newest created first
@@ -132,5 +132,20 @@ func TestFilterRevealsOnlyTheMembersThatMatch(t *testing.T) {
 	got := filtered(t, s, "orders", opts)
 	if len(got) != 7 {
 		t.Fatalf("%v", got)
+	}
+}
+
+// A term in the varying part finds the member even when lower-casing the name
+// changes its byte length (the Kelvin sign U+212A lowers to an ASCII k).
+func TestMemberHitWithACaseChangingPrefix(t *testing.T) {
+	f := standard()
+	f.dataset("acme-prod", "k", "EU", "")
+	fam := &api.ShardFamily{Name: "\u212a_*", Prefix: "\u212a_", Count: 2, Newest: "\u212a_2"}
+	for _, n := range []string{"\u212a_1", "\u212a_2"} {
+		f.table("acme-prod", "k", n, api.TypeTable, "", "c").Shard = fam
+	}
+	r, _ := f.searcher().Search(ctx, "1", api.SearchOptions{Scope: &api.ObjectPath{Project: "acme-prod", Dataset: "k"}})
+	if len(r.Results) == 0 || r.Results[0].Kind != api.KindTable || r.Results[0].Path.Table != "\u212a_1" {
+		t.Fatalf("%+v", r.Results)
 	}
 }

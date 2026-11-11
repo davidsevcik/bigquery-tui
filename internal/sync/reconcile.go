@@ -24,6 +24,10 @@ const (
 // Reasons for "sync needed" that the shard patterns give.
 const (
 	ReasonShardPatterns = "shard patterns changed"
+	// ReasonStaleFamilies: a family's newest shard is gone from the catalog
+	// (a tightened ignore list pruned it, or an older bqt wrote the catalog),
+	// so its members have no schema to show until a sync.
+	ReasonStaleFamilies = "shard families out of date"
 	// ReasonDateRuleGone is the one-time notice after upgrading from the
 	// built-in date rule: it names the pattern that restores it.
 	ReasonDateRuleGone = `date-suffixed tables no longer collapse by themselves: add shard_patterns = ['.+(\d{8})'] to the config to keep events_YYYYMMDD families`
@@ -59,6 +63,12 @@ func ReconcileConfig(ctx context.Context, cat *store.Catalog, cfg *config.Config
 	}
 	if hadHash && old == hash && !sh.changed {
 		needed, reason, err := syncNeeded(ctx, cat)
+		if err == nil && !needed {
+			if needed, err = cat.StaleFamilies(ctx); needed && err == nil {
+				reason = ReasonStaleFamilies
+				err = setSyncNeeded(ctx, cat, true, reason)
+			}
+		}
 		r.SyncNeeded, r.Reason = needed, reason
 		return r, err
 	}
@@ -102,6 +112,16 @@ func ReconcileConfig(ctx context.Context, cat *store.Catalog, cfg *config.Config
 		}
 		if sh.reason != "" && (!r.SyncNeeded || r.Reason == ReasonShardPatterns || r.Reason == ReasonDateRuleGone) {
 			r.SyncNeeded, r.Reason = true, sh.reason
+		}
+	}
+
+	if !r.SyncNeeded {
+		stale, err := cat.StaleFamilies(ctx)
+		if err != nil {
+			return r, err
+		}
+		if stale {
+			r.SyncNeeded, r.Reason = true, ReasonStaleFamilies
 		}
 	}
 

@@ -397,7 +397,7 @@ func TestBrowse(t *testing.T) {
 	if len(ts) != 2 || ts[0].Name != "clicks" || ts[1].Kind != api.KindShards || ts[1].Children != 3 || ts[1].Name != "events_YYYYMMDD" {
 		t.Fatalf("%+v", ts)
 	}
-	m := s.ShardMembers("acme-prod", "events", "events_YYYYMMDD")
+	m := s.ShardMembers("acme-prod", "events", "events_YYYYMMDD", "")
 	if len(m) != 3 || m[0].Name != "events_20240103" {
 		t.Fatalf("newest first: %+v", m)
 	}

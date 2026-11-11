@@ -7,29 +7,48 @@ import (
 )
 
 // QuoteTable writes a table path as GoogleSQL: one pair of backticks around
-// the whole path. A shard family path (its name holds YYYYMMDD or *, as in
-// events_YYYYMMDD or orders_*_history) becomes the wildcard `p.d.prefix*`:
-// BigQuery allows the * only at the end.
-func QuoteTable(p api.ObjectPath) string {
-	if prefix, ok := FamilyPrefix(p.Table); ok {
-		return "`" + p.Project + "." + p.Dataset + "." + prefix + "*`"
+// the whole path, as written. A table's name may hold YYYYMMDD itself
+// (report_YYYYMMDD_backup), so only QuoteFamily, given a family, writes a
+// wildcard.
+func QuoteTable(p api.ObjectPath) string { return "`" + p.String() + "`" }
+
+// QuoteFamily writes a shard family's path as its wildcard `p.d.prefix*`:
+// BigQuery allows the * only at the end. f may be nil when only the family's
+// name is known; its prefix is then the text before the name's marker.
+func QuoteFamily(p api.ObjectPath, f *api.ShardFamily) string {
+	prefix, ok := "", false
+	if f != nil {
+		prefix, ok = f.Prefix, true
+	} else {
+		prefix, ok = FamilyPrefix(p.Table)
 	}
-	return "`" + p.String() + "`"
+	if !ok {
+		return QuoteTable(p)
+	}
+	return "`" + p.Project + "." + p.Dataset + "." + prefix + "*`"
+}
+
+// IsFamilyPath reports whether name names the family f itself (its name or
+// its wildcard) rather than one of its members.
+func IsFamilyPath(name string, f *api.ShardFamily) bool {
+	return f != nil && (name == f.Name || name == f.Wildcard())
 }
 
 // FamilyPrefix returns the prefix of a shard family name: the text before its
-// YYYYMMDD or * marker. A table name holds neither.
+// * or YYYYMMDD marker. Use it only on names known to be family names.
 func FamilyPrefix(name string) (string, bool) {
 	p, _, ok := FamilyParts(name)
 	return p, ok
 }
 
 // FamilyParts splits a shard family name into the text before and after its
-// YYYYMMDD or * marker: a member is prefix + varying part + suffix.
+// marker: a member is prefix + varying part + suffix. A table name cannot
+// hold *, so a * is the marker when there is one; otherwise it is the last
+// YYYYMMDD (the prefix may hold that text itself).
 func FamilyParts(name string) (prefix, suffix string, ok bool) {
 	i, n := strings.Index(name, "*"), 1
-	if j := strings.Index(name, "YYYYMMDD"); j >= 0 && (i < 0 || j < i) {
-		i, n = j, len("YYYYMMDD")
+	if i < 0 {
+		i, n = strings.LastIndex(name, "YYYYMMDD"), len("YYYYMMDD")
 	}
 	if i < 0 {
 		return "", "", false
@@ -49,6 +68,7 @@ func SelectStar(t api.TableDetail) (text string, cursor int) {
 	cond := "true"
 	switch sh := shard(t); {
 	case sh != nil:
+		from = QuoteFamily(t.Path, sh)
 		cond = "_TABLE_SUFFIX = '" + strings.ReplaceAll(sh.TableSuffix(sh.Newest), "'", "\\'") + "'"
 	case t.Table.RequirePartitionFilter:
 		cond = partitionFilter(t.Table.Columns)
@@ -65,8 +85,8 @@ func shard(t api.TableDetail) *api.ShardFamily {
 	if sh == nil || sh.Newest == "" {
 		return nil
 	}
-	if _, family := FamilyPrefix(t.Path.Table); !family {
-		return nil // a member: it reads itself
+	if !IsFamilyPath(t.Path.Table, sh) {
+		return nil // a member, or a plain table: it reads itself
 	}
 	return sh
 }

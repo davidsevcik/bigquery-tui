@@ -197,7 +197,7 @@ func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.Syn
 	}
 
 	if scope.Table != nil {
-		if err := s.syncTable(ctx, *scope.Table, r); err != nil {
+		if err := s.syncTable(ctx, *scope.Table, scope.Family, r); err != nil {
 			return res, err
 		}
 	} else {
@@ -599,6 +599,9 @@ func (s *Syncer) fallbackDataset(ctx context.Context, job unitJob, d api.Dataset
 		}
 		sort.Slice(kept, func(i, j int) bool { return kept[i].Name < kept[j].Name })
 		shard.Assign(kept, s.o.Config.Shards())
+		for i := range kept {
+			kept[i].OwnSchema = marks[d.Name+"."+kept[i].Name] // gs marks outlast a names-only refresh
+		}
 		return s.withDatasetOptions(ctx, store.DatasetApply{Meta: m, Mode: store.ModeNamesOnly, Status: api.DatasetNamesOnly, Tables: kept}), true
 	}
 	if ctx.Err() != nil {

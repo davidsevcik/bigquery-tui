@@ -938,7 +938,7 @@ func (m *Model) explorerAction(act string) tea.Cmd {
 			m.toast = "select a table to insert its name"
 			return nil
 		}
-		m.insertPath(s.path)
+		m.insertPath(s)
 	case "runs":
 		m.ov, m.ovSel, m.ovOff = ovRuns, 0, 0
 	}

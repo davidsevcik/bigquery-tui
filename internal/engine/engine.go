@@ -531,7 +531,7 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 			return nil, fmt.Errorf("%w: %s (check the name with search, or sync)", ErrUnknownTable, scope.Table)
 		}
 		p := ref.Path
-		scope = api.SyncScope{Table: &p}
+		scope = api.SyncScope{Table: &p, Family: ref.Family != nil}
 	} else {
 		if len(scope.Projects) == 0 && len(selected) == 0 {
 			return nil, catsync.ErrNoProjects

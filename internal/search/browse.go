@@ -166,8 +166,9 @@ func (s *Searcher) tableNode(x *Index, ti int) api.BrowseNode {
 
 // ShardMembers lists the tables of one shard family, newest first: by date
 // for a date family, by creation time for any other. family is the family's
-// name (orders_*, events_YYYYMMDD).
-func (s *Searcher) ShardMembers(project, dataset, family string) []api.BrowseNode {
+// name (orders_*, events_YYYYMMDD) and typ its table type: families of two
+// types can share a name. An empty typ matches any type.
+func (s *Searcher) ShardMembers(project, dataset, family string, typ api.TableType) []api.BrowseNode {
 	x := s.Index()
 	d := x.findDataset(project, dataset)
 	if d == nil {
@@ -176,7 +177,7 @@ func (s *Searcher) ShardMembers(project, dataset, family string) []api.BrowseNod
 	var idx []int
 	var fam api.ShardFamily
 	for _, ti := range d.tables {
-		if t := &x.tables[ti]; t.shard != nil && t.shard.Name == family {
+		if t := &x.tables[ti]; t.shard != nil && t.shard.Name == family && (typ == "" || t.typ == typ) {
 			idx = append(idx, ti)
 			fam = *t.shard
 		}

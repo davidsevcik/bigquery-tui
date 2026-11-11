@@ -589,7 +589,9 @@ func (x *Index) memberHit(i int, terms []string, cols bool) bool {
 	if f == nil || cols && t.ownSchema {
 		return true
 	}
-	lo, hi := len(f.Prefix), len(t.name)-len(f.Suffix)
+	// the match spans are offsets into the lower-cased name, whose bytes can
+	// differ in number from the name's (the Kelvin sign K lowers to k)
+	lo, hi := len(strings.ToLower(f.Prefix)), len(t.lname)-len(strings.ToLower(f.Suffix))
 	for _, term := range terms {
 		tier, sp := matchName(t.lname, term, true)
 		if tier < 0 {

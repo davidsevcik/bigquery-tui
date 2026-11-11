@@ -141,8 +141,8 @@ func (e *Engine) Tables(project, dataset string) []api.BrowseNode {
 
 // ShardMembers lists the tables of a shard family (by its name), newest
 // first.
-func (e *Engine) ShardMembers(project, dataset, family string) []api.BrowseNode {
-	return e.search.ShardMembers(project, dataset, family)
+func (e *Engine) ShardMembers(project, dataset, family string, typ api.TableType) []api.BrowseNode {
+	return e.search.ShardMembers(project, dataset, family, typ)
 }
 
 // TableDetail returns everything the schema pane shows, from the catalog.
@@ -168,8 +168,10 @@ func (e *Engine) TableDetail(ctx context.Context, p api.ObjectPath) (api.TableDe
 	case ref.Family != nil:
 		d.SchemaFrom = t.Name // the family's schema is its newest shard's
 	case t.Shard != nil && t.SharedSchema:
-		// a member whose columns were not read: show its family's
-		fp := api.ObjectPath{Project: ref.Path.Project, Dataset: ref.Path.Dataset, Table: t.Shard.Name}
+		// a member whose columns were not read: show its family's, read
+		// from the newest shard it records (not through the family's name,
+		// which a family of another type can share)
+		fp := api.ObjectPath{Project: ref.Path.Project, Dataset: ref.Path.Dataset, Table: t.Shard.Newest}
 		if nref, ok := e.search.Lookup(fp); ok && nref.ID != ref.ID {
 			if newest, err := e.catalog.TableByID(ctx, nref.ID); err == nil && newest.Name == nref.Path.Table {
 				d.Table.Columns, d.SchemaFrom = newest.Columns, newest.Name

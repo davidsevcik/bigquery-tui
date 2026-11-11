@@ -75,6 +75,27 @@ func shardValues(t api.TableMeta) []any {
 
 const shardAssign = "shard_prefix=?,shard_first=?,shard_last=?,shard_count=?,shard_name=?,shard_suffix=?,shard_date=?,shard_newest=?,shard_newest_created=?,shared_schema=?,own_schema=?"
 
+// StaleFamilies reports whether a shard family in the catalog no longer fits
+// its tables: a member names a newest shard its dataset does not hold (that
+// table was pruned by a tightened ignore list, or deleted by an older bqt that
+// does not keep the newest-shard column), or an older bqt added rows with its
+// date rule next to rows this version wrote. Either needs a sync.
+func (c *Catalog) StaleFamilies(ctx context.Context) (bool, error) {
+	if c.missing["shard_name"] || c.missing["shard_newest"] {
+		return false, nil // no row of this version's families yet
+	}
+	var one int
+	err := c.db.QueryRowContext(ctx, `SELECT 1 FROM tables t
+WHERE t.shard_count > 0 AND (
+  (t.shard_name <> '' AND NOT EXISTS (SELECT 1 FROM tables n WHERE n.dataset_id = t.dataset_id AND n.name = t.shard_newest))
+  OR (t.shard_name = '' AND EXISTS (SELECT 1 FROM tables m WHERE m.dataset_id = t.dataset_id AND m.shard_name <> '')))
+LIMIT 1`).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // OwnSchemaTables returns the "dataset.table" names of the tables in a
 // (project, location) unit marked as having their own schema (gs). Sync
 // keeps reading their columns.

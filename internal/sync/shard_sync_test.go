@@ -266,13 +266,21 @@ func TestSyncTableKeepsAMembersOwnSchema(t *testing.T) {
 		t.Fatalf("the own schema survives a unit sync: %v", got)
 	}
 
-	// gs on the family's newest shard and on a plain table only refresh them
-	for _, name := range []string{"orders_" + hexID("a2"), "customers"} {
-		p := api.ObjectPath{Project: "p", Dataset: "shop", Table: name}
-		h.run(api.SyncScope{Table: &p})
+	// gs on the family (which syncs its newest shard) and on a plain table
+	// only refresh them
+	newest := api.ObjectPath{Project: "p", Dataset: "shop", Table: "orders_" + hexID("a2")}
+	h.run(api.SyncScope{Table: &newest, Family: true})
+	plain := api.ObjectPath{Project: "p", Dataset: "shop", Table: "customers"}
+	h.run(api.SyncScope{Table: &plain})
+	for _, name := range []string{newest.Table, plain.Table} {
 		if h.tables("shop")[name].OwnSchema {
 			t.Fatalf("%s is not marked", name)
 		}
+	}
+	// gs on the family keeps a mark its newest shard has
+	h.run(api.SyncScope{Table: &member, Family: true})
+	if !h.tables("shop")[member.Table].OwnSchema {
+		t.Fatal("gs on the family dropped a mark")
 	}
 
 	// a table the catalog does not hold is an error
@@ -377,5 +385,100 @@ func TestUpgradeFromTheBuiltInDateRule(t *testing.T) {
 	}
 	if r, _ := ReconcileConfig(ctx, h3.cat, h3.cfg); r.SyncNeeded {
 		t.Fatalf("%+v", r)
+	}
+}
+
+// gs on the newest shard itself marks it too: once a newer shard comes, it
+// keeps its own columns (spec 8.3, user story 26).
+func TestSyncTableOnTheNewestShardOutlastsANewerShard(t *testing.T) {
+	h := newHarness(t, "projects = [\"p\"]\n"+cfgHex)
+	ds := bqtest.DS("shop", "EU",
+		createdOn(1, bqtest.Table("orders_"+hexID("a1"), "id")),
+		createdOn(2, bqtest.Table("orders_"+hexID("a2"), "id", "total")))
+	h.fake.AddProject("p").Datasets = []bqtest.Dataset{ds}
+	h.run(api.SyncScope{})
+	two := api.ObjectPath{Project: "p", Dataset: "shop", Table: "orders_" + hexID("a2")}
+	h.run(api.SyncScope{Table: &two})
+	if !h.tables("shop")[two.Table].OwnSchema {
+		t.Fatal("gs on the newest shard by its own name marks it")
+	}
+	h.fake.Projects["p"].Datasets[0].Tables = append(h.fake.Projects["p"].Datasets[0].Tables,
+		createdOn(3, bqtest.Table("orders_"+hexID("a3"), "id", "total", "tax")))
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	ts := h.tables("shop")
+	if f := ts[two.Table].Shard; f == nil || f.Newest != "orders_"+hexID("a3") {
+		t.Fatalf("%+v", ts[two.Table].Shard)
+	}
+	if got := h.columns("shop", two.Table); strings.Join(got, ",") != "id,total" || !ts[two.Table].OwnSchema {
+		t.Fatalf("the former newest shard keeps its own columns: %v", got)
+	}
+}
+
+// A names-only refresh (no INFORMATION_SCHEMA access, tables.list allowed)
+// keeps the gs marks, so the member is read again once access is back.
+func TestSyncTableMarksOutlastANamesOnlyRefresh(t *testing.T) {
+	h := newHarness(t, "projects = [\"p\"]\n"+cfgHex)
+	h.fake.AddProject("p").Datasets = []bqtest.Dataset{bqtest.DS("shop", "EU",
+		createdOn(1, bqtest.Table("orders_"+hexID("a1"), "id", "legacy_flag")),
+		createdOn(2, bqtest.Table("orders_"+hexID("a2"), "id", "total")))}
+	h.run(api.SyncScope{})
+	member := api.ObjectPath{Project: "p", Dataset: "shop", Table: "orders_" + hexID("a1")}
+	h.run(api.SyncScope{Table: &member})
+
+	d := &h.fake.Projects["p"].Datasets[0]
+	d.Denied, d.NamesOK = true, true
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	if tb := h.tables("shop")[member.Table]; !tb.NamesOnly || !tb.OwnSchema {
+		t.Fatalf("after the names-only refresh: %+v", tb)
+	}
+
+	d.Denied, d.NamesOK = false, false
+	h.now = h.now.Add(time.Hour)
+	before := len(h.fake.ColumnReads())
+	h.run(api.SyncScope{})
+	if !slices.Contains(h.fake.ColumnReads()[before:], "p.shop."+member.Table) {
+		t.Fatal("the member is read again once access is back")
+	}
+	if got := h.columns("shop", member.Table); strings.Join(got, ",") != "id,legacy_flag" {
+		t.Fatalf("%v", got)
+	}
+}
+
+// Tightening ignore so that it excludes a family's newest shard prunes that
+// table locally; the other members have no schema to show until a sync
+// recomputes the family, so the catalog says a sync is needed.
+func TestIgnoringTheNewestShardNeedsASync(t *testing.T) {
+	h := newHarness(t, "projects = [\"p\"]\n"+cfgHex)
+	h.fake.AddProject("p").Datasets = []bqtest.Dataset{bqtest.DS("shop", "EU",
+		createdOn(1, bqtest.Table("orders_"+hexID("a1"), "id")),
+		createdOn(2, bqtest.Table("orders_"+hexID("a2"), "id", "x")),
+		createdOn(3, bqtest.Table("orders_"+hexID("a3"), "id", "total")))}
+	h.run(api.SyncScope{})
+	if r, err := ReconcileConfig(ctx, h.cat, h.cfg); err != nil || r.SyncNeeded {
+		t.Fatalf("%+v %v", r, err)
+	}
+
+	h.cfg = cfgFrom(t, "projects = [\"p\"]\n"+cfgHex+"ignore = [\"p.shop.orders_"+hexID("a3")+"\"]\n")
+	r, err := ReconcileConfig(ctx, h.cat, h.cfg)
+	if err != nil || r.Pruned.Tables != 1 || !r.SyncNeeded || r.Reason != ReasonStaleFamilies {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if pending, reason, _ := PendingConfigChange(ctx, h.cat, h.cfg); !pending || reason != ReasonStaleFamilies {
+		t.Fatalf("pending: %v %q", pending, reason)
+	}
+
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	ts := h.tables("shop")
+	if f := ts["orders_"+hexID("a1")].Shard; f == nil || f.Newest != "orders_"+hexID("a2") {
+		t.Fatalf("%+v", f)
+	}
+	if got := h.columns("shop", "orders_"+hexID("a2")); len(got) != 2 {
+		t.Fatalf("the new newest shard's columns: %v", got)
+	}
+	if r, err := ReconcileConfig(ctx, h.cat, h.cfg); err != nil || r.SyncNeeded {
+		t.Fatalf("after the sync: %+v %v", r, err)
 	}
 }

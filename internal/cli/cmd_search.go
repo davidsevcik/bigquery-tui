@@ -54,8 +54,13 @@ func cmdSearch(ctx context.Context, o *out, g *globals, args []string) error {
 		return err
 	}
 	var touched []string
-	for _, r := range resp.Results {
+	for i, r := range resp.Results {
 		touched = append(touched, r.Path.Project)
+		if r.Kind == api.KindShards && r.Shard != nil {
+			// the CLI and MCP name: a suffix-less date family keeps its
+			// wildcard events_* (spec 8.3); Name, which the spans index, stays
+			resp.Results[i].Path.Table = r.Shard.AgentName()
+		}
 	}
 	if resp.Warnings, err = eng.StaleWarnings(ctx, touched); err != nil {
 		return err

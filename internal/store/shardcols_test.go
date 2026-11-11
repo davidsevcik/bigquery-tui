@@ -140,3 +140,39 @@ func TestALegacyFamilyReadsAsADateFamily(t *testing.T) {
 		t.Fatal("no legacy families after a sync")
 	}
 }
+
+// A family is stale when its newest shard is gone from the catalog, or when
+// an older bqt (which neither writes nor updates the family columns) added a
+// row next to this version's: what an older writer leaves behind.
+func TestStaleFamilies(t *testing.T) {
+	setup := func(t *testing.T) *Catalog {
+		c := openTemp(t)
+		fam := &api.ShardFamily{Name: "orders_*", Prefix: "orders_", Count: 2, Newest: "orders_b"}
+		newest, member := table("d1", "orders_b", "id"), table("d1", "orders_a")
+		newest.Shard, member.Shard, member.SharedSchema = fam, fam, true
+		apply(t, c, unit("p", "EU"), t0, dsApply("d1", "EU", newest, member, table("d1", "customers", "id")))
+		if stale, err := c.StaleFamilies(ctx); err != nil || stale {
+			t.Fatalf("a fresh family: %v %v", stale, err)
+		}
+		return c
+	}
+	t.Run("newest gone", func(t *testing.T) {
+		c := setup(t)
+		if _, err := c.db.Exec(`DELETE FROM tables WHERE name = 'orders_b'`); err != nil {
+			t.Fatal(err)
+		}
+		if stale, err := c.StaleFamilies(ctx); err != nil || !stale {
+			t.Fatalf("%v %v", stale, err)
+		}
+	})
+	t.Run("an older writer's row", func(t *testing.T) {
+		c := setup(t)
+		// the old date rule's columns only, as an older bqt inserts them
+		if _, err := c.db.Exec(`UPDATE tables SET shard_name='', shard_newest='', shard_prefix='customers_', shard_first='20240101', shard_last='20240101', shard_count=1 WHERE name = 'customers'`); err != nil {
+			t.Fatal(err)
+		}
+		if stale, err := c.StaleFamilies(ctx); err != nil || !stale {
+			t.Fatalf("%v %v", stale, err)
+		}
+	})
+}
