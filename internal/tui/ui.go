@@ -129,7 +129,10 @@ func clamp(v, lo, hi int) int { return max(lo, min(v, hi)) }
 // selection background.
 type rb struct {
 	l, r strings.Builder
-	bg   color.Color
+	// o is an optional part of the right segment, shown after r only when
+	// the whole left segment still fits.
+	o  strings.Builder
+	bg color.Color
 }
 
 func newRB(selected bool) *rb {
@@ -162,6 +165,13 @@ func (b *rb) addR(text string, st lipgloss.Style) *rb {
 	return b
 }
 
+// addOpt adds text to the right segment if the row has room for it.
+func (b *rb) addOpt(text string, st lipgloss.Style) {
+	if text != "" {
+		b.o.WriteString(b.style(st).Render(text))
+	}
+}
+
 // spans writes text with the byte spans highlighted.
 func (b *rb) spans(text string, sp []api.Span, base lipgloss.Style) *rb {
 	pos := 0
@@ -179,6 +189,9 @@ func (b *rb) spans(text string, sp []api.Span, base lipgloss.Style) *rb {
 
 func (b *rb) line(w int) string {
 	ls, rs := b.l.String(), b.r.String()
+	if o := b.o.String(); o != "" && wid(ls)+wid(rs)+wid(o)+1 <= w {
+		rs += o
+	}
 	wl, wr := wid(ls), wid(rs)
 	if wr > 0 && wl+wr+1 > w {
 		if wr+2 >= w {

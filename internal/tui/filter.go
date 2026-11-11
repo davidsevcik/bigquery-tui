@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
+	"github.com/davidsevcik/bigquery-tui/internal/sqlx"
 )
 
 // listFilter narrows one Explorer list in place: a Miller column or the tree.
@@ -91,9 +92,15 @@ func (m *Model) filterQuery(f *listFilter) (opts api.FilterOptions, scope string
 			if d, ok := m.mil.at(1); ok {
 				opts.Scope = &api.ObjectPath{Project: d.Path.Project, Dataset: d.Path.Dataset}
 			}
+			// drilled into a family: the column lists its members, so every
+			// member that passes is a match of its own
+			opts.ExpandShards = m.mil.family != nil
 		}
 		if opts.Scope != nil {
 			scope = opts.Scope.String()
+			if opts.ExpandShards {
+				scope += "\x00" + m.mil.family.Name
+			}
 		} else if c > 0 {
 			scope = "\x00none" // no parent: nothing to filter
 		}
@@ -154,25 +161,62 @@ func (m *Model) onFilter(msg filterMsg) {
 			f.under[openKey(api.BrowseNode{Kind: api.KindDataset, Path: api.ObjectPath{Project: p.Project, Dataset: p.Dataset}})] = true
 		}
 	}
+	// a family that holds a matching member opens to it, as a dataset does
+	fams := familyMatches(msg.resp.Matches)
+	for _, fm := range msg.resp.Matches {
+		if fm.Kind != api.KindTable {
+			continue
+		}
+		if fam, ok := matchedFamily(fams, fm.Path); ok {
+			f.under[nodeKey(api.KindShards, fam)] = true
+		}
+	}
 	f.count = countMatches(msg.resp.Matches, f.under)
 	m.applyFilter(f)
+}
+
+// familyMatches are the shard families among the matches.
+func familyMatches(ms []api.FilterMatch) []api.FilterMatch {
+	var out []api.FilterMatch
+	for _, fm := range ms {
+		if fm.Kind == api.KindShards {
+			out = append(out, fm)
+		}
+	}
+	return out
+}
+
+// matchedFamily is the family among fams that holds the table at p (the one
+// with the longest fixed parts when several could).
+func matchedFamily(fams []api.FilterMatch, p api.ObjectPath) (api.ObjectPath, bool) {
+	var best api.ObjectPath
+	bestLen := -1
+	for _, fm := range fams {
+		if fm.Path.Project != p.Project || fm.Path.Dataset != p.Dataset {
+			continue
+		}
+		prefix, suffix, ok := sqlx.FamilyParts(fm.Path.Table)
+		if ok && len(p.Table) > len(prefix)+len(suffix) && strings.HasPrefix(p.Table, prefix) && strings.HasSuffix(p.Table, suffix) && len(prefix)+len(suffix) > bestLen {
+			best, bestLen = fm.Path, len(prefix)+len(suffix)
+		}
+	}
+	return best, bestLen >= 0
 }
 
 // countMatches counts what a list shows: a container that holds a match is
 // counted through that match, and a shard member through its family.
 func countMatches(ms []api.FilterMatch, under map[string]bool) int {
-	fams := map[string]bool{} // dataset path + family prefix
-	for _, fm := range ms {
-		if fm.Kind == api.KindShards {
-			fams[fm.Path.Project+"."+fm.Path.Dataset+"\x00"+strings.TrimSuffix(fm.Path.Table, "YYYYMMDD")] = true
-		}
-	}
+	fams := familyMatches(ms)
 	n := 0
 	for _, fm := range ms {
-		if under[nodeKey(fm.Kind, fm.Path)] {
+		if fm.Kind != api.KindShards && under[nodeKey(fm.Kind, fm.Path)] {
+			continue // a container is counted through what it holds; a family once
+		}
+		if fm.Kind != api.KindTable {
+			n++
 			continue
 		}
-		if t := fm.Path.Table; fm.Kind == api.KindTable && len(t) > 8 && fams[fm.Path.Project+"."+fm.Path.Dataset+"\x00"+t[:len(t)-8]] {
+		if _, inFamily := matchedFamily(fams, fm.Path); inFamily {
 			continue
 		}
 		n++

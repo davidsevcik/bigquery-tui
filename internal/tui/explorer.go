@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"strings"
-
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
@@ -100,7 +98,7 @@ func (m *Model) milLoad(c int) {
 			ml.family = nil
 		}
 		if ml.family != nil {
-			ts = m.be.ShardMembers(d.Path.Project, d.Path.Dataset, ml.family.Shard.Prefix)
+			ts = m.be.ShardMembers(d.Path.Project, d.Path.Dataset, ml.family.Shard.Name)
 			if len(ts) == 0 {
 				ml.family = nil
 			}
@@ -160,6 +158,9 @@ func (m *Model) milCollapseFamily() {
 type treeRow struct {
 	depth int
 	node  api.BrowseNode
+	// more is set on the row after an open family's newest members: how many
+	// it leaves out (node is then the family).
+	more int
 }
 
 type tree struct {
@@ -172,6 +173,9 @@ type tree struct {
 	// missing from it is open when it holds a match (shard families stay
 	// closed).
 	filterOpen map[string]bool
+	// reveal is the openKey of a family member the tree shows although it is
+	// not among the family's newest (a jump to it).
+	reveal string
 }
 
 // nodeKey identifies an object across browse nodes and filter matches.
@@ -225,7 +229,7 @@ func (m *Model) treeBuild() {
 		if !shown(p, false) {
 			continue
 		}
-		t.rows = append(t.rows, treeRow{0, p})
+		t.rows = append(t.rows, treeRow{depth: 0, node: p})
 		if !t.isOpen(p) {
 			continue
 		}
@@ -234,7 +238,7 @@ func (m *Model) treeBuild() {
 			if !shown(d, allP) {
 				continue
 			}
-			t.rows = append(t.rows, treeRow{1, d})
+			t.rows = append(t.rows, treeRow{depth: 1, node: d})
 			if !t.isOpen(d) {
 				continue
 			}
@@ -243,13 +247,9 @@ func (m *Model) treeBuild() {
 				if !shown(tb, allD) {
 					continue
 				}
-				t.rows = append(t.rows, treeRow{2, tb})
+				t.rows = append(t.rows, treeRow{depth: 2, node: tb})
 				if tb.Kind == api.KindShards && t.isOpen(tb) {
-					for _, mem := range m.be.ShardMembers(p.Name, d.Name, tb.Shard.Prefix) {
-						if shown(mem, allD) {
-							t.rows = append(t.rows, treeRow{3, mem})
-						}
-					}
+					t.rows = m.familyRows(t.rows, tb, on && !allD)
 				}
 			}
 		}
@@ -269,6 +269,59 @@ func (m *Model) treeBuild() {
 		}
 	}
 	t.cur = clamp(t.cur, 0, max(0, len(t.rows)-1))
+}
+
+// familyRows appends an open shard family's members to the tree: under a
+// filter only the members that match, otherwise the [tui] family_rows newest
+// (and the member the tree was asked to show), then a "… N more" row.
+func (m *Model) familyRows(rows []treeRow, fam api.BrowseNode, filtered bool) []treeRow {
+	t := &m.tree
+	members := m.be.ShardMembers(fam.Path.Project, fam.Path.Dataset, fam.Shard.Name)
+	if filtered {
+		for _, mem := range members {
+			if t.f.set[openKey(mem)] {
+				rows = append(rows, treeRow{depth: 3, node: mem})
+			}
+		}
+		return rows
+	}
+	limit := m.be.Config().FamilyRows()
+	shownN := 0
+	for i, mem := range members {
+		if i < limit || openKey(mem) == t.reveal {
+			rows = append(rows, treeRow{depth: 3, node: mem})
+			shownN++
+		}
+	}
+	if more := len(members) - shownN; more > 0 {
+		rows = append(rows, treeRow{depth: 3, node: fam, more: more})
+	}
+	return rows
+}
+
+// treeNodes are the nodes of the tree's rows.
+func treeNodes(rows []treeRow) []api.BrowseNode {
+	out := make([]api.BrowseNode, len(rows))
+	for i, r := range rows {
+		out[i] = r.node
+	}
+	return out
+}
+
+// familyFor returns the index of the shard family among nodes that holds the
+// table at p, or -1. When several could (orders_* and orders_*_history both
+// fit orders_<id>_history), the one with the longest fixed parts wins.
+func familyFor(nodes []api.BrowseNode, p api.ObjectPath) int {
+	best, bestLen := -1, -1
+	for i, n := range nodes {
+		if n.Kind != api.KindShards || n.Shard == nil || n.Path.Project != p.Project || n.Path.Dataset != p.Dataset {
+			continue
+		}
+		if _, ok := n.Shard.Varying(p.Table); ok && len(n.Shard.Prefix)+len(n.Shard.Suffix) > bestLen {
+			best, bestLen = i, len(n.Shard.Prefix)+len(n.Shard.Suffix)
+		}
+	}
+	return best
 }
 
 // treeBest is the row of the best-ranked match the tree shows, or -1.
@@ -484,7 +537,7 @@ func (m *Model) open() tea.Cmd {
 			m.tree.setOpen(s.node, !m.tree.isOpen(s.node))
 			m.treeBuild()
 		case styleList:
-			m.flat.in.set("d:" + s.path.Dataset + " p:" + s.path.Project + " " + strings.TrimSuffix(s.path.Table, "YYYYMMDD"))
+			m.flat.in.set("d:" + s.path.Dataset + " p:" + s.path.Project + " " + s.node.Shard.Prefix)
 			m.flat.expand, m.flat.expandShards = true, true
 			m.flat.cur, m.flat.off = 0, 0
 			return m.runSearch(m.flat)
@@ -542,19 +595,17 @@ func (m *Model) locate(p api.ObjectPath, kind api.ResultKind) {
 			return
 		}
 		// a member of a collapsed shard family
-		for fi, n := range ml.cols[2] {
-			if n.Kind == api.KindShards && strings.HasPrefix(p.Table, n.Shard.Prefix) {
-				fam := n
-				ml.family, ml.famIdx = &fam, fi
-				ml.cur[2] = 0
-				m.milLoad(2)
-				if i = indexOf(ml.cols[2], p.Table); i >= 0 {
-					ml.cur[2], ml.col = i, 2
-					return
-				}
-				ml.family = nil
-				m.milLoad(2)
+		if fi := familyFor(ml.cols[2], p); fi >= 0 {
+			fam := ml.cols[2][fi]
+			ml.family, ml.famIdx = &fam, fi
+			ml.cur[2] = 0
+			m.milLoad(2)
+			if i = indexOf(ml.cols[2], p.Table); i >= 0 {
+				ml.cur[2], ml.col = i, 2
+				return
 			}
+			ml.family = nil
+			m.milLoad(2)
 		}
 	case styleTree:
 		t := &m.tree
@@ -587,10 +638,9 @@ func (m *Model) locate(p api.ObjectPath, kind api.ResultKind) {
 		if find() || p.Table == "" {
 			return
 		}
-		for _, r := range t.rows { // open the family that holds the table
-			if r.node.Kind == api.KindShards && r.node.Path.Project == p.Project && r.node.Path.Dataset == p.Dataset && strings.HasPrefix(p.Table, r.node.Shard.Prefix) {
-				t.open[openKey(r.node)] = true
-			}
+		if i := familyFor(treeNodes(t.rows), p); i >= 0 { // open the family that holds the table
+			t.open[openKey(t.rows[i].node)] = true
+			t.reveal = nodeKey(api.KindTable, p)
 		}
 		m.treeBuild()
 		kind = api.KindTable
@@ -626,10 +676,9 @@ func (m *Model) treeLocateFiltered(p api.ObjectPath, kind api.ResultKind) bool {
 	if p.Table == "" {
 		return false
 	}
-	for _, r := range t.rows {
-		if r.node.Kind == api.KindShards && r.node.Path.Project == p.Project && r.node.Path.Dataset == p.Dataset && strings.HasPrefix(p.Table, r.node.Shard.Prefix) {
-			t.setOpen(r.node, true)
-		}
+	if i := familyFor(treeNodes(t.rows), p); i >= 0 {
+		t.setOpen(t.rows[i].node, true)
+		t.reveal = nodeKey(api.KindTable, p)
 	}
 	m.treeBuild()
 	return find(api.KindTable)

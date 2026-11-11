@@ -2,9 +2,9 @@
  Datas╭─ Commands ───────────────────────────────────╮
 events│ > sync                                       │
 financ│ Show sync problems                       g p │   ×4
-sales │ Show sync progress                       g s │
-us_arc╰──────────────────────────────────────────────╯
-                             │
+sales │ Sync table schema                        g s │
+us_arc│ Show sync progress                       g d │
+      ╰──────────────────────────────────────────────╯
                              │
                              │
                              │

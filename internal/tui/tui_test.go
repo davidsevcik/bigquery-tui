@@ -121,7 +121,7 @@ func TestShardFamilyExpandsAndCollapses(t *testing.T) {
 	if s := r.m.sel(); s.kind != api.KindShards {
 		t.Fatalf("%+v", s)
 	}
-	r.contains("events_YYYYMMDD", "×4", "shard family ×4", "20240101 → 20240104", "schema of the newest shard")
+	r.contains("events_YYYYMMDD", "×4", "shard family ×4", "20240101 → 20240104", "schema of events_20240104 (family of 4)", "gs syncs this table's own")
 	r.press("enter")
 	r.contains("events_20240104", "events_20240101")
 	if s := r.m.sel(); s.kind != api.KindTable || s.path.Table != "events_20240104" {
@@ -236,9 +236,9 @@ func TestTreeExpandCollapse(t *testing.T) {
 	r.contains("▾ events", "events_YYYYMMDD", "×4")
 	r.press("j", "j", "l") // open the family
 	r.contains("events_20240104")
-	r.press("h") // close family
-	r.lacks("events_20240104")
-	r.press("h", "h") // parent dataset, then collapse it
+	r.press("h")               // close family
+	r.lacks("events_20240103") // the Schema pane still names the newest shard
+	r.press("h", "h")          // parent dataset, then collapse it
 	r.lacks("clicks")
 }
 
@@ -328,7 +328,7 @@ func TestSyncFromTheUI(t *testing.T) {
 	r.contains("sync finished: 3 ok")
 	r.press("l", "j", "l")
 	r.contains("ledger")
-	r.press("g", "s")
+	r.press("g", "d")
 	r.contains("Sync progress", "found 3 unit(s)", "finished:")
 	r.press("esc")
 	// a failing project shows up as a problem, without a modal

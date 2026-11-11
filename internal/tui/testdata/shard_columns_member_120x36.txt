@@ -1,0 +1,36 @@
+ orders_* 2/25                            │ SQL · query 1   1:1
+T orders_5f1900000000000000000abc         │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+T orders_5f1800000000000000000abc         │~
+T orders_5f1700000000000000000abc         │~
+T orders_5f1600000000000000000abc         │~
+T orders_5f1500000000000000000abc         │~
+T orders_5f1400000000000000000abc         │~
+T orders_5f1300000000000000000abc         │~
+T orders_5f1200000000000000000abc         │~
+T orders_5f1100000000000000000abc         │~
+T orders_5f1000000000000000000abc         │~
+T orders_5f0f00000000000000000abc         │~
+T orders_5f0e00000000000000000abc         │~
+T orders_5f0d00000000000000000abc         │~
+T orders_5f0c00000000000000000abc         │~
+T orders_5f0b00000000000000000abc         │~
+T orders_5f0a00000000000000000abc         │~
+ Schema · acme-prod.shop.orders_5f1800000…│ Results
+ acme-prod.shop.orders_5f1800000000000000…│ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
+ table · EU · 0 rows · 0 B                │
+ schema of                                │
+ orders_5f1900000000000000000abc (family  │
+ of 25) · gs syncs this table's own       │
+ ✓ synced 3h ago                          │
+                                          │
+ ── schema · 2 fields ──                  │
+ order_id STRING                          │
+ total    STRING                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+ bqt exec acme-exec  layout: classic  columns  2 projects                                        6 datasets · 41 tables
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · ctrl+o pane · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial

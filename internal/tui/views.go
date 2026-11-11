@@ -414,6 +414,9 @@ func (m *Model) nodeRow(b *rb, n api.BrowseNode) {
 	case api.KindShards:
 		b.add(typeLetter(n.Type)+" ", typeStyle(n.Type)).add(n.Name, ns)
 		b.addR(fmt.Sprintf("×%s ", format.Count(int64(n.Children))), sAcc)
+		if f := n.Shard; f != nil && !f.Date && !f.NewestCreated.IsZero() {
+			b.addOpt(f.NewestCreated.Format("2006-01-02")+" ", sFaint) // the newest shard's creation, room permitting
+		}
 	default:
 		b.add(typeLetter(n.Type)+" ", typeStyle(n.Type)).add(n.Name, ns)
 		if n.NamesOnly {
@@ -445,6 +448,11 @@ func (m *Model) treeList(w, h int) []string {
 		r := t.rows[i]
 		b := newRB(i == t.cur)
 		b.add(strings.Repeat("  ", r.depth), sBase)
+		if r.more > 0 {
+			b.add("  … "+format.Count(int64(r.more))+" more · / to filter", sDim)
+			out = append(out, b.line(w))
+			continue
+		}
 		switch r.node.Kind {
 		case api.KindProject, api.KindDataset, api.KindShards:
 			arrow := "▸ "
@@ -646,9 +654,17 @@ func (m *Model) schemaLines(s selection, w int) []string {
 
 	d := m.details[s.detailKey()]
 	if s.kind == api.KindShards && n.Shard != nil {
+		f := n.Shard
 		add(sBold.Render(n.Path.String()))
-		add(sAcc.Render(fmt.Sprintf("shard family ×%s", format.Count(int64(n.Shard.Count)))) + sDim.Render("  "+n.Shard.First+" → "+n.Shard.Last))
-		add(sDim.Render("schema of the newest shard · enter lists the shards"))
+		span := ""
+		switch {
+		case f.Date:
+			span = "  " + f.First + " → " + f.Last
+		case !f.NewestCreated.IsZero():
+			span = "  newest created " + f.NewestCreated.Format("2006-01-02")
+		}
+		add(sAcc.Render(fmt.Sprintf("shard family ×%s", format.Count(int64(f.Count)))) + sDim.Render(span))
+		add(sDim.Render("enter lists the shards · i inserts " + f.Wildcard()))
 	}
 	if d == nil || (d.det == nil && d.detErr == "") {
 		add(sDim.Render("loading…"))
@@ -671,6 +687,13 @@ func (m *Model) schemaLines(s selection, w int) []string {
 		meta += sFaint.Render(" · …")
 	}
 	add(meta)
+	if det.SchemaFrom != "" {
+		count := 0
+		if sh := det.Shard; sh != nil {
+			count = sh.Count
+		}
+		wrapAdd(fmt.Sprintf("schema of %s (family of %s) · gs syncs this table's own", det.SchemaFrom, format.Count(int64(count))), sAcc)
+	}
 	info := func(descFirst bool) {
 		var part, clus []string
 		for _, c := range t.Columns {

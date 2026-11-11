@@ -1,0 +1,36 @@
+ Tables 2/3                               │ SQL · query 1   1:1
+T customers                               │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+T orders_*                 ×25 2025-01-02 │~
+T orders_*_history          ×2 2025-01-01 │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+ Schema · acme-prod.shop.orders_*         │ Results
+ acme-prod.shop.orders_*                  │ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
+ shard family ×25  newest created 2025-01…│
+ enter lists the shards · i inserts order…│
+ table · EU · 0 rows · 0 B                │
+ schema of                                │
+ orders_5f1900000000000000000abc (family  │
+ of 25) · gs syncs this table's own       │
+ ✓ synced 3h ago                          │
+                                          │
+ ── schema · 2 fields ──                  │
+ order_id STRING                          │
+ total    STRING                          │
+                                          │
+                                          │
+                                          │
+                                          │
+ bqt exec acme-exec  layout: classic  columns  2 projects                                        6 datasets · 41 tables
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · ctrl+o pane · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial

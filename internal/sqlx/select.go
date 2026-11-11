@@ -20,14 +20,21 @@ func QuoteTable(p api.ObjectPath) string {
 // FamilyPrefix returns the prefix of a shard family name: the text before its
 // YYYYMMDD or * marker. A table name holds neither.
 func FamilyPrefix(name string) (string, bool) {
-	i := strings.Index(name, "*")
+	p, _, ok := FamilyParts(name)
+	return p, ok
+}
+
+// FamilyParts splits a shard family name into the text before and after its
+// YYYYMMDD or * marker: a member is prefix + varying part + suffix.
+func FamilyParts(name string) (prefix, suffix string, ok bool) {
+	i, n := strings.Index(name, "*"), 1
 	if j := strings.Index(name, "YYYYMMDD"); j >= 0 && (i < 0 || j < i) {
-		i = j
+		i, n = j, len("YYYYMMDD")
 	}
 	if i < 0 {
-		return "", false
+		return "", "", false
 	}
-	return name[:i], true
+	return name[:i], name[i+n:], true
 }
 
 // SelectStar is the SELECT the Explorer's s writes for a table: one clause per

@@ -149,6 +149,7 @@ type Model struct {
 	syncNeeded bool
 	syncReason string
 	syncScope  []string        // the projects the running sync covers (nil: the Selected ones)
+	syncTable  *api.ObjectPath // set while gs syncs one table
 	syncLater  []string        // projects to sync once the running sync ends
 	forceLater []string        // projects to sync once it ends, however fresh (s in the Projects dialog)
 	forceAll   bool            // every Selected project too, however fresh (S)
@@ -435,10 +436,14 @@ type configWait struct {
 
 func (m *Model) startSync(scope api.SyncScope, auto bool) tea.Cmd {
 	if m.syncing {
-		m.toast = "a sync is already running (gs shows progress)"
+		m.toast = "a sync is already running (gd shows progress)"
 		return nil
 	}
 	m.syncScope = scope.Projects // nil: every Selected project (or the stale ones)
+	m.syncTable = scope.Table
+	if scope.Table != nil {
+		m.syncScope = []string{scope.Table.Project}
+	}
 	return func() tea.Msg {
 		var run SyncRun
 		var err error
@@ -586,7 +591,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitSync(m.syncRun)
 	case syncDoneMsg:
 		m.syncing, m.syncRun = false, nil
+		table := m.syncTable
+		m.syncTable = nil
 		switch {
+		case table != nil && msg.err == nil && !msg.res.Cancelled:
+			m.details, m.lastSel = map[string]*detailData{}, "" // the Schema pane reads the new schema
+			m.toast = "synced the schema of " + table.String()
+			if msg.res.UnitsFailed > 0 && len(msg.res.Units) > 0 {
+				m.toast = "could not sync " + table.String() + ": " + msg.res.Units[0].Error
+			}
 		case msg.err != nil:
 			m.toast = "sync failed: " + msg.err.Error()
 		case msg.res.Cancelled:
@@ -681,7 +694,7 @@ func (m *Model) onConfig(ev config.Event) tea.Cmd {
 	}
 	m.reloadBrowse()
 	for _, k := range ev.Changed {
-		if k == "projects" || k == "ignore" {
+		if k == "projects" || k == "ignore" || k == "shard_patterns" {
 			return m.reconcileCmd(false)
 		}
 	}
@@ -903,6 +916,8 @@ func (m *Model) explorerAction(act string) tea.Cmd {
 		m.ov, m.ovOff = ovProblems, 0
 	case "syncdetails":
 		m.ov, m.ovOff = ovSync, 1<<30
+	case "synctable":
+		return m.syncTableAction()
 	case "config":
 		return m.openConfig()
 	case "insert":
