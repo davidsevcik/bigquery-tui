@@ -149,3 +149,26 @@ func TestMemberHitWithACaseChangingPrefix(t *testing.T) {
 		t.Fatalf("%+v", r.Results)
 	}
 }
+
+// A family's filter match carries the family, whose parts say which tables
+// are its members.
+func TestFilterFamilyMatchesCarryTheirFamily(t *testing.T) {
+	s := withOrders().searcher()
+	r, err := s.Filter(ctx, "orders", api.FilterOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, m := range r.Matches {
+		if m.Kind != api.KindShards {
+			continue
+		}
+		n++
+		if m.Shard == nil || m.Shard.Name != m.Path.Table || m.Shard.Prefix != "orders_" {
+			t.Fatalf("%+v", m)
+		}
+	}
+	if n != 2 {
+		t.Fatalf("%d family matches: %+v", n, r.Matches)
+	}
+}

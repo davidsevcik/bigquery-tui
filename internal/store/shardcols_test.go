@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -175,4 +176,37 @@ func TestStaleFamilies(t *testing.T) {
 			t.Fatalf("%v %v", stale, err)
 		}
 	})
+}
+
+// Old-rule rows in a dataset without this version's families are not stale,
+// and checking them stays linear (a per-row scan of the dataset made a
+// 20,000-member family take minutes).
+func TestStaleFamiliesIsLinearInOldRows(t *testing.T) {
+	c := openTemp(t)
+	apply(t, c, unit("p", "EU"), t0, dsApply("d1", "EU", table("d1", "seed", "id")))
+	tx, err := c.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ds int64
+	if err := tx.QueryRow(`SELECT dataset_id FROM tables WHERE name = 'seed'`).Scan(&ds); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 20000; i++ {
+		if _, err := tx.Exec(`INSERT INTO tables(dataset_id,name,name_lc,type,content_hash,shard_prefix,shard_first,shard_last,shard_count) VALUES(?,?,?,?,?,?,?,?,?)`,
+			ds, fmt.Sprintf("events_%08d", i), fmt.Sprintf("events_%08d", i), "table", "", "events_", "20000101", "20240101", 20000); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	stale, err := c.StaleFamilies(ctx)
+	if err != nil || stale {
+		t.Fatalf("%v %v", stale, err)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("StaleFamilies took %s over 20,000 old rows", took)
+	}
 }

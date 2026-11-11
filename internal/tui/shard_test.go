@@ -196,3 +196,23 @@ func TestSearchReturnsTheFamilyUnlessAnIDIsTyped(t *testing.T) {
 		t.Fatalf("an id finds the member: %+v", r.m.jump.results)
 	}
 }
+
+// A filter match carries its family, so a member is found under it even when
+// the family's fixed parts hold YYYYMMDD and its name reads two ways.
+func TestMatchedFamilyUsesTheFamilysOwnParts(t *testing.T) {
+	cases := []struct {
+		fam    api.ShardFamily
+		member string
+	}{
+		{api.ShardFamily{Name: "r_YYYYMMDD_YYYYMMDD", Prefix: "r_YYYYMMDD_", Date: true}, "r_YYYYMMDD_20240101"},
+		{api.ShardFamily{Name: "events_YYYYMMDD_YYYYMMDD", Prefix: "events_", Suffix: "_YYYYMMDD", Date: true}, "events_20240101_YYYYMMDD"},
+	}
+	for _, c := range cases {
+		fam := c.fam
+		fams := []api.FilterMatch{{Kind: api.KindShards, Path: api.ObjectPath{Project: "p", Dataset: "d", Table: fam.Name}, Shard: &fam}}
+		got, ok := matchedFamily(fams, api.ObjectPath{Project: "p", Dataset: "d", Table: c.member})
+		if !ok || got.Table != fam.Name {
+			t.Fatalf("%s under %s: %v %v", c.member, fam.Name, got, ok)
+		}
+	}
+}

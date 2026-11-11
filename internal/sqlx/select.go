@@ -43,12 +43,13 @@ func FamilyPrefix(name string) (string, bool) {
 
 // FamilyParts splits a shard family name into the text before and after its
 // marker: a member is prefix + varying part + suffix. A table name cannot
-// hold *, so a * is the marker when there is one; otherwise it is the last
-// YYYYMMDD (the prefix may hold that text itself).
+// hold *, so a * is the marker when there is one; otherwise it is the first
+// YYYYMMDD. A date family whose fixed parts hold YYYYMMDD themselves can be
+// read two ways: callers that have the family use its Prefix and Suffix.
 func FamilyParts(name string) (prefix, suffix string, ok bool) {
 	i, n := strings.Index(name, "*"), 1
 	if i < 0 {
-		i, n = strings.LastIndex(name, "YYYYMMDD"), len("YYYYMMDD")
+		i, n = strings.Index(name, "YYYYMMDD"), len("YYYYMMDD")
 	}
 	if i < 0 {
 		return "", "", false

@@ -65,7 +65,8 @@ func (s *Searcher) Filter(ctx context.Context, raw string, o api.FilterOptions) 
 	}
 
 	var out []hit
-	var paths []api.ObjectPath // paths[h.i] for every hit
+	var paths []api.ObjectPath          // paths[h.i] for every hit
+	famOf := map[int]*api.ShardFamily{} // family of a shard_family path, by paths index
 	add := func(k api.ResultKind, p api.ObjectPath, lname, name string) {
 		if maxS, sum, ok := ownScore(lname, c.terms, true); ok {
 			out = append(out, hit{kind: k, i: len(paths), max: maxS, sum: sum, name: name, path: p.String()})
@@ -136,6 +137,7 @@ func (s *Searcher) Filter(ctx context.Context, raw string, o api.FilterOptions) 
 			fp := api.ObjectPath{Project: p.Project, Dataset: p.Dataset, Table: name}
 			if j, seen := fams[k]; !seen {
 				fams[k] = len(out)
+				famOf[len(paths)] = t.shard
 				out = append(out, hit{kind: api.KindShards, i: len(paths), max: maxS, sum: sum, name: name, path: fp.String()})
 				paths = append(paths, fp)
 			} else if f := &out[j]; maxS < f.max || maxS == f.max && sum < f.sum {
@@ -146,7 +148,12 @@ func (s *Searcher) Filter(ctx context.Context, raw string, o api.FilterOptions) 
 
 	sortHits(out, len(c.terms) > 0)
 	for _, h := range out {
-		resp.Matches = append(resp.Matches, api.FilterMatch{Kind: h.kind, Path: paths[h.i]})
+		m := api.FilterMatch{Kind: h.kind, Path: paths[h.i]}
+		if f := famOf[h.i]; f != nil {
+			fam := *f
+			m.Shard = &fam
+		}
+		resp.Matches = append(resp.Matches, m)
 	}
 	resp.TookMS = float64(time.Since(start).Microseconds()) / 1000
 	return resp, nil

@@ -160,6 +160,10 @@ type FilterOptions struct {
 type FilterMatch struct {
 	Kind ResultKind `json:"kind"`
 	Path ObjectPath `json:"path"`
+	// Shard is the family a shard_family match stands for: its prefix and
+	// suffix say which tables are its members (its name alone can be read
+	// two ways when the fixed parts hold YYYYMMDD themselves).
+	Shard *ShardFamily `json:"shard_family,omitempty"`
 }
 
 // FilterResponse lists every object that passes a filter, best match first.

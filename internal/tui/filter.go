@@ -196,6 +196,9 @@ func matchedFamily(fams []api.FilterMatch, p api.ObjectPath) (api.ObjectPath, bo
 			continue
 		}
 		prefix, suffix, ok := sqlx.FamilyParts(fm.Path.Table)
+		if fm.Shard != nil {
+			prefix, suffix, ok = fm.Shard.Prefix, fm.Shard.Suffix, true
+		}
 		if ok && len(p.Table) > len(prefix)+len(suffix) && strings.HasPrefix(p.Table, prefix) && strings.HasSuffix(p.Table, suffix) && len(prefix)+len(suffix) > bestLen {
 			best, bestLen = fm.Path, len(prefix)+len(suffix)
 		}

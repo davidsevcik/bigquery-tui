@@ -134,7 +134,8 @@ func TestQuoteFamily(t *testing.T) {
 		// a prefix that holds YYYYMMDD itself
 		{"r_YYYYMMDD_*", odd, "`p.d.r_YYYYMMDD_*`"},
 		{"r_YYYYMMDD_*", nil, "`p.d.r_YYYYMMDD_*`"},
-		{"x_YYYYMMDD_v2_YYYYMMDD", nil, "`p.d.x_YYYYMMDD_v2_*`"},
+		{"x_YYYYMMDD_v2_YYYYMMDD", nil, "`p.d.x_*`"}, // the name alone: the first marker
+		{"x_YYYYMMDD_v2_YYYYMMDD", &api.ShardFamily{Name: "x_YYYYMMDD_v2_YYYYMMDD", Prefix: "x_YYYYMMDD_v2_", Date: true}, "`p.d.x_YYYYMMDD_v2_*`"},
 		{"orders", nil, "`p.d.orders`"},
 	}
 	for _, c := range cases {

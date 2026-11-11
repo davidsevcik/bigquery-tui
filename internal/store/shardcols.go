@@ -85,10 +85,14 @@ func (c *Catalog) StaleFamilies(ctx context.Context) (bool, error) {
 		return false, nil // no row of this version's families yet
 	}
 	var one int
-	err := c.db.QueryRowContext(ctx, `SELECT 1 FROM tables t
+	// The datasets with this version's families are found once: a per-row
+	// subquery over the dataset would be quadratic in a dataset of old rows.
+	// The newest-shard check is an index lookup on (dataset_id, name).
+	err := c.db.QueryRowContext(ctx, `WITH modern AS (SELECT DISTINCT dataset_id FROM tables WHERE shard_name <> '')
+SELECT 1 FROM tables t
 WHERE t.shard_count > 0 AND (
   (t.shard_name <> '' AND NOT EXISTS (SELECT 1 FROM tables n WHERE n.dataset_id = t.dataset_id AND n.name = t.shard_newest))
-  OR (t.shard_name = '' AND EXISTS (SELECT 1 FROM tables m WHERE m.dataset_id = t.dataset_id AND m.shard_name <> '')))
+  OR (t.shard_name = '' AND t.dataset_id IN (SELECT dataset_id FROM modern)))
 LIMIT 1`).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
