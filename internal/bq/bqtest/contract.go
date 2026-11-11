@@ -30,6 +30,9 @@ type ContractOptions struct {
 // FamilyCase names a dataset with a shard family for the column-filter
 // contract.
 type FamilyCase struct {
+	// Project holds Dataset; empty means the contract's project. It may be
+	// one the credentials only read, such as bigquery-public-data.
+	Project  string
 	Location string
 	Dataset  string
 	// Patterns are shard patterns as configured (bqt anchors them).
@@ -41,10 +44,16 @@ type FamilyCase struct {
 
 // runColumnFilter checks that the phase 2 call returns columns for the tables
 // on the keep list and for those matching no pattern, and none for the rest,
-// judged by Go's regexp as bqt anchors the patterns.
+// judged by Go's regexp as bqt anchors the patterns. It uses the region views
+// and, where those are refused, the dataset views sync falls back to (the
+// same filter SQL in another scope). tables.get (gs) must read a kept
+// member's field paths as the views do.
 func runColumnFilter(t *testing.T, md bq.Metadata, project string, f FamilyCase) {
 	t.Helper()
 	ctx := context.Background()
+	if f.Project != "" {
+		project = f.Project
+	}
 	res := make([]*regexp.Regexp, len(f.Patterns))
 	parts := make([]string, len(f.Patterns))
 	for i, p := range f.Patterns {
@@ -52,12 +61,19 @@ func runColumnFilter(t *testing.T, md bq.Metadata, project string, f FamilyCase)
 		res[i] = regexp.MustCompile(parts[i])
 	}
 	req := bq.RegionRequest{Project: project, Location: f.Location, Datasets: []string{f.Dataset}}
-	all, err := md.RegionColumns(ctx, req, bq.ColumnFilter{})
+	columns := func(cf bq.ColumnFilter) ([]bq.TableColumns, error) { return md.RegionColumns(ctx, req, cf) }
+	all, err := columns(bq.ColumnFilter{})
+	if err != nil && bq.KindOf(err) == bq.KindPermission {
+		t.Logf("no region-scope access (%v): checking the dataset views", err)
+		dreq := bq.DatasetRequest{Project: project, Location: f.Location, Dataset: f.Dataset}
+		columns = func(cf bq.ColumnFilter) ([]bq.TableColumns, error) { return md.DatasetColumns(ctx, dreq, cf) }
+		all, err = columns(bq.ColumnFilter{})
+	}
 	if err != nil {
 		if bq.KindOf(err) == bq.KindPermission {
-			t.Skipf("no region-scope access: %v", err)
+			t.Skipf("no access to the views of %s.%s: %v", project, f.Dataset, err)
 		}
-		t.Fatalf("RegionColumns: %v", err)
+		t.Fatalf("columns: %v", err)
 	}
 	keep := map[string]bool{}
 	var keepNames []string
@@ -66,11 +82,13 @@ func runColumnFilter(t *testing.T, md bq.Metadata, project string, f FamilyCase)
 		keepNames = append(keepNames, f.Dataset+"."+n)
 	}
 	want := map[string]bool{}
+	byName := map[string][]api.ColumnMeta{}
 	left := 0
 	for _, tc := range all {
 		if tc.Dataset != f.Dataset {
 			continue
 		}
+		byName[tc.Table] = tc.Columns
 		matches := false
 		for _, re := range res {
 			matches = matches || re.MatchString(tc.Table)
@@ -84,9 +102,9 @@ func runColumnFilter(t *testing.T, md bq.Metadata, project string, f FamilyCase)
 	if left == 0 {
 		t.Fatalf("the family case leaves no table out: patterns %q match nothing in %s beyond the keep list", f.Patterns, f.Dataset)
 	}
-	got, err := md.RegionColumns(ctx, req, bq.ColumnFilter{Pattern: strings.Join(parts, "|"), Keep: keepNames})
+	got, err := columns(bq.ColumnFilter{Pattern: strings.Join(parts, "|"), Keep: keepNames})
 	if err != nil {
-		t.Fatalf("filtered RegionColumns: %v", err)
+		t.Fatalf("filtered columns: %v", err)
 	}
 	have := map[string]bool{}
 	for _, tc := range got {
@@ -96,6 +114,9 @@ func runColumnFilter(t *testing.T, md bq.Metadata, project string, f FamilyCase)
 		if !want[tc.Table] {
 			t.Errorf("%s.%s matches a pattern and is not kept, yet its columns were read", tc.Dataset, tc.Table)
 		}
+		if g, w := fieldPaths(tc.Columns), fieldPaths(byName[tc.Table]); g != w {
+			t.Errorf("%s.%s: the filtered read has other field paths than the unfiltered one", tc.Dataset, tc.Table)
+		}
 		have[tc.Table] = true
 	}
 	for n := range want {
@@ -103,16 +124,27 @@ func runColumnFilter(t *testing.T, md bq.Metadata, project string, f FamilyCase)
 			t.Errorf("%s.%s should have columns (kept, or matching no pattern), got none", f.Dataset, n)
 		}
 	}
-	// the re-read by name returns exactly the names asked for
-	if len(f.Keep) > 0 {
-		only, err := md.RegionColumns(ctx, req, bq.ColumnFilter{Pattern: "^(?:.*)$", Only: keepNames[:1]})
-		if err != nil {
-			t.Fatalf("RegionColumns by name: %v", err)
-		}
-		if len(only) != 1 || only[0].Table != f.Keep[0] {
-			t.Fatalf("RegionColumns by name returned %d tables, want only %s", len(only), f.Keep[0])
-		}
+	t.Logf("%s.%s: %d tables, %d left out by the filter, %d read", project, f.Dataset, len(want)+left, left, len(have))
+	if len(f.Keep) == 0 {
+		return
 	}
+	// the re-read by name returns exactly the names asked for
+	only, err := columns(bq.ColumnFilter{Pattern: "^(?:.*)$", Only: keepNames[:1]})
+	if err != nil {
+		t.Fatalf("columns by name: %v", err)
+	}
+	if len(only) != 1 || only[0].Table != f.Keep[0] {
+		t.Fatalf("columns by name returned %d tables, want only %s", len(only), f.Keep[0])
+	}
+	// tables.get (gs) reads the kept member's field paths as the views do
+	tm, err := md.GetTableMeta(ctx, project, f.Dataset, f.Keep[0])
+	if err != nil {
+		t.Fatalf("GetTableMeta(%s.%s): %v", f.Dataset, f.Keep[0], err)
+	}
+	if g, w := fieldPaths(tm.Columns), fieldPaths(byName[f.Keep[0]]); g != w {
+		t.Fatalf("GetTableMeta(%s.%s) field paths differ from the views\n got %s\nwant %s", f.Dataset, f.Keep[0], g, w)
+	}
+	t.Logf("GetTableMeta(%s.%s): %d field paths, as the views", f.Dataset, f.Keep[0], len(tm.Columns))
 }
 
 // withColumns attaches phase 2's columns to phase 1's tables.

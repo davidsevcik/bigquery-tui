@@ -122,14 +122,39 @@ func TestLiveStorageReadMatchesREST(t *testing.T) {
 		cols   []TableColumns
 	}
 	// Both phases of a region unit; with no column filter, phase 2 reads
-	// every table's columns.
+	// every table's columns. Where the region views are refused, one
+	// dataset's views (BQT_LIVE_STORAGE_DATASET, or the location's first),
+	// as sync falls back to. BQT_LIVE_SHARD_PATTERN, when set, filters phase
+	// 2 as a shard pattern would, so its WHERE precedes readInOrder.
+	filter := ColumnFilter{}
+	if pat := os.Getenv("BQT_LIVE_SHARD_PATTERN"); pat != "" {
+		filter.Pattern, filter.Keep = "^(?:"+pat+")$", []string{}
+	}
+	dataset := os.Getenv("BQT_LIVE_STORAGE_DATASET")
+	if dataset == "" {
+		dataset = slices.Min(byLoc[loc])
+	}
+	dreq := DatasetRequest{Project: proj, Location: loc, Dataset: dataset}
+	regionOK := true
 	snapshot := func(c *Client) (unit, time.Duration) {
 		start := time.Now()
-		tabs, err := c.RegionTables(ctx, req)
-		if err != nil {
-			t.Fatal(err)
+		var tabs *api.Snapshot
+		var cols []TableColumns
+		var err error
+		if regionOK {
+			if tabs, err = c.RegionTables(ctx, req); err == nil {
+				cols, err = c.RegionColumns(ctx, req, filter)
+			}
+			if KindOf(err) == KindPermission {
+				t.Logf("no region-scope access, comparing dataset %s.%s: %v", proj, dataset, err)
+				regionOK, req.Datasets = false, []string{dataset}
+			}
 		}
-		cols, err := c.RegionColumns(ctx, req, ColumnFilter{})
+		if !regionOK {
+			if tabs, err = c.DatasetTables(ctx, dreq); err == nil {
+				cols, err = c.DatasetColumns(ctx, dreq, filter)
+			}
+		}
 		if err != nil {
 			t.Fatal(err)
 		}

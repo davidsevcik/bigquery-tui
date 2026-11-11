@@ -33,12 +33,16 @@ func TestLiveMetadataContract(t *testing.T) {
 	}
 	defer c.Close()
 	o := bqtest.ContractOptions{Project: proj, MaxDatasets: 40, MaxLocations: 2, FallbackSamples: 3}
-	// BQT_LIVE_SHARD_DATASET (in BQT_LIVE_PROJECT, at BQT_LIVE_SHARD_LOCATION)
-	// holds a family that BQT_LIVE_SHARD_PATTERN matches; BQT_LIVE_SHARD_KEEP
-	// names members (comma-separated) to keep: the phase 2 column filter is
-	// then checked against it.
+	// BQT_LIVE_SHARD_DATASET (in BQT_LIVE_SHARD_PROJECT, default
+	// BQT_LIVE_PROJECT, at BQT_LIVE_SHARD_LOCATION) holds a family that
+	// BQT_LIVE_SHARD_PATTERN matches; BQT_LIVE_SHARD_KEEP names members
+	// (comma-separated) to keep: the phase 2 column filter is then checked
+	// against it. For example the public google_analytics_sample:
+	//
+	//	BQT_LIVE_SHARD_PROJECT=bigquery-public-data BQT_LIVE_SHARD_DATASET=google_analytics_sample \
+	//	BQT_LIVE_SHARD_LOCATION=US BQT_LIVE_SHARD_PATTERN='ga_sessions_(\d{8})' BQT_LIVE_SHARD_KEEP=ga_sessions_20170801
 	if ds, pat := os.Getenv("BQT_LIVE_SHARD_DATASET"), os.Getenv("BQT_LIVE_SHARD_PATTERN"); ds != "" && pat != "" {
-		f := &bqtest.FamilyCase{Location: os.Getenv("BQT_LIVE_SHARD_LOCATION"), Dataset: ds, Patterns: []string{pat}}
+		f := &bqtest.FamilyCase{Project: os.Getenv("BQT_LIVE_SHARD_PROJECT"), Location: os.Getenv("BQT_LIVE_SHARD_LOCATION"), Dataset: ds, Patterns: []string{pat}}
 		if k := os.Getenv("BQT_LIVE_SHARD_KEEP"); k != "" {
 			f.Keep = strings.Split(k, ",")
 		}
