@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery/storage/apiv1/storagepb"
+	"github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -286,6 +287,72 @@ func TestSyncQueryReadSessionBudget(t *testing.T) {
 	}
 	if on, _ := r.c.reads.storage(); !on {
 		t.Fatal("an unreachable endpoint is remembered")
+	}
+}
+
+// The client retries CreateReadSession outside the interceptor and sleeps
+// between attempts, so the budget holds only if the interceptor never
+// returns an error the client retries: it retries within the budget itself,
+// waits included, whether the endpoint refuses at once or hangs.
+func TestSessionInterceptorKeepsRetriesInTheBudget(t *testing.T) {
+	const budget = 300 * time.Millisecond
+	for _, tc := range []struct {
+		name    string
+		attempt func(ctx context.Context) error
+	}{
+		{"unavailable", func(context.Context) error { return status.Error(codes.Unavailable, "unreachable") }},
+		{"hangs", func(ctx context.Context) error {
+			<-ctx.Done()
+			return status.FromContextError(ctx.Err()).Err()
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &sessionWatch{budget: budget}
+			ctx := watchSessions(context.Background(), w)
+			var calls atomic.Int32
+			invoker := func(ctx context.Context, _ string, _, _ any, _ *grpc.ClientConn, _ ...grpc.CallOption) error {
+				calls.Add(1)
+				return tc.attempt(ctx)
+			}
+			start := time.Now()
+			err := sessionInterceptor(ctx, createReadSessionMethod, nil, nil, nil, invoker)
+			took := time.Since(start)
+			if !errors.Is(err, errReadSessionBudget) {
+				t.Fatalf("got %v, want the budget error", err)
+			}
+			if _, again := gax.OnCodes(sessionRetryCodes, sessionBackoff()).Retry(err); again {
+				t.Fatalf("the client would retry %v and sleep past the budget", err)
+			}
+			if took > budget+100*time.Millisecond {
+				t.Fatalf("took %s with a %s budget", took, budget)
+			}
+			if tc.name == "unavailable" && calls.Load() < 2 {
+				t.Fatalf("%d attempts: Unavailable is retried within the budget", calls.Load())
+			}
+			if _, last := w.outcome(); !errors.Is(last, errReadSessionBudget) {
+				t.Fatalf("outcome %v", last)
+			}
+		})
+	}
+}
+
+// Errors the client does not retry, and a created session, come back at
+// once, as they are.
+func TestSessionInterceptorReturnsFinalResultsAtOnce(t *testing.T) {
+	for _, want := range []error{nil, noReadSessionPermission(), status.Error(codes.InvalidArgument, "bad table")} {
+		w := &sessionWatch{budget: time.Minute}
+		var calls int
+		invoker := func(context.Context, string, any, any, *grpc.ClientConn, ...grpc.CallOption) error {
+			calls++
+			return want
+		}
+		err := sessionInterceptor(watchSessions(context.Background(), w), createReadSessionMethod, nil, nil, nil, invoker)
+		if !errors.Is(err, want) || calls != 1 {
+			t.Fatalf("got %v after %d calls, want %v after 1", err, calls, want)
+		}
+		if attempted, last := w.outcome(); !attempted || !errors.Is(last, want) {
+			t.Fatalf("outcome (%v, %v)", attempted, last)
+		}
 	}
 }
 

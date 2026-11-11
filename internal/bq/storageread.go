@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/googleapis/gax-go/v2"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -26,8 +27,9 @@ import (
 const createReadSessionMethod = "/google.cloud.bigquery.storage.v1.BigQueryRead/CreateReadSession"
 
 // defaultReadSessionBudget bounds the time spent creating one read session,
-// retries included. The client retries an unreachable endpoint for up to ten
-// minutes; past the budget it gives up and the result is read through REST.
+// retries and the waits between them included. The client would retry an
+// unreachable endpoint for up to ten minutes; sessionInterceptor retries
+// within the budget instead, and past it the result is read through REST.
 const defaultReadSessionBudget = 20 * time.Second
 
 // Read paths named by the "information_schema query" debug log.
@@ -56,23 +58,21 @@ func watchSessions(ctx context.Context, w *sessionWatch) context.Context {
 }
 
 // outcome reports whether a read session was attempted and the error of the
-// last attempt (nil when it was created).
+// attempts (nil when the session was created).
 func (w *sessionWatch) outcome() (attempted bool, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.attempted, w.err
 }
 
-// begin starts an attempt and returns the time it may take, or false when the
-// budget is spent.
-func (w *sessionWatch) begin(now time.Time) (time.Duration, bool) {
+// deadline starts the budget on the first attempt and returns when it ends.
+func (w *sessionWatch) deadline(now time.Time) time.Time {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if !w.attempted {
 		w.attempted, w.start = true, now
 	}
-	left := w.budget - now.Sub(w.start)
-	return left, left > 0
+	return w.start.Add(w.budget)
 }
 
 func (w *sessionWatch) end(err error) {
@@ -83,24 +83,75 @@ func (w *sessionWatch) end(err error) {
 
 var errReadSessionBudget = errors.New("creating the read session took too long")
 
+// budgetSpent is the error for a read session given up on. It is not a gRPC
+// status, so the client does not retry it; the last error is kept as text
+// only, so its status does not leak through errors.As either.
+func budgetSpent(last error) error {
+	if last == nil {
+		return errReadSessionBudget
+	}
+	return fmt.Errorf("%w: %s", errReadSessionBudget, last.Error())
+}
+
+// sessionRetryCodes and sessionBackoff are the Go client's own retry
+// settings for CreateReadSession.
+var sessionRetryCodes = []codes.Code{codes.DeadlineExceeded, codes.Unavailable}
+
+func sessionBackoff() gax.Backoff {
+	return gax.Backoff{Initial: 100 * time.Millisecond, Max: 60 * time.Second, Multiplier: 1.30}
+}
+
 // sessionInterceptor watches CreateReadSession calls made under a context
-// that carries a sessionWatch, and leaves every other call alone.
+// that carries a sessionWatch, and leaves every other call alone. The client
+// retries the call outside any interceptor, sleeping between attempts on the
+// query's context, so the interceptor does the retrying itself: every
+// attempt and wait fits in the budget, and what it returns is either the
+// session or an error the client does not retry.
 func sessionInterceptor(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 	w, _ := ctx.Value(sessionWatchKey{}).(*sessionWatch)
 	if w == nil || method != createReadSessionMethod {
 		return invoker(ctx, method, req, reply, cc, opts...)
 	}
-	left, ok := w.begin(time.Now())
-	if !ok {
-		// Not a gRPC status, so the client does not retry it.
-		w.end(errReadSessionBudget)
-		return errReadSessionBudget
-	}
-	actx, cancel := context.WithTimeout(ctx, left)
-	defer cancel()
-	err := invoker(actx, method, req, reply, cc, opts...)
+	err := w.create(ctx, func(actx context.Context) error {
+		return invoker(actx, method, req, reply, cc, opts...)
+	})
 	w.end(err)
 	return err
+}
+
+// create runs attempt until it succeeds, fails for good or the budget is
+// spent.
+func (w *sessionWatch) create(ctx context.Context, attempt func(context.Context) error) error {
+	deadline := w.deadline(time.Now())
+	retry := gax.OnCodes(sessionRetryCodes, sessionBackoff())
+	var last error
+	for {
+		if !time.Now().Before(deadline) {
+			return budgetSpent(last)
+		}
+		actx, cancel := context.WithDeadline(ctx, deadline)
+		err := attempt(actx)
+		cancel()
+		if err == nil || ctx.Err() != nil {
+			return err
+		}
+		pause, again := retry.Retry(err)
+		if !again {
+			return err
+		}
+		last = err
+		// An attempt cut off by the budget ends here too.
+		if time.Until(deadline) <= pause {
+			return budgetSpent(last)
+		}
+		t := time.NewTimer(pause)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return ctx.Err()
+		case <-t.C:
+		}
+	}
 }
 
 // readSessionUnavailable reports whether a read-session error means the
