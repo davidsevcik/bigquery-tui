@@ -62,3 +62,22 @@ type Metadata interface {
 	// It is the last fallback; the tables have NamesOnly set and no columns.
 	ListTableNames(ctx context.Context, project, dataset string) ([]api.TableMeta, error)
 }
+
+type warnKey struct{}
+
+// WithWarnings returns ctx carrying fn, which a Metadata implementation calls
+// (through Warn) with a warning about the work done under ctx: something the
+// user should know that is not an error, such as a slower read path. The sync
+// run adds it to its warnings. fn may be called from several goroutines and
+// more than once with the same message. The Metadata port stays as it is: a
+// detail of one implementation does not widen it.
+func WithWarnings(ctx context.Context, fn func(msg string)) context.Context {
+	return context.WithValue(ctx, warnKey{}, fn)
+}
+
+// Warn passes msg to the function WithWarnings put in ctx, if any.
+func Warn(ctx context.Context, msg string) {
+	if fn, ok := ctx.Value(warnKey{}).(func(string)); ok && fn != nil {
+		fn(msg)
+	}
+}

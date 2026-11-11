@@ -342,6 +342,30 @@ func TestSyncFromTheUI(t *testing.T) {
 	r.contains("Sync problems", "acme-staging", "boom")
 }
 
+// A sync warning (such as the Storage Read API fallback) is listed with the
+// sync problems as a warning; a warning a unit already shows is not repeated.
+func TestSyncWarningsAreSyncProblems(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.send(syncDoneMsg{res: api.SyncResult{Warnings: []string{"sync reads results through REST paging"}}})
+	r.contains("1 sync problem(s) (gp)")
+	r.press("g", "p")
+	r.contains("Sync problems", "warning", "sync reads results through REST paging")
+	r.lacks("no sync problems")
+	r.press("esc")
+	r.send(syncDoneMsg{res: api.SyncResult{}})
+	r.press("g", "p")
+	r.contains("no sync problems")
+	r.press("esc")
+
+	r.fake.Projects["acme-staging"].Unreachable = []string{"projects/acme-staging/locations/asia-east9"}
+	r.press("R")
+	r.contains("sync finished")
+	r.press("g", "p")
+	if n := strings.Count(r.screen(), "could not enumerate"); n != 1 {
+		t.Fatalf("the incomplete listing is shown %d times:\n%s", n, r.screen())
+	}
+}
+
 type errFake string
 
 func (e errFake) Error() string { return string(e) }

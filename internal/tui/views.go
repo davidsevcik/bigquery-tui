@@ -149,10 +149,10 @@ func (m *Model) statusLine(w int) string {
 }
 
 func (m *Model) problemCount() int {
+	n := len(m.syncWarnings())
 	if m.status == nil {
-		return 0
+		return n
 	}
-	n := 0
 	for _, p := range m.status.Projects {
 		if !p.Selected {
 			continue // deselected: not refreshed, so its problems are not shown
@@ -164,6 +164,28 @@ func (m *Model) problemCount() int {
 		}
 	}
 	return n
+}
+
+// syncWarnings are the last sync's warnings that no unit shows already (an
+// incomplete dataset listing is both a warning and its project's unit error).
+func (m *Model) syncWarnings() []string {
+	shown := map[string]bool{}
+	if m.status != nil {
+		for _, p := range m.status.Projects {
+			for _, u := range p.Units {
+				if u.Error != "" {
+					shown[p.Project+": "+u.Error] = true
+				}
+			}
+		}
+	}
+	var out []string
+	for _, w := range m.syncWarns {
+		if !shown[w] {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 func (m *Model) footerLine(w int) string {
@@ -889,6 +911,13 @@ func (m *Model) problemLines(w int) []string {
 				out = append(out, "")
 			}
 		}
+	}
+	for _, wn := range m.syncWarnings() {
+		out = append(out, " "+sWarn.Render("⚠ ")+sBold.Render("warning")+sDim.Render("  from the last sync"))
+		for _, l := range wrap(wn, w-4) {
+			out = append(out, "    "+sWarn.Render(l))
+		}
+		out = append(out, "")
 	}
 	if len(out) == 0 {
 		out = append(out, " "+sOk.Render("no sync problems"))

@@ -146,6 +146,7 @@ type Model struct {
 	syncDone   int
 	syncTotal  int
 	syncLog    []string
+	syncWarns  []string // the warnings of the last finished sync (sync problems list)
 	syncNeeded bool
 	syncReason string
 	syncScope  []string        // the projects the running sync covers (nil: the Selected ones)
@@ -593,6 +594,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toast = "sync cancelled (finished units were kept)"
 		default:
 			m.toast = fmt.Sprintf("sync finished: %d ok, %d degraded, %d failed", msg.res.UnitsOK, msg.res.UnitsDegraded, msg.res.UnitsFailed)
+			m.syncWarns = msg.res.Warnings
 		}
 		m.reloadBrowse()
 		m.refreshProjects()

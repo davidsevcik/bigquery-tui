@@ -44,7 +44,7 @@ An optional live suite runs read-only against a real project:
 BQT_LIVE_EXECUTION_PROJECT=... BQT_LIVE_PROJECT=... go test -tags live ./internal/bq -run Live -v
 ```
 
-The live suite also runs a few queries that read no tables (`BQT_LIVE_LOCATION` sets their job location).
+The live suite also runs a few queries that read no tables (`BQT_LIVE_LOCATION` sets their job location). The Storage Read API checks (`-run TestLiveStorageRead`) compare both read paths of sync and, with `BQT_LIVE_NO_READ_SESSION_PROJECT` naming an Execution project without `bigquery.readsessions.create`, the fallback to REST paging (spec section 17 item 15).
 
 Scale measurements: `BQT_SCALE=500 go test ./internal/store -run Scale -v` (catalog apply) and `BQT_SCALE=1 go test ./internal/search -run LatencyReport -v` (search latency at 50k tables).
 
