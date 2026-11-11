@@ -24,9 +24,9 @@ func createdOn(day int, t api.TableMeta) api.TableMeta {
 	return t
 }
 
-func (h *harness) tables(project, dataset string) map[string]api.TableMeta {
+func (h *harness) tables(dataset string) map[string]api.TableMeta {
 	h.t.Helper()
-	ts, err := h.cat.Tables(ctx, project, dataset)
+	ts, err := h.cat.Tables(ctx, "p", dataset)
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -37,9 +37,9 @@ func (h *harness) tables(project, dataset string) map[string]api.TableMeta {
 	return out
 }
 
-func (h *harness) columns(project, dataset, table string) []string {
+func (h *harness) columns(dataset, table string) []string {
 	h.t.Helper()
-	cols, err := h.cat.Columns(ctx, project, dataset, table)
+	cols, err := h.cat.Columns(ctx, "p", dataset, table)
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -55,11 +55,11 @@ func TestSyncWithoutPatternsCollapsesNothing(t *testing.T) {
 	h.fake.AddProject("p").Datasets = []bqtest.Dataset{bqtest.DS("ev", "EU",
 		bqtest.Table("events_20240101", "c"), bqtest.Table("events_20240102", "c"))}
 	h.run(api.SyncScope{})
-	for name, tb := range h.tables("p", "ev") {
+	for name, tb := range h.tables("ev") {
 		if tb.Shard != nil || tb.SharedSchema {
 			t.Fatalf("%s: no pattern, no family: %+v", name, tb.Shard)
 		}
-		if got := h.columns("p", "ev", name); len(got) != 1 {
+		if got := h.columns("ev", name); len(got) != 1 {
 			t.Fatalf("%s keeps its columns: %v", name, got)
 		}
 	}
@@ -76,15 +76,15 @@ func TestSyncDatePatternAndANonDateSuffix(t *testing.T) {
 		bqtest.Table("events_20240101", "c"), bqtest.Table("events_20240102", "c", "d"),
 		bqtest.Table("codes_12345678", "x"), bqtest.Table("codes_20240101", "x"))}
 	h.run(api.SyncScope{})
-	ts := h.tables("p", "ev")
+	ts := h.tables("ev")
 	ev := ts["events_20240101"].Shard
 	if ev == nil || !ev.Date || ev.Name != "events_YYYYMMDD" || ev.First != "20240101" || ev.Last != "20240102" || ev.Count != 2 || ev.Newest != "events_20240102" {
 		t.Fatalf("date family: %+v", ev)
 	}
-	if got := h.columns("p", "ev", "events_20240102"); len(got) != 2 {
+	if got := h.columns("ev", "events_20240102"); len(got) != 2 {
 		t.Fatalf("the newest shard has its columns: %v", got)
 	}
-	if got := h.columns("p", "ev", "events_20240101"); len(got) != 0 || !ts["events_20240101"].SharedSchema {
+	if got := h.columns("ev", "events_20240101"); len(got) != 0 || !ts["events_20240101"].SharedSchema {
 		t.Fatalf("an older shard uses the family's schema: %v %+v", got, ts["events_20240101"])
 	}
 	// 12345678 is not a date: the family is a non-date one, newest by
@@ -108,7 +108,7 @@ func TestSyncHexFamiliesReadColumnsOnlyForTheNewestShard(t *testing.T) {
 		bqtest.Table("customers", "id"),
 	)}
 	h.run(api.SyncScope{})
-	ts := h.tables("p", "shop")
+	ts := h.tables("shop")
 	if _, ok := ts["orders_"+hexID("dead")]; ok {
 		t.Fatal("ignored tables never enter the catalog")
 	}
@@ -129,7 +129,7 @@ func TestSyncHexFamiliesReadColumnsOnlyForTheNewestShard(t *testing.T) {
 		"orders_" + hexID("a1"): 0, "orders_" + hexID("a3"): 0, "orders_" + hexID("a1") + "_history": 0,
 	}
 	for name, n := range want {
-		if got := h.columns("p", "shop", name); len(got) != n {
+		if got := h.columns("shop", name); len(got) != n {
 			t.Errorf("%s: %d columns, want %d", name, len(got), n)
 		}
 		if shared := ts[name].SharedSchema; shared != (n == 0) {
@@ -157,7 +157,7 @@ func TestSyncFallThroughToTheNextPattern(t *testing.T) {
 		createdOn(1, bqtest.Table("orders_"+hexID("ff"), "id")),
 	)}
 	h.run(api.SyncScope{})
-	f := h.tables("p", "shop")["orders_0123456789abcdef01234567"].Shard
+	f := h.tables("shop")["orders_0123456789abcdef01234567"].Shard
 	if f == nil || f.Name != "orders_*" || f.Date || f.Count != 2 || f.Newest != "orders_0123456789abcdef01234567" {
 		t.Fatalf("%+v", f)
 	}
@@ -175,10 +175,10 @@ func TestSyncSafetyNetRereadsMissingColumns(t *testing.T) {
 	)}
 	h.fake.MissColumns = map[string]bool{"p.shop.orders_" + hexID("a2"): true, "p.shop.customers": true}
 	res := h.run(api.SyncScope{})
-	if got := h.columns("p", "shop", "orders_"+hexID("a2")); len(got) != 2 {
+	if got := h.columns("shop", "orders_"+hexID("a2")); len(got) != 2 {
 		t.Fatalf("the newest shard's columns were read again: %v", got)
 	}
-	if got := h.columns("p", "shop", "customers"); len(got) != 1 {
+	if got := h.columns("shop", "customers"); len(got) != 1 {
 		t.Fatalf("a plain table's columns were read again: %v", got)
 	}
 	calls := h.fake.CallsTo("RegionColumns")
@@ -202,10 +202,10 @@ func TestSyncDatasetScopeFallbackFiltersColumnsToo(t *testing.T) {
 	}
 	h.fake.Fail(bqtest.Failure{Method: "RegionTables", Err: bqtest.PermissionError("region-eu")})
 	h.run(api.SyncScope{})
-	if got := h.columns("p", "shop", "orders_"+hexID("a2")); len(got) != 2 {
+	if got := h.columns("shop", "orders_"+hexID("a2")); len(got) != 2 {
 		t.Fatalf("%v", got)
 	}
-	if got := h.columns("p", "shop", "orders_"+hexID("a1")); len(got) != 0 {
+	if got := h.columns("shop", "orders_"+hexID("a1")); len(got) != 0 {
 		t.Fatalf("%v", got)
 	}
 	if slices.Contains(h.fake.ColumnReads(), "p.shop.orders_"+hexID("a1")) {
@@ -222,7 +222,7 @@ func TestSyncNamesOnlyFallbackAssignsFamilies(t *testing.T) {
 	p.Datasets = []bqtest.Dataset{bqtest.DS("ev", "EU", bqtest.Table("events_20240101", "c"), bqtest.Table("events_20240102", "c"))}
 	p.Datasets[0].Denied, p.Datasets[0].NamesOK = true, true
 	h.run(api.SyncScope{})
-	ts := h.tables("p", "ev")
+	ts := h.tables("ev")
 	if f := ts["events_20240101"].Shard; f == nil || f.Name != "events_YYYYMMDD" || !ts["events_20240101"].NamesOnly {
 		t.Fatalf("%+v", ts["events_20240101"])
 	}
@@ -238,7 +238,7 @@ func TestSyncTableKeepsAMembersOwnSchema(t *testing.T) {
 	)}
 	h.run(api.SyncScope{})
 	member := api.ObjectPath{Project: "p", Dataset: "shop", Table: "orders_" + hexID("a1")}
-	if got := h.columns("p", "shop", member.Table); len(got) != 0 {
+	if got := h.columns("shop", member.Table); len(got) != 0 {
 		t.Fatalf("%v", got)
 	}
 
@@ -247,10 +247,10 @@ func TestSyncTableKeepsAMembersOwnSchema(t *testing.T) {
 	if res.UnitsOK != 1 || res.UnitsTotal != 1 || len(h.fake.CallsTo("GetTableMeta")) != 1 {
 		t.Fatalf("%+v", res)
 	}
-	if got := h.columns("p", "shop", member.Table); strings.Join(got, ",") != "id,legacy_flag" {
+	if got := h.columns("shop", member.Table); strings.Join(got, ",") != "id,legacy_flag" {
 		t.Fatalf("the member's own schema: %v", got)
 	}
-	tb := h.tables("p", "shop")[member.Table]
+	tb := h.tables("shop")[member.Table]
 	if !tb.OwnSchema || tb.SharedSchema || tb.Shard == nil || tb.Shard.Name != "orders_*" {
 		t.Fatalf("%+v", tb)
 	}
@@ -262,7 +262,7 @@ func TestSyncTableKeepsAMembersOwnSchema(t *testing.T) {
 	if !slices.Contains(h.fake.ColumnReads()[before:], "p.shop."+member.Table) {
 		t.Fatal("the marked member is on the keep list")
 	}
-	if got := h.columns("p", "shop", member.Table); len(got) != 2 || !h.tables("p", "shop")[member.Table].OwnSchema {
+	if got := h.columns("shop", member.Table); len(got) != 2 || !h.tables("shop")[member.Table].OwnSchema {
 		t.Fatalf("the own schema survives a unit sync: %v", got)
 	}
 
@@ -270,7 +270,7 @@ func TestSyncTableKeepsAMembersOwnSchema(t *testing.T) {
 	for _, name := range []string{"orders_" + hexID("a2"), "customers"} {
 		p := api.ObjectPath{Project: "p", Dataset: "shop", Table: name}
 		h.run(api.SyncScope{Table: &p})
-		if h.tables("p", "shop")[name].OwnSchema {
+		if h.tables("shop")[name].OwnSchema {
 			t.Fatalf("%s is not marked", name)
 		}
 	}
@@ -307,7 +307,7 @@ func TestSyncTableRespectsTheLockScopeAndEvents(t *testing.T) {
 	p := api.ObjectPath{Project: "p", Dataset: "shop", Table: "customers"}
 	h.fake.Projects["p"].Datasets[0].Tables[0] = bqtest.Table("customers", "id", "email")
 	h.run(api.SyncScope{Table: &p})
-	if got := h.columns("p", "shop", "customers"); len(got) != 2 {
+	if got := h.columns("shop", "customers"); len(got) != 2 {
 		t.Fatalf("%v", got)
 	}
 	var kinds []api.SyncEventKind
@@ -353,7 +353,7 @@ func TestUpgradeFromTheBuiltInDateRule(t *testing.T) {
 	if pending, reason, _ := PendingConfigChange(ctx, h.cat, h.cfg); pending {
 		t.Fatalf("the full sync clears it: %q", reason)
 	}
-	if h.tables("p", "ev")["events_20240101"].Shard != nil {
+	if h.tables("ev")["events_20240101"].Shard != nil {
 		t.Fatal("without patterns the date tables are plain")
 	}
 

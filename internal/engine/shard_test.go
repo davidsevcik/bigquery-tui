@@ -65,7 +65,9 @@ func TestSyncTableScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.Wait()
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
 	calls := e.fake.CallsTo("GetTableMeta")
 	if len(calls) != 2 || calls[1].Table != "orders_"+hexB {
 		t.Fatalf("%+v", calls)

@@ -301,11 +301,6 @@ func (f *Fake) ListTableNames(ctx context.Context, project, dataset string) ([]a
 	return nil, &bq.Error{Kind: bq.KindNotFound, Op: "fake", Err: fmt.Errorf("dataset %s.%s not found", project, dataset)}
 }
 
-func cloneTable(t api.TableMeta) api.TableMeta {
-	t.Columns = append([]api.ColumnMeta(nil), t.Columns...)
-	return t
-}
-
 // Table builds a fake table with simple top-level STRING columns.
 func Table(name string, cols ...string) api.TableMeta {
 	t := api.TableMeta{Name: name, Type: api.TypeTable, CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)}

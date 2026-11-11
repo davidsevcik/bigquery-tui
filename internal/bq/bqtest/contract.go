@@ -211,99 +211,7 @@ func RunMetadataContract(t *testing.T, md bq.Metadata, o ContractOptions) {
 		if len(names) > o.MaxDatasets {
 			names = names[:o.MaxDatasets]
 		}
-		t.Run("region/"+loc, func(t *testing.T) {
-			req := bq.RegionRequest{Project: o.Project, Location: loc, Datasets: names}
-			snap, err := md.RegionTables(ctx, req)
-			if err != nil {
-				if bq.KindOf(err) == bq.KindPermission {
-					t.Skipf("no region-scope access: %v", err)
-				}
-				t.Fatalf("RegionTables: %v", err)
-			}
-			for _, tb := range snap.Tables {
-				if len(tb.Columns) > 0 {
-					t.Fatalf("phase 1 returns no columns: %s.%s has %d", tb.Dataset, tb.Name, len(tb.Columns))
-				}
-			}
-			cols, err := md.RegionColumns(ctx, req, bq.ColumnFilter{})
-			if err != nil {
-				t.Fatalf("RegionColumns: %v", err)
-			}
-			snap = withColumns(t, snap, cols)
-			checkSnapshot(t, snap, names, o.Project)
-
-			if len(snap.Tables) == 0 {
-				return
-			}
-			// dataset-scope and tables.list must agree with the region view.
-			sampled := 0
-			for _, d := range names {
-				if sampled >= o.FallbackSamples {
-					break
-				}
-				region := tablesOf(snap, d)
-				if len(region) == 0 {
-					continue
-				}
-				sampled++
-				dreq := bq.DatasetRequest{Project: o.Project, Location: loc, Dataset: d}
-				ds, err := md.DatasetTables(ctx, dreq)
-				if err != nil {
-					t.Fatalf("DatasetTables(%s): %v", d, err)
-				}
-				dcols, err := md.DatasetColumns(ctx, dreq, bq.ColumnFilter{})
-				if err != nil {
-					t.Fatalf("DatasetColumns(%s): %v", d, err)
-				}
-				ds = withColumns(t, ds, dcols)
-				checkSnapshot(t, ds, []string{d}, o.Project)
-				if got, want := tableNames(tablesOf(ds, d)), tableNames(region); strings.Join(got, ",") != strings.Join(want, ",") {
-					t.Fatalf("dataset %s: dataset-scope tables differ from region tables\n got %v\nwant %v", d, got, want)
-				}
-				if got, want := columnCount(tablesOf(ds, d)), columnCount(region); got != want {
-					t.Fatalf("dataset %s: dataset-scope has %d columns, region has %d", d, got, want)
-				}
-				// datasets.get stands in for SCHEMATA_OPTIONS in the fallback.
-				meta, err := md.GetDataset(ctx, o.Project, d)
-				if err != nil {
-					t.Fatalf("GetDataset(%s): %v", d, err)
-				}
-				for _, rd := range snap.Datasets {
-					if rd.Name == d && (meta.Description != rd.Description || meta.FriendlyName != rd.FriendlyName || len(meta.Labels) != len(rd.Labels)) {
-						t.Fatalf("dataset %s: datasets.get differs from the region view\n got %+v\nwant %+v", d, meta, rd)
-					}
-				}
-				names2, err := md.ListTableNames(ctx, o.Project, d)
-				if err != nil {
-					t.Fatalf("ListTableNames(%s): %v", d, err)
-				}
-				for _, tb := range names2 {
-					if !tb.NamesOnly || len(tb.Columns) != 0 {
-						t.Fatalf("ListTableNames must return names only: %+v", tb)
-					}
-				}
-				if got, want := tableNames(names2), tableNames(region); strings.Join(got, ",") != strings.Join(want, ",") {
-					t.Fatalf("dataset %s: tables.list names differ from region tables\n got %v\nwant %v", d, got, want)
-				}
-				// tables.get (gs) reads the same field paths as the views.
-				for _, tb := range region {
-					if len(tb.Columns) == 0 {
-						continue
-					}
-					got, err := md.GetTableMeta(ctx, o.Project, d, tb.Name)
-					if err != nil {
-						t.Fatalf("GetTableMeta(%s.%s): %v", d, tb.Name, err)
-					}
-					if got.Name != tb.Name || got.Type != tb.Type {
-						t.Fatalf("GetTableMeta(%s.%s) = %s %s, want %s %s", d, tb.Name, got.Name, got.Type, tb.Name, tb.Type)
-					}
-					if g, w := fieldPaths(got.Columns), fieldPaths(tb.Columns); g != w {
-						t.Fatalf("GetTableMeta(%s.%s) field paths differ from the views\n got %s\nwant %s", d, tb.Name, g, w)
-					}
-					break
-				}
-			}
-		})
+		t.Run("region/"+loc, func(t *testing.T) { runRegion(t, md, o, loc, names) })
 	}
 
 	if f := o.Family; f != nil {
@@ -431,4 +339,110 @@ func columnCount(ts []api.TableMeta) int {
 		n += len(t.Columns)
 	}
 	return n
+}
+
+// runRegion checks one location: both phases at region scope, and that the
+// fallbacks agree with them.
+func runRegion(t *testing.T, md bq.Metadata, o ContractOptions, loc string, names []string) {
+	t.Helper()
+	ctx := context.Background()
+	req := bq.RegionRequest{Project: o.Project, Location: loc, Datasets: names}
+	snap, err := md.RegionTables(ctx, req)
+	if err != nil {
+		if bq.KindOf(err) == bq.KindPermission {
+			t.Skipf("no region-scope access: %v", err)
+		}
+		t.Fatalf("RegionTables: %v", err)
+	}
+	for _, tb := range snap.Tables {
+		if len(tb.Columns) > 0 {
+			t.Fatalf("phase 1 returns no columns: %s.%s has %d", tb.Dataset, tb.Name, len(tb.Columns))
+		}
+	}
+	cols, err := md.RegionColumns(ctx, req, bq.ColumnFilter{})
+	if err != nil {
+		t.Fatalf("RegionColumns: %v", err)
+	}
+	snap = withColumns(t, snap, cols)
+	checkSnapshot(t, snap, names, o.Project)
+
+	if len(snap.Tables) == 0 {
+		return
+	}
+	// dataset-scope and tables.list must agree with the region view.
+	sampled := 0
+	for _, d := range names {
+		if sampled >= o.FallbackSamples {
+			break
+		}
+		region := tablesOf(snap, d)
+		if len(region) == 0 {
+			continue
+		}
+		sampled++
+		checkFallbacks(t, md, o, loc, d, snap, region)
+	}
+}
+
+// checkFallbacks checks that dataset scope, datasets.get, tables.list and
+// tables.get agree with the region views for dataset d.
+func checkFallbacks(t *testing.T, md bq.Metadata, o ContractOptions, loc, d string, snap *api.Snapshot, region []api.TableMeta) {
+	t.Helper()
+	ctx := context.Background()
+	dreq := bq.DatasetRequest{Project: o.Project, Location: loc, Dataset: d}
+	ds, err := md.DatasetTables(ctx, dreq)
+	if err != nil {
+		t.Fatalf("DatasetTables(%s): %v", d, err)
+	}
+	dcols, err := md.DatasetColumns(ctx, dreq, bq.ColumnFilter{})
+	if err != nil {
+		t.Fatalf("DatasetColumns(%s): %v", d, err)
+	}
+	ds = withColumns(t, ds, dcols)
+	checkSnapshot(t, ds, []string{d}, o.Project)
+	if got, want := tableNames(tablesOf(ds, d)), tableNames(region); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("dataset %s: dataset-scope tables differ from region tables\n got %v\nwant %v", d, got, want)
+	}
+	if got, want := columnCount(tablesOf(ds, d)), columnCount(region); got != want {
+		t.Fatalf("dataset %s: dataset-scope has %d columns, region has %d", d, got, want)
+	}
+	// datasets.get stands in for SCHEMATA_OPTIONS in the fallback.
+	meta, err := md.GetDataset(ctx, o.Project, d)
+	if err != nil {
+		t.Fatalf("GetDataset(%s): %v", d, err)
+	}
+	for _, rd := range snap.Datasets {
+		if rd.Name == d && (meta.Description != rd.Description || meta.FriendlyName != rd.FriendlyName || len(meta.Labels) != len(rd.Labels)) {
+			t.Fatalf("dataset %s: datasets.get differs from the region view\n got %+v\nwant %+v", d, meta, rd)
+		}
+	}
+	names2, err := md.ListTableNames(ctx, o.Project, d)
+	if err != nil {
+		t.Fatalf("ListTableNames(%s): %v", d, err)
+	}
+	for _, tb := range names2 {
+		if !tb.NamesOnly || len(tb.Columns) != 0 {
+			t.Fatalf("ListTableNames must return names only: %+v", tb)
+		}
+	}
+	if got, want := tableNames(names2), tableNames(region); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("dataset %s: tables.list names differ from region tables\n got %v\nwant %v", d, got, want)
+	}
+	// tables.get (gs) reads the same field paths as the views.
+	for _, tb := range region {
+		if len(tb.Columns) == 0 {
+			continue
+		}
+		got, err := md.GetTableMeta(ctx, o.Project, d, tb.Name)
+		if err != nil {
+			t.Fatalf("GetTableMeta(%s.%s): %v", d, tb.Name, err)
+		}
+		if got.Name != tb.Name || got.Type != tb.Type {
+			t.Fatalf("GetTableMeta(%s.%s) = %s %s, want %s %s", d, tb.Name, got.Name, got.Type, tb.Name, tb.Type)
+		}
+		if g, w := fieldPaths(got.Columns), fieldPaths(tb.Columns); g != w {
+			t.Fatalf("GetTableMeta(%s.%s) field paths differ from the views\n got %s\nwant %s", d, tb.Name, g, w)
+		}
+		break
+	}
 }

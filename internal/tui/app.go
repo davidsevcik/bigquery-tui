@@ -467,6 +467,32 @@ func waitSync(run SyncRun) tea.Cmd {
 	}
 }
 
+// onSyncDone reports a finished sync and refreshes what it changed.
+func (m *Model) onSyncDone(msg syncDoneMsg) tea.Cmd {
+	m.syncing, m.syncRun = false, nil
+	table := m.syncTable
+	m.syncTable = nil
+	switch {
+	case table != nil && msg.err == nil && !msg.res.Cancelled:
+		m.details, m.lastSel = map[string]*detailData{}, "" // the Schema pane reads the new schema
+		m.toast = "synced the schema of " + table.String()
+		if msg.res.UnitsFailed > 0 && len(msg.res.Units) > 0 {
+			m.toast = "could not sync " + table.String() + ": " + msg.res.Units[0].Error
+		}
+	case msg.err != nil:
+		m.toast = "sync failed: " + msg.err.Error()
+	case msg.res.Cancelled:
+		m.toast = "sync cancelled (finished units were kept)"
+	default:
+		m.toast = fmt.Sprintf("sync finished: %d ok, %d degraded, %d failed", msg.res.UnitsOK, msg.res.UnitsDegraded, msg.res.UnitsFailed)
+	}
+	m.reloadBrowse()
+	m.refreshProjects()
+	// The config may have changed while the sync held the lock (the
+	// reconcile was skipped then), so apply it now. It is a no-op otherwise.
+	return tea.Batch(m.reconcileCmd(false), m.rerunSearches(), m.afterSelect(), m.afterSync())
+}
+
 // Update handles one message.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	mod, cmd := m.update(msg)
@@ -590,28 +616,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, waitSync(m.syncRun)
 	case syncDoneMsg:
-		m.syncing, m.syncRun = false, nil
-		table := m.syncTable
-		m.syncTable = nil
-		switch {
-		case table != nil && msg.err == nil && !msg.res.Cancelled:
-			m.details, m.lastSel = map[string]*detailData{}, "" // the Schema pane reads the new schema
-			m.toast = "synced the schema of " + table.String()
-			if msg.res.UnitsFailed > 0 && len(msg.res.Units) > 0 {
-				m.toast = "could not sync " + table.String() + ": " + msg.res.Units[0].Error
-			}
-		case msg.err != nil:
-			m.toast = "sync failed: " + msg.err.Error()
-		case msg.res.Cancelled:
-			m.toast = "sync cancelled (finished units were kept)"
-		default:
-			m.toast = fmt.Sprintf("sync finished: %d ok, %d degraded, %d failed", msg.res.UnitsOK, msg.res.UnitsDegraded, msg.res.UnitsFailed)
-		}
-		m.reloadBrowse()
-		m.refreshProjects()
-		// The config may have changed while the sync held the lock (the
-		// reconcile was skipped then), so apply it now. It is a no-op otherwise.
-		return m, tea.Batch(m.reconcileCmd(false), m.rerunSearches(), m.afterSelect(), m.afterSync())
+		return m, m.onSyncDone(msg)
 	case catalogWait:
 		m.reloadBrowse()
 		m.refreshProjects()
