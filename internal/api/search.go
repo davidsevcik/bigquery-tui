@@ -207,6 +207,11 @@ type TableDetail struct {
 	Error     string       `json:"error,omitempty"`
 	NamesOnly bool         `json:"names_only,omitempty"`
 	Shard     *ShardFamily `json:"shard_family,omitempty"`
+	// SchemaFrom names the shard whose columns Table carries when they are
+	// the family's schema: on a family, and on a member without columns of
+	// its own (its family's newest shard). Empty when the columns are the
+	// table's own.
+	SchemaFrom string `json:"schema_from,omitempty"`
 }
 
 // TableStats are the live size figures fetched on demand (not in the catalog).

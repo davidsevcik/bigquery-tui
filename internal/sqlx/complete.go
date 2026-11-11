@@ -11,6 +11,11 @@ import (
 type TableName struct {
 	Name string
 	Type api.TableType
+	// Members is set on a shard family's wildcard (Name is prefix*): its
+	// members' names, read only once the typed text reaches past Prefix
+	// into the varying part, so a large family does not flood the popup.
+	Members func() []string
+	Prefix  string
 }
 
 // Catalog is the slice of the metadata index completion needs. Every lookup
@@ -738,15 +743,27 @@ func eqFold(list []string, s string) (string, bool) {
 // path completes a project.dataset.table path segment by segment.
 func (c *completer) path(segs []string, withCTEs bool) []ranked {
 	var out []ranked
+	table := func(project, dataset, name, detail string) {
+		cand := api.Candidate{Label: name, Kind: api.CandTable, Detail: detail}
+		if !c.quoted && !plainIdent(name) {
+			// the name needs backticks: replace the whole path
+			cand.Insert = "`" + project + "." + dataset + "." + name + "`"
+			cand.Start, cand.End = c.chainStart, c.pEnd
+		}
+		c.add(&out, 2, cand)
+	}
 	tables := func(project, dataset string) {
+		typed := strings.ToLower(c.partial)
 		for _, t := range c.cat.Tables(project, dataset) {
-			cand := api.Candidate{Label: t.Name, Kind: api.CandTable, Detail: string(t.Type)}
-			if !c.quoted && !plainIdent(t.Name) {
-				// the name needs backticks: replace the whole path
-				cand.Insert = "`" + project + "." + dataset + "." + t.Name + "`"
-				cand.Start, cand.End = c.chainStart, c.pEnd
+			table(project, dataset, t.Name, string(t.Type))
+			if t.Members == nil || len(typed) <= len(t.Prefix) || !strings.HasPrefix(typed, strings.ToLower(t.Prefix)) {
+				continue
 			}
-			c.add(&out, 2, cand)
+			for _, m := range t.Members() {
+				if strings.HasPrefix(strings.ToLower(m), typed) {
+					table(project, dataset, m, string(t.Type))
+				}
+			}
 		}
 	}
 	switch len(segs) {

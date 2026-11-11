@@ -461,7 +461,7 @@ func TestAFailedRefreshOfACachedProjectShowsAsFailed(t *testing.T) {
 	fullSync(t, eng)
 	synced := e.now
 	e.now = e.now.Add(25 * time.Hour)
-	e.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Location: "EU", Err: bqtest.TransientError("backend")})
+	e.fake.Fail(bqtest.Failure{Method: "RegionTables", Location: "EU", Err: bqtest.TransientError("backend")})
 	fullSync(t, eng)
 	infos, err := eng.ProjectInfos(ctx, nil)
 	if err != nil {

@@ -89,8 +89,10 @@ func printSearch(w io.Writer, r api.SearchResponse, next string) {
 			kind = fmt.Sprintf("%s ×%d", x.Type, x.Shard.Count)
 		}
 		line := fmt.Sprintf("%-10s %s", kind, x.Path)
-		if x.Kind == api.KindShards {
+		if x.Kind == api.KindShards && x.Shard.Date {
 			line += fmt.Sprintf("  (%s → %s)", x.Shard.First, x.Shard.Last)
+		} else if x.Kind == api.KindShards {
+			line += "  (newest " + x.Shard.Newest + ")"
 		}
 		if x.Tier != "" {
 			line += "  [" + x.MatchedField + "·" + x.Tier + "]"

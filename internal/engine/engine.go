@@ -131,6 +131,12 @@ func Open(ctx context.Context, o Options) (*Engine, error) {
 	}
 	e.catalog = cat
 	e.notice = cat.Recreated()
+	if e.notice == "" {
+		// once, after upgrading from the built-in date rule
+		if _, reason, err := catsync.PendingConfigChange(ctx, cat, e.Config()); err == nil && reason == catsync.ReasonDateRuleGone {
+			e.notice = reason
+		}
+	}
 	if err := e.ReloadIndex(ctx); err != nil {
 		return nil, err
 	}
@@ -500,11 +506,22 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 	}
 	cfg := e.Config()
 	selected := e.selected()
-	if len(scope.Projects) == 0 && len(selected) == 0 {
-		return nil, catsync.ErrNoProjects
-	}
-	if err := e.checkScope(ctx, scope, selected); err != nil {
-		return nil, err
+	if scope.Table != nil {
+		// one table (gs, bqt sync --table): a family's path syncs its newest
+		// shard, and the catalog must already hold the table
+		ref, ok := e.search.Lookup(*scope.Table)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s (check the name with search, or sync)", ErrUnknownTable, scope.Table)
+		}
+		p := ref.Path
+		scope = api.SyncScope{Table: &p}
+	} else {
+		if len(scope.Projects) == 0 && len(selected) == 0 {
+			return nil, catsync.ErrNoProjects
+		}
+		if err := e.checkScope(ctx, scope, selected); err != nil {
+			return nil, err
+		}
 	}
 	if e.execProject() == "" {
 		return nil, ErrNoExecution

@@ -101,11 +101,13 @@ type TableSchema struct {
 	Location    string            `json:"location,omitempty"`
 	Description string            `json:"description,omitempty"`
 	Labels      map[string]string `json:"labels,omitempty"`
-	// Shard is set for a date-sharded family; the schema is its newest
-	// member's.
-	Shard   *ShardFamily   `json:"shard_family,omitempty"`
-	ViewSQL string         `json:"view_sql,omitempty"`
-	Columns []SchemaColumn `json:"columns"`
+	// Shard is set for a shard family and its members.
+	Shard *ShardFamily `json:"shard_family,omitempty"`
+	// SchemaFrom names the shard the columns come from when they are the
+	// family's schema (its newest shard's), not the table's own.
+	SchemaFrom string         `json:"schema_from,omitempty"`
+	ViewSQL    string         `json:"view_sql,omitempty"`
+	Columns    []SchemaColumn `json:"columns"`
 	// NamesOnly means sync could read the table's name but not its columns.
 	NamesOnly bool       `json:"names_only,omitempty"`
 	SyncedAt  *time.Time `json:"synced_at,omitempty"`
@@ -120,8 +122,9 @@ type TableSchema struct {
 // CatalogHit is one catalog search result.
 type CatalogHit struct {
 	Path string `json:"path"`
-	// Kind is project, dataset, table or shard_family (date-sharded tables:
-	// Path is then the wildcard table prefix*, which queries every shard).
+	// Kind is project, dataset, table or shard_family (Path then names the
+	// family: orders_*, orders_*_history; a date family without a suffix
+	// keeps its wildcard events_*).
 	Kind        ResultKind `json:"kind"`
 	Type        TableType  `json:"type,omitempty"`
 	Description string     `json:"description,omitempty"`
@@ -137,9 +140,13 @@ type CatalogHit struct {
 
 // ShardInfo summarises a shard family in a search hit.
 type ShardInfo struct {
-	First string `json:"first"`
-	Last  string `json:"last"`
-	Count int    `json:"count"`
+	// Wildcard is the table to query every shard through (prefix*), with
+	// _TABLE_SUFFIX choosing shards; Newest is the shard the schema is from.
+	Wildcard string `json:"wildcard"`
+	Newest   string `json:"newest"`
+	First    string `json:"first,omitempty"`
+	Last     string `json:"last,omitempty"`
+	Count    int    `json:"count"`
 }
 
 // CatalogHits is a page of catalog search results.

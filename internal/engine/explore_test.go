@@ -84,7 +84,7 @@ func TestSearchAndBrowseAfterSync(t *testing.T) {
 	if len(ts) != 3 || ts[0].Kind != api.KindShards || ts[0].Children != 2 {
 		t.Fatalf("shards collapse in browse: %+v", ts)
 	}
-	if m := e2.ShardMembers("proj-a", "sales", "events_"); len(m) != 2 {
+	if m := e2.ShardMembers("proj-a", "sales", "events_YYYYMMDD"); len(m) != 2 {
 		t.Fatalf("%+v", m)
 	}
 }
@@ -92,7 +92,7 @@ func TestSearchAndBrowseAfterSync(t *testing.T) {
 func TestSearchDatasetDescriptionWithoutRegionViews(t *testing.T) {
 	e := newEnv(t, "proj-a")
 	e.fake.Projects["proj-a"].Datasets[0].Meta.Description = "granted to bqt-restricted"
-	e.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Err: bqtest.PermissionError("region views")})
+	e.fake.Fail(bqtest.Failure{Method: "RegionTables", Err: bqtest.PermissionError("region views")})
 	eng := e.open(false)
 	h, err := eng.StartSync(ctx, api.SyncScope{})
 	if err != nil {
@@ -318,7 +318,7 @@ func TestReconcilePrunesWithoutBigQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := len(e.fake.Calls)
-	eng.SetConfig(e.config(`ignore = ["proj-a.us_data"]`))
+	eng.SetConfig(e.config(shardDates + `ignore = ["proj-a.us_data"]`))
 	rec, skipped, err := eng.Reconcile(ctx)
 	// only the ignore pattern prunes: the deselected project keeps its cache
 	if err != nil || skipped || !rec.Changed || rec.Pruned.Projects != 0 || rec.Pruned.Datasets != 1 {
@@ -379,7 +379,7 @@ func TestSetConfigChangesTTL(t *testing.T) {
 	if eng.Projects()[0].Stale {
 		t.Fatal("fresh at a 24h TTL")
 	}
-	eng.SetConfig(e.config(`sync_ttl = "1h"`))
+	eng.SetConfig(e.config(shardDates + `sync_ttl = "1h"`))
 	if !eng.Projects()[0].Stale {
 		t.Fatal("stale once the TTL drops to 1h")
 	}

@@ -55,19 +55,19 @@ type Config struct {
 	Location              string
 	Ignore                []string
 	// ShardPatterns are the configured shard patterns (RE2), in order.
-	ShardPatterns         []string
-	DataDir               string
-	FavoritesDir          string
-	ExportDir             string // empty: the working directory
-	SyncTTL               time.Duration
-	ConfirmBytes          ByteLimit
-	MaxBytesBilled        ByteLimit
-	MaxConcurrentQueries  int
-	HistoryRetentionDays  int
-	AgentMaxBytes         int64
-	AgentTimeout          time.Duration
-	CLIAllowWrites        bool
-	TUI                   map[string]any
+	ShardPatterns        []string
+	DataDir              string
+	FavoritesDir         string
+	ExportDir            string // empty: the working directory
+	SyncTTL              time.Duration
+	ConfirmBytes         ByteLimit
+	MaxBytesBilled       ByteLimit
+	MaxConcurrentQueries int
+	HistoryRetentionDays int
+	AgentMaxBytes        int64
+	AgentTimeout         time.Duration
+	CLIAllowWrites       bool
+	TUI                  map[string]any
 
 	// Path is the file the configuration was read from.
 	Path string

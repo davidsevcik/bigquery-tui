@@ -100,8 +100,15 @@ func TestCompleteUsesTheCatalog(t *testing.T) {
 		}
 		return strings.Join(out, ",")
 	}
-	if got := labels("select * from `proj-a.sales.|"); got != "events_*,orders,v_orders" {
-		t.Fatalf("tables, with the shard family as a wildcard: %s", got)
+	if got := labels("select * from `proj-a.sales.|"); got != "events_*,events_20240102,orders,v_orders" {
+		t.Fatalf("tables, with the shard family as its wildcard and newest shard: %s", got)
+	}
+	// members only once the typed text reaches into the varying part
+	if got := labels("select * from `proj-a.sales.events|"); got != "events_*,events_20240102" {
+		t.Fatalf("before the varying part: %s", got)
+	}
+	if got := labels("select * from `proj-a.sales.events_2|"); got != "events_20240101,events_20240102" {
+		t.Fatalf("into the varying part: %s", got)
 	}
 	if got := labels("select o.| from `proj-a.sales.orders` o"); !strings.Contains(got, "amount") {
 		t.Fatalf("columns come from the catalog: %s", got)

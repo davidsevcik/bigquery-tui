@@ -44,7 +44,9 @@ func newLogger(env Env, g *globals, cfg *config.Config) (func(), *engineLog, err
 func cmdSync(ctx context.Context, o *out, g *globals, args []string) (int, error) {
 	var projects stringList
 	var progress bool
+	var table string
 	fs := commandFlags("sync", g)
+	fs.StringVar(&table, "table", "", "sync only this table's row and schema (project.dataset.table; a shard family syncs its newest shard), as gs does in the TUI")
 	fs.Var(&projects, "project", "sync only this project: a selected one, or a deselected one to refresh its cache (repeatable)")
 	fs.BoolVar(&progress, "progress", false, "stream progress to stderr (default on a terminal)")
 	if err := parseNoArgs(fs, args); err != nil {
@@ -72,7 +74,18 @@ func cmdSync(ctx context.Context, o *out, g *globals, args []string) (int, error
 		fmt.Fprintln(env.Stderr, "note: "+n)
 	}
 
-	h, err := eng.StartSync(ctx, api.SyncScope{Projects: projects})
+	scope := api.SyncScope{Projects: projects}
+	if table != "" {
+		if len(projects) > 0 {
+			return 0, usageErr("--table and --project cannot be combined")
+		}
+		p, ok := eng.ParsePath(table)
+		if !ok {
+			return 0, usageErr("--table %q is not a table path (want project.dataset.table)", table)
+		}
+		scope.Table = &p
+	}
+	h, err := eng.StartSync(ctx, scope)
 	if err != nil {
 		return 0, err
 	}
