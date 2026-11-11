@@ -347,19 +347,26 @@ func (s *Searcher) rank(ctx context.Context, x *Index, c *compiled, o api.Search
 		out = x.collapseShards(out)
 	}
 
-	if !o.TablesOnly && len(terms) > 0 && onlyScopeFilters(c.filters) {
+	// Projects and datasets match by name. Where only tables would be
+	// listed (jump-to-table, an empty query), a pending dataset still is: it
+	// has no tables yet to stand for it.
+	if onlyScopeFilters(c.filters) {
+		named := !o.TablesOnly && len(terms) > 0
 		for pi := range x.projects {
 			p := &x.projects[pi]
 			if !sc.project(p.name) {
 				continue
 			}
-			if len(c.filters) == 0 && (o.Scope == nil || o.Scope.Project == "") {
+			if named && len(c.filters) == 0 && (o.Scope == nil || o.Scope.Project == "") {
 				if m, sm, ok := scoreNames(p.lname, "", terms); ok {
 					out = append(out, hit{kind: api.KindProject, i: pi, max: m, sum: sm, name: p.name, path: p.name})
 				}
 			}
 			for _, di := range p.datasets {
 				d := &x.datasets[di]
+				if !named && d.status != api.DatasetPending {
+					continue
+				}
 				if o.Scope != nil && o.Scope.Dataset != "" && o.Scope.Dataset != d.name {
 					continue
 				}
@@ -621,6 +628,14 @@ func (x *Index) collapseShards(hits []hit) []hit {
 	return out
 }
 
+// datasetFreshness is freshness for a dataset: a pending one was never synced.
+func (s *Searcher) datasetFreshness(x *Index, project string, d *dsEntry) (*time.Time, bool) {
+	if d.status == api.DatasetPending {
+		return nil, true
+	}
+	return s.freshness(x, project, d.location)
+}
+
 func (s *Searcher) freshness(x *Index, project, location string) (*time.Time, bool) {
 	u, ok := x.units[api.UnitRef{Project: project, Location: location}]
 	if !ok || u.LastSuccess == nil {
@@ -676,12 +691,15 @@ func (s *Searcher) materialize(ctx context.Context, x *Index, c *compiled, h hit
 		setSpans(r.Spans, "name", d.name, d.lname, mergeSpans(append(termSpans(d.lname, terms, false), subSpans(d.lname, c.filterValues("d"))...)))
 		setSpans(r.Spans, "project", p.name, p.lname, subSpans(p.lname, c.filterValues("p")))
 		setSpans(r.Spans, "description", d.desc, d.ldesc, subSpans(d.ldesc, terms))
-		r.MatchedField, r.Tier = "name", tierName(h.max)
-		if h.max >= descScore {
-			r.MatchedField = "description"
+		if len(terms) > 0 { // a pending dataset is listed without a term too
+			r.MatchedField, r.Tier = "name", tierName(h.max)
+			if h.max >= descScore {
+				r.MatchedField = "description"
+			}
 		}
 		r.NamesOnly = d.status == api.DatasetNamesOnly
-		r.SyncedAt, r.Stale = s.freshness(x, p.name, d.location)
+		r.Pending = d.status == api.DatasetPending
+		r.SyncedAt, r.Stale = s.datasetFreshness(x, p.name, d)
 		return r, nil
 	}
 

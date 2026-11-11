@@ -197,7 +197,11 @@ func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.Syn
 	r.mu.Lock()
 	r.total = len(jobs) + len(failed)
 	r.mu.Unlock()
-	r.event(api.SyncEvent{Kind: api.EventDiscovered, Message: fmt.Sprintf("%d unit(s)", len(jobs))})
+	refs := make([]api.UnitRef, len(jobs))
+	for i, j := range jobs {
+		refs[i] = j.ref
+	}
+	r.event(api.SyncEvent{Kind: api.EventDiscovered, Message: fmt.Sprintf("%d unit(s)", len(jobs)), Units: refs})
 	for _, st := range failed {
 		r.finishUnit(st, api.EventUnitFailed)
 	}
@@ -303,11 +307,19 @@ func (s *Syncer) discover(ctx context.Context, project string, r *run) discovery
 	}
 
 	byLoc := map[string][]api.DatasetMeta{}
+	var listed []api.DatasetMeta
 	for _, ds := range list.Datasets {
 		if s.o.Config.Matcher().Ignored(project, ds.Name, "") {
 			continue
 		}
 		byLoc[ds.Location] = append(byLoc[ds.Location], ds)
+		listed = append(listed, ds)
+	}
+	// The listed datasets show at once, as pending until their unit commits
+	// (a large unit can take many minutes). An incomplete listing removes
+	// nothing, like the vanished-location check below.
+	if _, _, err := s.o.Catalog.RecordListing(ctx, project, listed, len(list.Unreachable) == 0); err != nil && ctx.Err() == nil {
+		s.o.Log.Error("record dataset listing", "project", project, "err", err)
 	}
 	locs := make([]string, 0, len(byLoc))
 	for l := range byLoc {

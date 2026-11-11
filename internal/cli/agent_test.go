@@ -264,3 +264,33 @@ func TestFormatFlagReadsLikeTheParser(t *testing.T) {
 		t.Fatalf("%d %s", code, errOut)
 	}
 }
+
+// Issue 82: a dataset BigQuery lists but whose unit has not synced is in the
+// catalog, marked pending, so an agent does not take it for an empty one.
+func TestSearchMarksAPendingDataset(t *testing.T) {
+	s := newSandbox(t)
+	s.writeConfig("projects = [\"proj-a\"]\n")
+	s.fake.Projects["proj-a"].Datasets = append(s.fake.Projects["proj-a"].Datasets, bqtest.DS("landing", "asia-east1", bqtest.Table("drops", "id")))
+	s.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Location: "asia-east1", Err: bqtest.TransientError("down")})
+	if code, _, errOut := s.run("sync"); code != api.ExitBigQuery {
+		t.Fatalf("a failed unit: %d %s", code, errOut)
+	}
+	code, out, errOut := s.run("search", "landing")
+	if code != 0 {
+		t.Fatalf("%d %s", code, errOut)
+	}
+	golden(t, "search_pending", regexp.MustCompile(`"took_ms":[0-9.e-]+`).ReplaceAllString(out, `"took_ms":0`))
+
+	code, out, _ = s.run("status")
+	ps := decode(t, out).Data.(map[string]any)["projects"].([]any)[0].(map[string]any)
+	if code != 0 || ps["pending_datasets"] != float64(1) || ps["stale"] != true {
+		t.Fatalf("%d %v", code, ps)
+	}
+	s.tty = true
+	if _, out, _ = s.run("search", "landing"); !strings.Contains(out, "proj-a.landing") || !strings.Contains(out, "not synced") {
+		t.Fatalf("%q", out)
+	}
+	if _, out, _ = s.run("status"); !strings.Contains(out, "1 dataset(s) listed but not synced yet") {
+		t.Fatalf("%q", out)
+	}
+}

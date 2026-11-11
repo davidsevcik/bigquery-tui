@@ -91,6 +91,9 @@ type Engine struct {
 	listed   []api.ListedProject // BigQuery's projects list, once fetched
 	listedOK bool
 
+	trackMu gosync.Mutex
+	track   *syncTrack // this process's running sync, for "syncing"
+
 	retainedDays int // history_retention_days last applied, and when
 	retainedAt   time.Time
 }
@@ -291,9 +294,13 @@ func (e *Engine) Status(ctx context.Context) (api.CatalogStatus, error) {
 	st.SyncRunning = e.syncRunning()
 
 	var units []api.UnitState
+	var pending map[api.UnitRef]int
 	if e.catalog != nil {
 		var err error
 		if units, err = e.catalog.Units(ctx); err != nil {
+			return st, err
+		}
+		if pending, err = e.catalog.PendingUnits(ctx); err != nil {
 			return st, err
 		}
 		n, err := e.catalog.Counts(ctx)
@@ -314,6 +321,15 @@ func (e *Engine) Status(ctx context.Context) (api.CatalogStatus, error) {
 	for _, u := range units {
 		u.Stale = isStale(u, now, cfg.SyncTTL)
 		byProject[u.Project] = append(byProject[u.Project], u)
+	}
+	pendingIn := map[string]int{}
+	pendingRefs := map[string]map[api.UnitRef]int{}
+	for ref, n := range pending {
+		pendingIn[ref.Project] += n
+		if pendingRefs[ref.Project] == nil {
+			pendingRefs[ref.Project] = map[api.UnitRef]int{}
+		}
+		pendingRefs[ref.Project][ref] = n
 	}
 	st.ExecutionProject, st.ExecutionSource = e.ExecutionProject()
 	selected := e.selected()
@@ -337,16 +353,17 @@ func (e *Engine) Status(ctx context.Context) (api.CatalogStatus, error) {
 	sort.Strings(others)
 	projects = append(projects, others...)
 	for _, p := range projects {
-		ps := api.ProjectStatus{Project: p, Selected: isSel[p], Units: byProject[p]}
+		ps := api.ProjectStatus{Project: p, Selected: isSel[p], Units: byProject[p], Pending: pendingIn[p]}
 		if ps.Units == nil {
 			ps.Units = []api.UnitState{}
 		}
 		var oldest *time.Time
 		known := false
 		var discovery *api.UnitState
-		for i, u := range ps.Units {
+		fresh := withPending(ps.Units, pendingRefs[p])
+		for i, u := range fresh {
 			if u.Location == "" {
-				discovery = &ps.Units[i] // carries a sync only for an empty project
+				discovery = &fresh[i] // carries a sync only for an empty project
 				continue
 			}
 			known = true
@@ -521,6 +538,11 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 		lock.Unlock()
 		return nil, err
 	}
+	projects := scope.Projects
+	if len(projects) == 0 {
+		projects = selected
+	}
+	track := e.startTrack(projects)
 	rctx, cancel := context.WithCancel(ctx)
 	h := &SyncHandle{cancel: cancel, out: make(chan api.SyncEvent), done: make(chan struct{}), wake: make(chan struct{}, 1), abandon: make(chan struct{})}
 	go h.pump()
@@ -530,13 +552,20 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 	})
 	go func() {
 		defer cancel()
-		res, err := s.Run(rctx, scope, h.push)
-		lock.Unlock()
+		res, err := s.Run(rctx, scope, func(ev api.SyncEvent) {
+			e.observeSync(track, ev)
+			h.push(ev)
+		})
 		// Make the result searchable before anyone is told the sync is done
 		// (the catalog watcher covers progressive updates and other processes).
 		if rerr := e.ReloadIndex(context.WithoutCancel(ctx)); rerr != nil {
 			e.o.Log.Warn("reload search index after sync", "err", rerr)
 		}
+		// After the reload, so a committed unit's datasets never read "not
+		// synced" from the index before it shows them synced; the lock is
+		// held until then, so no next sync replaces the track first.
+		e.endTrack(track)
+		lock.Unlock()
 		h.finish(res, err)
 	}()
 	return h, nil

@@ -32,6 +32,10 @@ _Avoid_: Storage project, data project, configured project, project that is on
 A project that has metadata in the catalog. A deselected project stays cached: the CLI and MCP still read it (with a warning once it is older than `sync_ttl`), but nothing refreshes it except an explicit request: `bqt sync --project`, or `s` on its row in the Projects dialog.
 _Avoid_: Stale project, archived project
 
+**Pending dataset**:
+A dataset BigQuery lists for a Selected project whose sync unit has never committed it, so the catalog holds it without tables. The Explorer flags it `syncing` while this process's sync is reading its unit and `not synced` otherwise (the unit failed, or the sync stopped before it).
+_Avoid_: Empty dataset, unsynced table
+
 **Pane**:
 One of the four areas of the TUI: Explorer, Schema, Editor and Results. Overlays (the palette, pickers, popups) are not Panes.
 _Avoid_: Zone (the old word, still used in code), window, view (a BigQuery table type)

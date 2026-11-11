@@ -111,7 +111,7 @@ func (s *Server) MCP(version string) *sdk.Server {
 	ro := &sdk.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(false)}
 	bq := &sdk.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(true)}
 
-	sdk.AddTool(srv, &sdk.Tool{Name: "search_catalog", Annotations: ro, Description: `Search the local catalog of projects, datasets, tables and columns. Free terms match names (prefix, then substring, then description); filters: p:project d:dataset type:table|view|... col:column desc:text label:key:value; -filter negates, a,b is OR. A pasted project.dataset.table is an exact lookup. Results in projects the user has not selected say selected: false and rank last; warnings name projects whose catalog is out of date. Paged: pass next_cursor as cursor.`},
+	sdk.AddTool(srv, &sdk.Tool{Name: "search_catalog", Annotations: ro, Description: `Search the local catalog of projects, datasets, tables and columns. Free terms match names (prefix, then substring, then description); filters: p:project d:dataset type:table|view|... col:column desc:text label:key:value; -filter negates, a,b is OR. A pasted project.dataset.table is an exact lookup. A dataset marked pending is listed by BigQuery but its tables are not synced yet: it is not empty. Results in projects the user has not selected say selected: false and rank last; warnings name projects whose catalog is out of date. Paged: pass next_cursor as cursor.`},
 		func(ctx context.Context, _ *sdk.CallToolRequest, in searchIn) (*sdk.CallToolResult, api.CatalogHits, error) {
 			off, err := cursor(in.Cursor)
 			if err != nil {

@@ -41,7 +41,10 @@ func (st *searchState) selection() selection {
 		return selection{}
 	}
 	r := st.results[st.cur]
-	n := api.BrowseNode{Kind: r.Kind, Path: r.Path, Name: r.Name, Type: r.Type, Description: r.Description, Shard: r.Shard, NamesOnly: r.NamesOnly, Stale: r.Stale, SyncedAt: r.SyncedAt}
+	n := api.BrowseNode{Kind: r.Kind, Path: r.Path, Name: r.Name, Type: r.Type, Description: r.Description, Shard: r.Shard, NamesOnly: r.NamesOnly, Stale: r.Stale, SyncedAt: r.SyncedAt, Syncing: r.Syncing}
+	if r.Pending {
+		n.Status = api.DatasetPending
+	}
 	return selection{kind: r.Kind, path: r.Path, node: n}
 }
 

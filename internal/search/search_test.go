@@ -445,3 +445,62 @@ func TestExpandShardsOption(t *testing.T) {
 		t.Fatalf("%+v", r.Results)
 	}
 }
+
+// Issue 82: a pending dataset has no tables yet, so it is found by name
+// wherever tables would be (jump-to-table, the flat list), flagged, and its
+// project's freshness does not pretend it was synced.
+func TestPendingDatasets(t *testing.T) {
+	f := standard()
+	f.dataset("acme-prod", "ml_features", "asia-east1", "")
+	f.snap.Datasets[len(f.snap.Datasets)-1].Status = api.DatasetPending
+	f.snap.Datasets[len(f.snap.Datasets)-1].FriendlyName = "ML features"
+	f.dataset("acme-prod", "orders_raw", "EU", "")
+	f.snap.Datasets[len(f.snap.Datasets)-1].Status = api.DatasetPending
+	s := f.searcher()
+
+	r, _ := s.Search(ctx, "ml_feat", api.SearchOptions{TablesOnly: true})
+	if len(r.Results) != 1 || r.Results[0].Kind != api.KindDataset || !r.Results[0].Pending || !r.Results[0].Stale || r.Results[0].SyncedAt != nil {
+		t.Fatalf("jump-to-table finds a pending dataset, flagged: %+v", r.Results)
+	}
+	eq(t, names(t, s, "orders", api.SearchOptions{TablesOnly: true}),
+		"acme-prod.sales.orders", "acme-staging.sales.orders", "acme-prod.orders_raw", "acme-prod.tmp_scratch.orders_tmp", "acme-prod.sales.v_orders", "acme-prod.sales.reorders", "acme-prod.sales.order_items", "acme-prod.sales.customers")
+	eq(t, names(t, s, "", api.SearchOptions{AllWhenEmpty: true, Scope: &api.ObjectPath{Project: "acme-prod"}})[:5],
+		"acme-prod.events.clicks", "acme-prod.events.events_YYYYMMDD", "acme-prod.ml_features", "acme-prod.orders_raw", "acme-prod.sales.customers")
+	if got := names(t, s, "sales type:table", api.SearchOptions{TablesOnly: true}); len(got) == 0 || strings.Contains(strings.Join(got, " "), "orders_raw") {
+		t.Fatalf("a table filter matches no pending dataset: %v", got)
+	}
+
+	var ml api.BrowseNode
+	for _, d := range s.Datasets("acme-prod") {
+		if d.Name == "ml_features" {
+			ml = d
+		}
+	}
+	if ml.Status != api.DatasetPending || ml.Children != 0 || ml.Location != "asia-east1" || ml.FriendlyName != "ML features" || ml.SyncedAt != nil || !ml.Stale {
+		t.Fatalf("%+v", ml)
+	}
+	// asia-east1 has no unit state: the project has a unit that never synced.
+	if p := s.Projects()[0]; !p.Stale {
+		t.Fatalf("%+v", p)
+	}
+}
+
+// Issue 82: while any dataset is pending, a discovery unit's success (which
+// records an empty project's sync) does not count.
+func TestPendingDatasetsIgnoreTheDiscoverySuccess(t *testing.T) {
+	f := newFixture()
+	f.dataset("p", "big", "US", "")
+	f.snap.Datasets[0].Status = api.DatasetPending
+	ok := now.Add(-time.Hour)
+	f.snap.Units = []api.UnitState{
+		{UnitRef: api.UnitRef{Project: "p"}, Status: api.UnitDegraded, LastSuccess: &ok},
+		{UnitRef: api.UnitRef{Project: "p", Location: "US"}, Status: api.UnitInaccessible, Error: "boom"},
+	}
+	s := f.searcher()
+	if p := s.Projects()[0]; !p.Stale || p.SyncedAt != nil {
+		t.Fatalf("%+v", p)
+	}
+	if d := s.Datasets("p")[0]; d.Error != "boom" || d.UnitStatus != api.UnitInaccessible {
+		t.Fatalf("a dataset carries its unit's error: %+v", d)
+	}
+}

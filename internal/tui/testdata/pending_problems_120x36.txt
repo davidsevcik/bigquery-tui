@@ -1,0 +1,36 @@
+ Datasets 4/6                             │ SQL · query 1   1:1
+events                                  5 │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+finance                                 2 │~
+ml_features                             2 │~
+raw_landing                  ● not synced │~
+sales                                   4 │~
+us_archive                              1 │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+            ╭─ Sync problems ──────────────────────────────────────────────────────────────────────────────╮
+            │ ⚠ acme-prod / US  degraded · last success 3h                                                 │
+            │    transient: backend error: region views unavailable                                        │
+            │    1 dataset not synced, so without tables: raw_landing                                      │
+ Schema · ac│                                                                                              │
+ acme-prod.r│ Failed units keep their previous data. r retries the selected project.                       │ly estimate…
+ US · 0 tabl╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+ ● not synced: BigQuery lists this        │
+ dataset, but no sync has read its        │
+ tables yet                               │
+ the US unit failed: transient: backend   │
+ error: region views unavailable          │
+ r syncs the project                      │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+ bqt exec acme-exec  layout: classic  columns  ⚠ 1 sync problem(s) (gp)  2 projects              7 datasets · 15 tables
+ esc close

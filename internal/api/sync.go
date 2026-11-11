@@ -61,6 +61,8 @@ type SyncEvent struct {
 	UnitsTotal int           `json:"units_total"`
 	Message    string        `json:"message,omitempty"`
 	Error      string        `json:"error,omitempty"`
+	// Units lists the units the run will process (discovered only).
+	Units []UnitRef `json:"units,omitempty"`
 }
 
 // SyncScope selects what a sync covers. An empty Projects list means every

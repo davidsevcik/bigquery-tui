@@ -280,7 +280,7 @@ func (e *Engine) CatalogSearch(ctx context.Context, query string, limit, offset 
 	for _, r := range resp.Results {
 		h := api.CatalogHit{
 			Path: r.Path.String(), Kind: r.Kind, Type: r.Type, Description: r.Description,
-			MoreColumns: r.MoreColumns, Stale: r.Stale, Selected: sel.Has(r.Path.Project),
+			MoreColumns: r.MoreColumns, Pending: r.Pending, Stale: r.Stale, Selected: sel.Has(r.Path.Project),
 		}
 		touched = append(touched, r.Path.Project)
 		if r.Kind == api.KindShards && r.Shard != nil {
@@ -427,7 +427,7 @@ func (e *Engine) Freshness(ctx context.Context) (api.CatalogFreshness, error) {
 	}
 	stale := false
 	for _, p := range st.Projects {
-		pf := api.ProjectFreshness{Project: p.Project, Selected: p.Selected, SyncedAt: p.SyncedAt, Stale: p.Stale}
+		pf := api.ProjectFreshness{Project: p.Project, Selected: p.Selected, SyncedAt: p.SyncedAt, Stale: p.Stale, Pending: p.Pending}
 		stale = stale || (p.Stale && p.Selected)
 		for _, u := range p.Units {
 			if u.Status != api.UnitOK && u.Status != "" {
