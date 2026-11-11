@@ -556,15 +556,16 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 			e.observeSync(track, ev)
 			h.push(ev)
 		})
-		lock.Unlock()
 		// Make the result searchable before anyone is told the sync is done
 		// (the catalog watcher covers progressive updates and other processes).
 		if rerr := e.ReloadIndex(context.WithoutCancel(ctx)); rerr != nil {
 			e.o.Log.Warn("reload search index after sync", "err", rerr)
 		}
 		// After the reload, so a committed unit's datasets never read "not
-		// synced" from the index before it shows them synced.
+		// synced" from the index before it shows them synced; the lock is
+		// held until then, so no next sync replaces the track first.
 		e.endTrack(track)
+		lock.Unlock()
 		h.finish(res, err)
 	}()
 	return h, nil
