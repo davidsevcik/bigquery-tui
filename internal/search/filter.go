@@ -109,10 +109,11 @@ func (s *Searcher) Filter(ctx context.Context, raw string, o api.FilterOptions) 
 		// a shard family passes when one of its members does, ranked by its
 		// best member
 		type famKey struct {
-			ds     int
-			prefix string
-			typ    api.TableType
+			ds   int
+			name string
+			typ  api.TableType
 		}
+		cols := len(c.colVals) > 0
 		fams := map[famKey]int{} // index into out
 		for i := range x.tables {
 			if !own[i].ok {
@@ -121,15 +122,17 @@ func (s *Searcher) Filter(ctx context.Context, raw string, o api.FilterOptions) 
 			t := &x.tables[i]
 			maxS, sum := own[i].max, own[i].sum
 			p := x.tablePath(i)
-			if want(api.KindTable) {
+			// a member is a match of its own only when the filter reaches into
+			// its varying part (or its own schema, under col:)
+			if want(api.KindTable) && (o.ExpandShards || pasted == i || x.memberHit(i, c.terms, cols)) {
 				out = append(out, hit{kind: api.KindTable, i: len(paths), max: maxS, sum: sum, name: t.name, path: p.String()})
 				paths = append(paths, p)
 			}
 			if t.shard == nil || !want(api.KindShards) {
 				continue
 			}
-			k := famKey{t.ds, t.shard.Prefix, t.typ}
-			name := t.shard.Prefix + "YYYYMMDD"
+			k := famKey{t.ds, t.shard.Name, t.typ}
+			name := t.shard.Name
 			fp := api.ObjectPath{Project: p.Project, Dataset: p.Dataset, Table: name}
 			if j, seen := fams[k]; !seen {
 				fams[k] = len(out)

@@ -141,6 +141,10 @@ type FilterOptions struct {
 	// Kinds lists the object kinds to return; empty returns every kind.
 	// Shard members come back as tables, their family as KindShards.
 	Kinds []ResultKind `json:"kinds,omitempty"`
+	// ExpandShards reports every passing shard member as a table match. By
+	// default a member matches on its own only when a term reaches into its
+	// varying part; otherwise only its family does.
+	ExpandShards bool `json:"expand_shards,omitempty"`
 	// SelectedOnly leaves out the projects that are not selected.
 	SelectedOnly bool `json:"selected_only,omitempty"`
 	// Hidden is what the engine derives from SelectedOnly.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/store"
@@ -34,6 +35,8 @@ type tableEntry struct {
 	labels      []string // lower-case "key:value"
 	namesOnly   bool
 	shard       *api.ShardFamily
+	created     time.Time
+	ownSchema   bool // a family member synced on its own (gs)
 }
 
 // Index is the immutable in-memory catalog (everything but columns).
@@ -45,6 +48,10 @@ type Index struct {
 	byPath   map[string]int // exact project.dataset.table -> table index
 	byPathLC map[string]int // lower-case path -> table index, -1 when ambiguous
 	byID     map[int64]int
+	// families maps a family path (project.dataset.<family name>, and for a
+	// family without a suffix also its wildcard prefix*) to its newest
+	// member's table index.
+	families map[string]int
 }
 
 // Empty reports whether the index holds no tables.
@@ -55,7 +62,7 @@ func (x *Index) Size() (datasets, tables int) { return len(x.datasets), len(x.ta
 
 // BuildIndex turns a catalog snapshot into an Index.
 func BuildIndex(snap *store.IndexSnapshot) *Index {
-	x := &Index{units: map[api.UnitRef]api.UnitState{}, byPath: map[string]int{}, byPathLC: map[string]int{}, byID: map[int64]int{}}
+	x := &Index{units: map[api.UnitRef]api.UnitState{}, byPath: map[string]int{}, byPathLC: map[string]int{}, byID: map[int64]int{}, families: map[string]int{}}
 	pi := map[string]int{}
 	for _, p := range snap.Projects {
 		pi[p] = len(x.projects)
@@ -82,6 +89,7 @@ func BuildIndex(snap *store.IndexSnapshot) *Index {
 		e := tableEntry{
 			id: t.ID, ds: d, name: t.Name, lname: strings.ToLower(t.Name), typ: t.Type,
 			desc: t.Description, ldesc: strings.ToLower(t.Description), namesOnly: t.NamesOnly, shard: t.Shard,
+			created: t.CreatedAt, ownSchema: t.OwnSchema,
 		}
 		for k, v := range t.Labels {
 			e.labels = append(e.labels, strings.ToLower(k+":"+v))
@@ -100,6 +108,15 @@ func BuildIndex(snap *store.IndexSnapshot) *Index {
 			x.byPathLC[lc] = -1
 		} else {
 			x.byPathLC[lc] = idx
+		}
+		if f := e.shard; f != nil && f.Newest == e.name {
+			dp := x.projects[de.proj].name + "." + de.name + "."
+			x.families[dp+f.Name] = idx
+			if w := dp + f.Wildcard(); f.Suffix == "" {
+				x.families[w] = idx
+			} else if _, taken := x.families[w]; !taken {
+				x.families[w] = idx // a suffixed family answers its wildcard only when no other does
+			}
 		}
 	}
 	for _, u := range snap.Units {

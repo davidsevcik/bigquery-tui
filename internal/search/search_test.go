@@ -95,7 +95,7 @@ func standard() *fixture {
 	f.table("acme-prod", "sales", "customers", api.TypeTable, "Each row is one buyer placing orders", "id", "email")
 	f.table("acme-prod", "sales", "refunds", api.TypeTable, "Money returned").Labels = map[string]string{"team": "finance"}
 	for _, d := range []string{"20240101", "20240102", "20240103"} {
-		f.table("acme-prod", "events", "events_"+d, api.TypeTable, "", "user_id").Shard = &api.ShardFamily{Prefix: "events_", First: "20240101", Last: "20240103", Count: 3}
+		f.table("acme-prod", "events", "events_"+d, api.TypeTable, "", "user_id").Shard = &api.ShardFamily{Name: "events_YYYYMMDD", Prefix: "events_", Date: true, First: "20240101", Last: "20240103", Count: 3, Newest: "events_20240103"}
 	}
 	f.table("acme-prod", "events", "clicks", api.TypeTable, "", "user_id", "url")
 	f.table("acme-prod", "tmp_scratch", "orders_tmp", api.TypeTable, "")
@@ -397,7 +397,7 @@ func TestBrowse(t *testing.T) {
 	if len(ts) != 2 || ts[0].Name != "clicks" || ts[1].Kind != api.KindShards || ts[1].Children != 3 || ts[1].Name != "events_YYYYMMDD" {
 		t.Fatalf("%+v", ts)
 	}
-	m := s.ShardMembers("acme-prod", "events", "events_")
+	m := s.ShardMembers("acme-prod", "events", "events_YYYYMMDD")
 	if len(m) != 3 || m[0].Name != "events_20240103" {
 		t.Fatalf("newest first: %+v", m)
 	}
