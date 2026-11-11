@@ -103,6 +103,12 @@ func printSearch(w io.Writer, r api.SearchResponse, next string) {
 		if x.NamesOnly {
 			line += "  names only"
 		}
+		switch {
+		case x.Syncing:
+			line += "  syncing"
+		case x.Pending:
+			line += "  not synced"
+		}
 		if !x.Selected {
 			line += "  (not selected)"
 		}

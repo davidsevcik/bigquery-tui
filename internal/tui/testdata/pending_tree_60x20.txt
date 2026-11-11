@@ -1,0 +1,20 @@
+ [Explorer]  Schema  Editor  Results   ctrl+o next
+ Explorer  5/8
+▾ acme-prod                                            ⚠ 3h
+  ▸ events                                                5
+  ▸ finance                                               2
+  ▸ ml_features                                   ⟳ syncing
+  ▸ raw_landing                                ● not synced
+  ▸ sales                                                 4
+  ▸ us_archive                                            1
+▸ acme-staging                                         ✓ 3h
+
+
+
+
+
+
+
+
+ bqt exec acme-exec  layout: classi… 7 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · …

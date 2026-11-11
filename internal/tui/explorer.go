@@ -368,7 +368,16 @@ func (m *Model) runSearchIfFlat() tea.Cmd {
 
 func (m *Model) sel() selection {
 	if st := m.activeResults(); st != nil {
-		return st.selection()
+		s := st.selection()
+		if s.kind == api.KindDataset {
+			// a search result carries less than the Explorer's node
+			for _, n := range m.be.Datasets(s.path.Project) {
+				if n.Name == s.path.Dataset {
+					s.node = n
+				}
+			}
+		}
+		return s
 	}
 	switch m.style {
 	case styleColumns:

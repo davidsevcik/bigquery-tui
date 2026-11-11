@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
+	"github.com/davidsevcik/bigquery-tui/internal/bq"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 	"github.com/davidsevcik/bigquery-tui/internal/config"
 	"github.com/davidsevcik/bigquery-tui/internal/store"
@@ -102,6 +103,22 @@ func (h *harness) unit(project, loc string) api.UnitState {
 	}
 	h.t.Fatalf("no unit state for %s/%s in %+v", project, loc, us)
 	return api.UnitState{}
+}
+
+// statuses maps "project.dataset" to its catalog status.
+func (h *harness) statuses(projects ...string) map[string]api.DatasetStatus {
+	h.t.Helper()
+	out := map[string]api.DatasetStatus{}
+	for _, p := range projects {
+		ds, err := h.cat.Datasets(ctx, p)
+		if err != nil {
+			h.t.Fatal(err)
+		}
+		for _, d := range ds {
+			out[p+"."+d.Name] = d.Status
+		}
+	}
+	return out
 }
 
 func (h *harness) counts() store.Counts {
@@ -401,6 +418,48 @@ func TestSyncUnreachableWarning(t *testing.T) {
 	}
 }
 
+// warningMeta reports a client warning (bq.Warn) on every dataset listing,
+// as the real client does on every query once it reads through REST paging.
+type warningMeta struct{ *bqtest.Fake }
+
+func (m warningMeta) ListDatasets(ctx context.Context, project string) (bq.DatasetList, error) {
+	bq.Warn(ctx, "sync reads results through REST paging")
+	return m.Fake.ListDatasets(ctx, project)
+}
+
+func TestSyncAddsAClientWarningOncePerRun(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a", "proj-b"]`)
+	twoProjectFake(h.fake)
+	s := New(Options{
+		Config: h.cfg, Selected: h.selected, Meta: warningMeta{h.fake}, Catalog: h.cat,
+		Now: func() time.Time { return h.now }, Backoff: func(int) time.Duration { return 0 },
+	})
+	for i := 1; i <= 2; i++ {
+		var events []api.SyncEvent
+		var mu gosync.Mutex
+		res, err := s.Run(ctx, api.SyncScope{}, func(e api.SyncEvent) {
+			mu.Lock()
+			events = append(events, e)
+			mu.Unlock()
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Warnings) != 1 || res.Warnings[0] != "sync reads results through REST paging" {
+			t.Fatalf("run %d: warnings %q", i, res.Warnings)
+		}
+		n := 0
+		for _, e := range events {
+			if e.Kind == api.EventWarning {
+				n++
+			}
+		}
+		if n != 1 || res.UnitsOK != 3 {
+			t.Fatalf("run %d: %d warning events, %d units ok", i, n, res.UnitsOK)
+		}
+	}
+}
+
 func TestSyncRemovesVanishedLocationAndDatasets(t *testing.T) {
 	h := newHarness(t, `projects = ["proj-a"]`)
 	twoProjectFake(h.fake)
@@ -498,12 +557,21 @@ func TestSyncCancelKeepsCommittedUnits(t *testing.T) {
 	if !res.Cancelled {
 		t.Fatalf("%+v", res)
 	}
-	n := h.counts()
-	if n.Datasets == 0 {
-		t.Fatal("the unit committed before the cancel must stay")
+	st := h.statuses("proj-a", "proj-b")
+	committed, pending := 0, 0
+	for _, s := range st {
+		switch s {
+		case api.DatasetOK:
+			committed++
+		case api.DatasetPending:
+			pending++
+		}
 	}
-	if n.Datasets >= 4 {
-		t.Fatalf("not everything should have been synced: %+v", n)
+	if committed == 0 {
+		t.Fatalf("the unit committed before the cancel must stay: %v", st)
+	}
+	if pending == 0 || committed+pending != 4 {
+		t.Fatalf("the cancelled units' datasets stay listed, pending: %v", st)
 	}
 	if v, _, _ := h.cat.Meta(ctx, MetaSyncNeeded); v != "1" {
 		t.Fatal("a cancelled sync must not clear sync_needed")
@@ -679,5 +747,183 @@ func TestUnreachableLocationKeepsItsData(t *testing.T) {
 	locs, _ := h.cat.Locations(ctx, "proj-a")
 	if len(locs) != 2 {
 		t.Fatalf("%v", locs)
+	}
+}
+
+// Issue 82: the listed datasets are in the catalog, pending, before any unit
+// is read; each committed unit replaces its pending rows.
+func TestSyncListedDatasetsArePendingUntilTheirUnitCommits(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a", "proj-b"]`)
+	twoProjectFake(h.fake)
+	var first gosync.Once
+	var mid map[string]api.DatasetStatus
+	var midRows []store.DatasetRow
+	h.fake.OnCall = func(c bqtest.Call) {
+		if c.Method == "RegionTables" {
+			first.Do(func() {
+				mid = h.statuses("proj-a", "proj-b")
+				midRows, _ = h.cat.Datasets(ctx, "proj-a")
+			})
+		}
+	}
+	h.fake.Projects["proj-a"].Datasets[2].Meta.FriendlyName = "US data"
+	h.fake.Projects["proj-a"].Datasets[2].Meta.Labels = map[string]string{"team": "us"}
+	h.run(api.SyncScope{})
+
+	want := map[string]api.DatasetStatus{"proj-a.sales": api.DatasetPending, "proj-a.logs": api.DatasetPending, "proj-a.us_data": api.DatasetPending, "proj-b.core": api.DatasetPending}
+	if fmt.Sprint(mid) != fmt.Sprint(want) {
+		t.Fatalf("before the first unit: %v", mid)
+	}
+	for _, d := range midRows {
+		if d.Tables != 0 {
+			t.Fatalf("a pending dataset has no tables: %+v", d)
+		}
+		if d.Name == "us_data" && (d.Location != "US" || d.FriendlyName != "US data" || d.Labels["team"] != "us") {
+			t.Fatalf("a pending row carries the listing's location, friendly name and labels: %+v", d)
+		}
+	}
+	for k, s := range h.statuses("proj-a", "proj-b") {
+		if s != api.DatasetOK {
+			t.Fatalf("%s: a committed unit clears pending, got %s", k, s)
+		}
+	}
+	var discovered []api.UnitRef
+	for _, e := range h.events {
+		if e.Kind == api.EventDiscovered {
+			discovered = e.Units
+		}
+	}
+	if len(discovered) != 3 || discovered[0] != (api.UnitRef{Project: "proj-a", Location: "EU"}) {
+		t.Fatalf("the discovered event names the units: %v", discovered)
+	}
+}
+
+func TestSyncFailedUnitLeavesItsDatasetsPending(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a"]`)
+	twoProjectFake(h.fake)
+	h.fake.Fail(bqtest.Failure{Method: "RegionTables", Project: "proj-a", Location: "US", Err: bqtest.TransientError("still down")})
+	res := h.run(api.SyncScope{})
+	if res.UnitsFailed != 1 || res.UnitsOK != 1 {
+		t.Fatalf("%+v", res)
+	}
+	st := h.statuses("proj-a")
+	if st["proj-a.us_data"] != api.DatasetPending || st["proj-a.sales"] != api.DatasetOK {
+		t.Fatalf("%v", st)
+	}
+	if u := h.unit("proj-a", "US"); u.Status != api.UnitInaccessible || u.Error == "" || u.LastSuccess != nil {
+		t.Fatalf("the failed unit says why: %+v", u)
+	}
+
+	// The next sync that reaches the unit clears it.
+	h.fake.Failures = nil
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	if st := h.statuses("proj-a"); st["proj-a.us_data"] != api.DatasetOK {
+		t.Fatalf("%v", st)
+	}
+}
+
+func TestSyncExistingDatasetsKeepTheirTablesWhileTheirUnitRefreshes(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a"]`)
+	twoProjectFake(h.fake)
+	h.run(api.SyncScope{})
+	p := h.fake.Projects["proj-a"]
+	p.Datasets = append(p.Datasets, bqtest.DS("added", "EU", bqtest.Table("a1", "x")))
+	var mid []store.DatasetRow
+	var once gosync.Once
+	h.fake.OnCall = func(c bqtest.Call) {
+		if c.Method == "RegionTables" {
+			once.Do(func() { mid, _ = h.cat.Datasets(ctx, "proj-a") })
+		}
+	}
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	got := map[string]string{}
+	for _, d := range mid {
+		got[d.Name] = fmt.Sprintf("%s/%d", d.Status, d.Tables)
+	}
+	want := map[string]string{"added": "pending/0", "logs": "ok/1", "sales": "ok/2", "us_data": "ok/1"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("during the refresh: %v", got)
+	}
+}
+
+func TestSyncCompleteListingRemovesVanishedPendingDatasets(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a"]`)
+	twoProjectFake(h.fake)
+	h.run(api.SyncScope{})
+	p := h.fake.Projects["proj-a"]
+	all := p.Datasets
+	p.Datasets = append(append([]bqtest.Dataset(nil), all...), bqtest.DS("fresh", "EU", bqtest.Table("f", "x")), bqtest.DS("asia_ds", "asia-east1", bqtest.Table("a", "x")))
+	h.fake.Fail(bqtest.Failure{Method: "RegionTables", Project: "proj-a", Err: bqtest.TransientError("down")})
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	if st := h.statuses("proj-a"); st["proj-a.fresh"] != api.DatasetPending || st["proj-a.asia_ds"] != api.DatasetPending {
+		t.Fatalf("%v", st)
+	}
+
+	// An incomplete listing (unreachable locations) removes nothing.
+	p.Datasets = all
+	p.Unreachable = []string{"asia-east1"}
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	if st := h.statuses("proj-a"); st["proj-a.fresh"] != api.DatasetPending || st["proj-a.asia_ds"] != api.DatasetPending {
+		t.Fatalf("an incomplete listing keeps pending rows: %v", st)
+	}
+
+	// A complete listing removes both: one in a location still listed
+	// (whose unit fails again), one in a location gone.
+	p.Unreachable = nil
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	st := h.statuses("proj-a")
+	if _, ok := st["proj-a.fresh"]; ok {
+		t.Fatalf("%v", st)
+	}
+	if _, ok := st["proj-a.asia_ds"]; ok {
+		t.Fatalf("%v", st)
+	}
+	if st["proj-a.sales"] != api.DatasetOK || len(st) != 3 {
+		t.Fatalf("the synced datasets stay: %v", st)
+	}
+}
+
+// A dataset recreated in another location is a new, unsynced dataset there.
+// Its row moves with the listing, so it stays visible when the new location's
+// unit fails: whether the old location is gone (fresh) or still listed (logs),
+// and whether the old row was pending (fresh) or synced (logs).
+func TestSyncDatasetRecreatedElsewhereStaysListedWhenItsUnitFails(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a"]`)
+	twoProjectFake(h.fake)
+	p := h.fake.Projects["proj-a"]
+	p.Datasets = append(p.Datasets, bqtest.DS("fresh", "asia-east1", bqtest.Table("f", "x")))
+	h.fake.Fail(bqtest.Failure{Method: "RegionTables", Project: "proj-a", Location: "asia-east1", Err: bqtest.TransientError("down")})
+	h.run(api.SyncScope{})
+	if st := h.statuses("proj-a"); st["proj-a.fresh"] != api.DatasetPending || st["proj-a.logs"] != api.DatasetOK {
+		t.Fatalf("%v", st)
+	}
+
+	p.Datasets = []bqtest.Dataset{
+		bqtest.DS("sales", "EU", bqtest.Table("orders", "id", "amount"), bqtest.Table("items", "sku")),
+		bqtest.DS("logs", "US", bqtest.Table("l2", "msg")),
+		bqtest.DS("us_data", "US", bqtest.Table("u1", "x")),
+		bqtest.DS("fresh", "US", bqtest.Table("f", "x")),
+	}
+	h.fake.Failures = nil
+	h.fake.Fail(bqtest.Failure{Method: "RegionTables", Project: "proj-a", Location: "US", Err: bqtest.TransientError("down")})
+	h.now = h.now.Add(time.Hour)
+	h.run(api.SyncScope{})
+	rows, err := h.cat.Datasets(ctx, "proj-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, d := range rows {
+		got[d.Name] = d.Location + " " + string(d.Status)
+	}
+	for name, want := range map[string]string{"fresh": "US pending", "logs": "US pending", "sales": "EU ok", "us_data": "US ok"} {
+		if got[name] != want {
+			t.Fatalf("%s: got %q, want %q (all: %v)", name, got[name], want, got)
+		}
 	}
 }

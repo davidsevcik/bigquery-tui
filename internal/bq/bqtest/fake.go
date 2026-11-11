@@ -127,8 +127,20 @@ func (f *Fake) AddProject(name string) *Project {
 	return p
 }
 
-// Fail registers a failure.
+// methods are the port calls the fake records (Call.Method).
+var methods = map[string]bool{
+	"ListProjects": true, "ListDatasets": true, "GetDataset": true, "ListTableNames": true,
+	"RegionTables": true, "RegionColumns": true, "DatasetTables": true, "DatasetColumns": true,
+	"GetTableMeta": true, "GetTable": true, "ListRows": true,
+	"DryRun": true, "StartQuery": true, "WaitJob": true, "QueryRows": true, "CancelJob": true,
+}
+
+// Fail registers a failure. An unknown method panics: a failure that can
+// match no call would let a test pass without testing anything.
 func (f *Fake) Fail(fl Failure) {
+	if fl.Method != "" && !methods[fl.Method] {
+		panic("bqtest: Fail on unknown method " + fl.Method)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Failures = append(f.Failures, &fl)

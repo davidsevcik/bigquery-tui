@@ -21,6 +21,7 @@ type dsEntry struct {
 	name, lname string
 	location    string
 	desc, ldesc string
+	friendly    string
 	labels      map[string]string
 	status      api.DatasetStatus
 	tables      []int
@@ -45,6 +46,8 @@ type Index struct {
 	datasets []dsEntry
 	tables   []tableEntry
 	units    map[api.UnitRef]api.UnitState
+	// pending counts the pending datasets per unit.
+	pending  map[api.UnitRef]int
 	byPath   map[string]int // exact project.dataset.table -> table index
 	byPathLC map[string]int // lower-case path -> table index, -1 when ambiguous
 	byID     map[int64]int
@@ -62,7 +65,7 @@ func (x *Index) Size() (datasets, tables int) { return len(x.datasets), len(x.ta
 
 // BuildIndex turns a catalog snapshot into an Index.
 func BuildIndex(snap *store.IndexSnapshot) *Index {
-	x := &Index{units: map[api.UnitRef]api.UnitState{}, byPath: map[string]int{}, byPathLC: map[string]int{}, byID: map[int64]int{}, families: map[string]int{}}
+	x := &Index{units: map[api.UnitRef]api.UnitState{}, pending: map[api.UnitRef]int{}, byPath: map[string]int{}, byPathLC: map[string]int{}, byID: map[int64]int{}, families: map[string]int{}}
 	pi := map[string]int{}
 	for _, p := range snap.Projects {
 		pi[p] = len(x.projects)
@@ -78,8 +81,11 @@ func BuildIndex(snap *store.IndexSnapshot) *Index {
 		x.projects[p].datasets = append(x.projects[p].datasets, len(x.datasets))
 		x.datasets = append(x.datasets, dsEntry{
 			id: d.ID, proj: p, name: d.Name, lname: strings.ToLower(d.Name), location: d.Location,
-			desc: d.Description, ldesc: strings.ToLower(d.Description), labels: d.Labels, status: d.Status,
+			desc: d.Description, ldesc: strings.ToLower(d.Description), friendly: d.FriendlyName, labels: d.Labels, status: d.Status,
 		})
+		if d.Status == api.DatasetPending {
+			x.pending[api.UnitRef{Project: d.Project, Location: d.Location}]++
+		}
 	}
 	for _, t := range snap.Tables {
 		d, ok := di[t.DatasetID]

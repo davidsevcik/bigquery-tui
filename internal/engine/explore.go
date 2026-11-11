@@ -67,8 +67,13 @@ func (e *Engine) Search(ctx context.Context, query string, o api.SearchOptions) 
 	}
 	resp, err := e.search.Search(ctx, query, o)
 	sel := e.Selection()
-	for i := range resp.Results {
-		resp.Results[i].Selected = sel.Has(resp.Results[i].Path.Project)
+	for i, r := range resp.Results {
+		resp.Results[i].Selected = sel.Has(r.Path.Project)
+		if r.Pending {
+			if d, ok := e.search.Dataset(r.Path.Project, r.Path.Dataset); ok {
+				resp.Results[i].Syncing = e.unitSyncing(api.UnitRef{Project: r.Path.Project, Location: d.Location})
+			}
+		}
 	}
 	return resp, err
 }
@@ -123,8 +128,11 @@ func (e *Engine) Projects() []api.BrowseNode {
 	return out
 }
 
-// Datasets lists a project's datasets.
-func (e *Engine) Datasets(project string) []api.BrowseNode { return e.search.Datasets(project) }
+// Datasets lists a project's datasets. A pending one is marked Syncing while
+// this process's sync is reading its unit.
+func (e *Engine) Datasets(project string) []api.BrowseNode {
+	return e.markSyncing(e.search.Datasets(project))
+}
 
 // Tables lists a dataset's tables with shard families collapsed.
 func (e *Engine) Tables(project, dataset string) []api.BrowseNode {

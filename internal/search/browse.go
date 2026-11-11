@@ -39,6 +39,19 @@ func (s *Searcher) projectHealth(x *Index, project string, n *api.BrowseNode) {
 	if n.UnitStatus == "" {
 		n.UnitStatus = api.UnitOK
 	}
+	// A location that holds pending datasets but no unit state is a unit
+	// that never succeeded, and while any dataset is pending the discovery
+	// unit's success does not count (spec 7.2).
+	hasPending := false
+	for ref := range x.pending {
+		if ref.Project != project {
+			continue
+		}
+		hasPending = true
+		if _, ok := x.units[ref]; !ok {
+			known, n.Stale = true, true
+		}
+	}
 	for ref, u := range x.units {
 		if ref.Project != project {
 			continue
@@ -50,7 +63,9 @@ func (s *Searcher) projectHealth(x *Index, project string, n *api.BrowseNode) {
 			n.Error = u.Error
 		}
 		if ref.Location == "" {
-			discovery = u.LastSuccess // carries a sync only for an empty project
+			if !hasPending {
+				discovery = u.LastSuccess // carries a sync only for an empty project
+			}
 			continue
 		}
 		known = true
@@ -91,10 +106,11 @@ func (s *Searcher) Datasets(project string) []api.BrowseNode {
 			n := api.BrowseNode{
 				Kind: api.KindDataset, Path: api.ObjectPath{Project: p.name, Dataset: d.name}, Name: d.name,
 				Description: d.desc, Location: d.location, Children: len(d.tables), Status: d.status,
+				FriendlyName: d.friendly, Labels: d.labels,
 			}
-			n.SyncedAt, n.Stale = s.freshness(x, p.name, d.location)
+			n.SyncedAt, n.Stale = s.datasetFreshness(x, p.name, d)
 			if u, ok := x.units[api.UnitRef{Project: p.name, Location: d.location}]; ok {
-				n.UnitStatus = u.Status
+				n.UnitStatus, n.Error = u.Status, u.Error
 			}
 			out = append(out, n)
 		}
@@ -171,6 +187,15 @@ func (s *Searcher) ShardMembers(project, dataset, family string) []api.BrowseNod
 		out[i] = s.tableNode(x, ti)
 	}
 	return out
+}
+
+// Dataset returns a dataset (its project, name and location).
+func (s *Searcher) Dataset(project, dataset string) (api.DatasetMeta, bool) {
+	d := s.Index().findDataset(project, dataset)
+	if d == nil {
+		return api.DatasetMeta{}, false
+	}
+	return api.DatasetMeta{Project: project, Name: d.name, Location: d.location}, true
 }
 
 func (x *Index) findDataset(project, dataset string) *dsEntry {

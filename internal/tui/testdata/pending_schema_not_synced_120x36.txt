@@ -1,0 +1,36 @@
+ Datasets 4/6                             │ SQL · query 1   1:1
+events                                  5 │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · tab completes
+finance                                 2 │~
+ml_features                     ⟳ syncing │~
+raw_landing                  ● not synced │~
+sales                                   4 │~
+us_archive                              1 │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+                                          │~
+ Schema · acme-prod.raw_landing           │ Results
+ acme-prod.raw_landing  dataset           │ no run yet: ctrl+r runs the buffer (or the selection), ctrl+d only estimate…
+ US · 0 tables                            │
+ ● not synced: BigQuery lists this        │
+ dataset, but no sync has read its        │
+ tables yet                               │
+ the US unit failed: transient: backend   │
+ error: region views unavailable          │
+ r syncs the project                      │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+                                          │
+ bqt exec acme-exec  layout: classic  columns  ⟳ sync 2/3 units  2 projects                      7 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · ctrl+o pane · ctrl+p cmds · ctrl+t jump · ctrl+g tutorial

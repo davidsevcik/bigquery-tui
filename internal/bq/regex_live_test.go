@@ -65,7 +65,7 @@ func TestLiveShardRegexParity(t *testing.T) {
 FROM UNNEST(@names) AS n WITH OFFSET off
 JOIN UNNEST(@res) AS r WITH OFFSET off2 ON off = off2`
 	got := map[int64]bool{}
-	err = cl.query(context.Background(), os.Getenv("BQT_LIVE_LOCATION"), sql,
+	_, err = cl.query(context.Background(), os.Getenv("BQT_LIVE_LOCATION"), sql,
 		[]bqapi.QueryParameter{{Name: "names", Value: names}, {Name: "res", Value: res}},
 		func(r []bqapi.Value) error {
 			b, _ := r[1].(bool)

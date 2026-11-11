@@ -624,6 +624,101 @@ func (c *Catalog) RecordEmptyProject(ctx context.Context, project string, at tim
 	return tx.Commit()
 }
 
+// RecordListing stores a project's dataset listing before its units sync.
+// Every listed dataset the catalog does not hold yet is inserted as pending,
+// with the listing's location, friendly name and labels and no tables; rows
+// the catalog already holds in the listed location are never touched. A
+// dataset listed in another location than its row was recreated there, so
+// its row is replaced by a pending one in the new location: otherwise the
+// old location's unit or its vanished-location removal would delete it, and
+// it would be missing until the new location's unit commits. When the
+// listing is complete (no unreachable locations), pending rows it no longer
+// returns are deleted. It reports how many rows it added and removed.
+func (c *Catalog) RecordListing(ctx context.Context, project string, listed []api.DatasetMeta, complete bool) (added, removed int, err error) {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer tx.Rollback()
+	var projectID int64
+	if len(listed) > 0 {
+		if projectID, err = ensureProject(ctx, tx, project); err != nil {
+			return 0, 0, err
+		}
+	} else {
+		err = tx.QueryRowContext(ctx, "SELECT id FROM projects WHERE name = ?", project).Scan(&projectID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, 0, nil // nothing listed, nothing held
+		}
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+	type heldRow struct {
+		status   api.DatasetStatus
+		location string
+	}
+	held := map[string]heldRow{}
+	err = eachRow(ctx, tx, func(rows *sql.Rows) error {
+		var n, s, l string
+		if err := rows.Scan(&n, &s, &l); err != nil {
+			return err
+		}
+		held[n] = heldRow{api.DatasetStatus(s), l}
+		return nil
+	}, "SELECT name, status, location FROM datasets WHERE project_id = ?", projectID)
+	if err != nil {
+		return 0, 0, err
+	}
+	seen := map[string]bool{}
+	for _, d := range listed {
+		seen[d.Name] = true
+		if h, ok := held[d.Name]; ok {
+			if h.location == d.Location {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, "DELETE FROM datasets WHERE project_id = ? AND name = ?", projectID, d.Name); err != nil {
+				return 0, 0, err
+			}
+			removed++
+		}
+		held[d.Name] = heldRow{api.DatasetPending, d.Location}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO datasets(project_id,name,name_lc,location,friendly_name,labels,status) VALUES(?,?,?,?,?,?,?)`,
+			projectID, d.Name, strings.ToLower(d.Name), d.Location, d.FriendlyName, encodeLabels(d.Labels), string(api.DatasetPending)); err != nil {
+			return 0, 0, err
+		}
+		added++
+	}
+	if complete {
+		for name, h := range held {
+			if h.status != api.DatasetPending || seen[name] {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, "DELETE FROM datasets WHERE project_id = ? AND name = ?", projectID, name); err != nil {
+				return 0, 0, err
+			}
+			removed++
+		}
+	}
+	return added, removed, tx.Commit()
+}
+
+// PendingUnits counts the pending datasets per (project, location).
+func (c *Catalog) PendingUnits(ctx context.Context) (map[api.UnitRef]int, error) {
+	out := map[api.UnitRef]int{}
+	err := eachRow(ctx, c.db, func(rows *sql.Rows) error {
+		var u api.UnitRef
+		var n int
+		if err := rows.Scan(&u.Project, &u.Location, &n); err != nil {
+			return err
+		}
+		out[u] = n
+		return nil
+	}, `SELECT p.name, d.location, COUNT(*) FROM datasets d JOIN projects p ON p.id = d.project_id
+WHERE d.status = ? GROUP BY p.name, d.location`, string(api.DatasetPending))
+	return out, err
+}
+
 // RemoveUnit deletes a unit's datasets and its state row (used when a
 // location no longer has any datasets).
 func (c *Catalog) RemoveUnit(ctx context.Context, u api.UnitRef) error {

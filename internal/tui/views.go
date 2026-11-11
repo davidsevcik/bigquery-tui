@@ -67,6 +67,41 @@ func (m *Model) health(n api.BrowseNode, long bool) (string, lipgloss.Style) {
 	return "✓ " + a, sOk
 }
 
+// pendingTag is the flag of a pending dataset (listed, its tables not synced
+// yet): syncing while this process's sync reads its unit.
+func pendingTag(syncing bool) (string, lipgloss.Style) {
+	if syncing {
+		return "⟳ syncing", sAcc
+	}
+	return "● not synced", sWarn
+}
+
+// pendingLines explain a pending dataset's empty table list in the Schema
+// pane: still syncing, or not synced and why.
+func (m *Model) pendingLines(n api.BrowseNode, add func(string, lipgloss.Style)) {
+	t, st := pendingTag(n.Syncing)
+	if n.Syncing {
+		add(t+": its tables appear when the "+n.Location+" unit commits", st)
+		return
+	}
+	add(t+": BigQuery lists this dataset, but no sync has read its tables yet", st)
+	if n.Error != "" {
+		add("the "+n.Location+" unit failed: "+n.Error, sErr)
+	} else {
+		add("the sync stopped before it reached the "+n.Location+" unit", sDim)
+	}
+	add("r syncs the project", sDim)
+}
+
+// labelText renders labels as sorted key:value pairs.
+func labelText(labels map[string]string) string {
+	ls := make([]string, 0, len(labels))
+	for k, v := range labels {
+		ls = append(ls, k+":"+v)
+	}
+	return strings.Join(sortStrings(ls), " ")
+}
+
 // tooSmall reports that the screen only says "bqt needs a larger terminal".
 func (m *Model) tooSmall() bool { return m.w < 20 || m.h < 6 }
 
@@ -149,21 +184,70 @@ func (m *Model) statusLine(w int) string {
 }
 
 func (m *Model) problemCount() int {
+	n := len(m.syncWarnings())
 	if m.status == nil {
-		return 0
+		return n
 	}
-	n := 0
 	for _, p := range m.status.Projects {
 		if !p.Selected {
 			continue // deselected: not refreshed, so its problems are not shown
 		}
+		pending := m.notSynced(p.Project)
 		for _, u := range p.Units {
-			if u.Status != api.UnitOK || u.NamesOnly > 0 || u.Inaccessible > 0 {
+			if unitProblem(u) {
 				n++
+				delete(pending, u.Location) // listed under the unit
+			}
+		}
+		n += len(pending)
+	}
+	return n
+}
+
+func unitProblem(u api.UnitState) bool {
+	return u.Status != api.UnitOK || u.NamesOnly > 0 || u.Inaccessible > 0
+}
+
+// notSynced groups a project's pending datasets that no sync is reading
+// ("not synced") by location.
+func (m *Model) notSynced(project string) map[string][]string {
+	out := map[string][]string{}
+	for _, d := range m.be.Datasets(project) {
+		if d.Status == api.DatasetPending && !d.Syncing {
+			out[d.Location] = append(out[d.Location], d.Name)
+		}
+	}
+	return out
+}
+
+// syncWarnings are the last sync's warnings that no unit shows already (an
+// incomplete dataset listing is both a warning and its project's unit error).
+func (m *Model) syncWarnings() []string {
+	shown := map[string]bool{}
+	if m.status != nil {
+		for _, p := range m.status.Projects {
+			for _, u := range p.Units {
+				if u.Error != "" {
+					shown[p.Project+": "+u.Error] = true
+				}
 			}
 		}
 	}
-	return n
+	var out []string
+	for _, w := range m.syncWarns {
+		if !shown[w] {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+// nameSample lists up to five names, then how many more.
+func nameSample(names []string) string {
+	if len(names) <= 5 {
+		return strings.Join(names, ", ")
+	}
+	return strings.Join(names[:5], ", ") + fmt.Sprintf(" and %d more", len(names)-5)
 }
 
 func (m *Model) footerLine(w int) string {
@@ -408,6 +492,9 @@ func (m *Model) nodeRow(b *rb, n api.BrowseNode) {
 			b.addR("names only ", sWarn)
 		case api.DatasetInaccessible:
 			b.addR("no access ", sErr)
+		case api.DatasetPending:
+			t, st := pendingTag(n.Syncing)
+			b.addR(t+" ", st)
 		default:
 			b.addR(format.Count(int64(n.Children))+" ", sFaint)
 		}
@@ -568,7 +655,11 @@ func (m *Model) resultRows(st *searchState, i int, selected bool, w int, expande
 	if r.Stale {
 		fresh = sWarn
 	}
-	if r.Kind != api.KindProject {
+	switch {
+	case r.Pending:
+		t, st := pendingTag(r.Syncing)
+		b.addR(t+" ", st)
+	case r.Kind != api.KindProject:
 		b.addR(ago(m.o.Now(), r.SyncedAt)+" ", fresh)
 	}
 	rows := []string{b.line(w)}
@@ -639,14 +730,24 @@ func (m *Model) schemaLines(s selection, w int) []string {
 		return out
 	case api.KindDataset:
 		add(sBold.Render(n.Path.String()) + sDim.Render("  dataset"))
+		if n.FriendlyName != "" {
+			wrapAdd(n.FriendlyName, sBase)
+		}
 		add(fmt.Sprintf("%s · %s tables", n.Location, format.Count(int64(n.Children))))
-		t, st := m.health(n, true)
-		add(st.Render(t))
+		if n.Status == api.DatasetPending {
+			m.pendingLines(n, wrapAdd)
+		} else {
+			t, st := m.health(n, true)
+			add(st.Render(t))
+		}
 		switch n.Status {
 		case api.DatasetNamesOnly:
 			wrapAdd("names only: no metadata access, so table names without columns", sWarn)
 		case api.DatasetInaccessible:
 			wrapAdd("could not be read at the last sync; showing the previous data", sErr)
+		}
+		if l := labelText(n.Labels); l != "" {
+			wrapAdd("labels "+l, sAcc)
 		}
 		wrapAdd(n.Description, sDim)
 		return out
@@ -725,11 +826,7 @@ func (m *Model) schemaLines(s selection, w int) []string {
 			add(sWarn.Render("partition filter required"))
 		}
 		if len(t.Labels) > 0 {
-			var ls []string
-			for k, v := range t.Labels {
-				ls = append(ls, k+":"+v)
-			}
-			add(sAcc.Render("labels " + strings.Join(sortStrings(ls), " ")))
+			add(sAcc.Render("labels " + labelText(t.Labels)))
 		}
 		if t.ExpiresAt != nil {
 			add(sWarn.Render("expires " + t.ExpiresAt.Format("2006-01-02 15:04 UTC")))
@@ -893,8 +990,9 @@ func (m *Model) problemLines(w int) []string {
 			if !p.Selected {
 				continue
 			}
+			pending := m.notSynced(p.Project)
 			for _, u := range p.Units {
-				if u.Status == api.UnitOK && u.NamesOnly == 0 && u.Inaccessible == 0 {
+				if !unitProblem(u) {
 					continue
 				}
 				loc := u.Location
@@ -909,9 +1007,34 @@ func (m *Model) problemLines(w int) []string {
 				for _, l := range wrap(u.Error, w-4) {
 					out = append(out, "    "+st.Render(l))
 				}
+				if names := pending[u.Location]; len(names) > 0 {
+					delete(pending, u.Location)
+					for _, l := range wrap(plural(len(names), "dataset", "datasets")+" not synced, so without tables: "+nameSample(names), w-4) {
+						out = append(out, "    "+sWarn.Render(l))
+					}
+				}
 				out = append(out, "")
 			}
+			locs := make([]string, 0, len(pending))
+			for l := range pending {
+				locs = append(locs, l)
+			}
+			for _, loc := range sortStrings(locs) {
+				names := pending[loc]
+				out = append(out, " "+sWarn.Render("⚠ ")+sBold.Render(p.Project)+sDim.Render(" / "+loc+"  not synced"))
+				for _, l := range wrap(plural(len(names), "dataset", "datasets")+" not synced, so without tables: "+nameSample(names), w-4) {
+					out = append(out, "    "+sWarn.Render(l))
+				}
+				out = append(out, "    "+sDim.Render("the sync stopped before it reached this unit"), "")
+			}
 		}
+	}
+	for _, wn := range m.syncWarnings() {
+		out = append(out, " "+sWarn.Render("⚠ ")+sBold.Render("warning")+sDim.Render("  from the last sync"))
+		for _, l := range wrap(wn, w-4) {
+			out = append(out, "    "+sWarn.Render(l))
+		}
+		out = append(out, "")
 	}
 	if len(out) == 0 {
 		out = append(out, " "+sOk.Render("no sync problems"))

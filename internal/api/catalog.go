@@ -55,6 +55,10 @@ const (
 	DatasetOK           DatasetStatus = "ok"
 	DatasetNamesOnly    DatasetStatus = "names_only"
 	DatasetInaccessible DatasetStatus = "inaccessible"
+	// DatasetPending is a dataset BigQuery lists whose unit has never
+	// committed it: it has no tables yet. Frontends show it as "syncing"
+	// while this process's sync is reading its unit, "not synced" otherwise.
+	DatasetPending DatasetStatus = "pending"
 )
 
 // DatasetMeta describes one dataset.

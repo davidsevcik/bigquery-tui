@@ -103,8 +103,12 @@ type SearchResult struct {
 	MoreColumns  int               `json:"more_columns,omitempty"`
 	Shard        *ShardFamily      `json:"shard_family,omitempty"`
 	NamesOnly    bool              `json:"names_only,omitempty"`
-	Stale        bool              `json:"stale,omitempty"`
-	SyncedAt     *time.Time        `json:"synced_at,omitempty"`
+	// Pending marks a dataset BigQuery lists whose tables no sync has read
+	// yet (DatasetPending); Syncing, that this process's sync is reading it.
+	Pending  bool       `json:"pending,omitempty"`
+	Syncing  bool       `json:"syncing,omitempty"`
+	Stale    bool       `json:"stale,omitempty"`
+	SyncedAt *time.Time `json:"synced_at,omitempty"`
 	// Selected is false for a result in a deselected (cached) project.
 	Selected bool `json:"selected"`
 }
@@ -113,7 +117,8 @@ type SearchResult struct {
 type SearchOptions struct {
 	Limit  int `json:"limit,omitempty"`
 	Offset int `json:"offset,omitempty"`
-	// TablesOnly drops project and dataset results (jump-to-table).
+	// TablesOnly drops project and dataset results (jump-to-table), except
+	// pending datasets: they have no tables yet to stand for them.
 	TablesOnly bool `json:"tables_only,omitempty"`
 	// Scope restricts results to a project or dataset (flat layout).
 	Scope *ObjectPath `json:"scope,omitempty"`
@@ -179,18 +184,24 @@ type SearchResponse struct {
 
 // BrowseNode is one row of the explorer's project / dataset / table lists.
 type BrowseNode struct {
-	Kind        ResultKind    `json:"kind"`
-	Path        ObjectPath    `json:"path"`
-	Name        string        `json:"name"`
-	Type        TableType     `json:"type,omitempty"`
-	Description string        `json:"description,omitempty"`
-	Location    string        `json:"location,omitempty"`
-	Children    int           `json:"children"`
-	Shard       *ShardFamily  `json:"shard_family,omitempty"`
-	Status      DatasetStatus `json:"status,omitempty"`
-	NamesOnly   bool          `json:"names_only,omitempty"`
-	Stale       bool          `json:"stale,omitempty"`
-	SyncedAt    *time.Time    `json:"synced_at,omitempty"`
+	Kind        ResultKind   `json:"kind"`
+	Path        ObjectPath   `json:"path"`
+	Name        string       `json:"name"`
+	Type        TableType    `json:"type,omitempty"`
+	Description string       `json:"description,omitempty"`
+	Location    string       `json:"location,omitempty"`
+	Children    int          `json:"children"`
+	Shard       *ShardFamily `json:"shard_family,omitempty"`
+	// FriendlyName and Labels are a dataset's.
+	FriendlyName string            `json:"friendly_name,omitempty"`
+	Labels       map[string]string `json:"labels,omitempty"`
+	Status       DatasetStatus     `json:"status,omitempty"`
+	// Syncing is set on a pending dataset whose unit this process's sync is
+	// reading or will read; a pending dataset without it is "not synced".
+	Syncing   bool       `json:"syncing,omitempty"`
+	NamesOnly bool       `json:"names_only,omitempty"`
+	Stale     bool       `json:"stale,omitempty"`
+	SyncedAt  *time.Time `json:"synced_at,omitempty"`
 	// UnitStatus and Error describe sync health (projects and datasets).
 	UnitStatus UnitStatus `json:"unit_status,omitempty"`
 	Error      string     `json:"error,omitempty"`

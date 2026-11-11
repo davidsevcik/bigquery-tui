@@ -1,0 +1,24 @@
+ filter ▸ typ… 6/12 · 0.0ms │ SQL · query 1   1:1
+ p: d: type: col: label: de…│ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · ta…
+ T clicks  acme-prod.…  now │~
+ T events_YYYYMMDD ×4…  now │~
+ T invoices  acme-pro…  now │~
+ T refunds  acme-prod…  now │~
+ D ml_features …  ⟳ syncing │~
+▌D raw_landi…  ● not synced │~
+ T customers  acme-pr…  now │~
+ T order_items  acme-…  now │~
+ T orders  acme-prod.…  now │~
+ V v_orders  acme-pro…  now │ Results
+ T orders_2019  acme-p…  3h │ no run yet: ctrl+r runs the buffer (or the select…
+ T orders  acme-stagin…  3h │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+ bqt exec acme-exec  layout: classic (small terminal)  … 7 datasets · 13 tables
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · ctrl+o pane · ctrl+p…

@@ -157,12 +157,12 @@ func (g *group) run(name, sql string, fn func(r []bqapi.Value)) {
 	g.g.Go(func() error {
 		start := time.Now()
 		n := 0
-		err := g.c.query(g.ctx, g.location, sql, g.params, func(r []bqapi.Value) error {
+		read, err := g.c.query(g.ctx, g.location, sql, g.params, func(r []bqapi.Value) error {
 			fn(r)
 			n++
 			return nil
 		})
-		g.c.log.Debug("information_schema query", "view", name, "location", g.location, "rows", n, "took", time.Since(start).Round(time.Millisecond), "err", err)
+		g.c.log.Debug("information_schema query", "view", name, "location", g.location, "read", read, "rows", n, "took", time.Since(start).Round(time.Millisecond), "err", err)
 		return err
 	})
 }

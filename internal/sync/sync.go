@@ -103,6 +103,8 @@ type run struct {
 	states []api.UnitState
 	failed map[api.UnitRef]bool
 	warns  []string
+	// clientWarns are the bq.Warn messages already added.
+	clientWarns map[string]bool
 }
 
 func (r *run) event(e api.SyncEvent) {
@@ -137,10 +139,29 @@ func (r *run) finishUnit(st api.UnitState, kind api.SyncEventKind) {
 }
 
 func (r *run) warn(project, msg string) {
+	line := msg
+	if project != "" {
+		line = project + ": " + msg
+	}
 	r.mu.Lock()
-	r.warns = append(r.warns, project+": "+msg)
+	r.warns = append(r.warns, line)
 	r.mu.Unlock()
 	r.event(api.SyncEvent{Kind: api.EventWarning, Project: project, Message: msg})
+}
+
+// clientWarn adds a warning the BigQuery client reported (bq.Warn) once per
+// run, however many queries report it.
+func (r *run) clientWarn(msg string) {
+	r.mu.Lock()
+	seen := r.clientWarns[msg]
+	if r.clientWarns == nil {
+		r.clientWarns = map[string]bool{}
+	}
+	r.clientWarns[msg] = true
+	r.mu.Unlock()
+	if !seen {
+		r.warn("", msg)
+	}
 }
 
 // Run syncs the scope and emits structured events. It returns early with
@@ -157,6 +178,7 @@ func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.Syn
 		}
 	}
 	r := &run{s: s, emit: emit}
+	ctx = bq.WithWarnings(ctx, r.clientWarn)
 	msg := fmt.Sprintf("%d project(s)", len(projects))
 	if scope.Table != nil {
 		msg = "table " + scope.Table.String()
@@ -231,7 +253,11 @@ func (s *Syncer) syncProjects(ctx context.Context, projects []string, r *run) {
 	r.mu.Lock()
 	r.total = len(jobs) + len(failed)
 	r.mu.Unlock()
-	r.event(api.SyncEvent{Kind: api.EventDiscovered, Message: fmt.Sprintf("%d unit(s)", len(jobs))})
+	refs := make([]api.UnitRef, len(jobs))
+	for i, j := range jobs {
+		refs[i] = j.ref
+	}
+	r.event(api.SyncEvent{Kind: api.EventDiscovered, Message: fmt.Sprintf("%d unit(s)", len(jobs)), Units: refs})
 	for _, st := range failed {
 		r.finishUnit(st, api.EventUnitFailed)
 	}
@@ -303,11 +329,19 @@ func (s *Syncer) discover(ctx context.Context, project string, r *run) discovery
 	}
 
 	byLoc := map[string][]api.DatasetMeta{}
+	var listed []api.DatasetMeta
 	for _, ds := range list.Datasets {
 		if s.o.Config.Matcher().Ignored(project, ds.Name, "") {
 			continue
 		}
 		byLoc[ds.Location] = append(byLoc[ds.Location], ds)
+		listed = append(listed, ds)
+	}
+	// The listed datasets show at once, as pending until their unit commits
+	// (a large unit can take many minutes). An incomplete listing removes
+	// nothing, like the vanished-location check below.
+	if _, _, err := s.o.Catalog.RecordListing(ctx, project, listed, len(list.Unreachable) == 0); err != nil && ctx.Err() == nil {
+		s.o.Log.Error("record dataset listing", "project", project, "err", err)
 	}
 	locs := make([]string, 0, len(byLoc))
 	for l := range byLoc {
