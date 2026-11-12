@@ -43,8 +43,10 @@ type DoctorReport struct {
 	DataDir     string `json:"data_dir,omitempty"`
 	LogPath     string `json:"log_path,omitempty"`
 	// LogMissing is set when no file is at LogPath (nothing ran with this data dir yet).
-	LogMissing bool   `json:"log_missing,omitempty"`
-	Execution  string `json:"execution_project,omitempty"`
+	LogMissing bool `json:"log_missing,omitempty"`
+	// LogError says why LogPath could not be checked (a permission error).
+	LogError  string `json:"log_error,omitempty"`
+	Execution string `json:"execution_project,omitempty"`
 	// ExecutionSource says where Execution comes from (api.ExecutionSource).
 	ExecutionSource ExecutionSource `json:"execution_source,omitempty"`
 	// Projects counts the Selected projects.

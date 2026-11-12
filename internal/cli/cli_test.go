@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -407,6 +409,21 @@ func TestDoctor(t *testing.T) {
 	_, out, _ = s.run("doctor")
 	if rep := decode(t, out).Data.(map[string]any); rep["log_missing"] != true {
 		t.Fatalf("a missing log file is reported: %v", rep)
+	}
+	// a log directory bqt may not enter is an error, not a missing file
+	logDir := filepath.Dir(logPath)
+	if err := os.Chmod(logDir, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(logDir, 0o700) })
+	if _, err := os.Stat(logPath); errors.Is(err, fs.ErrPermission) {
+		_, out, _ = s.run("doctor")
+		if rep := decode(t, out).Data.(map[string]any); rep["log_missing"] != nil || rep["log_error"] == nil {
+			t.Fatalf("an unreadable log directory is reported as such: %v", rep)
+		}
+	}
+	if err := os.Chmod(logDir, 0o700); err != nil {
+		t.Fatal(err)
 	}
 
 	// a broken config does not stop doctor from reporting

@@ -123,3 +123,21 @@ func TestStartRecord(t *testing.T) {
 		t.Fatalf("the start record reached stderr: %q", stderr.String())
 	}
 }
+
+// A log file that cannot be written does not stop the command (#92 review:
+// read-only commands on a read-only data_dir must still work).
+func TestUnwritableLogFileIsNotFatal(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "logs")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, FileName), nil, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	l, closeFn, err := New(Options{Dir: dir, Level: "info", Command: "tui"})
+	if err != nil {
+		t.Fatalf("an unwritable log file stopped the command: %v", err)
+	}
+	l.Info("lost")
+	_ = closeFn()
+}

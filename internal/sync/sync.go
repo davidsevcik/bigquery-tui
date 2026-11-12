@@ -105,6 +105,8 @@ type run struct {
 	warns  []string
 	// clientWarns are the bq.Warn messages already added.
 	clientWarns map[string]bool
+	// started holds when each unit in progress started, for its log record.
+	started map[api.UnitRef]time.Time
 }
 
 func (r *run) event(e api.SyncEvent) {
@@ -139,15 +141,35 @@ func (r *run) finishUnit(st api.UnitState, kind api.SyncEventKind) {
 	}
 }
 
-// logUnit writes one record per finished unit: what it stored and how long
-// it took, at warn when it failed.
-func (r *run) logUnit(st api.UnitState, kind api.SyncEventKind) {
-	args := []any{
-		"project", st.Project, "location", st.Location, "status", st.Status,
-		"datasets", st.Datasets, "tables", st.Tables, "names_only", st.NamesOnly, "inaccessible", st.Inaccessible,
+// startUnit logs a unit's start; what names it beyond project and location
+// (a dataset count, or the table of a single-table sync).
+func (r *run) startUnit(ref api.UnitRef, what ...any) {
+	r.mu.Lock()
+	if r.started == nil {
+		r.started = map[api.UnitRef]time.Time{}
 	}
-	if st.LastAttempt != nil {
-		args = append(args, "took", r.s.o.Now().Sub(*st.LastAttempt).Round(time.Millisecond))
+	r.started[ref] = r.s.o.Now()
+	r.mu.Unlock()
+	r.s.o.Log.Info("sync unit started", append([]any{"project", ref.Project, "location", ref.Location}, what...)...)
+}
+
+// logUnit writes one record per finished unit: what it stored and how long
+// it took since startUnit, at warn when it failed. A project whose discovery
+// failed never started a unit, so its record says so and has no duration.
+func (r *run) logUnit(st api.UnitState, kind api.SyncEventKind) {
+	args := []any{"project", st.Project}
+	if st.Location == "" {
+		r.s.o.Log.Warn("sync discovery failed", append(args, "status", st.Status, "err", st.Error)...)
+		return
+	}
+	args = append(args, "location", st.Location, "status", st.Status,
+		"datasets", st.Datasets, "tables", st.Tables, "names_only", st.NamesOnly, "inaccessible", st.Inaccessible)
+	r.mu.Lock()
+	start, ok := r.started[st.UnitRef]
+	delete(r.started, st.UnitRef)
+	r.mu.Unlock()
+	if ok {
+		args = append(args, "took", r.s.o.Now().Sub(start).Round(time.Millisecond))
 	}
 	if st.Error != "" {
 		args = append(args, "err", st.Error)
@@ -157,6 +179,28 @@ func (r *run) logUnit(st api.UnitState, kind api.SyncEventKind) {
 		return
 	}
 	r.s.o.Log.Info("sync unit done", args...)
+}
+
+// logUnfinished ends the record of every unit a cancel stopped: such a unit
+// stores nothing and keeps its old rows.
+func (r *run) logUnfinished() {
+	r.mu.Lock()
+	refs := make([]api.UnitRef, 0, len(r.started))
+	for ref := range r.started {
+		refs = append(refs, ref)
+	}
+	r.mu.Unlock()
+	sort.Slice(refs, func(i, j int) bool {
+		return refs[i].Project+"\x00"+refs[i].Location < refs[j].Project+"\x00"+refs[j].Location
+	})
+	for _, ref := range refs {
+		r.mu.Lock()
+		start := r.started[ref]
+		delete(r.started, ref)
+		r.mu.Unlock()
+		r.s.o.Log.Info("sync unit cancelled", "project", ref.Project, "location", ref.Location,
+			"took", r.s.o.Now().Sub(start).Round(time.Millisecond))
+	}
 }
 
 func (r *run) warn(project, msg string) {
@@ -225,6 +269,7 @@ func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.Syn
 		s.syncProjects(ctx, projects, r)
 	}
 
+	r.logUnfinished()
 	res.Finished = s.o.Now()
 	res.Cancelled = ctx.Err() != nil
 	res.UnitsTotal = r.total
@@ -416,7 +461,7 @@ func (s *Syncer) processUnit(ctx context.Context, job unitJob, r *run) {
 		names[i] = d.Name
 	}
 	r.event(api.SyncEvent{Kind: api.EventUnitStarted, Project: job.ref.Project, Location: job.ref.Location, Datasets: len(names)})
-	s.o.Log.Info("sync unit started", "project", job.ref.Project, "location", job.ref.Location, "datasets", len(names))
+	r.startUnit(job.ref, "datasets", len(names))
 
 	marks := s.ownSchemaMarks(ctx, job.ref)
 	req := bq.RegionRequest{Project: job.ref.Project, Location: job.ref.Location, Datasets: names}

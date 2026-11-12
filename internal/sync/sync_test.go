@@ -54,6 +54,7 @@ type harness struct {
 	cfg      *config.Config
 	now      time.Time
 	events   []api.SyncEvent
+	logs     *logBuf
 }
 
 func newHarness(t *testing.T, cfgExtra string) *harness {
@@ -64,7 +65,7 @@ func newHarness(t *testing.T, cfgExtra string) *harness {
 	}
 	t.Cleanup(func() { cat.Close() })
 	selected, _ := splitProjects(cfgExtra)
-	return &harness{t: t, selected: selected, fake: bqtest.New(), cat: cat, cfg: cfgFrom(t, cfgExtra), now: time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)}
+	return &harness{t: t, selected: selected, fake: bqtest.New(), cat: cat, cfg: cfgFrom(t, cfgExtra), now: time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC), logs: &logBuf{}}
 }
 
 func (h *harness) syncer() *Syncer {
@@ -72,6 +73,7 @@ func (h *harness) syncer() *Syncer {
 		Config: h.cfg, Selected: h.selected, Meta: h.fake, Catalog: h.cat,
 		Now:     func() time.Time { return h.now },
 		Backoff: func(int) time.Duration { return 0 },
+		Log:     h.logs.logger(),
 	})
 }
 

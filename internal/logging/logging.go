@@ -63,12 +63,13 @@ func New(o Options) (*slog.Logger, func() error, error) {
 		}
 		path := filepath.Join(o.Dir, FileName)
 		// lumberjack opens the file on its first write; create it now, so the
-		// path `bqt doctor` reports exists even when nothing reaches the level
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-		if err != nil {
-			return nil, nil, fmt.Errorf("create log file: %w", err)
+		// path `bqt doctor` reports exists even when nothing reaches the level.
+		// A file that cannot be written (a read-only mount) does not stop the
+		// command: its records are lost, as they were before (`bqt doctor`
+		// reports the file).
+		if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
+			_ = f.Close() // only created, nothing written
 		}
-		_ = f.Close() // only created, nothing written
 		lj := &lumberjack.Logger{Filename: path, MaxSize: 5, MaxBackups: 3}
 		handlers = append(handlers, slog.NewJSONHandler(lj, &slog.HandlerOptions{Level: level}))
 		closeFn = lj.Close
