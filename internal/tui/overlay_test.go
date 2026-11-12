@@ -123,6 +123,55 @@ func TestRunListCancelsTheSelectedRun(t *testing.T) {
 	}
 }
 
+// The billed warning follows each Run's own pricing, not the model the
+// latest dry-run taught: an on-demand Run started before a capacity one
+// still warns, and the capacity one does not.
+func TestRunListCancelWarnsPerRunPricing(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	block := make(chan struct{})
+	defer close(block)
+	r.fake.OnQuery = func(sql string) bqtest.QueryScript {
+		s := bqtest.Numbers(1)
+		s.Block = block
+		if strings.Contains(sql, "capacity") {
+			s.ReservationID, s.Edition = "admin:EU.res", "STANDARD"
+		}
+		return s
+	}
+	r.typeText("select 'on demand'")
+	r.press("ctrl+r", "ctrl+x", "n")
+	r.typeText("select 'capacity'")
+	r.press("ctrl+r")
+	cancel := func(id int64) string {
+		t.Helper()
+		r.press("ctrl+x", "l")
+		for i, info := range r.m.runs.List() {
+			if info.ID == id {
+				r.m.ovSel = i
+			}
+		}
+		r.press("c")
+		toast := r.m.toast
+		r.press("esc")
+		return toast
+	}
+	if got := cancel(1); got != "cancel requested for run #1 (it may still be billed)" {
+		t.Errorf("on-demand Run: %q", got)
+	}
+	if got := cancel(2); got != "cancel requested for run #2" {
+		t.Errorf("capacity Run: %q", got)
+	}
+	// the same rule picks the Results line of a cancel BigQuery has not confirmed
+	for _, c := range []struct {
+		est  *api.Estimate
+		want bool
+	}{{nil, true}, {&api.Estimate{}, true}, {&api.Estimate{Capacity: true}, false}} {
+		if got := mayBeBilled(api.RunInfo{Estimate: c.est}); got != c.want {
+			t.Errorf("mayBeBilled(%+v) = %v", c.est, got)
+		}
+	}
+}
+
 // c in the run list on a Run that has finished cancels nothing and says so.
 func TestRunListDoesNotCancelAFinishedRun(t *testing.T) {
 	r := editorRig(t, 120, 30)

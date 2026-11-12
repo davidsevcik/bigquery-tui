@@ -910,15 +910,21 @@ func (m *Model) cancelFocused() bool {
 	return true
 }
 
-// requestCancel cancels a Run that has not finished and says so; under
-// on-demand pricing it warns that the query may still be billed.
+// requestCancel cancels a Run that has not finished and says so. Unless the
+// Run's own dry-run put it on a reservation, it warns that the query may still
+// be billed: pricing is per Run (spec 10.2), and an unknown model counts as
+// on-demand.
 func (m *Model) requestCancel(id int64) {
 	m.runs.Cancel(id)
 	m.toast = fmt.Sprintf("cancel requested for run #%d", id)
-	if !m.runs.Pricing().Capacity {
+	if r, ok := m.runs.Info(id); !ok || mayBeBilled(r) {
 		m.toast += " (it may still be billed)"
 	}
 }
+
+// mayBeBilled reports whether a Run is on-demand by its own dry-run, or of
+// unknown pricing, which counts as on-demand (spec 10.2).
+func mayBeBilled(r api.RunInfo) bool { return r.Estimate == nil || !r.Estimate.Capacity }
 
 // --- external editor
 

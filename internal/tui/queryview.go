@@ -212,7 +212,7 @@ func (m *Model) resultsPane(w, h int) []string {
 	case !r.State.Finished():
 		line := stateWord(r)
 		switch {
-		case r.CancelRequested && !m.runs.Pricing().Capacity:
+		case r.CancelRequested && mayBeBilled(r):
 			line = "cancel requested: waiting for BigQuery to confirm (the query may still be billed)"
 		case r.CancelRequested:
 			line = "cancel requested: waiting for BigQuery to confirm"
@@ -375,12 +375,15 @@ func (m *Model) confirmBox(bw int) []string {
 			lines = append(lines, " "+wl)
 		}
 	}
-	lines = append(lines, "", " "+confirmFooter(m.confirm.kind))
+	lines = append(lines, "")
+	lines = append(lines, confirmFooter(m.confirm.kind, bw-2)...)
 	return popup("Confirm", lines, bw)
 }
 
-// confirmFooter names what each answer to a Confirm question does.
-func confirmFooter(kind string) string {
+// confirmFooter names what each answer to a Confirm question does, in rows
+// of at most w cells: an answer that does not fit moves to the next row
+// whole, so a narrow box never cuts one off.
+func confirmFooter(kind string, w int) []string {
 	key := func(k, does string) string { return sKey.Render(k) + sDim.Render(does) }
 	yes := map[string]string{
 		"run":       "run it",
@@ -389,12 +392,26 @@ func confirmFooter(kind string) string {
 		"favdelete": "delete",
 		"load":      "replace",
 	}[kind]
+	answers := []string{key("y", " / enter  "+yes), key("n", " / esc  cancel")}
 	if kind == "load" {
-		// n opens the pick in a new buffer instead (answerLoad); narrower
-		// gaps keep the three answers inside the 50 cells of a 60-column box
-		return key("y", " / enter  "+yes+"   ") + key("n", "  new buffer   ") + key("esc", "  cancel")
+		// n opens the pick in a new buffer instead (answerLoad)
+		answers = []string{key("y", " / enter  "+yes), key("n", "  new buffer"), key("esc", "  cancel")}
 	}
-	return key("y", " / enter  "+yes+"     ") + key("n", " / esc  cancel")
+	const gap = "   "
+	var rows []string
+	row := ""
+	for _, a := range answers {
+		if row != "" && wid(row)+len(gap)+wid(a) > w {
+			rows = append(rows, row)
+			row = ""
+		}
+		if row == "" {
+			row = " " + a
+		} else {
+			row += gap + a
+		}
+	}
+	return append(rows, row)
 }
 
 // runsLines are the run list's rows, the cursor on row sel.

@@ -399,10 +399,41 @@ func TestConfirmFooterNamesTheAction(t *testing.T) {
 	r.contains("y / enter  replace   n  new buffer   esc  cancel")
 	r.lacks("run it")
 	for _, kind := range []string{"run", "quit", "closebuf", "favdelete", "load"} {
-		if f := ansi.Strip(confirmFooter(kind)); strings.Contains(f, "enter     ") {
+		f := ansi.Strip(strings.Join(confirmFooter(kind, 100), "\n"))
+		if i := strings.Index(f, "enter  "); i < 0 || len(f) == i+7 || f[i+7] == ' ' {
 			t.Errorf("the %s question has no label for y: %q", kind, f)
 		}
 	}
+}
+
+// At the narrowest box (30 columns, 28 inside) every answer stays whole:
+// the footer wraps by answer instead of cutting the last one off.
+func TestConfirmFooterWrapsInANarrowBox(t *testing.T) {
+	for _, kind := range []string{"run", "quit", "closebuf", "favdelete", "load"} {
+		for _, w := range []int{28, 40, 50} {
+			rows := confirmFooter(kind, w)
+			for _, row := range rows {
+				if wid(row) > w {
+					t.Errorf("%s at %d: row %q is %d cells", kind, w, ansi.Strip(row), wid(row))
+				}
+			}
+			f := ansi.Strip(strings.Join(rows, " "))
+			want := []string{"y / enter", "cancel"}
+			if kind == "load" {
+				want = append(want, "n  new buffer", "esc  cancel")
+			}
+			for _, s := range want {
+				if !strings.Contains(f, s) {
+					t.Errorf("%s at %d lost %q: %q", kind, w, s, f)
+				}
+			}
+		}
+	}
+	r := editorRig(t, 50, 24)
+	r.writeFav("dau.sql", "select 1\n")
+	r.typeText("select 2")
+	r.press("ctrl+x", "f", "enter")
+	r.contains("y / enter  replace", "n  new buffer", "esc  cancel")
 }
 
 // Tabs in a favorite's or History entry's text never reach the terminal,
