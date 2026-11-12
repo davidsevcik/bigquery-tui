@@ -178,7 +178,13 @@ func printDoctor(w io.Writer, r api.DoctorReport, withHint bool) {
 			exec += " (" + string(r.ExecutionSource) + ")"
 		}
 		fmt.Fprintf(w, "execution project: %s, %d project(s) selected\n", exec, r.Projects)
-		fmt.Fprintf(w, "data dir: %s\nlog file: %s\n", r.DataDir, r.LogPath)
+		logStatus := r.LogPath
+		if r.LogPath != "" {
+			if _, err := os.Stat(r.LogPath); err != nil {
+				logStatus += " (missing)"
+			}
+		}
+		fmt.Fprintf(w, "data dir: %s\nlog file: %s\n", r.DataDir, logStatus)
 		if r.Catalog.Exists {
 			age := "never synced"
 			if r.Catalog.LastSync != nil {

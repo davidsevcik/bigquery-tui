@@ -70,6 +70,19 @@ func TestNoSinksIsSilent(t *testing.T) {
 	l.Error("nobody hears this")
 }
 
+func TestNewCreatesFileBeforeAnyWrite(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "logs")
+	logPath := filepath.Join(dir, FileName)
+	_, closeFn, err := New(Options{Dir: dir, Level: "info"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeFn()
+	if _, err := os.Stat(logPath); err != nil {
+		t.Fatalf("expected log file to exist immediately after New: %v", err)
+	}
+}
+
 func TestParseLevel(t *testing.T) {
 	for in, ok := range map[string]bool{"": true, "debug": true, "INFO": true, "warn": true, "error": true, "loud": false} {
 		_, err := ParseLevel(in)

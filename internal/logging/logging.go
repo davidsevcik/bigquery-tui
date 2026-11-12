@@ -56,7 +56,13 @@ func New(o Options) (*slog.Logger, func() error, error) {
 		if err := os.MkdirAll(o.Dir, 0o700); err != nil {
 			return nil, nil, fmt.Errorf("create log dir: %w", err)
 		}
-		lj := &lumberjack.Logger{Filename: filepath.Join(o.Dir, FileName), MaxSize: 5, MaxBackups: 3}
+		logPath := filepath.Join(o.Dir, FileName)
+		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return nil, nil, fmt.Errorf("create log file: %w", err)
+		}
+		_ = f.Close()
+		lj := &lumberjack.Logger{Filename: logPath, MaxSize: 5, MaxBackups: 3}
 		handlers = append(handlers, slog.NewJSONHandler(lj, &slog.HandlerOptions{Level: level}))
 		closeFn = lj.Close
 	}

@@ -402,6 +402,32 @@ func TestDoctor(t *testing.T) {
 	}
 }
 
+func TestPrintDoctorMissingLogFile(t *testing.T) {
+	var buf bytes.Buffer
+	dir := t.TempDir()
+	rep := api.DoctorReport{
+		ConfigOK: true,
+		DataDir:  dir,
+		LogPath:  filepath.Join(dir, "logs", "bqt.log"),
+	}
+	printDoctor(&buf, rep, false)
+	if !strings.Contains(buf.String(), "bqt.log (missing)") {
+		t.Fatalf("expected '(missing)' in doctor output when log file does not exist, got:\n%s", buf.String())
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "logs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rep.LogPath, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	printDoctor(&buf, rep, false)
+	if strings.Contains(buf.String(), "(missing)") {
+		t.Fatalf("did not expect '(missing)' once log file exists, got:\n%s", buf.String())
+	}
+}
+
 func TestFlagOverridesConfig(t *testing.T) {
 	s := newSandbox(t)
 	s.writeConfig("projects = [\"proj-a\"]\n")
