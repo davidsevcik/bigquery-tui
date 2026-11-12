@@ -156,7 +156,7 @@ Favorites are plain `.sql` files in `favorites_dir` with no persistent index.
 
 ### 6.1 Common
 
-Both SQLite files use `modernc.org/sqlite`, WAL, `busy_timeout`, `synchronous=NORMAL`, and carry `PRAGMA user_version`.
+Both SQLite files use `modernc.org/sqlite`, WAL, `busy_timeout`, `synchronous=NORMAL`, and carry `PRAGMA user_version`. Writers also set `journal_size_limit` (64 MiB), and the catalog checkpoints with `TRUNCATE` after each sync unit commits, because a unit is one transaction and would otherwise leave a WAL as large as the largest unit. That checkpoint never waits: if a reader is still in the WAL (another process, or a pooled connection), it gives up at once and retries every 2 s in the background (for up to 10 minutes, or until the catalog closes), so a sync never holds the write lock waiting for readers.
 
 ### 6.2 Catalog
 

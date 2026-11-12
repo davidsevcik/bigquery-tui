@@ -129,6 +129,8 @@ type Catalog struct {
 	// missing lists the added tables columns a read-only file predates:
 	// the readers select their defaults instead (see tcol).
 	missing map[string]bool
+	// trim retries a WAL truncation that a reader blocked (trimWAL).
+	trim walTrimmer
 }
 
 // OpenCatalog opens (creating if needed) the catalog for writing. A schema
@@ -281,7 +283,10 @@ func (c *Catalog) Path() string { return c.path }
 func (c *Catalog) DB() *sql.DB { return c.db }
 
 // Close closes the database.
-func (c *Catalog) Close() error { return c.db.Close() }
+func (c *Catalog) Close() error {
+	c.trim.stop()
+	return c.db.Close()
+}
 
 // Meta reads a meta value.
 func (c *Catalog) Meta(ctx context.Context, key string) (string, bool, error) {
@@ -423,7 +428,23 @@ func (c *Catalog) ApplyUnit(ctx context.Context, req ApplyRequest) (ApplyStats, 
 	if err := upsertUnit(ctx, tx, state); err != nil {
 		return st, err
 	}
-	return st, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return st, err
+	}
+	c.trimWAL(ctx)
+	return st, nil
+}
+
+// trimWAL checkpoints the WAL and truncates it, so a large unit does not
+// leave a WAL file of its size behind while the process keeps running (#91).
+// It never waits: a reader still in the WAL (another pooled connection, or
+// the TUI, CLI or MCP process) makes it give up at once instead of holding
+// the write lock for busy_timeout, and it then retries in the background
+// until the WAL is truncated or the catalog closes.
+func (c *Catalog) trimWAL(ctx context.Context) {
+	if done, _ := truncateWAL(ctx, c.db); !done {
+		c.trim.retry(ctx, c.db)
+	}
 }
 
 func ensureProject(ctx context.Context, tx *sql.Tx, name string) (int64, error) {
