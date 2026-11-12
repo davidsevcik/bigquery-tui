@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -176,3 +177,42 @@ func TestFanoutReachesEveryHandler(t *testing.T) {
 type failWriter struct{}
 
 func (failWriter) Write([]byte) (int, error) { return 0, os.ErrPermission }
+
+// A log directory and file an older bqt left readable to others are
+// tightened, and the old records stay.
+func TestNewTightensExistingModes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no Unix modes")
+	}
+	dir := filepath.Join(t.TempDir(), "logs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil { // past the umask
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, FileName)
+	if err := os.WriteFile(path, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, closeFn, err := New(Options{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = closeFn() })
+	for p, want := range map[string]os.FileMode{dir: 0o700, path: 0o600} {
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fi.Mode().Perm(); got != want {
+			t.Errorf("%s: mode %o, want %o", p, got, want)
+		}
+	}
+	if b, _ := os.ReadFile(path); string(b) != "old\n" {
+		t.Errorf("existing log changed: %q", b)
+	}
+}
