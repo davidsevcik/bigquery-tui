@@ -375,15 +375,26 @@ func (m *Model) confirmBox(bw int) []string {
 			lines = append(lines, " "+wl)
 		}
 	}
-	yes := "run it"
-	switch m.confirm.kind {
-	case "quit":
-		yes = "quit"
-	case "closebuf":
-		yes = "discard"
-	}
-	lines = append(lines, "", " "+sKey.Render("y")+sDim.Render(" / enter  "+yes+"     ")+sKey.Render("n")+sDim.Render(" / esc  cancel"))
+	lines = append(lines, "", " "+confirmFooter(m.confirm.kind))
 	return popup("Confirm", lines, bw)
+}
+
+// confirmFooter names what each answer to a Confirm question does.
+func confirmFooter(kind string) string {
+	key := func(k, does string) string { return sKey.Render(k) + sDim.Render(does) }
+	yes := map[string]string{
+		"run":       "run it",
+		"quit":      "quit",
+		"closebuf":  "discard",
+		"favdelete": "delete",
+		"load":      "replace",
+	}[kind]
+	if kind == "load" {
+		// n opens the pick in a new buffer instead (answerLoad); narrower
+		// gaps keep the three answers inside the 50 cells of a 60-column box
+		return key("y", " / enter  "+yes+"   ") + key("n", "  new buffer   ") + key("esc", "  cancel")
+	}
+	return key("y", " / enter  "+yes+"     ") + key("n", " / esc  cancel")
 }
 
 // runsLines are the run list's rows, the cursor on row sel.
