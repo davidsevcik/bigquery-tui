@@ -16,6 +16,9 @@ var (
 	walRetryFor   = 10 * time.Minute
 )
 
+// walCheckpoint is the attempt the retry loop makes (a test replaces it).
+var walCheckpoint = truncateWAL
+
 // truncateWAL runs one wal_checkpoint(TRUNCATE) without waiting on locks:
 // done is false when a reader or a writer was in the way (SQLite then
 // reports busy=1, or SQLITE_BUSY for the write lock).
@@ -90,7 +93,7 @@ func (t *walTrimmer) retry(ctx context.Context, db *sql.DB) {
 			t.mu.Lock()
 			t.pending = false
 			t.mu.Unlock()
-			done, err := truncateWAL(wctx, db)
+			done, err := walCheckpoint(wctx, db)
 			if (done || err != nil) && t.finishUnlessPending() {
 				return
 			}

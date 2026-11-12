@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -209,15 +210,43 @@ func TestCloseStopsARetryWaitingForAConnection(t *testing.T) {
 // A request that comes in while a retry is under way is not lost when that
 // retry succeeds: the loop runs again.
 func TestRetryKeepsARequestMadeDuringAnAttempt(t *testing.T) {
-	var tr walTrimmer
-	tr.running, tr.pending = true, false
-	tr.mu.Lock()
-	tr.pending = true // what retry() does while the loop is running
-	tr.mu.Unlock()
-	if tr.finishUnlessPending() {
-		t.Fatal("the loop ended with a request still pending")
+	oldEvery, oldCheckpoint := walRetryEvery, walCheckpoint
+	walRetryEvery = time.Millisecond
+	t.Cleanup(func() { walRetryEvery, walCheckpoint = oldEvery, oldCheckpoint })
+	attempts := make(chan chan bool)
+	walCheckpoint = func(context.Context, *sql.DB) (bool, error) {
+		reply := make(chan bool)
+		attempts <- reply
+		return <-reply, nil
 	}
-	if !tr.running {
-		t.Fatal("the loop must keep running")
+	var tr walTrimmer
+	defer tr.stop()
+	tr.retry(ctx, nil)
+	first := <-attempts
+	tr.retry(ctx, nil) // a unit blocked again while the first attempt runs
+	first <- true      // and that attempt succeeds
+	select {
+	case second := <-attempts:
+		second <- true
+	case <-time.After(2 * time.Second):
+		t.Fatal("the request made during the attempt was lost")
+	}
+}
+
+// The connection a truncation used goes back to the pool with the DSN's
+// busy_timeout, not the 0 the checkpoint ran with.
+func TestTruncationRestoresBusyTimeout(t *testing.T) {
+	c, err := OpenCatalog(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.db.SetMaxOpenConns(1) // the next query reuses the same connection
+	if _, err := truncateWAL(ctx, c.db); err != nil {
+		t.Fatal(err)
+	}
+	var ms int
+	if err := c.db.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&ms); err != nil || ms != busyTimeoutMs {
+		t.Fatalf("busy_timeout %d after a truncation, want %d (%v)", ms, busyTimeoutMs, err)
 	}
 }
