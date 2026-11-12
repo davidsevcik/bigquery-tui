@@ -14,9 +14,19 @@ import (
 
 // SQLite result codes we react to.
 const (
+	sqliteBusy    = 5
 	sqliteCorrupt = 11
 	sqliteNotADB  = 26
 )
+
+// busyTimeoutMs is how long a connection waits for a lock.
+const busyTimeoutMs = 5000
+
+// isBusy reports whether err is SQLITE_BUSY.
+func isBusy(err error) bool {
+	var se *sqlite.Error
+	return errors.As(err, &se) && se.Code()&0xff == sqliteBusy
+}
 
 // walSizeLimit is the size the WAL file is cut back to once it has been
 // checkpointed (journal_size_limit). A sync unit is one transaction, so
@@ -25,7 +35,7 @@ var walSizeLimit = 64 << 20
 
 func dsn(path string, readOnly bool) string {
 	q := url.Values{}
-	q.Add("_pragma", "busy_timeout(5000)")
+	q.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", busyTimeoutMs))
 	q.Add("_pragma", "foreign_keys(ON)")
 	if !readOnly {
 		q.Add("_pragma", "journal_mode(WAL)")
