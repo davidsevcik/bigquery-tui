@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/engine"
 	"github.com/davidsevcik/bigquery-tui/internal/logging"
 	"github.com/davidsevcik/bigquery-tui/internal/store"
+	"github.com/davidsevcik/bigquery-tui/internal/version"
 )
 
 type stringList []string
@@ -25,7 +27,7 @@ func load(env Env, g *globals) (*config.Config, error) {
 }
 
 // The returned function closes the log file. A failed close at exit has nobody to tell, so it is dropped.
-func newLogger(env Env, g *globals, cfg *config.Config) (func(), *engineLog, error) {
+func newLogger(env Env, g *globals, cfg *config.Config, command string) (func(), *engineLog, error) {
 	level := g.logLevel
 	if level == "" {
 		level = env.Getenv("BQT_LOG")
@@ -38,7 +40,17 @@ func newLogger(env Env, g *globals, cfg *config.Config) (func(), *engineLog, err
 	if err != nil {
 		return nil, nil, usageErr("%v", err)
 	}
+	logStart(l, command, cfg.DataDir, level)
 	return func() { _ = closeFn() }, &engineLog{l}, nil
+}
+
+// logStart writes the record every logged command starts with, so the log
+// says which bqt wrote what follows (#92).
+func logStart(l *slog.Logger, command, dataDir, level string) {
+	if level == "" {
+		level = "info"
+	}
+	l.Info("bqt started", "command", command, "version", version.String(), "data_dir", dataDir, "level", level)
 }
 
 func cmdSync(ctx context.Context, o *out, g *globals, args []string) (int, error) {
@@ -57,7 +69,7 @@ func cmdSync(ctx context.Context, o *out, g *globals, args []string) (int, error
 	if err != nil {
 		return 0, err
 	}
-	closeLog, log, err := newLogger(env, g, cfg)
+	closeLog, log, err := newLogger(env, g, cfg, "sync")
 	if err != nil {
 		return 0, err
 	}

@@ -42,7 +42,11 @@ type DoctorReport struct {
 	ConfigError string `json:"config_error,omitempty"`
 	DataDir     string `json:"data_dir,omitempty"`
 	LogPath     string `json:"log_path,omitempty"`
-	Execution   string `json:"execution_project,omitempty"`
+	// LogMissing is set when LogPath does not exist; LogError when it could
+	// not be checked.
+	LogMissing bool   `json:"log_missing,omitempty"`
+	LogError   string `json:"log_error,omitempty"`
+	Execution  string `json:"execution_project,omitempty"`
 	// ExecutionSource says where Execution comes from (api.ExecutionSource).
 	ExecutionSource ExecutionSource `json:"execution_source,omitempty"`
 	// Projects counts the Selected projects.

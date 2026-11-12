@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -77,7 +78,7 @@ func TestNewCreatesFileBeforeAnyWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeFn()
+	t.Cleanup(func() { _ = closeFn() })
 	if _, err := os.Stat(logPath); err != nil {
 		t.Fatalf("expected log file to exist immediately after New: %v", err)
 	}
@@ -92,5 +93,40 @@ func TestParseLevel(t *testing.T) {
 	}
 	if _, _, err := New(Options{Level: "loud"}); err == nil {
 		t.Fatal("bad level must fail")
+	}
+}
+
+// A log directory and file an older bqt left readable to others are tightened.
+func TestNewTightensExistingModes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no Unix modes")
+	}
+	dir := filepath.Join(t.TempDir(), "logs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, FileName)
+	if err := os.WriteFile(logPath, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, closeFn, err := New(Options{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = closeFn() })
+	for path, want := range map[string]os.FileMode{dir: 0o700, logPath: 0o600} {
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fi.Mode().Perm(); got != want {
+			t.Errorf("%s: mode %o, want %o", path, got, want)
+		}
+	}
+	if b, _ := os.ReadFile(logPath); string(b) != "old\n" {
+		t.Errorf("existing log changed: %q", b)
 	}
 }

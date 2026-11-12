@@ -402,29 +402,53 @@ func TestDoctor(t *testing.T) {
 	}
 }
 
-func TestPrintDoctorMissingLogFile(t *testing.T) {
-	var buf bytes.Buffer
-	dir := t.TempDir()
-	rep := api.DoctorReport{
-		ConfigOK: true,
-		DataDir:  dir,
-		LogPath:  filepath.Join(dir, "logs", "bqt.log"),
+// A sync leaves a log with a start record and one record per unit, and doctor
+// says when the log file is missing (#92).
+func TestSyncLogAndMissingLog(t *testing.T) {
+	s := newSandbox(t)
+	s.writeConfig("projects = [\"proj-a\"]\n")
+	if code, _, errOut := s.run("sync"); code != 0 {
+		t.Fatal(code, errOut)
 	}
-	printDoctor(&buf, rep, false)
-	if !strings.Contains(buf.String(), "bqt.log (missing)") {
-		t.Fatalf("expected '(missing)' in doctor output when log file does not exist, got:\n%s", buf.String())
+	_, out, _ := s.run("doctor")
+	rep := decode(t, out).Data.(map[string]any)
+	logPath := rep["log_path"].(string)
+	if rep["log_missing"] != nil || rep["log_error"] != nil {
+		t.Fatalf("log reported missing after a sync: %v", rep)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var started, unitStarted, committed bool
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var rec map[string]any
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("%v: %s", err, line)
+		}
+		switch rec["msg"] {
+		case "bqt started":
+			started = rec["command"] == "sync" && rec["version"] != nil && rec["data_dir"] != nil && rec["level"] == "info"
+		case "sync unit started":
+			unitStarted = rec["project"] == "proj-a"
+		case "sync unit committed":
+			committed = rec["project"] == "proj-a" && rec["tables"] != nil && rec["duration"] != nil
+		}
+	}
+	if !started || !unitStarted || !committed {
+		t.Fatalf("start %v, unit start %v, unit commit %v in log:\n%s", started, unitStarted, committed, data)
 	}
 
-	if err := os.MkdirAll(filepath.Join(dir, "logs"), 0o700); err != nil {
+	if err := os.Remove(logPath); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(rep.LogPath, []byte(""), 0o600); err != nil {
-		t.Fatal(err)
+	_, out, _ = s.run("doctor")
+	if rep := decode(t, out).Data.(map[string]any); rep["log_missing"] != true {
+		t.Fatalf("log_missing not set: %v", rep)
 	}
-	buf.Reset()
-	printDoctor(&buf, rep, false)
-	if strings.Contains(buf.String(), "(missing)") {
-		t.Fatalf("did not expect '(missing)' once log file exists, got:\n%s", buf.String())
+	_, out, _ = s.run("doctor", "--format", "text")
+	if !strings.Contains(out, "bqt.log (missing)") {
+		t.Fatalf("text doctor does not mark the missing log:\n%s", out)
 	}
 }
 

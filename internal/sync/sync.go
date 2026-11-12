@@ -105,6 +105,20 @@ type run struct {
 	warns  []string
 	// clientWarns are the bq.Warn messages already added.
 	clientWarns map[string]bool
+	// started holds each running unit's start time, for the log's durations.
+	started map[api.UnitRef]time.Time
+}
+
+// startUnit logs a unit's start and emits its event.
+func (r *run) startUnit(ref api.UnitRef, datasets int, msg string) {
+	r.mu.Lock()
+	if r.started == nil {
+		r.started = map[api.UnitRef]time.Time{}
+	}
+	r.started[ref] = r.s.o.Now()
+	r.mu.Unlock()
+	r.s.o.Log.Info("sync unit started", "project", ref.Project, "location", ref.Location, "datasets", datasets)
+	r.event(api.SyncEvent{Kind: api.EventUnitStarted, Project: ref.Project, Location: ref.Location, Datasets: datasets, Message: msg})
 }
 
 func (r *run) event(e api.SyncEvent) {
@@ -128,6 +142,16 @@ func (r *run) finishUnit(st api.UnitState, kind api.SyncEventKind) {
 			r.failed = map[api.UnitRef]bool{}
 		}
 		r.failed[st.UnitRef] = true
+	}
+	attrs := []any{"project", st.Project, "location", st.Location, "status", st.Status, "datasets", st.Datasets, "tables", st.Tables}
+	if start, ok := r.started[st.UnitRef]; ok {
+		attrs = append(attrs, "duration", r.s.o.Now().Sub(start).Round(time.Millisecond))
+		delete(r.started, st.UnitRef)
+	}
+	if kind == api.EventUnitFailed {
+		r.s.o.Log.Warn("sync unit failed", append(attrs, "err", st.Error)...)
+	} else {
+		r.s.o.Log.Info("sync unit committed", attrs...)
 	}
 	if r.emit != nil {
 		r.emit(api.SyncEvent{
@@ -394,7 +418,7 @@ func (s *Syncer) processUnit(ctx context.Context, job unitJob, r *run) {
 	for i, d := range job.datasets {
 		names[i] = d.Name
 	}
-	r.event(api.SyncEvent{Kind: api.EventUnitStarted, Project: job.ref.Project, Location: job.ref.Location, Datasets: len(names)})
+	r.startUnit(job.ref, len(names), "")
 
 	marks := s.ownSchemaMarks(ctx, job.ref)
 	req := bq.RegionRequest{Project: job.ref.Project, Location: job.ref.Location, Datasets: names}

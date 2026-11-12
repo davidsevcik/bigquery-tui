@@ -56,12 +56,18 @@ func New(o Options) (*slog.Logger, func() error, error) {
 		if err := os.MkdirAll(o.Dir, 0o700); err != nil {
 			return nil, nil, fmt.Errorf("create log dir: %w", err)
 		}
+		// Lumberjack creates the file only on the first write, so a quiet run
+		// would leave none (#92). Create it now, and tighten the modes of a
+		// directory or file an older bqt made: lumberjack's rotation copies the
+		// file's mode, and debug records hold SQL.
 		logPath := filepath.Join(o.Dir, FileName)
 		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create log file: %w", err)
 		}
+		_ = f.Chmod(0o600) // best effort: not every file system has Unix modes
 		_ = f.Close()
+		_ = os.Chmod(o.Dir, 0o700)
 		lj := &lumberjack.Logger{Filename: logPath, MaxSize: 5, MaxBackups: 3}
 		handlers = append(handlers, slog.NewJSONHandler(lj, &slog.HandlerOptions{Level: level}))
 		closeFn = lj.Close
