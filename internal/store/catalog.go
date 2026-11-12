@@ -423,7 +423,20 @@ func (c *Catalog) ApplyUnit(ctx context.Context, req ApplyRequest) (ApplyStats, 
 	if err := upsertUnit(ctx, tx, state); err != nil {
 		return st, err
 	}
-	return st, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return st, err
+	}
+	c.trimWAL(ctx)
+	return st, nil
+}
+
+// trimWAL checkpoints the WAL and truncates it, so a large unit does not
+// leave a WAL file of its size behind while the process keeps running (#91).
+// It is best effort: a reader still on an older snapshot makes the
+// checkpoint stop short (it waits busy_timeout at most), and the
+// journal_size_limit cuts the file at the next write instead.
+func (c *Catalog) trimWAL(ctx context.Context) {
+	_, _ = c.db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
 }
 
 func ensureProject(ctx context.Context, tx *sql.Tx, name string) (int64, error) {

@@ -18,6 +18,11 @@ const (
 	sqliteNotADB  = 26
 )
 
+// walSizeLimit is the size the WAL file is cut back to once it has been
+// checkpointed (journal_size_limit). A sync unit is one transaction, so
+// without it the WAL stays as large as the largest unit ever applied.
+var walSizeLimit = 64 << 20
+
 func dsn(path string, readOnly bool) string {
 	q := url.Values{}
 	q.Add("_pragma", "busy_timeout(5000)")
@@ -25,6 +30,7 @@ func dsn(path string, readOnly bool) string {
 	if !readOnly {
 		q.Add("_pragma", "journal_mode(WAL)")
 		q.Add("_pragma", "synchronous(NORMAL)")
+		q.Add("_pragma", fmt.Sprintf("journal_size_limit(%d)", walSizeLimit))
 	}
 	if readOnly {
 		q.Set("mode", "ro")
