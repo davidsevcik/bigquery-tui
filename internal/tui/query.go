@@ -906,12 +906,18 @@ func (m *Model) cancelFocused() bool {
 	if target == 0 {
 		return false
 	}
-	m.runs.Cancel(target)
-	m.toast = fmt.Sprintf("cancel requested for run #%d", target)
+	m.requestCancel(target)
+	return true
+}
+
+// requestCancel cancels a Run that has not finished and says so; under
+// on-demand pricing it warns that the query may still be billed.
+func (m *Model) requestCancel(id int64) {
+	m.runs.Cancel(id)
+	m.toast = fmt.Sprintf("cancel requested for run #%d", id)
 	if !m.runs.Pricing().Capacity {
 		m.toast += " (it may still be billed)"
 	}
-	return true
 }
 
 // --- external editor
@@ -1151,8 +1157,11 @@ func (runsPopup) act(m *Model, act string) (tea.Cmd, bool) {
 		}
 	case "cancelrun":
 		if m.ovSel < len(list) {
-			m.runs.Cancel(list[m.ovSel].ID)
-			m.toast = fmt.Sprintf("cancel requested for run #%d", list[m.ovSel].ID)
+			if r := list[m.ovSel]; r.State.Finished() {
+				m.toast = fmt.Sprintf("run #%d already finished", r.ID)
+			} else {
+				m.requestCancel(r.ID)
+			}
 		}
 	default:
 		return nil, false

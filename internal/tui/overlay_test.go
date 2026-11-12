@@ -117,9 +117,24 @@ func TestRunListCancelsTheSelectedRun(t *testing.T) {
 	}
 	r.typeText("select 1")
 	r.press("ctrl+r", "ctrl+r", "ctrl+x", "l", "down", "c")
-	r.contains("cancel requested for run #1")
+	r.contains("cancel requested for run #1 (it may still be billed)")
 	if r.m.ov != ovRuns {
 		t.Fatal("the run list stays open")
+	}
+}
+
+// c in the run list on a Run that has finished cancels nothing and says so.
+func TestRunListDoesNotCancelAFinishedRun(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
+	r.typeText("select 1")
+	r.press("ctrl+r", "ctrl+r")
+	r.settle()
+	r.press("ctrl+x", "l", "down", "c")
+	r.contains("run #1 already finished")
+	r.lacks("cancel requested")
+	if info, _ := r.m.runs.Info(1); info.State != api.RunDone {
+		t.Fatalf("the Run stays %s", info.State)
 	}
 }
 
