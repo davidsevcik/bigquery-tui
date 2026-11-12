@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 	"github.com/davidsevcik/bigquery-tui/internal/favorites"
@@ -377,5 +379,84 @@ func TestHistoryPagesSkipGroupsAlreadyShown(t *testing.T) {
 	r.m.onHistory(histMsg{seq: pk.hseq, append: true, page: api.HistoryPage{Groups: []api.HistoryGroup{{Key: "b"}, {Key: "c"}}}})
 	if len(pk.hist) != 3 || pk.hist[2].Key != "c" {
 		t.Fatalf("%+v", pk.hist)
+	}
+}
+
+// Each Confirm question names what y does: a favorite delete deletes, a
+// pick over a modified buffer replaces its text (n opens a new buffer).
+func TestConfirmFooterNamesTheAction(t *testing.T) {
+	r := editorRig(t, 60, 30)
+	r.writeFav("dau.sql", "select 1\n")
+	r.press("ctrl+x", "f", "ctrl+d")
+	r.contains("y / enter  delete", "n / esc  cancel")
+	r.lacks("run it")
+	r.press("n", "esc")
+	r.typeText("select 2")
+	r.press("ctrl+x", "f", "enter")
+	if r.m.ov != ovConfirm || r.m.confirm.kind != "load" {
+		t.Fatal("a pick over a modified buffer asks")
+	}
+	r.contains("y / enter  replace   n  new buffer   esc  cancel")
+	r.lacks("run it")
+	for _, kind := range []string{"run", "quit", "closebuf", "favdelete", "load"} {
+		f := ansi.Strip(strings.Join(confirmFooter(kind, 100), "\n"))
+		if i := strings.Index(f, "enter  "); i < 0 || len(f) == i+7 || f[i+7] == ' ' {
+			t.Errorf("the %s question has no label for y: %q", kind, f)
+		}
+	}
+}
+
+// At the narrowest box (30 columns, 28 inside) every answer stays whole:
+// the footer wraps by answer instead of cutting the last one off.
+func TestConfirmFooterWrapsInANarrowBox(t *testing.T) {
+	for _, kind := range []string{"run", "quit", "closebuf", "favdelete", "load"} {
+		for _, w := range []int{28, 40, 50} {
+			rows := confirmFooter(kind, w)
+			for _, row := range rows {
+				if wid(row) > w {
+					t.Errorf("%s at %d: row %q is %d cells", kind, w, ansi.Strip(row), wid(row))
+				}
+			}
+			f := ansi.Strip(strings.Join(rows, " "))
+			want := []string{"y / enter", "cancel"}
+			if kind == "load" {
+				want = append(want, "n  new buffer", "esc  cancel")
+			}
+			for _, s := range want {
+				if !strings.Contains(f, s) {
+					t.Errorf("%s at %d lost %q: %q", kind, w, s, f)
+				}
+			}
+		}
+	}
+	r := editorRig(t, 50, 24)
+	r.writeFav("dau.sql", "select 1\n")
+	r.typeText("select 2")
+	r.press("ctrl+x", "f", "enter")
+	r.contains("y / enter  replace", "n  new buffer", "esc  cancel")
+}
+
+// Tabs in a favorite's or History entry's text never reach the terminal,
+// and every line stays as wide as the terminal at 60 (stacked) and 120
+// (side by side) columns.
+func TestPickerHasNoTabsAtAnyWidth(t *testing.T) {
+	for _, w := range []int{60, 120} {
+		r := editorRig(t, w, 30)
+		r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
+		r.writeFav("tabs.sql", "-- description: Daily\tactive users\n-- tags: ev\tents, x\nselect\t1 from\tt\n")
+		r.runSQL("select\t2")
+		r.settle()
+		r.press("ctrl+x", "f")
+		for _, scope := range []string{"Favorites", "History"} {
+			for i, l := range r.m.render() {
+				if strings.Contains(l, "\t") {
+					t.Errorf("%d columns, %s, line %d holds a tab: %q", w, scope, i, ansi.Strip(l))
+				}
+				if wd := ansi.StringWidth(l); wd != w {
+					t.Errorf("%d columns, %s, line %d is %d cells wide", w, scope, i, wd)
+				}
+			}
+			r.press("tab")
+		}
 	}
 }

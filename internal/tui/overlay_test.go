@@ -117,9 +117,74 @@ func TestRunListCancelsTheSelectedRun(t *testing.T) {
 	}
 	r.typeText("select 1")
 	r.press("ctrl+r", "ctrl+r", "ctrl+x", "l", "down", "c")
-	r.contains("cancel requested for run #1")
+	r.contains("cancel requested for run #1 (it may still be billed)")
 	if r.m.ov != ovRuns {
 		t.Fatal("the run list stays open")
+	}
+}
+
+// The billed warning follows each Run's own pricing, not the model the
+// latest dry-run taught: an on-demand Run started before a capacity one
+// still warns, and the capacity one does not.
+func TestRunListCancelWarnsPerRunPricing(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	block := make(chan struct{})
+	defer close(block)
+	r.fake.OnQuery = func(sql string) bqtest.QueryScript {
+		s := bqtest.Numbers(1)
+		s.Block, s.IgnoreCancel = block, true
+		if strings.Contains(sql, "capacity") {
+			s.ReservationID, s.Edition = "admin:EU.res", "STANDARD"
+		}
+		return s
+	}
+	r.typeText("select 'on demand'")
+	r.press("ctrl+r", "ctrl+x", "n")
+	r.typeText("select 'capacity'")
+	r.press("ctrl+r")
+	cancel := func(id int64) string {
+		t.Helper()
+		r.press("ctrl+x", "l")
+		for i, info := range r.m.runs.List() {
+			if info.ID == id {
+				r.m.ovSel = i
+			}
+		}
+		r.press("c")
+		toast := r.m.toast
+		r.press("esc")
+		// deliver the "cancel requested" update, as the program's subscription would
+		u, _ := r.m.runs.Wait(t.Context(), id, func(i api.RunInfo) bool { return i.CancelRequested })
+		r.send(runMsg{u})
+		return toast
+	}
+	if got := cancel(1); got != "cancel requested for run #1 (it may still be billed)" {
+		t.Errorf("on-demand Run: %q", got)
+	}
+	if got := cancel(2); got != "cancel requested for run #2" {
+		t.Errorf("capacity Run: %q", got)
+	}
+	// the Results line of a cancel BigQuery has not confirmed follows the
+	// shown Run's pricing too: the capacity Run, then the on-demand one
+	const waiting = "cancel requested: waiting for BigQuery to confirm"
+	r.contains(waiting)
+	r.lacks("may still be") // the toast is gone; the Results line names no billing
+	r.press("ctrl+x", "[")
+	r.contains(waiting+" (the query may still be", "billed)") // wrapped in the pane
+}
+
+// c in the run list on a Run that has finished cancels nothing and says so.
+func TestRunListDoesNotCancelAFinishedRun(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
+	r.typeText("select 1")
+	r.press("ctrl+r", "ctrl+r")
+	r.settle()
+	r.press("ctrl+x", "l", "down", "c")
+	r.contains("run #1 already finished")
+	r.lacks("cancel requested")
+	if info, _ := r.m.runs.Info(1); info.State != api.RunDone {
+		t.Fatalf("the Run stays %s", info.State)
 	}
 }
 

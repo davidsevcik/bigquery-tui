@@ -906,13 +906,25 @@ func (m *Model) cancelFocused() bool {
 	if target == 0 {
 		return false
 	}
-	m.runs.Cancel(target)
-	m.toast = fmt.Sprintf("cancel requested for run #%d", target)
-	if !m.runs.Pricing().Capacity {
-		m.toast += " (it may still be billed)"
-	}
+	m.requestCancel(target)
 	return true
 }
+
+// requestCancel cancels a Run that has not finished and says so. Unless the
+// Run's own dry-run put it on a reservation, it warns that the query may still
+// be billed: pricing is per Run (spec 10.2), and an unknown model counts as
+// on-demand.
+func (m *Model) requestCancel(id int64) {
+	m.runs.Cancel(id)
+	m.toast = fmt.Sprintf("cancel requested for run #%d", id)
+	if r, ok := m.runs.Info(id); !ok || mayBeBilled(r) {
+		m.toast += " (it may still be billed)"
+	}
+}
+
+// mayBeBilled reports whether a Run is on-demand by its own dry-run, or of
+// unknown pricing, which counts as on-demand (spec 10.2).
+func mayBeBilled(r api.RunInfo) bool { return r.Estimate == nil || !r.Estimate.Capacity }
 
 // --- external editor
 
@@ -1151,8 +1163,11 @@ func (runsPopup) act(m *Model, act string) (tea.Cmd, bool) {
 		}
 	case "cancelrun":
 		if m.ovSel < len(list) {
-			m.runs.Cancel(list[m.ovSel].ID)
-			m.toast = fmt.Sprintf("cancel requested for run #%d", list[m.ovSel].ID)
+			if r := list[m.ovSel]; r.State.Finished() {
+				m.toast = fmt.Sprintf("run #%d already finished", r.ID)
+			} else {
+				m.requestCancel(r.ID)
+			}
 		}
 	default:
 		return nil, false
