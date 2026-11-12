@@ -13,7 +13,8 @@ start() {
 }
 k() { tmux send-keys -t $S "$@"; sleep 0.4; }          # keys by name: k C-w l, k Enter, k Escape
 lit() { tmux send-keys -t $S -l -- "$1"; sleep 0.4; }   # literal text
-cap() { tmux capture-pane -t $S -p; }                   # the screen as text
+# the screen as text; expand, because tmux keeps the tabs bubbletea moves the cursor with
+cap() { tmux capture-pane -t $S -p | expand; }
 size() { tmux resize-window -t $S -x "$1" -y "$2"; sleep 0.6; }
 waitfor() { for _ in $(seq 1 50); do cap | grep -qF -- "$1" && return 0; sleep 0.2; done; echo "TIMEOUT waiting for: $1"; return 1; }
 # mouse, as SGR sequences (turn it on first: palette "Mouse: on/off"); x and y are 1-based cells
