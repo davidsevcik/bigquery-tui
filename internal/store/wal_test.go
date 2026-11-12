@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -108,17 +109,19 @@ func TestApplyUnitTrimsTheWALAfterAReaderLeaves(t *testing.T) {
 	if err := rtx.QueryRowContext(ctx, "SELECT value FROM meta WHERE key = 'seed'").Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.ApplyUnit(ctx, bigUnit()); err != nil {
+	// a small unit, so the time measured is the checkpoint's: ApplyUnit
+	// does not hold the write lock for busy_timeout (5 s) while the reader
+	// is there
+	small := ApplyRequest{Unit: unit("p", "US"), State: okState(t0), Datasets: []DatasetApply{{Meta: api.DatasetMeta{Project: "p", Name: "us", Location: "US"}, Tables: []api.TableMeta{table("us", "t", "c")}}}}
+	start := time.Now()
+	if _, err := c.ApplyUnit(ctx, small); err != nil {
 		t.Fatal(err)
 	}
-	// the truncation gives up at once rather than holding the write lock
-	// for busy_timeout (5 s) while the reader is there
-	start := time.Now()
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("ApplyUnit waited %s for the reader", took)
+	}
 	if done, err := truncateWAL(ctx, c.db); done || err != nil {
 		t.Fatalf("truncated past a reader: %v %v", done, err)
-	}
-	if took := time.Since(start); took > time.Second {
-		t.Fatalf("the truncation waited %s for the reader", took)
 	}
 	if size := walBytes(t, path); size == 0 {
 		t.Fatal("the reader must keep the WAL from being truncated while it reads")
@@ -155,4 +158,66 @@ func bigUnit() ApplyRequest {
 		tables = append(tables, table("ds", fmt.Sprintf("t%04d", i), cols...))
 	}
 	return ApplyRequest{Unit: unit("p", "EU"), State: okState(t0), Datasets: []DatasetApply{{Meta: api.DatasetMeta{Project: "p", Name: "ds", Location: "EU"}, Tables: tables}}}
+}
+
+// Close does not hang on a retry that waits for a pooled connection: every
+// connection is taken, and Close still returns.
+func TestCloseStopsARetryWaitingForAConnection(t *testing.T) {
+	oldEvery := walRetryEvery
+	walRetryEvery = 10 * time.Millisecond
+	t.Cleanup(func() { walRetryEvery = oldEvery })
+	c, err := OpenCatalog(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var held []*sql.Conn
+	for range 4 { // SetMaxOpenConns(4)
+		conn, err := c.db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		held = append(held, conn)
+	}
+	c.trim.retry(ctx, c.db)
+	time.Sleep(50 * time.Millisecond) // the loop is now waiting for a connection
+	closed := make(chan error, 1)
+	go func() { closed <- c.Close() }()
+	// Close waits for the loop first, then for the connections: release them
+	// only once the loop is gone
+	deadline := time.After(2 * time.Second)
+	for {
+		c.trim.mu.Lock()
+		running := c.trim.running
+		c.trim.mu.Unlock()
+		if !running {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("stop did not end a retry waiting for a connection")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	for _, conn := range held {
+		_ = conn.Close()
+	}
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A request that comes in while a retry is under way is not lost when that
+// retry succeeds: the loop runs again.
+func TestRetryKeepsARequestMadeDuringAnAttempt(t *testing.T) {
+	var tr walTrimmer
+	tr.running, tr.pending = true, false
+	tr.mu.Lock()
+	tr.pending = true // what retry() does while the loop is running
+	tr.mu.Unlock()
+	if tr.finishUnlessPending() {
+		t.Fatal("the loop ended with a request still pending")
+	}
+	if !tr.running {
+		t.Fatal("the loop must keep running")
+	}
 }
