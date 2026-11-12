@@ -3,6 +3,7 @@ package logging
 import (
 	"bytes"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,3 +142,37 @@ func TestUnwritableLogFileIsNotFatal(t *testing.T) {
 	l.Info("lost")
 	_ = closeFn()
 }
+
+// A log directory that cannot be created does not stop the command either.
+func TestUncreatableLogDirIsNotFatal(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "ro")
+	if err := os.MkdirAll(parent, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
+	var stderr bytes.Buffer
+	l, closeFn, err := New(Options{Dir: filepath.Join(parent, "logs"), Level: "info", Stderr: &stderr, Command: "sync"})
+	if err != nil {
+		t.Fatalf("an uncreatable log dir stopped the command: %v", err)
+	}
+	defer func() { _ = closeFn() }()
+	l.Warn("still on stderr")
+	if !strings.Contains(stderr.String(), "still on stderr") {
+		t.Fatalf("stderr: %q", stderr.String())
+	}
+}
+
+// A handler that fails does not keep the record from the others.
+func TestFanoutReachesEveryHandler(t *testing.T) {
+	var stderr bytes.Buffer
+	failing := slog.NewJSONHandler(failWriter{}, nil)
+	l := slog.New(fanout{failing, slog.NewTextHandler(&stderr, nil)})
+	l.Warn("both")
+	if !strings.Contains(stderr.String(), "both") {
+		t.Fatalf("the second handler missed the record: %q", stderr.String())
+	}
+}
+
+type failWriter struct{}
+
+func (failWriter) Write([]byte) (int, error) { return 0, os.ErrPermission }

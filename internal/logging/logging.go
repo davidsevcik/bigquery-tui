@@ -5,6 +5,7 @@ package logging
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -34,6 +35,24 @@ type Options struct {
 	Command string
 }
 
+// fileWritable creates the log directory and the log file, so the path
+// `bqt doctor` reports exists even before anything reaches the level
+// (lumberjack opens the file only on its first write). It reports false
+// when either cannot be written, as on a read-only mount: the command then
+// runs without the file sink rather than failing, and stderr still gets its
+// records.
+func fileWritable(dir string) bool {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return false
+	}
+	f, err := os.OpenFile(filepath.Join(dir, FileName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return false
+	}
+	_ = f.Close() // only created, nothing written
+	return true
+}
+
 // ParseLevel parses a level name.
 func ParseLevel(s string) (slog.Level, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
@@ -57,19 +76,8 @@ func New(o Options) (*slog.Logger, func() error, error) {
 	}
 	var handlers []slog.Handler
 	closeFn := func() error { return nil }
-	if o.Dir != "" {
-		if err := os.MkdirAll(o.Dir, 0o700); err != nil {
-			return nil, nil, fmt.Errorf("create log dir: %w", err)
-		}
+	if o.Dir != "" && fileWritable(o.Dir) {
 		path := filepath.Join(o.Dir, FileName)
-		// lumberjack opens the file on its first write; create it now, so the
-		// path `bqt doctor` reports exists even when nothing reaches the level.
-		// A file that cannot be written (a read-only mount) does not stop the
-		// command: its records are lost, as they were before (`bqt doctor`
-		// reports the file).
-		if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
-			_ = f.Close() // only created, nothing written
-		}
 		lj := &lumberjack.Logger{Filename: path, MaxSize: 5, MaxBackups: 3}
 		handlers = append(handlers, slog.NewJSONHandler(lj, &slog.HandlerOptions{Level: level}))
 		closeFn = lj.Close
@@ -110,15 +118,18 @@ func (f fanout) Enabled(ctx context.Context, l slog.Level) bool {
 	return false
 }
 
+// Handle gives the record to every handler that wants it, even after one
+// failed: a log file that cannot be written must not silence stderr.
 func (f fanout) Handle(ctx context.Context, r slog.Record) error {
+	var errs []error
 	for _, h := range f {
 		if h.Enabled(ctx, r.Level) {
 			if err := h.Handle(ctx, r.Clone()); err != nil {
-				return err
+				errs = append(errs, err)
 			}
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (f fanout) WithAttrs(attrs []slog.Attr) slog.Handler {
