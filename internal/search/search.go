@@ -284,9 +284,27 @@ func (sc scoper) table(x *Index, ti int) bool {
 
 func (s *Searcher) rank(ctx context.Context, x *Index, c *compiled, o api.SearchOptions) []hit {
 	sc := newScoper(o)
-	terms := c.terms
-	// Dataset- and project-level scores are the same for every table of a
-	// dataset, so compute them once per (term, dataset).
+	out := x.tableHits(ctx, sc, c, x.datasetScores(c.terms))
+	if ctx.Err() != nil {
+		return nil
+	}
+	if !o.ExpandShards {
+		out = x.collapseShards(out, c)
+	}
+	if onlyScopeFilters(c.filters) {
+		out = append(out, x.containerHits(sc, c, o)...)
+	}
+	sortHits(out, len(c.terms) > 0)
+	if len(o.Prefer) > 0 {
+		x.preferProjects(out, o.Prefer)
+	}
+	return out
+}
+
+// datasetScores returns, per term, each dataset's best score from its own
+// name, its project's name or its description. They are the same for every
+// table of a dataset, so they are computed once per (term, dataset).
+func (x *Index) datasetScores(terms []string) [][]int {
 	dsScore := make([][]int, len(terms))
 	for ti, term := range terms {
 		ps := make([]int, len(x.projects))
@@ -310,8 +328,13 @@ func (s *Searcher) rank(ctx context.Context, x *Index, c *compiled, o api.Search
 		}
 		dsScore[ti] = row
 	}
+	return dsScore
+}
 
-	// Score tables in parallel chunks; chunk order keeps the result deterministic.
+// tableHits scores the tables in scope that pass the filters, in parallel
+// chunks; chunk order keeps the result deterministic. It returns early, with
+// a partial result, when ctx is cancelled.
+func (x *Index) tableHits(ctx context.Context, sc scoper, c *compiled, dsScore [][]int) []hit {
 	parts := make([][]hit, maxChunks)
 	eachChunk(len(x.tables), func(w, lo, hi int) {
 		var out []hit
@@ -322,72 +345,70 @@ func (s *Searcher) rank(ctx context.Context, x *Index, c *compiled, o api.Search
 			if !sc.table(x, i) || !x.passTable(i, c, false) {
 				continue
 			}
-			maxS, sum := 0, 0
-			for ti, term := range terms {
-				sc := x.scoreTerm(i, term, dsScore[ti])
-				if sc >= noMatch {
-					maxS = -1
-					break
-				}
-				if sc > maxS {
-					maxS = sc
-				}
-				sum += sc
+			if maxS, sum, ok := x.tableScore(i, c.terms, dsScore); ok {
+				out = append(out, x.tableHit(i, maxS, sum))
 			}
-			if maxS < 0 {
-				continue
-			}
-			out = append(out, x.tableHit(i, maxS, sum))
 		}
 		parts[w] = out
 	})
-	if ctx.Err() != nil {
-		return nil
-	}
 	var out []hit
 	for _, p := range parts {
 		out = append(out, p...)
 	}
-	if !o.ExpandShards {
-		out = x.collapseShards(out, c)
-	}
+	return out
+}
 
-	// Projects and datasets match by name. Where only tables would be
-	// listed (jump-to-table, an empty query), a pending dataset still is: it
-	// has no tables yet to stand for it.
-	if onlyScopeFilters(c.filters) {
-		named := !o.TablesOnly && len(terms) > 0
-		for pi := range x.projects {
-			p := &x.projects[pi]
-			if !sc.project(p.name) {
-				continue
-			}
-			if named && len(c.filters) == 0 && (o.Scope == nil || o.Scope.Project == "") {
-				if m, sm, ok := scoreNames(p.lname, "", terms); ok {
-					out = append(out, hit{kind: api.KindProject, i: pi, max: m, sum: sm, name: p.name, path: p.name})
-				}
-			}
-			for _, di := range p.datasets {
-				d := &x.datasets[di]
-				if !named && d.status != api.DatasetPending {
-					continue
-				}
-				if o.Scope != nil && o.Scope.Dataset != "" && o.Scope.Dataset != d.name {
-					continue
-				}
-				if !passDataset(p, d, c.filters) {
-					continue
-				}
-				if m, sm, ok := scoreNames(d.lname, d.ldesc, terms); ok {
-					out = append(out, hit{kind: api.KindDataset, i: di, max: m, sum: sm, name: d.name, path: p.name + "." + d.name})
-				}
+// tableScore is table i's worst and summed score over the terms; ok is
+// false when a term does not match it.
+func (x *Index) tableScore(i int, terms []string, dsScore [][]int) (maxS, sum int, ok bool) {
+	for ti, term := range terms {
+		sc := x.scoreTerm(i, term, dsScore[ti])
+		if sc >= noMatch {
+			return 0, 0, false
+		}
+		maxS = max(maxS, sc)
+		sum += sc
+	}
+	return maxS, sum, true
+}
+
+// containerHits returns the projects and datasets whose names match. Where
+// only tables would be listed (jump-to-table, an empty query), a pending
+// dataset still is: it has no tables yet to stand for it.
+func (x *Index) containerHits(sc scoper, c *compiled, o api.SearchOptions) []hit {
+	var out []hit
+	terms := c.terms
+	named := !o.TablesOnly && len(terms) > 0
+	for pi := range x.projects {
+		p := &x.projects[pi]
+		if !sc.project(p.name) {
+			continue
+		}
+		if named && len(c.filters) == 0 && (o.Scope == nil || o.Scope.Project == "") {
+			if m, sm, ok := scoreNames(p.lname, "", terms); ok {
+				out = append(out, hit{kind: api.KindProject, i: pi, max: m, sum: sm, name: p.name, path: p.name})
 			}
 		}
+		out = append(out, x.datasetHits(p, c, o, named)...)
 	}
+	return out
+}
 
-	sortHits(out, len(terms) > 0)
-	if len(o.Prefer) > 0 {
-		x.preferProjects(out, o.Prefer)
+// datasetHits returns project p's datasets whose names (or descriptions)
+// match: all of them when named, else only the pending ones.
+func (x *Index) datasetHits(p *projEntry, c *compiled, o api.SearchOptions, named bool) []hit {
+	var out []hit
+	for _, di := range p.datasets {
+		d := &x.datasets[di]
+		switch {
+		case !named && d.status != api.DatasetPending,
+			o.Scope != nil && o.Scope.Dataset != "" && o.Scope.Dataset != d.name,
+			!passDataset(p, d, c.filters):
+			continue
+		}
+		if m, sm, ok := scoreNames(d.lname, d.ldesc, c.terms); ok {
+			out = append(out, hit{kind: api.KindDataset, i: di, max: m, sum: sm, name: d.name, path: p.name + "." + d.name})
+		}
 	}
 	return out
 }
