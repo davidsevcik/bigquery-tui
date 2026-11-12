@@ -40,15 +40,19 @@ type Options struct {
 // (lumberjack opens the file only on its first write). It reports false
 // when either cannot be written, as on a read-only mount: the command then
 // runs without the file sink rather than failing, and stderr still gets its
-// records.
+// records. It also tightens a directory or file an older bqt left readable
+// to others (0700, 0600): the modes apply only on creation, lumberjack's
+// rotation copies the file's mode, and debug records hold SQL.
 func fileWritable(dir string) bool {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return false
 	}
+	_ = os.Chmod(dir, 0o700) // best effort: not every file system keeps Unix modes
 	f, err := os.OpenFile(filepath.Join(dir, FileName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return false
 	}
+	_ = f.Chmod(0o600)
 	_ = f.Close() // only created, nothing written
 	return true
 }
