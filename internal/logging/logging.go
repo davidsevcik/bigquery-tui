@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"gopkg.in/natefinch/lumberjack.v2"
+
+	"github.com/davidsevcik/bigquery-tui/internal/version"
 )
 
 // FileName is the log file name inside the log directory.
@@ -27,6 +29,9 @@ type Options struct {
 	// Stderr, if set, also receives records at warn and above (the CLI and the
 	// MCP server; the TUI leaves it nil).
 	Stderr io.Writer
+	// Command, if set, is written in a start record ("bqt started") with the
+	// version and the level, so every run leaves a line in the file.
+	Command string
 }
 
 // ParseLevel parses a level name.
@@ -56,9 +61,23 @@ func New(o Options) (*slog.Logger, func() error, error) {
 		if err := os.MkdirAll(o.Dir, 0o700); err != nil {
 			return nil, nil, fmt.Errorf("create log dir: %w", err)
 		}
-		lj := &lumberjack.Logger{Filename: filepath.Join(o.Dir, FileName), MaxSize: 5, MaxBackups: 3}
+		path := filepath.Join(o.Dir, FileName)
+		// lumberjack opens the file on its first write; create it now, so the
+		// path `bqt doctor` reports exists even when nothing reaches the level
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return nil, nil, fmt.Errorf("create log file: %w", err)
+		}
+		_ = f.Close() // only created, nothing written
+		lj := &lumberjack.Logger{Filename: path, MaxSize: 5, MaxBackups: 3}
 		handlers = append(handlers, slog.NewJSONHandler(lj, &slog.HandlerOptions{Level: level}))
 		closeFn = lj.Close
+		if o.Command != "" {
+			// to the file only and at any level: it is not a warning for
+			// stderr, and a run at level error still leaves its line
+			slog.New(slog.NewJSONHandler(lj, nil)).Info("bqt started",
+				"command", o.Command, "version", version.String(), "log_level", level.String(), "log_dir", o.Dir)
+		}
 	}
 	if o.Stderr != nil {
 		sl := slog.LevelWarn
@@ -67,13 +86,16 @@ func New(o Options) (*slog.Logger, func() error, error) {
 		}
 		handlers = append(handlers, slog.NewTextHandler(o.Stderr, &slog.HandlerOptions{Level: sl}))
 	}
+	var l *slog.Logger
 	switch len(handlers) {
 	case 0:
 		return slog.New(slog.DiscardHandler), closeFn, nil
 	case 1:
-		return slog.New(handlers[0]), closeFn, nil
+		l = slog.New(handlers[0])
+	default:
+		l = slog.New(fanout(handlers))
 	}
-	return slog.New(fanout(handlers)), closeFn, nil
+	return l, closeFn, nil
 }
 
 type fanout []slog.Handler

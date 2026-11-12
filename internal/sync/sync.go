@@ -119,6 +119,7 @@ func (r *run) event(e api.SyncEvent) {
 
 // finishUnit records a finished unit and emits its event with updated counters.
 func (r *run) finishUnit(st api.UnitState, kind api.SyncEventKind) {
+	r.logUnit(st, kind)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.done++
@@ -136,6 +137,26 @@ func (r *run) finishUnit(st api.UnitState, kind api.SyncEventKind) {
 			UnitsDone: r.done, UnitsTotal: r.total,
 		})
 	}
+}
+
+// logUnit writes one record per finished unit: what it stored and how long
+// it took, at warn when it failed.
+func (r *run) logUnit(st api.UnitState, kind api.SyncEventKind) {
+	args := []any{
+		"project", st.Project, "location", st.Location, "status", st.Status,
+		"datasets", st.Datasets, "tables", st.Tables, "names_only", st.NamesOnly, "inaccessible", st.Inaccessible,
+	}
+	if st.LastAttempt != nil {
+		args = append(args, "took", r.s.o.Now().Sub(*st.LastAttempt).Round(time.Millisecond))
+	}
+	if st.Error != "" {
+		args = append(args, "err", st.Error)
+	}
+	if kind == api.EventUnitFailed {
+		r.s.o.Log.Warn("sync unit failed", args...)
+		return
+	}
+	r.s.o.Log.Info("sync unit done", args...)
 }
 
 func (r *run) warn(project, msg string) {
@@ -395,6 +416,7 @@ func (s *Syncer) processUnit(ctx context.Context, job unitJob, r *run) {
 		names[i] = d.Name
 	}
 	r.event(api.SyncEvent{Kind: api.EventUnitStarted, Project: job.ref.Project, Location: job.ref.Location, Datasets: len(names)})
+	s.o.Log.Info("sync unit started", "project", job.ref.Project, "location", job.ref.Location, "datasets", len(names))
 
 	marks := s.ownSchemaMarks(ctx, job.ref)
 	req := bq.RegionRequest{Project: job.ref.Project, Location: job.ref.Location, Datasets: names}

@@ -81,3 +81,45 @@ func TestParseLevel(t *testing.T) {
 		t.Fatal("bad level must fail")
 	}
 }
+
+// The log file exists as soon as the logger does, even if nothing reaches
+// its level (#92: a sync that went well left no bqt.log at all).
+func TestFileExistsBeforeAnyRecord(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "logs")
+	_, closeFn, err := New(Options{Dir: dir, Level: "error"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = closeFn() })
+	if _, err := os.Stat(filepath.Join(dir, FileName)); err != nil {
+		t.Fatalf("no log file before the first record: %v", err)
+	}
+}
+
+// With a command, the first line is the start record, at any level, and it
+// stays out of stderr.
+func TestStartRecord(t *testing.T) {
+	var stderr bytes.Buffer
+	dir := filepath.Join(t.TempDir(), "logs")
+	_, closeFn, err := New(Options{Dir: dir, Level: "error", Stderr: &stderr, Command: "sync"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closeFn(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec map[string]any
+	if err := json.Unmarshal(bytes.SplitN(b, []byte("\n"), 2)[0], &rec); err != nil {
+		t.Fatalf("%q: %v", b, err)
+	}
+	if rec["msg"] != "bqt started" || rec["command"] != "sync" || rec["level"] != "INFO" || rec["log_level"] != "ERROR" || rec["version"] == "" || rec["log_dir"] != dir {
+		t.Fatalf("start record: %v", rec)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("the start record reached stderr: %q", stderr.String())
+	}
+}

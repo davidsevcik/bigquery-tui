@@ -35,7 +35,7 @@ func cmdMCP(ctx context.Context, o *out, g *globals, args []string) error {
 	if err != nil {
 		return err
 	}
-	closeLog, log, err := newLogger(env, g, cfg)
+	closeLog, log, err := newLogger(env, g, cfg, "mcp")
 	if err != nil {
 		return err
 	}

@@ -118,6 +118,9 @@ func cmdDoctor(ctx context.Context, o *out, g *globals, args []string) error {
 		p := store.PathsFor(cfg.DataDir)
 		rep.DataDir = cfg.DataDir
 		rep.LogPath = p.LogDir + string(os.PathSeparator) + logging.FileName
+		if _, err := os.Stat(rep.LogPath); err != nil {
+			rep.LogMissing = true
+		}
 		if _, err := os.Stat(p.History); err == nil {
 			rep.History.Exists = true
 		}
@@ -178,7 +181,11 @@ func printDoctor(w io.Writer, r api.DoctorReport, withHint bool) {
 			exec += " (" + string(r.ExecutionSource) + ")"
 		}
 		fmt.Fprintf(w, "execution project: %s, %d project(s) selected\n", exec, r.Projects)
-		fmt.Fprintf(w, "data dir: %s\nlog file: %s\n", r.DataDir, r.LogPath)
+		logFile := r.LogPath
+		if r.LogMissing {
+			logFile += " (missing: no bqt run has written it yet)"
+		}
+		fmt.Fprintf(w, "data dir: %s\nlog file: %s\n", r.DataDir, logFile)
 		if r.Catalog.Exists {
 			age := "never synced"
 			if r.Catalog.LastSync != nil {
