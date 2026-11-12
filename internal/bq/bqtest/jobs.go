@@ -30,6 +30,9 @@ type QueryScript struct {
 	SlotMs       int64
 	CacheHit     bool
 	AffectedRows int64
+	// IgnoreCancel accepts a cancel request but keeps the job running, as
+	// BigQuery does until it confirms the cancel.
+	IgnoreCancel bool
 }
 
 // QueryCall records one DryRun or StartQuery request.
@@ -217,6 +220,9 @@ func (f *Fake) CancelJob(ctx context.Context, ref api.JobRef) error {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if j.script.IgnoreCancel {
+		return nil
+	}
 	select {
 	case <-j.cancelled:
 	default:

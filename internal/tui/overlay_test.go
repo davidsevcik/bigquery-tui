@@ -132,7 +132,7 @@ func TestRunListCancelWarnsPerRunPricing(t *testing.T) {
 	defer close(block)
 	r.fake.OnQuery = func(sql string) bqtest.QueryScript {
 		s := bqtest.Numbers(1)
-		s.Block = block
+		s.Block, s.IgnoreCancel = block, true
 		if strings.Contains(sql, "capacity") {
 			s.ReservationID, s.Edition = "admin:EU.res", "STANDARD"
 		}
@@ -153,6 +153,9 @@ func TestRunListCancelWarnsPerRunPricing(t *testing.T) {
 		r.press("c")
 		toast := r.m.toast
 		r.press("esc")
+		// deliver the "cancel requested" update, as the program's subscription would
+		u, _ := r.m.runs.Wait(t.Context(), id, func(i api.RunInfo) bool { return i.CancelRequested })
+		r.send(runMsg{u})
 		return toast
 	}
 	if got := cancel(1); got != "cancel requested for run #1 (it may still be billed)" {
@@ -161,15 +164,13 @@ func TestRunListCancelWarnsPerRunPricing(t *testing.T) {
 	if got := cancel(2); got != "cancel requested for run #2" {
 		t.Errorf("capacity Run: %q", got)
 	}
-	// the same rule picks the Results line of a cancel BigQuery has not confirmed
-	for _, c := range []struct {
-		est  *api.Estimate
-		want bool
-	}{{nil, true}, {&api.Estimate{}, true}, {&api.Estimate{Capacity: true}, false}} {
-		if got := mayBeBilled(api.RunInfo{Estimate: c.est}); got != c.want {
-			t.Errorf("mayBeBilled(%+v) = %v", c.est, got)
-		}
-	}
+	// the Results line of a cancel BigQuery has not confirmed follows the
+	// shown Run's pricing too: the capacity Run, then the on-demand one
+	const waiting = "cancel requested: waiting for BigQuery to confirm"
+	r.contains(waiting)
+	r.lacks("may still be") // the toast is gone; the Results line names no billing
+	r.press("ctrl+x", "[")
+	r.contains(waiting+" (the query may still be", "billed)") // wrapped in the pane
 }
 
 // c in the run list on a Run that has finished cancels nothing and says so.
