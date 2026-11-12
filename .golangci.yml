@@ -40,7 +40,7 @@ linters:
     gocyclo:
       min-complexity: 56 # (*Model).update in internal/tui/app.go
     gocognit:
-      min-complexity: 84 # (*Searcher).Filter in internal/search/filter.go
+      min-complexity: 71 # (*Model).schemaLines in internal/tui/views.go
     funlen:
       lines: 171 # (*Run).run in internal/runs/runs.go
       statements: -1
