@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 	"github.com/davidsevcik/bigquery-tui/internal/store"
@@ -35,6 +36,8 @@ type tableEntry struct {
 	labels      []string // lower-case "key:value"
 	namesOnly   bool
 	shard       *api.ShardFamily
+	created     time.Time
+	ownSchema   bool // a family member synced on its own (gs)
 }
 
 // Index is the immutable in-memory catalog (everything but columns).
@@ -48,6 +51,12 @@ type Index struct {
 	byPath   map[string]int // exact project.dataset.table -> table index
 	byPathLC map[string]int // lower-case path -> table index, -1 when ambiguous
 	byID     map[int64]int
+	// families maps a family path (project.dataset.<family name>, and for a
+	// family without a suffix also its wildcard prefix*) to its newest
+	// member's table index.
+	families map[string]int
+	// familyRank is the claim each families entry won with (setFamily).
+	familyRank map[string]int
 }
 
 // Empty reports whether the index holds no tables.
@@ -58,7 +67,7 @@ func (x *Index) Size() (datasets, tables int) { return len(x.datasets), len(x.ta
 
 // BuildIndex turns a catalog snapshot into an Index.
 func BuildIndex(snap *store.IndexSnapshot) *Index {
-	x := &Index{units: map[api.UnitRef]api.UnitState{}, pending: map[api.UnitRef]int{}, byPath: map[string]int{}, byPathLC: map[string]int{}, byID: map[int64]int{}}
+	x := &Index{units: map[api.UnitRef]api.UnitState{}, pending: map[api.UnitRef]int{}, byPath: map[string]int{}, byPathLC: map[string]int{}, byID: map[int64]int{}, families: map[string]int{}, familyRank: map[string]int{}}
 	pi := map[string]int{}
 	for _, p := range snap.Projects {
 		pi[p] = len(x.projects)
@@ -88,6 +97,7 @@ func BuildIndex(snap *store.IndexSnapshot) *Index {
 		e := tableEntry{
 			id: t.ID, ds: d, name: t.Name, lname: strings.ToLower(t.Name), typ: t.Type,
 			desc: t.Description, ldesc: strings.ToLower(t.Description), namesOnly: t.NamesOnly, shard: t.Shard,
+			created: t.CreatedAt, ownSchema: t.OwnSchema,
 		}
 		for k, v := range t.Labels {
 			e.labels = append(e.labels, strings.ToLower(k+":"+v))
@@ -107,11 +117,36 @@ func BuildIndex(snap *store.IndexSnapshot) *Index {
 		} else {
 			x.byPathLC[lc] = idx
 		}
+		if f := e.shard; f != nil && f.Newest == e.name {
+			dp := x.projects[de.proj].name + "." + de.name + "."
+			x.setFamily(dp+f.Name, idx, true)
+			x.setFamily(dp+f.Wildcard(), idx, f.Suffix == "") // a suffixed family answers its wildcard only when no other does
+		}
 	}
 	for _, u := range snap.Units {
 		x.units[u.UnitRef] = u
 	}
 	return x
+}
+
+// setFamily lets a family path resolve to the newest shard idx. own is
+// false for a path the family answers only when no other family owns it (a
+// suffixed family's wildcard). Families of two table types can share a name
+// (orders_* tables and orders_* views): the path then resolves to the TABLE
+// family, which wildcard queries can read, whatever order the rows come in;
+// the other is reached through its members. Equal claims keep the first.
+func (x *Index) setFamily(path string, idx int, own bool) {
+	rank := 0
+	if own {
+		rank += 2
+	}
+	if x.tables[idx].typ == api.TypeTable {
+		rank++
+	}
+	if cur, taken := x.familyRank[path]; taken && cur >= rank {
+		return
+	}
+	x.families[path], x.familyRank[path] = idx, rank
 }
 
 // resolve finds a table by path: exactly, or case-insensitively when that is

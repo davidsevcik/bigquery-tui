@@ -1,0 +1,20 @@
+ [Explorer]  Schema  Editor  Results   ctrl+o next
+ Datasets 4/5                │ Tables 2/3
+events                     5 │T customers
+finance                    2 │T orders_*     ×25 2025-01-02
+sales                      4 │T orders_*_history         ×2
+shop                      28 │
+us_archive                 1 │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+                             │
+ bqt exec acme-exec  layout: classi… 6 datasets · 41 tables
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · …

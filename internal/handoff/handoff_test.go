@@ -11,7 +11,7 @@ import (
 func TestSchemaMarkdown(t *testing.T) {
 	s := api.TableSchema{
 		Table: "p.d.events_20240102", Type: api.TypeTable, Location: "EU", Description: "Raw\nevents",
-		Shard: &api.ShardFamily{Prefix: "events_", First: "20240101", Last: "20240102", Count: 2},
+		Shard: &api.ShardFamily{Name: "events_YYYYMMDD", Prefix: "events_", Date: true, First: "20240101", Last: "20240102", Count: 2, Newest: "events_20240102"},
 		Columns: []api.SchemaColumn{
 			{Name: "user", Type: "STRUCT<id INT64>", Description: "who | what"},
 			{Name: "user.id", Type: "INT64", Required: true},
@@ -20,7 +20,7 @@ func TestSchemaMarkdown(t *testing.T) {
 	}
 	got := SchemaMarkdown(s)
 	for _, want := range []string{
-		"## `p.d.events_20240102` (table, EU)", "`events_*` has 2 tables", "Raw events",
+		"## `p.d.events_20240102` (table, EU)", "`events_YYYYMMDD`: 2 tables, 20240101 to 20240102, queried as `events_*`", "Raw events",
 		"| user | STRUCT<id INT64> | who \\| what |", "| user.id | INT64 | (REQUIRED) |", "| d | DATE | (partitioning, clustering 1) |",
 	} {
 		if !strings.Contains(got, want) {

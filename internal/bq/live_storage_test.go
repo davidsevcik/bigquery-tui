@@ -117,33 +117,71 @@ func TestLiveStorageReadMatchesREST(t *testing.T) {
 		t.Skipf("%s has no datasets", proj)
 	}
 	req := RegionRequest{Project: proj, Location: loc, Datasets: byLoc[loc]}
-	snapshot := func(c *Client) (*api.Snapshot, time.Duration) {
+	type unit struct {
+		tables *api.Snapshot
+		cols   []TableColumns
+	}
+	// Both phases of a region unit; with no column filter, phase 2 reads
+	// every table's columns. Where the region views are refused, one
+	// dataset's views (BQT_LIVE_STORAGE_DATASET, or the location's first),
+	// as sync falls back to. BQT_LIVE_SHARD_PATTERN, when set, filters phase
+	// 2 as a shard pattern would, so its WHERE precedes readInOrder.
+	filter := ColumnFilter{}
+	if pat := os.Getenv("BQT_LIVE_SHARD_PATTERN"); pat != "" {
+		filter.Pattern, filter.Keep = "^(?:"+pat+")$", []string{}
+	}
+	dataset := os.Getenv("BQT_LIVE_STORAGE_DATASET")
+	if dataset == "" {
+		dataset = slices.Min(byLoc[loc])
+	}
+	dreq := DatasetRequest{Project: proj, Location: loc, Dataset: dataset}
+	regionOK := true
+	snapshot := func(c *Client) (unit, time.Duration) {
 		start := time.Now()
-		s, err := c.RegionSnapshot(ctx, req)
+		var tabs *api.Snapshot
+		var cols []TableColumns
+		var err error
+		if regionOK {
+			if tabs, err = c.RegionTables(ctx, req); err == nil {
+				cols, err = c.RegionColumns(ctx, req, filter)
+			}
+			if KindOf(err) == KindPermission {
+				t.Logf("no region-scope access, comparing dataset %s.%s: %v", proj, dataset, err)
+				regionOK, req.Datasets = false, []string{dataset}
+			}
+		}
+		if !regionOK {
+			if tabs, err = c.DatasetTables(ctx, dreq); err == nil {
+				cols, err = c.DatasetColumns(ctx, dreq, filter)
+			}
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
-		return s, time.Since(start)
+		return unit{tabs, cols}, time.Since(start)
 	}
 	a, tookA := snapshot(storage)
 	b, tookB := snapshot(rest)
 	// Tables come in no fixed order; each table's columns must match exactly,
 	// in order (nested ordinals depend on it).
-	for _, s := range []*api.Snapshot{a, b} {
-		slices.SortFunc(s.Tables, func(x, y api.TableMeta) int {
+	for _, u := range []unit{a, b} {
+		slices.SortFunc(u.tables.Tables, func(x, y api.TableMeta) int {
 			return strings.Compare(x.Dataset+"."+x.Name, y.Dataset+"."+y.Name)
 		})
-		slices.SortFunc(s.Datasets, func(x, y api.DatasetMeta) int { return strings.Compare(x.Name, y.Name) })
+		slices.SortFunc(u.tables.Datasets, func(x, y api.DatasetMeta) int { return strings.Compare(x.Name, y.Name) })
+		slices.SortFunc(u.cols, func(x, y TableColumns) int {
+			return strings.Compare(x.Dataset+"."+x.Table, y.Dataset+"."+y.Table)
+		})
 	}
 	if !reflect.DeepEqual(a, b) {
-		t.Fatalf("the region snapshot of %s/%s differs between the read paths", proj, loc)
+		t.Fatalf("the region unit of %s/%s differs between the read paths", proj, loc)
 	}
 	cols := 0
-	for _, tm := range a.Tables {
-		cols += len(tm.Columns)
+	for _, tc := range a.cols {
+		cols += len(tc.Columns)
 	}
 	t.Logf("%s/%s: %d datasets, %d tables, %d field paths: Storage Read API %s, REST paging %s",
-		proj, loc, len(req.Datasets), len(a.Tables), cols, tookA.Round(time.Millisecond), tookB.Round(time.Millisecond))
+		proj, loc, len(req.Datasets), len(a.tables.Tables), cols, tookA.Round(time.Millisecond), tookB.Round(time.Millisecond))
 }
 
 // TestLiveStorageReadFallback checks the fallback on an Execution project
@@ -180,8 +218,8 @@ func TestLiveStorageReadFallback(t *testing.T) {
 		}
 		if len(list.Datasets) > 0 {
 			d := list.Datasets[0]
-			if _, err := c.RegionSnapshot(ctx, RegionRequest{Project: proj, Location: d.Location, Datasets: []string{d.Name}}); err != nil {
-				t.Fatalf("region snapshot through the fallback: %v", err)
+			if _, err := c.RegionColumns(ctx, RegionRequest{Project: proj, Location: d.Location, Datasets: []string{d.Name}}, ColumnFilter{}); err != nil {
+				t.Fatalf("region columns through the fallback: %v", err)
 			}
 		}
 	}

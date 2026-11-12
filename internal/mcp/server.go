@@ -32,7 +32,7 @@ const Instructions = `bqt gives read-only access to the user's BigQuery projects
 
 Workflow: search_catalog to find tables (filters p: d: type: col: desc: label:), get_schema for columns, dry_run to check cost, run_query to run a SELECT, get_results for more rows. Reuse saved queries with list_favorites and past runs with search_history.
 
-Write table names in SQL as ` + "`project.dataset.table`" + `. A date-sharded family (shard_family) is queried as ` + "`project.dataset.prefix*`" + ` with _TABLE_SUFFIX.
+Write table names in SQL as ` + "`project.dataset.table`" + `. A shard family (shard_family: tables that differ only in an id or a date) is queried through its wildcard ` + "`project.dataset.prefix*`" + `, with _TABLE_SUFFIX choosing members; its schema is its newest shard's.
 
 Limits, enforced by bqt: only SELECT; at most the configured byte limit per query (checked on the dry-run); a timeout; up to 1000 rows per call, cells cut at 200 characters. A refusal says why; tool arguments can only lower limits. Tell the user when a query needs the bqt TUI or a config change.
 
@@ -120,7 +120,7 @@ func (s *Server) MCP(version string) *sdk.Server {
 			out, err := s.engine(ctx).CatalogSearch(ctx, in.Query, listLimit(in.Limit), off)
 			return nil, out, toolErr(err)
 		})
-	sdk.AddTool(srv, &sdk.Tool{Name: "get_schema", Annotations: ro, Description: `Columns (nested fields as dotted paths), types, descriptions, partitioning and clustering of a table or view, from the catalog. Accepts project.dataset.table, dataset.table (Execution project) or a shard family as prefix*.`},
+	sdk.AddTool(srv, &sdk.Tool{Name: "get_schema", Annotations: ro, Description: `Columns (nested fields as dotted paths), types, descriptions, partitioning and clustering of a table or view, from the catalog. Accepts project.dataset.table, dataset.table (Execution project) a shard family by its name (orders_*, orders_*_history) or wildcard (prefix*), whose newest shard answers, or any member by its own name.`},
 		func(ctx context.Context, _ *sdk.CallToolRequest, in schemaIn) (*sdk.CallToolResult, api.TableSchema, error) {
 			out, err := s.engine(ctx).Schema(ctx, in.Table)
 			return nil, out, toolErr(err)

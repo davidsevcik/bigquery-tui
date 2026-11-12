@@ -70,10 +70,11 @@ FROM datasets d JOIN projects p ON p.id = d.project_id ORDER BY p.name, d.name_l
 
 	err = eachRow(ctx, tx, func(rows *sql.Rows) error {
 		var t IndexTable
-		var typ, labels, sp, sf, sl string
+		var typ, labels string
 		var created, expires int64
-		var names, sc int
-		if err := rows.Scan(&t.ID, &t.DatasetID, &t.Dataset, &t.Name, &typ, &created, &t.Description, &labels, &expires, &names, &sp, &sf, &sl, &sc); err != nil {
+		var names int
+		var sr shardRow
+		if err := rows.Scan(append([]any{&t.ID, &t.DatasetID, &t.Dataset, &t.Name, &typ, &created, &t.Description, &labels, &expires, &names}, sr.dest()...)...); err != nil {
 			return err
 		}
 		t.Type, t.Labels, t.NamesOnly = api.TableType(typ), decodeLabels(labels), names != 0
@@ -84,13 +85,11 @@ FROM datasets d JOIN projects p ON p.id = d.project_id ORDER BY p.name, d.name_l
 			e := time.Unix(expires, 0).UTC()
 			t.ExpiresAt = &e
 		}
-		if sc > 0 {
-			t.Shard = &api.ShardFamily{Prefix: sp, First: sf, Last: sl, Count: sc}
-		}
+		sr.apply(&t.TableMeta)
 		snap.Tables = append(snap.Tables, t)
 		return nil
 	}, `SELECT t.id, t.dataset_id, d.name, t.name, t.type, t.created_at, t.description, t.labels, t.expires_at, t.names_only,
- t.shard_prefix, t.shard_first, t.shard_last, t.shard_count
+ `+c.shardSelect()+`
 FROM tables t JOIN datasets d ON d.id = t.dataset_id ORDER BY t.dataset_id, t.name_lc`)
 	if err != nil {
 		return nil, err
@@ -212,13 +211,15 @@ func (c *Catalog) TableByID(ctx context.Context, id int64) (api.TableMeta, error
 		return t, err
 	}
 	defer tx.Rollback()
-	var typ, labels, sp, sf, sl string
+	var typ, labels string
 	var created, expires int64
-	var names, sc, rpf int
-	err = tx.QueryRowContext(ctx, `SELECT d.name, t.name, t.type, t.created_at, t.description, t.labels, t.expires_at, t.view_sql, t.names_only,
- t.shard_prefix, t.shard_first, t.shard_last, t.shard_count, `+c.rpf+`
+	var names, rpf int
+	var sr shardRow
+	//nolint:gosec // tcol and shardSelect are fixed column expressions, never input
+	err = tx.QueryRowContext(ctx, `SELECT d.name, t.name, t.type, t.created_at, t.description, t.labels, t.expires_at, t.view_sql, t.names_only, `+c.tcol("require_partition_filter")+`,
+ `+c.shardSelect()+`
 FROM tables t JOIN datasets d ON d.id = t.dataset_id WHERE t.id = ?`, id).
-		Scan(&t.Dataset, &t.Name, &typ, &created, &t.Description, &labels, &expires, &t.ViewSQL, &names, &sp, &sf, &sl, &sc, &rpf)
+		Scan(append([]any{&t.Dataset, &t.Name, &typ, &created, &t.Description, &labels, &expires, &t.ViewSQL, &names, &rpf}, sr.dest()...)...)
 	if err != nil {
 		return t, err
 	}
@@ -230,9 +231,7 @@ FROM tables t JOIN datasets d ON d.id = t.dataset_id WHERE t.id = ?`, id).
 		e := time.Unix(expires, 0).UTC()
 		t.ExpiresAt = &e
 	}
-	if sc > 0 {
-		t.Shard = &api.ShardFamily{Prefix: sp, First: sf, Last: sl, Count: sc}
-	}
+	sr.apply(&t)
 	rows, err := tx.QueryContext(ctx, `SELECT field_path, ordinal, data_type, description, partitioning, clustering_ordinal, required
 FROM columns WHERE table_id = ? ORDER BY id`, id)
 	if err != nil {

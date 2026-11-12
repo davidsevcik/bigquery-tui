@@ -54,8 +54,13 @@ func cmdSearch(ctx context.Context, o *out, g *globals, args []string) error {
 		return err
 	}
 	var touched []string
-	for _, r := range resp.Results {
+	for i, r := range resp.Results {
 		touched = append(touched, r.Path.Project)
+		if r.Kind == api.KindShards && r.Shard != nil {
+			// the CLI and MCP name: a suffix-less date family keeps its
+			// wildcard events_* (spec 8.3); Name, which the spans index, stays
+			resp.Results[i].Path.Table = r.Shard.AgentName()
+		}
 	}
 	if resp.Warnings, err = eng.StaleWarnings(ctx, touched); err != nil {
 		return err
@@ -89,8 +94,10 @@ func printSearch(w io.Writer, r api.SearchResponse, next string) {
 			kind = fmt.Sprintf("%s ×%d", x.Type, x.Shard.Count)
 		}
 		line := fmt.Sprintf("%-10s %s", kind, x.Path)
-		if x.Kind == api.KindShards {
+		if x.Kind == api.KindShards && x.Shard.Date {
 			line += fmt.Sprintf("  (%s → %s)", x.Shard.First, x.Shard.Last)
+		} else if x.Kind == api.KindShards {
+			line += "  (newest " + x.Shard.Newest + ")"
 		}
 		if x.Tier != "" {
 			line += "  [" + x.MatchedField + "·" + x.Tier + "]"

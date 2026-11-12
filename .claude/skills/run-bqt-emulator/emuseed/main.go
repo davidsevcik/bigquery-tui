@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	bqv2 "google.golang.org/api/bigquery/v2"
@@ -41,7 +42,8 @@ func cols(prefix string, fs []*bqv2.TableFieldSchema, part string, ord *int, out
 	}
 }
 
-func (m meta) DatasetSnapshot(ctx context.Context, req bq.DatasetRequest) (*api.Snapshot, error) {
+// snapshot is a dataset's tables with their columns, from tables.get.
+func (m meta) snapshot(ctx context.Context, req bq.DatasetRequest) (*api.Snapshot, error) {
 	snap := &api.Snapshot{Datasets: []api.DatasetMeta{{Project: req.Project, Name: req.Dataset, Location: req.Location}}}
 	list, err := m.svc.Tables.List(req.Project, req.Dataset).Context(ctx).Do()
 	if err != nil {
@@ -85,11 +87,11 @@ func (m meta) ListDatasets(ctx context.Context, project string) (bq.DatasetList,
 	return l, err
 }
 
-// RegionSnapshot is every requested dataset's snapshot from tables.get.
-func (m meta) RegionSnapshot(ctx context.Context, req bq.RegionRequest) (*api.Snapshot, error) {
+// region is every requested dataset's snapshot from tables.get.
+func (m meta) region(ctx context.Context, req bq.RegionRequest) (*api.Snapshot, error) {
 	out := &api.Snapshot{}
 	for _, d := range req.Datasets {
-		s, err := m.DatasetSnapshot(ctx, bq.DatasetRequest{Project: req.Project, Location: req.Location, Dataset: d})
+		s, err := m.snapshot(ctx, bq.DatasetRequest{Project: req.Project, Location: req.Location, Dataset: d})
 		if err != nil {
 			return nil, err
 		}
@@ -97,6 +99,67 @@ func (m meta) RegionSnapshot(ctx context.Context, req bq.RegionRequest) (*api.Sn
 		out.Tables = append(out.Tables, s.Tables...)
 	}
 	return out, nil
+}
+
+// tablesOnly drops the columns (phase 1).
+func tablesOnly(s *api.Snapshot, err error) (*api.Snapshot, error) {
+	if err != nil {
+		return nil, err
+	}
+	for i := range s.Tables {
+		s.Tables[i].Columns = nil
+	}
+	return s, nil
+}
+
+// columnsOnly applies the phase 2 filter in Go, as BigQuery would.
+func columnsOnly(s *api.Snapshot, err error, f bq.ColumnFilter) ([]bq.TableColumns, error) {
+	if err != nil {
+		return nil, err
+	}
+	var re *regexp.Regexp
+	if f.Pattern != "" {
+		if re, err = regexp.Compile(f.Pattern); err != nil {
+			return nil, err
+		}
+	}
+	keep, only := map[string]bool{}, map[string]bool{}
+	for _, k := range f.Keep {
+		keep[k] = true
+	}
+	for _, k := range f.Only {
+		only[k] = true
+	}
+	var out []bq.TableColumns
+	for _, t := range s.Tables {
+		k := t.Dataset + "." + t.Name
+		switch {
+		case len(only) > 0 && !only[k]:
+			continue
+		case len(only) == 0 && re != nil && re.MatchString(t.Name) && !keep[k]:
+			continue
+		}
+		out = append(out, bq.TableColumns{Dataset: t.Dataset, Table: t.Name, Columns: t.Columns})
+	}
+	return out, nil
+}
+
+func (m meta) RegionTables(ctx context.Context, req bq.RegionRequest) (*api.Snapshot, error) {
+	return tablesOnly(m.region(ctx, req))
+}
+
+func (m meta) RegionColumns(ctx context.Context, req bq.RegionRequest, f bq.ColumnFilter) ([]bq.TableColumns, error) {
+	s, err := m.region(ctx, req)
+	return columnsOnly(s, err, f)
+}
+
+func (m meta) DatasetTables(ctx context.Context, req bq.DatasetRequest) (*api.Snapshot, error) {
+	return tablesOnly(m.snapshot(ctx, req))
+}
+
+func (m meta) DatasetColumns(ctx context.Context, req bq.DatasetRequest, f bq.ColumnFilter) ([]bq.TableColumns, error) {
+	s, err := m.snapshot(ctx, req)
+	return columnsOnly(s, err, f)
 }
 
 func main() {

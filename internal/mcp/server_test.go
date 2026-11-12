@@ -284,7 +284,7 @@ func TestADeselectedProjectIsSearchableWithAWarning(t *testing.T) {
 func TestPendingDatasetIsMarked(t *testing.T) {
 	r := newRig(t, false)
 	r.fake.Projects["proj-a"].Datasets = append(r.fake.Projects["proj-a"].Datasets, bqtest.DS("landing", "US", bqtest.Table("drops", "id")))
-	r.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Location: "US", Err: bqtest.TransientError("down")})
+	r.fake.Fail(bqtest.Failure{Method: "RegionTables", Location: "US", Err: bqtest.TransientError("down")})
 	r.sync(t)
 	var hits api.CatalogHits
 	deadline := time.Now().Add(5 * time.Second)

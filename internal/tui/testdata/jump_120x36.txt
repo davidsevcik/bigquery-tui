@@ -18,15 +18,15 @@ T events_YYYYMMDD                      ×4 │~
  Schema · ac│                                                                                              │ows
  acme-prod.e│                                                                                              │
  shard famil│                                                                                              │
- schema of t│                                                                                              │
+ enter lists│                                                                                              │
  table · EU │                                                                                              │
+ schema of e│                                                                                              │
+ · gs syncs │                                                                                              │
  ✓ synced 3h│                                                                                              │
             │                                                                                              │
- ── schema ·│                                                                                              │
- user_id    │                                                                                              │
- event_name ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
-                                          │  9 19     cust-j          19.99
-                                          │ 10 10     cust-k          19.99
+ ── schema ·╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+ user_id    STRING                        │  9 19     cust-j          19.99
+ event_name STRING                        │ 10 10     cust-k          19.99
                                           │ 11 11     cust-l          19.99
                                           │ 12 12     cust-m          19.99
                                           │ 13 13     cust-n          19.99

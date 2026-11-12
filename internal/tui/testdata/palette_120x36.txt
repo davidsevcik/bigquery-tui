@@ -6,9 +6,9 @@ T events_YYYYMMDD                      ×4 │~
                          ╭─ Commands ─────────────────────────────────────────────────────────╮
                          │ > sync                                                             │
                          │ Show sync problems                                             g p │
-                         │ Show sync progress                                             g s │
+                         │ Sync table schema                                              g s │
+                         │ Show sync progress                                             g d │
                          ╰────────────────────────────────────────────────────────────────────╯
-                                          │~
                                           │~
                                           │~
                                           │~

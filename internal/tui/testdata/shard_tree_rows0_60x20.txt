@@ -1,0 +1,20 @@
+ [Explorer]  Schema  Editor  Results   ctrl+o next
+ Explorer  7/11
+▾ acme-prod                                            ✓ 3h
+  ▸ events                                                5
+  ▸ finance                                               2
+  ▸ sales                                                 4
+  ▾ shop                                                 28
+      T customers
+    ▾ T orders_*                             ×25 2025-01-02
+        … 25 more · / to filter
+    ▸ T orders_*_history                      ×2 2025-01-01
+  ▸ us_archive                                            1
+▸ acme-staging                                         ✓ 3h
+
+
+
+
+
+ bqt exec acme-exec  layout: classi… 6 datasets · 41 tables
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · …

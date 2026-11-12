@@ -131,8 +131,15 @@ func printSchema(w io.Writer, s api.TableSchema) {
 		fmt.Fprintf(w, ", %s", s.Location)
 	}
 	fmt.Fprintln(w, ")")
-	if s.Shard != nil {
-		fmt.Fprintf(w, "shard family %s*: %d tables, %s → %s (schema of the newest)\n", s.Shard.Prefix, s.Shard.Count, s.Shard.First, s.Shard.Last)
+	if f := s.Shard; f != nil {
+		span := ""
+		if f.Date {
+			span = fmt.Sprintf(", %s → %s", f.First, f.Last)
+		}
+		fmt.Fprintf(w, "shard family %s: %d tables%s, query it as %s with _TABLE_SUFFIX\n", f.Name, f.Count, span, f.Wildcard())
+	}
+	if s.SchemaFrom != "" {
+		fmt.Fprintf(w, "schema of %s (the family's newest shard); bqt sync --table %s syncs this table's own\n", s.SchemaFrom, s.Table)
 	}
 	if s.Description != "" {
 		fmt.Fprintln(w, s.Description)

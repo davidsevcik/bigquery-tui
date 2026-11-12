@@ -66,9 +66,15 @@ type SyncEvent struct {
 }
 
 // SyncScope selects what a sync covers. An empty Projects list means every
-// Selected project.
+// Selected project. Table, when set, syncs that one table's row and schema
+// instead (gs, bqt sync --table), and Projects is ignored.
 type SyncScope struct {
-	Projects []string `json:"projects,omitempty"`
+	Projects []string    `json:"projects,omitempty"`
+	Table    *ObjectPath `json:"table,omitempty"`
+	// Family is set with Table when the path named a shard family, which
+	// syncs its newest shard: that refreshes the family's schema and marks
+	// nothing. A member named itself gets the own-schema mark.
+	Family bool `json:"family,omitempty"`
 }
 
 // SyncResult summarises a finished (or cancelled) sync run.

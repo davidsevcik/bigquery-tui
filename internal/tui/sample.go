@@ -118,7 +118,7 @@ func (m *Model) sampleAction() tea.Cmd {
 	if s.kind == api.KindShards && s.node.Shard != nil {
 		// read the newest shard as it is now, page after page, even when a
 		// sync adds a newer one meanwhile
-		sm.path.Table = s.node.Shard.Prefix + s.node.Shard.Last
+		sm.path.Table = s.node.Shard.Newest
 		sm.name = sm.path.String()
 	}
 	m.sample, m.showSample = sm, true
@@ -197,6 +197,19 @@ type selectDetailMsg struct {
 	err  error
 }
 
+// syncTableAction is gs in the Explorer and the Schema pane: it syncs the
+// selected table's own row and schema (a shard family: its newest shard)
+// under the sync lock, as r does for a project.
+func (m *Model) syncTableAction() tea.Cmd {
+	s := m.sel()
+	if s.detailKey() == "" {
+		m.toast = "select a table to sync its schema"
+		return nil
+	}
+	p := s.path
+	return m.startSync(api.SyncScope{Table: &p}, false)
+}
+
 // selectAction is s in the Explorer and the Schema pane. It never runs the
 // query.
 func (m *Model) selectAction() tea.Cmd {
@@ -252,13 +265,10 @@ func (m *Model) openSelect(path api.ObjectPath, det api.TableDetail) {
 	m.toast = fmt.Sprintf("new buffer %s: not run, billed when run (%s)", b.name, how)
 }
 
-// selectName is what a SELECT buffer is called: the table, or prefix* for a
-// shard family.
+// selectName is what a SELECT buffer is called: the table, or for a shard
+// family its name with the varying part as * (events_*, orders_*_history).
 func selectName(p api.ObjectPath) string {
-	if prefix, ok := strings.CutSuffix(p.Table, "YYYYMMDD"); ok {
-		return prefix + "*"
-	}
-	return p.Table
+	return strings.Replace(p.Table, "YYYYMMDD", "*", 1)
 }
 
 // bufferName is name, or name 2, name 3…: the lowest number no other open

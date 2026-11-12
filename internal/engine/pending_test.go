@@ -24,12 +24,12 @@ func TestPendingDatasetsSyncOnlyWhileTheirUnitIsInFlight(t *testing.T) {
 	e := newEnv(t, "proj-a")
 	reached, release := make(chan struct{}), make(chan struct{})
 	e.fake.OnCall = func(c bqtest.Call) {
-		if c.Method == "RegionSnapshot" && c.Location == "US" {
+		if c.Method == "RegionTables" && c.Location == "US" {
 			close(reached)
 			<-release
 		}
 	}
-	e.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Location: "EU", Err: bqtest.TransientError("down")})
+	e.fake.Fail(bqtest.Failure{Method: "RegionTables", Location: "EU", Err: bqtest.TransientError("down")})
 	rw := e.open(false)
 	h, err := rw.StartSync(ctx, api.SyncScope{})
 	if err != nil {
@@ -99,7 +99,7 @@ func TestAProjectWithPendingDatasetsInAnUnsyncedLocationNeedsASync(t *testing.T)
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	e.fake.OnCall = func(c bqtest.Call) {
-		if c.Method == "RegionSnapshot" && c.Location == "asia-east1" {
+		if c.Method == "RegionTables" && c.Location == "asia-east1" {
 			cancel()
 		}
 	}
@@ -126,10 +126,10 @@ func TestACommittedUnitIsNotShownNotSyncedBeforeTheIndexReloads(t *testing.T) {
 	e := newEnv(t, "proj-a")
 	eu, us := make(chan struct{}), make(chan struct{})
 	e.fake.OnCall = func(c bqtest.Call) {
-		if c.Method == "RegionSnapshot" && c.Location == "EU" {
+		if c.Method == "RegionTables" && c.Location == "EU" {
 			<-eu
 		}
-		if c.Method == "RegionSnapshot" && c.Location == "US" {
+		if c.Method == "RegionTables" && c.Location == "US" {
 			<-us
 		}
 	}
@@ -165,5 +165,41 @@ func TestACommittedUnitIsNotShownNotSyncedBeforeTheIndexReloads(t *testing.T) {
 	}
 	if n := datasetNodes(rw)["sales"]; n.Status != api.DatasetOK || n.Syncing {
 		t.Fatalf("after the run: %+v", n)
+	}
+}
+
+// A table sync (gs) reads no unit, so it never flags a not synced dataset
+// syncing.
+func TestATableSyncLeavesNotSyncedDatasetsNotSynced(t *testing.T) {
+	e := newEnv(t, "proj-a")
+	e.fake.Fail(bqtest.Failure{Method: "RegionTables", Location: "US", Err: bqtest.TransientError("down")})
+	rw := e.open(false)
+	h, _ := rw.StartSync(ctx, api.SyncScope{})
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if n := datasetNodes(rw)["us_data"]; n.Status != api.DatasetPending || n.Syncing {
+		t.Fatalf("before: %+v", n)
+	}
+	reached, release := make(chan struct{}), make(chan struct{})
+	e.fake.OnCall = func(c bqtest.Call) {
+		if c.Method == "GetTableMeta" {
+			close(reached)
+			<-release
+		}
+	}
+	tbl := api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "orders"}
+	h, err := rw.StartSync(ctx, api.SyncScope{Table: &tbl})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-reached
+	n := datasetNodes(rw)["us_data"]
+	close(release)
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if n.Status != api.DatasetPending || n.Syncing {
+		t.Fatalf("during the table sync: %+v", n)
 	}
 }

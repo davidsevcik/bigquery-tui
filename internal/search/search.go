@@ -157,6 +157,11 @@ func (s *Searcher) Search(ctx context.Context, raw string, o api.SearchOptions) 
 	case q.Path != nil:
 		if i, ok := x.resolve(q.Path.String()); ok {
 			hits = []hit{x.tableHit(i, tExact*10, 0)}
+		} else if i, ok := x.families[q.Path.String()]; ok {
+			f := x.tables[i].shard
+			p := x.tablePath(i)
+			p.Table = f.Name
+			hits = []hit{{kind: api.KindShards, i: i, max: tExact * 10, name: f.Name, path: p.String(), members: f.Count}}
 		} else {
 			// not a known path: treat the text as an ordinary term
 			c.q.Path = nil
@@ -344,7 +349,7 @@ func (s *Searcher) rank(ctx context.Context, x *Index, c *compiled, o api.Search
 		out = append(out, p...)
 	}
 	if !o.ExpandShards {
-		out = x.collapseShards(out)
+		out = x.collapseShards(out, c)
 	}
 
 	// Projects and datasets match by name. Where only tables would be
@@ -574,34 +579,72 @@ func datasetLabel(d *dsEntry, vals []string) bool {
 	return false
 }
 
-// collapseShards folds two or more equally scored members of one shard family
-// into a single family hit.
-func (x *Index) collapseShards(hits []hit) []hit {
-	type key struct {
-		ds       int
-		prefix   string
-		typ      api.TableType
-		max, sum int
+// memberHit reports whether a hit on table i stands for the table itself
+// rather than for its shard family: it is in no family, a free term matches
+// inside its varying part, or (under col:) it has its own schema. A term
+// that matches only the shared prefix or suffix stands for the family.
+func (x *Index) memberHit(i int, terms []string, cols bool) bool {
+	t := &x.tables[i]
+	f := t.shard
+	if f == nil || cols && t.ownSchema {
+		return true
 	}
+	// the match spans are offsets into the lower-cased name, whose bytes can
+	// differ in number from the name's (the Kelvin sign K lowers to k)
+	lo, hi := len(strings.ToLower(f.Prefix)), len(t.lname)-len(strings.ToLower(f.Suffix))
+	for _, term := range terms {
+		tier, sp := matchName(t.lname, term, true)
+		if tier < 0 {
+			continue
+		}
+		for _, s := range sp {
+			if s.Start < hi && s.End > lo {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// collapseShards folds the hits on a shard family's members into one family
+// hit, ranked by its best member, except for the members memberHit keeps.
+func (x *Index) collapseShards(hits []hit, c *compiled) []hit {
+	type key struct {
+		ds   int
+		name string
+		typ  api.TableType
+	}
+	cols := len(c.colVals) > 0
 	groups := map[key][]int{}
+	var order []key
 	for hi, h := range hits {
 		t := &x.tables[h.i]
-		if t.shard == nil {
+		if t.shard == nil || x.memberHit(h.i, c.terms, cols) {
 			continue
 		}
-		k := key{t.ds, t.shard.Prefix, t.typ, h.max, h.sum}
+		k := key{t.ds, t.shard.Name, t.typ}
+		if _, seen := groups[k]; !seen {
+			order = append(order, k)
+		}
 		groups[k] = append(groups[k], hi)
 	}
+	if len(groups) == 0 {
+		return hits
+	}
 	drop := map[int]bool{}
-	for k, members := range groups {
-		if len(members) < 2 {
-			continue
-		}
-		// representative: the newest member
+	for _, k := range order {
+		members := groups[k]
+		// the representative is the newest shard (it carries the family's
+		// columns), scored as the best member
 		rep := members[0]
-		for _, m := range members[1:] {
-			if hits[m].name > hits[rep].name {
+		best := hits[rep]
+		for _, m := range members {
+			h := hits[m]
+			if x.tables[h.i].name == x.tables[h.i].shard.Newest {
 				rep = m
+			}
+			if h.max < best.max || h.max == best.max && h.sum < best.sum {
+				best = h
 			}
 		}
 		for _, m := range members {
@@ -612,17 +655,32 @@ func (x *Index) collapseShards(hits []hit) []hit {
 		d := &x.datasets[k.ds]
 		h := &hits[rep]
 		h.kind = api.KindShards
+		h.max, h.sum = best.max, best.sum
 		h.members = len(members)
-		h.name = k.prefix + "YYYYMMDD"
+		h.name = k.name
 		h.path = x.projects[d.proj].name + "." + d.name + "." + h.name
-	}
-	if len(drop) == 0 {
-		return hits
 	}
 	out := hits[:0]
 	for i, h := range hits {
 		if !drop[i] {
 			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// familySpans maps spans on a member's name onto its family's name, keeping
+// those in the shared prefix and suffix.
+func familySpans(member string, f *api.ShardFamily, sp []api.Span) []api.Span {
+	lo, hi := len(f.Prefix), len(member)-len(f.Suffix)
+	shift := len(f.Name) - len(member)
+	var out []api.Span
+	for _, s := range sp {
+		if s.Start < lo {
+			out = append(out, api.Span{Start: s.Start, End: min(s.End, lo)})
+		}
+		if s.End > hi {
+			out = append(out, api.Span{Start: max(s.Start, hi) + shift, End: s.End + shift})
 		}
 	}
 	return out
@@ -722,24 +780,18 @@ func (s *Searcher) materialize(ctx context.Context, x *Index, c *compiled, h hit
 		return r, nil
 	}
 	if c.q.Path != nil {
-		r.Spans["name"] = []api.Span{{Start: 0, End: len(t.name)}}
+		r.Spans["name"] = []api.Span{{Start: 0, End: len(r.Name)}}
 		r.MatchedField, r.Tier = "name", tierNames[tExact]
 		return r, nil
 	}
 
 	nameSp := termSpans(t.lname, terms, true)
 	if h.kind == api.KindShards {
-		// keep only the spans inside the shared prefix
-		var clipped []api.Span
-		for _, sp := range nameSp {
-			if sp.Start < len(t.shard.Prefix) {
-				sp.End = min(sp.End, len(t.shard.Prefix))
-				clipped = append(clipped, sp)
-			}
-		}
-		nameSp = clipped
+		nameSp = familySpans(t.name, t.shard, nameSp)
+		setSpans(r.Spans, "name", h.name, strings.ToLower(h.name), nameSp)
+	} else {
+		setSpans(r.Spans, "name", t.name, t.lname, nameSp)
 	}
-	setSpans(r.Spans, "name", t.name, t.lname, nameSp)
 	dsSp := mergeSpans(append(termSpans(d.lname, terms, false), subSpans(d.lname, c.filterValues("d"))...))
 	setSpans(r.Spans, "dataset", d.name, d.lname, dsSp)
 	prSp := mergeSpans(append(termSpans(p.lname, terms, false), subSpans(p.lname, c.filterValues("p"))...))

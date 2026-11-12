@@ -1222,12 +1222,18 @@ func (buffersPopup) hints(*Model) string {
 	return joinHints(selectHint(ZoneOverlay), keyHint(ZoneOverlay, "open or restore", "open"), footerHints(ZoneOverlay))
 }
 
-// insertPath puts a qualified table name into the editor (the explorer's i).
-func (m *Model) insertPath(p api.ObjectPath) {
+// insertPath puts the selected table's qualified name into the editor (the
+// explorer's i); a shard family goes in as its wildcard.
+func (m *Model) insertPath(s selection) {
+	p := s.path
 	if p.Project == "" {
 		return
 	}
-	m.buf().ed.insert(sqlx.QuoteTable(p))
+	q := sqlx.QuoteTable(p)
+	if s.kind == api.KindShards {
+		q = sqlx.QuoteFamily(p, s.node.Shard)
+	}
+	m.buf().ed.insert(q)
 	m.revealPane(ZoneEditor)
 	m.setZone(ZoneEditor)
 	if m.o.NoBackground {

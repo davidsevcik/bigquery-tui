@@ -95,12 +95,26 @@ func fixtureFake() *bqtest.Fake {
 // tests set "vim".
 var rigEditing = "plain"
 
+// rigShards are the shard patterns of the next rig: the fixture's
+// events_YYYYMMDD tables collapse, and so would hex-id families.
+var rigShards = "shard_patterns = ['.+(\\d{8})', '.+_([0-9a-f]{24})(?:_history)?']\n"
+
+// rigTUI is more of the next rig's [tui] table, and rigFake changes its
+// fake before the first sync.
+var (
+	rigTUI  string
+	rigFake func(*bqtest.Fake)
+)
+
 func newRig(t *testing.T, w, h int) *rig {
 	t.Helper()
 	dir := t.TempDir()
 	r := &rig{t: t, fake: fixtureFake(), dir: dir, now: testNow}
+	if rigFake != nil {
+		rigFake(r.fake)
+	}
 	r.cfg = filepath.Join(dir, "config.toml")
-	src := "data_dir = \"" + filepath.Join(dir, "data") + "\"\n[tui]\nediting = \"" + rigEditing + "\"\n"
+	src := "data_dir = \"" + filepath.Join(dir, "data") + "\"\n" + rigShards + "[tui]\nediting = \"" + rigEditing + "\"\n" + rigTUI
 	if err := os.WriteFile(r.cfg, []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}

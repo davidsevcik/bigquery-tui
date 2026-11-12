@@ -202,24 +202,18 @@ func (e *Engine) AgentResults(ctx context.Context, resultID string, start int64,
 
 // ParsePath reads a table path: project.dataset.table, optionally in
 // backticks, or dataset.table in the Execution project. A shard family can be
-// named prefix* or prefixYYYYMMDD (its newest member answers).
+// named by its family name (orders_*, orders_*_history, events_YYYYMMDD) or
+// its wildcard prefix*: its newest shard answers.
 func (e *Engine) ParsePath(s string) (api.ObjectPath, bool) {
 	s = strings.TrimSpace(s)
 	if p, ok := search.SplitPath(s); ok {
-		return wildcard(p), true
+		return p, true
 	}
 	parts := strings.Split(strings.Trim(s, "`"), ".")
 	if exec := e.execProject(); len(parts) == 2 && parts[0] != "" && parts[1] != "" && exec != "" {
-		return wildcard(api.ObjectPath{Project: exec, Dataset: parts[0], Table: parts[1]}), true
+		return api.ObjectPath{Project: exec, Dataset: parts[0], Table: parts[1]}, true
 	}
 	return api.ObjectPath{}, false
-}
-
-func wildcard(p api.ObjectPath) api.ObjectPath {
-	if strings.HasSuffix(p.Table, "*") {
-		p.Table = strings.TrimSuffix(p.Table, "*") + "YYYYMMDD"
-	}
-	return p
 }
 
 // Schema returns a table's schema from the catalog.
@@ -246,7 +240,7 @@ func SchemaOf(d api.TableDetail) api.TableSchema {
 	t := d.Table
 	s := api.TableSchema{
 		Table: d.Path.String(), Type: t.Type, Location: d.Location, Description: t.Description,
-		Labels: t.Labels, Shard: d.Shard, ViewSQL: t.ViewSQL, Columns: []api.SchemaColumn{},
+		Labels: t.Labels, Shard: d.Shard, SchemaFrom: d.SchemaFrom, ViewSQL: t.ViewSQL, Columns: []api.SchemaColumn{},
 		NamesOnly: d.NamesOnly || t.NamesOnly, SyncedAt: d.SyncedAt, Stale: d.Stale,
 	}
 	cols := append([]api.ColumnMeta(nil), t.Columns...)
@@ -285,9 +279,9 @@ func (e *Engine) CatalogSearch(ctx context.Context, query string, limit, offset 
 		touched = append(touched, r.Path.Project)
 		if r.Kind == api.KindShards && r.Shard != nil {
 			p := r.Path
-			p.Table = r.Shard.Prefix + "*"
+			p.Table = r.Shard.AgentName()
 			h.Path = p.String()
-			h.Shard = &api.ShardInfo{First: r.Shard.First, Last: r.Shard.Last, Count: r.Shard.Count}
+			h.Shard = &api.ShardInfo{Wildcard: r.Shard.Wildcard(), Newest: r.Shard.Newest, First: r.Shard.First, Last: r.Shard.Last, Count: r.Shard.Count}
 		}
 		for _, c := range r.ColumnHits {
 			h.Columns = append(h.Columns, c.FieldPath+" "+c.DataType)

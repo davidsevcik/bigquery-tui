@@ -171,7 +171,7 @@ func (m *Model) searchKey(st *searchState, msg tea.KeyPressMsg, name string, hal
 			}
 			if st == m.jump && m.jumpInsert {
 				m.ov = ovNone
-				m.insertPath(s.path)
+				m.insertPath(s)
 				return nil
 			}
 			return m.reveal(s.path, s.kind)

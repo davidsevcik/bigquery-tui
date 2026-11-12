@@ -30,7 +30,7 @@ func newEnv(t *testing.T, selected ...string) *env {
 	t.Helper()
 	dir := t.TempDir()
 	e := &env{t: t, dir: dir, fake: bqtest.New(), now: time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)}
-	e.cfg = e.config("")
+	e.cfg = e.config(shardDates) // the tests' events_YYYYMMDD tables collapse
 	if len(selected) > 0 {
 		st := selection.State{Execution: "exec-proj"}
 		st.Select(e.now.Add(-time.Hour), selected...)
@@ -46,6 +46,9 @@ func newEnv(t *testing.T, selected ...string) *env {
 	e.fake.AddProject("proj-b").Datasets = []bqtest.Dataset{bqtest.DS("core", "EU", bqtest.Table("t", "c"))}
 	return e
 }
+
+// shardDates is the shard pattern the tests' date-suffixed tables use.
+const shardDates = "shard_patterns = ['.+(\\d{8})']\n"
 
 // config parses a config for this environment's data_dir plus extra lines.
 func (e *env) config(extra string) *config.Config {
@@ -135,7 +138,7 @@ func TestSyncThenStatusAndStaleness(t *testing.T) {
 
 func TestStatusReportsConfigChange(t *testing.T) {
 	e := newEnv(t, "proj-a")
-	e.cfg = e.config(`ignore = ["proj-a.us_data"]`)
+	e.cfg = e.config(shardDates + `ignore = ["proj-a.us_data"]`)
 	rw := e.open(false)
 	h, _ := rw.StartSync(ctx, api.SyncScope{})
 	if _, err := h.Wait(); err != nil {
@@ -143,7 +146,7 @@ func TestStatusReportsConfigChange(t *testing.T) {
 	}
 
 	// the user removes an ignore pattern
-	e.cfg = e.config("")
+	e.cfg = e.config(shardDates)
 	ro := e.open(true)
 	st, _ := ro.Status(ctx)
 	if !st.SyncNeeded || st.SyncReason == "" {

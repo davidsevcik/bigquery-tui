@@ -54,11 +54,14 @@ func TestFieldPathsAreReadInOrder(t *testing.T) {
 		}
 		return strings.Contains(strings.ToUpper(root), "ORDER BY")
 	}
+	filters := []ColumnFilter{{}, {Only: []string{"ds.t"}}, {Pattern: `^(?:x_(\d+))$`, Keep: []string{"ds.x_1"}}}
 	for _, s := range []scope{regionScope("p", "US"), datasetScope("p", "ds")} {
-		if q := s.fieldPathsSQL(); !rootHasOrderBy(q) || strings.ContainsAny(readInOrder, "()") {
-			t.Fatalf("not read in order:\n%s", q)
+		for _, f := range filters {
+			if q := s.fieldPathsSQL(f.clause()); !rootHasOrderBy(q) || strings.ContainsAny(readInOrder, "()") {
+				t.Fatalf("not read in order:\n%s", q)
+			}
 		}
-		for _, q := range []string{s.tablesSQL(), s.columnsSQL(), s.tableOptionsSQL(), s.viewsSQL()} {
+		for _, q := range []string{s.tablesSQL(), s.columnsSQL(filters[2].clause()), s.tableOptionsSQL(), s.viewsSQL()} {
 			if rootHasOrderBy(q) {
 				t.Fatalf("read in order without need:\n%s", q)
 			}

@@ -51,7 +51,7 @@ type Backend interface {
 	Projects() []api.BrowseNode
 	Datasets(project string) []api.BrowseNode
 	Tables(project, dataset string) []api.BrowseNode
-	ShardMembers(project, dataset, prefix string) []api.BrowseNode
+	ShardMembers(project, dataset, family string, typ api.TableType) []api.BrowseNode
 	ParseQuery(string) api.ParsedQuery
 	Search(ctx context.Context, query string, o api.SearchOptions) (api.SearchResponse, error)
 	Filter(ctx context.Context, query string, o api.FilterOptions) (api.FilterResponse, error)

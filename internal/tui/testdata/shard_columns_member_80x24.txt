@@ -1,0 +1,24 @@
+ orders_* 2/25              │ SQL · query 1   1:1
+T orders_5f1900000000000000…│ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · ta…
+T orders_5f1800000000000000…│~
+T orders_5f1700000000000000…│~
+T orders_5f1600000000000000…│~
+T orders_5f1500000000000000…│~
+T orders_5f1400000000000000…│~
+T orders_5f1300000000000000…│~
+T orders_5f1200000000000000…│~
+T orders_5f1100000000000000…│~
+T orders_5f1000000000000000…│~
+T orders_5f0f00000000000000…│ Results
+T orders_5f0e00000000000000…│ no run yet: ctrl+r runs the buffer (or the select…
+T orders_5f0d00000000000000…│
+T orders_5f0c00000000000000…│
+T orders_5f0b00000000000000…│
+T orders_5f0a00000000000000…│
+T orders_5f0900000000000000…│
+T orders_5f0800000000000000…│
+T orders_5f0700000000000000…│
+T orders_5f0600000000000000…│
+T orders_5f0500000000000000…│
+ bqt exec acme-exec  layout: classic (small terminal)  … 6 datasets · 41 tables
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · ctrl+o pane · ctrl+p…

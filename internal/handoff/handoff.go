@@ -35,8 +35,12 @@ func SchemaMarkdown(s api.TableSchema) string {
 		fmt.Fprintf(&b, ", %s", s.Location)
 	}
 	b.WriteString(")\n\n")
-	if s.Shard != nil {
-		fmt.Fprintf(&b, "Date-sharded: `%s*` has %d tables, %s to %s (schema of the newest).\n\n", s.Shard.Prefix, s.Shard.Count, s.Shard.First, s.Shard.Last)
+	if f := s.Shard; f != nil {
+		span := ""
+		if f.Date {
+			span = fmt.Sprintf(", %s to %s", f.First, f.Last)
+		}
+		fmt.Fprintf(&b, "Shard family `%s`: %d tables%s, queried as `%s*` with `_TABLE_SUFFIX` (schema of the newest, `%s`).\n\n", f.Name, f.Count, span, f.Prefix, f.Newest)
 	}
 	if s.Description != "" {
 		b.WriteString(oneLine(s.Description) + "\n\n")

@@ -139,9 +139,10 @@ func (e *Engine) Tables(project, dataset string) []api.BrowseNode {
 	return e.search.Tables(project, dataset)
 }
 
-// ShardMembers lists the tables of a shard family, newest first.
-func (e *Engine) ShardMembers(project, dataset, prefix string) []api.BrowseNode {
-	return e.search.ShardMembers(project, dataset, prefix)
+// ShardMembers lists the tables of a shard family (by its name), newest
+// first.
+func (e *Engine) ShardMembers(project, dataset, family string, typ api.TableType) []api.BrowseNode {
+	return e.search.ShardMembers(project, dataset, family, typ)
 }
 
 // TableDetail returns everything the schema pane shows, from the catalog.
@@ -163,6 +164,20 @@ func (e *Engine) TableDetail(ctx context.Context, p api.ObjectPath) (api.TableDe
 		return api.TableDetail{}, ErrUnknownTable
 	}
 	d := api.TableDetail{Path: ref.Path, Table: t, Location: ref.Location, NamesOnly: ref.NamesOnly, Shard: t.Shard, Stale: true}
+	switch {
+	case ref.Family != nil:
+		d.SchemaFrom = t.Name // the family's schema is its newest shard's
+	case t.Shard != nil && t.SharedSchema:
+		// a member whose columns were not read: show its family's, read
+		// from the newest shard it records (not through the family's name,
+		// which a family of another type can share)
+		fp := api.ObjectPath{Project: ref.Path.Project, Dataset: ref.Path.Dataset, Table: t.Shard.Newest}
+		if nref, ok := e.search.Lookup(fp); ok && nref.ID != ref.ID {
+			if newest, err := e.catalog.TableByID(ctx, nref.ID); err == nil && newest.Name == nref.Path.Table {
+				d.Table.Columns, d.SchemaFrom = newest.Columns, newest.Name
+			}
+		}
+	}
 	if u, ok := e.search.Unit(ref.Path.Project, ref.Location); ok {
 		d.Status, d.Error, d.SyncedAt = u.Status, u.Error, u.LastSuccess
 		d.Stale = u.LastSuccess == nil || e.o.Now().Sub(*u.LastSuccess) > e.Config().SyncTTL

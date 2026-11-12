@@ -271,7 +271,7 @@ func TestSearchMarksAPendingDataset(t *testing.T) {
 	s := newSandbox(t)
 	s.writeConfig("projects = [\"proj-a\"]\n")
 	s.fake.Projects["proj-a"].Datasets = append(s.fake.Projects["proj-a"].Datasets, bqtest.DS("landing", "asia-east1", bqtest.Table("drops", "id")))
-	s.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Location: "asia-east1", Err: bqtest.TransientError("down")})
+	s.fake.Fail(bqtest.Failure{Method: "RegionTables", Location: "asia-east1", Err: bqtest.TransientError("down")})
 	if code, _, errOut := s.run("sync"); code != api.ExitBigQuery {
 		t.Fatalf("a failed unit: %d %s", code, errOut)
 	}

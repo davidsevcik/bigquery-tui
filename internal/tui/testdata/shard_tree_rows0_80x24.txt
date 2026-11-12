@@ -1,0 +1,24 @@
+ Explorer  7/11             │ SQL · query 1   1:1
+▾ acme-prod            ✓ 3h │ 1   type SQL · ctrl+r runs · ctrl+d dry-runs · ta…
+  ▸ events                5 │~
+  ▸ finance               2 │~
+  ▸ sales                 4 │~
+  ▾ shop                 28 │~
+      T customers           │~
+    ▾ T orders_*        ×25 │~
+        … 25 more · / to fi…│~
+    ▸ T orders_*_history ×2 │~
+  ▸ us_archive            1 │~
+▸ acme-staging         ✓ 3h │ Results
+                            │ no run yet: ctrl+r runs the buffer (or the select…
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+                            │
+ bqt exec acme-exec  layout: classic (small terminal)  … 6 datasets · 41 tables
+ ↑↓←→/hjkl move · / filter · L style · p sample · ? help · ctrl+o pane · ctrl+p…

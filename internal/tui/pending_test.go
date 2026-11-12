@@ -21,11 +21,11 @@ func pendingSync(t *testing.T, r *rig) (h *engine.SyncHandle, release func()) {
 	ml.Meta.FriendlyName = "ML feature store"
 	ml.Meta.Labels = map[string]string{"team": "ml", "tier": "gold"}
 	p.Datasets = append(p.Datasets, ml, bqtest.DS("raw_landing", "US", bqtest.Table("drops", "id")))
-	r.fake.Fail(bqtest.Failure{Method: "RegionSnapshot", Project: "acme-prod", Location: "US", Err: bqtest.TransientError("region views unavailable")})
+	r.fake.Fail(bqtest.Failure{Method: "RegionTables", Project: "acme-prod", Location: "US", Err: bqtest.TransientError("region views unavailable")})
 	reached, hold := make(chan struct{}), make(chan struct{})
 	var once gosync.Once
 	r.fake.OnCall = func(c bqtest.Call) {
-		if c.Method == "RegionSnapshot" && c.Location == "asia-northeast1" {
+		if c.Method == "RegionTables" && c.Location == "asia-northeast1" {
 			once.Do(func() { close(reached) })
 			<-hold // released: later syncs pass
 		}

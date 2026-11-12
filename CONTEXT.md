@@ -55,3 +55,19 @@ _Avoid_: Layout, view, mode
 **Sample**:
 Rows of a stored table read free through `tabledata.list` and shown in the Results Pane. A Sample is not a Run: it starts no job, costs nothing and never becomes a History entry. Views and external tables have no Sample.
 _Avoid_: Preview, query result, peek
+
+**Shard pattern**:
+One RE2 regular expression in the `shard_patterns` config key, matched against a whole table name, whose single capturing group marks the part that varies between the members of a Shard family (`'.+_([0-9a-f]{24})'`). There is no built-in pattern.
+_Avoid_: Shard rule, preset
+
+**Shard family**:
+Two or more tables of the same type in one dataset that a Shard pattern matches with the same text before and after its group (`orders_<id>`, `orders_<id>_history` are two families). It shows as one row named with the varying part as `*` (`orders_* ×24,001`), shares the schema of its Newest shard, and is queried through its wildcard `prefix*` with `_TABLE_SUFFIX`. Sync stores every member's table row but reads columns only for the Newest shard and for members synced on their own (`gs`).
+_Avoid_: Sharded table, table group, wildcard table (that is how a family is queried)
+
+**Date family**:
+A Shard family whose varying parts are all valid `YYYYMMDD` dates: named `events_YYYYMMDD` and shown with its first and last date.
+_Avoid_: Date-sharded table (for the family as a whole)
+
+**Newest shard**:
+The member of a Shard family whose schema is the family's: the latest date in a Date family, the latest creation time (ties by name) in any other. `p` samples it and `s` pins `_TABLE_SUFFIX` to it.
+_Avoid_: Latest table, head shard

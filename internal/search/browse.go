@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/internal/api"
+	"github.com/davidsevcik/bigquery-tui/internal/shard"
 	"github.com/davidsevcik/bigquery-tui/internal/store"
 )
 
@@ -119,7 +120,7 @@ func (s *Searcher) Datasets(project string) []api.BrowseNode {
 }
 
 // Tables lists a dataset's tables with each shard family collapsed into one
-// node, placed where its prefix sorts.
+// node named after the family, placed where its name sorts.
 func (s *Searcher) Tables(project, dataset string) []api.BrowseNode {
 	x := s.Index()
 	d := x.findDataset(project, dataset)
@@ -127,24 +128,23 @@ func (s *Searcher) Tables(project, dataset string) []api.BrowseNode {
 		return nil
 	}
 	type famKey struct {
-		prefix string
-		typ    api.TableType
+		name string
+		typ  api.TableType
 	}
 	seen := map[famKey]bool{}
 	out := make([]api.BrowseNode, 0, len(d.tables))
 	for _, ti := range d.tables {
 		t := &x.tables[ti]
 		if t.shard != nil {
-			k := famKey{t.shard.Prefix, t.typ}
+			k := famKey{t.shard.Name, t.typ}
 			if seen[k] {
 				continue
 			}
 			seen[k] = true
 			fam := *t.shard
-			name := fam.Prefix + "YYYYMMDD"
 			out = append(out, api.BrowseNode{
-				Kind: api.KindShards, Path: api.ObjectPath{Project: project, Dataset: dataset, Table: name},
-				Name: name, Type: t.typ, Children: fam.Count, Shard: &fam, NamesOnly: t.namesOnly,
+				Kind: api.KindShards, Path: api.ObjectPath{Project: project, Dataset: dataset, Table: fam.Name},
+				Name: fam.Name, Type: t.typ, Children: fam.Count, Shard: &fam, NamesOnly: t.namesOnly,
 			})
 			continue
 		}
@@ -164,20 +164,29 @@ func (s *Searcher) tableNode(x *Index, ti int) api.BrowseNode {
 	return n
 }
 
-// ShardMembers lists the tables of one shard family, newest first.
-func (s *Searcher) ShardMembers(project, dataset, prefix string) []api.BrowseNode {
+// ShardMembers lists the tables of one shard family, newest first: by date
+// for a date family, by creation time for any other. family is the family's
+// name (orders_*, events_YYYYMMDD) and typ its table type: families of two
+// types can share a name. An empty typ matches any type.
+func (s *Searcher) ShardMembers(project, dataset, family string, typ api.TableType) []api.BrowseNode {
 	x := s.Index()
 	d := x.findDataset(project, dataset)
 	if d == nil {
 		return nil
 	}
-	var out []api.BrowseNode
+	var idx []int
+	var fam api.ShardFamily
 	for _, ti := range d.tables {
-		if t := &x.tables[ti]; t.shard != nil && t.shard.Prefix == prefix {
-			out = append(out, s.tableNode(x, ti))
+		if t := &x.tables[ti]; t.shard != nil && t.shard.Name == family && (typ == "" || t.typ == typ) {
+			idx = append(idx, ti)
+			fam = *t.shard
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name > out[j].Name })
+	shard.SortNewestFirst(fam, idx, func(i int) string { return x.tables[i].name }, func(i int) time.Time { return x.tables[i].created })
+	out := make([]api.BrowseNode, len(idx))
+	for i, ti := range idx {
+		out[i] = s.tableNode(x, ti)
+	}
 	return out
 }
 
@@ -212,17 +221,20 @@ type TableRef struct {
 	Type      api.TableType
 	Meta      api.TableMeta // without columns and view SQL
 	NamesOnly bool
+	// Family is set when the path named a shard family: Path is then its
+	// newest shard.
+	Family *api.ShardFamily
 }
 
-// Lookup resolves a table path. For a shard-family path (prefix + YYYYMMDD)
-// it returns the newest member.
+// Lookup resolves a table path. A shard family's path (its name, or its
+// wildcard prefix*) resolves to its newest shard.
 func (s *Searcher) Lookup(p api.ObjectPath) (TableRef, bool) {
 	x := s.Index()
 	ti, ok := x.byPath[p.String()]
-	if !ok && strings.HasSuffix(p.Table, "YYYYMMDD") {
-		if m := s.ShardMembers(p.Project, p.Dataset, strings.TrimSuffix(p.Table, "YYYYMMDD")); len(m) > 0 {
-			ti, ok = x.byPath[m[0].Path.String()]
-		}
+	family := false
+	if !ok {
+		ti, ok = x.families[p.String()]
+		family = ok
 	}
 	if !ok {
 		return TableRef{}, false
@@ -230,7 +242,7 @@ func (s *Searcher) Lookup(p api.ObjectPath) (TableRef, bool) {
 	t := &x.tables[ti]
 	d := &x.datasets[t.ds]
 	ref := TableRef{ID: t.id, Path: x.tablePath(ti), Location: d.location, Type: t.typ, NamesOnly: t.namesOnly || d.status == api.DatasetNamesOnly}
-	ref.Meta = api.TableMeta{Dataset: d.name, Name: t.name, Type: t.typ, Description: t.desc, NamesOnly: t.namesOnly}
+	ref.Meta = api.TableMeta{Dataset: d.name, Name: t.name, Type: t.typ, Description: t.desc, NamesOnly: t.namesOnly, CreatedAt: t.created, OwnSchema: t.ownSchema}
 	if len(t.labels) > 0 {
 		ref.Meta.Labels = map[string]string{}
 		for _, l := range t.labels {
@@ -242,6 +254,9 @@ func (s *Searcher) Lookup(p api.ObjectPath) (TableRef, bool) {
 	if t.shard != nil {
 		fam := *t.shard
 		ref.Meta.Shard = &fam
+		if family {
+			ref.Family = &fam
+		}
 	}
 	return ref, true
 }

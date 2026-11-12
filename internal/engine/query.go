@@ -105,24 +105,26 @@ func (c completionCatalog) Tables(project, dataset string) []sqlx.TableName {
 	}
 	var out []sqlx.TableName
 	for _, n := range c.e.search.Tables(project, dataset) {
-		name := n.Name
-		if n.Shard != nil {
-			name = n.Shard.Prefix + "*" // a wildcard table over the family
+		if n.Kind != api.KindShards || n.Shard == nil {
+			out = append(out, sqlx.TableName{Name: n.Name, Type: n.Type})
+			continue
 		}
-		out = append(out, sqlx.TableName{Name: name, Type: n.Type})
+		// a family: its wildcard and its newest shard, the members once the
+		// typed text reaches into the varying part
+		fam := *n.Shard
+		members := func() []string {
+			var names []string
+			for _, m := range c.e.search.ShardMembers(project, dataset, fam.Name, n.Type) {
+				names = append(names, m.Name)
+			}
+			return names
+		}
+		out = append(out, sqlx.TableName{Name: fam.Wildcard(), Type: n.Type, Prefix: fam.Prefix, Members: members}, sqlx.TableName{Name: fam.Newest, Type: n.Type})
 	}
 	return out
 }
 
 func (c completionCatalog) Columns(project, dataset, table string) []api.ColumnMeta {
-	if strings.HasSuffix(table, "*") {
-		// a wildcard table has the schema of its newest shard
-		prefix := strings.TrimSuffix(table, "*")
-		for _, n := range c.e.search.ShardMembers(project, dataset, prefix) {
-			table = n.Name
-			break
-		}
-	}
 	// Completion runs on the frontend's input path, so a table's columns are
 	// read from the catalog once and then served from memory (the cache is
 	// dropped whenever the index reloads), and the read itself is bounded.

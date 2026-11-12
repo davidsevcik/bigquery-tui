@@ -298,6 +298,8 @@ func (m *Model) schemaAction(act string) tea.Cmd {
 		return m.sampleAction()
 	case "select":
 		return m.selectAction()
+	case "synctable":
+		return m.syncTableAction()
 	case "back":
 		m.setZone(ZoneExplorer)
 	}

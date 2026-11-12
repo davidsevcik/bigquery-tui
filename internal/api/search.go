@@ -146,6 +146,10 @@ type FilterOptions struct {
 	// Kinds lists the object kinds to return; empty returns every kind.
 	// Shard members come back as tables, their family as KindShards.
 	Kinds []ResultKind `json:"kinds,omitempty"`
+	// ExpandShards reports every passing shard member as a table match. By
+	// default a member matches on its own only when a term reaches into its
+	// varying part; otherwise only its family does.
+	ExpandShards bool `json:"expand_shards,omitempty"`
 	// SelectedOnly leaves out the projects that are not selected.
 	SelectedOnly bool `json:"selected_only,omitempty"`
 	// Hidden is what the engine derives from SelectedOnly.
@@ -156,6 +160,10 @@ type FilterOptions struct {
 type FilterMatch struct {
 	Kind ResultKind `json:"kind"`
 	Path ObjectPath `json:"path"`
+	// Shard is the family a shard_family match stands for: its prefix and
+	// suffix say which tables are its members (its name alone can be read
+	// two ways when the fixed parts hold YYYYMMDD themselves).
+	Shard *ShardFamily `json:"shard_family,omitempty"`
 }
 
 // FilterResponse lists every object that passes a filter, best match first.
@@ -214,6 +222,11 @@ type TableDetail struct {
 	Error     string       `json:"error,omitempty"`
 	NamesOnly bool         `json:"names_only,omitempty"`
 	Shard     *ShardFamily `json:"shard_family,omitempty"`
+	// SchemaFrom names the shard whose columns Table carries when they are
+	// the family's schema: on a family, and on a member without columns of
+	// its own (its family's newest shard). Empty when the columns are the
+	// table's own.
+	SchemaFrom string `json:"schema_from,omitempty"`
 }
 
 // TableStats are the live size figures fetched on demand (not in the catalog).
