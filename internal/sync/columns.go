@@ -136,6 +136,7 @@ func (s *Syncer) syncTable(ctx context.Context, p api.ObjectPath, family bool, r
 	r.total = 1
 	r.mu.Unlock()
 	r.event(api.SyncEvent{Kind: api.EventUnitStarted, Project: ref.Project, Location: ref.Location, Datasets: 1, Message: p.String()})
+	r.startUnit(ref, "table", p.String())
 	now := s.o.Now()
 	st := api.UnitState{UnitRef: ref, Status: api.UnitOK, LastAttempt: &now, Datasets: 1, Tables: 1}
 	t, err := retry(ctx, s, "get table "+p.String(), func() (api.TableMeta, error) {

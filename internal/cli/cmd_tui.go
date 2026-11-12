@@ -40,7 +40,7 @@ func cmdTUI(ctx context.Context, o *out, g *globals, args []string) error {
 	if level == "" {
 		level = env.Getenv("BQT_LOG")
 	}
-	log, closeLog, err := logging.New(logging.Options{Dir: store.PathsFor(cfg.DataDir).LogDir, Level: level})
+	log, closeLog, err := logging.New(logging.Options{Dir: store.PathsFor(cfg.DataDir).LogDir, Level: level, Command: "tui"})
 	if err != nil {
 		return usageErr("%v", err)
 	}

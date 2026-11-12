@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"runtime"
@@ -118,6 +120,12 @@ func cmdDoctor(ctx context.Context, o *out, g *globals, args []string) error {
 		p := store.PathsFor(cfg.DataDir)
 		rep.DataDir = cfg.DataDir
 		rep.LogPath = p.LogDir + string(os.PathSeparator) + logging.FileName
+		switch _, err := os.Stat(rep.LogPath); {
+		case errors.Is(err, fs.ErrNotExist):
+			rep.LogMissing = true
+		case err != nil:
+			rep.LogError = err.Error()
+		}
 		if _, err := os.Stat(p.History); err == nil {
 			rep.History.Exists = true
 		}
@@ -178,7 +186,14 @@ func printDoctor(w io.Writer, r api.DoctorReport, withHint bool) {
 			exec += " (" + string(r.ExecutionSource) + ")"
 		}
 		fmt.Fprintf(w, "execution project: %s, %d project(s) selected\n", exec, r.Projects)
-		fmt.Fprintf(w, "data dir: %s\nlog file: %s\n", r.DataDir, r.LogPath)
+		logFile := r.LogPath
+		switch {
+		case r.LogMissing:
+			logFile += " (missing: no bqt run has written it yet)"
+		case r.LogError != "":
+			logFile += " (cannot be checked: " + r.LogError + ")"
+		}
+		fmt.Fprintf(w, "data dir: %s\nlog file: %s\n", r.DataDir, logFile)
 		if r.Catalog.Exists {
 			age := "never synced"
 			if r.Catalog.LastSync != nil {

@@ -50,7 +50,8 @@ func openAgent(ctx context.Context, o *out, g *globals) (*engine.Engine, func(),
 	if err != nil {
 		return nil, nil, err
 	}
-	closeLog, log, err := newLogger(env, g, cfg)
+	// no start record: agents call these short commands often
+	closeLog, log, err := newLogger(env, g, cfg, "")
 	if err != nil {
 		return nil, nil, err
 	}

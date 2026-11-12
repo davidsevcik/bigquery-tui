@@ -425,7 +425,7 @@ See section 15 for the table. Principles: four Panes (Explorer, Schema, Editor, 
 ## 13. Platform, logging, diagnostics [18]
 
 - macOS and Linux (amd64, arm64).
-- Structured logs in `<data_dir>/logs/bqt.log` (5 MB, 3 files). Default level `info`; `BQT_LOG=debug` or `--log-level`. The TUI and interactive commands never log to the terminal; `bqt mcp` and the CLI may also log to stderr at `warn` and above. SQL text only at `debug`; credentials and tokens never.
+- Structured logs in `<data_dir>/logs/bqt.log` (5 MB, 3 files). The file is created when the logger opens, even if nothing reaches the level. The TUI, `bqt sync` and `bqt mcp` begin with a `bqt started` record (command, version, level), whatever the level; sync logs each unit's start and exactly one end: done (status, counts, duration), failed (at `warn`), or cancelled; a project whose discovery failed gets one `warn` record instead. A log directory or file that cannot be written does not stop a command: it runs without the file, and stderr still gets its records. `bqt doctor` reports `log_missing` when the file is not there, and `log_error` when it cannot be checked. Default level `info`; `BQT_LOG=debug` or `--log-level`. The TUI and interactive commands never log to the terminal; `bqt mcp` and the CLI may also log to stderr at `warn` and above. SQL text only at `debug`; credentials and tokens never.
 - `bqt doctor` prints the config path, data dir, Go and bqt versions, auth status, catalog age and the log path.
 
 ## 14. Agent layer (phase 5) [04, 13]

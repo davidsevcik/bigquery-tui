@@ -25,12 +25,12 @@ func load(env Env, g *globals) (*config.Config, error) {
 }
 
 // The returned function closes the log file. A failed close at exit has nobody to tell, so it is dropped.
-func newLogger(env Env, g *globals, cfg *config.Config) (func(), *engineLog, error) {
+func newLogger(env Env, g *globals, cfg *config.Config, command string) (func(), *engineLog, error) {
 	level := g.logLevel
 	if level == "" {
 		level = env.Getenv("BQT_LOG")
 	}
-	opts := logging.Options{Dir: store.PathsFor(cfg.DataDir).LogDir, Level: level}
+	opts := logging.Options{Dir: store.PathsFor(cfg.DataDir).LogDir, Level: level, Command: command}
 	if !env.IsTTY(env.Stderr) {
 		opts.Stderr = env.Stderr
 	}
@@ -57,7 +57,7 @@ func cmdSync(ctx context.Context, o *out, g *globals, args []string) (int, error
 	if err != nil {
 		return 0, err
 	}
-	closeLog, log, err := newLogger(env, g, cfg)
+	closeLog, log, err := newLogger(env, g, cfg, "sync")
 	if err != nil {
 		return 0, err
 	}
