@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -129,26 +130,50 @@ func TestWatchRestartKeysAndRenameSave(t *testing.T) {
 	}
 }
 
+// Content that changes on every check is never applied, however slowly the
+// checks come: the test feeds the watcher through readFile instead of
+// rewriting the file, since a busy CI runner can stall a real writer longer
+// than the stability window (for example right after os.WriteFile truncates
+// the file), and then the half-written file really is stable.
 func TestWatchWaitsForStability(t *testing.T) {
-	// a wide window so a stalled CI runner does not let a write look stable
-	path, _, ev, _ := watchSetupStability(t, baseCfg, 250*time.Millisecond)
-	// keep rewriting faster than the stability window: nothing may be applied
-	deadline := time.Now().Add(400 * time.Millisecond)
-	i := 0
-	for time.Now().Before(deadline) {
-		i++
-		if err := os.WriteFile(path, []byte(baseCfg+"# edit "+string(rune('a'+i%26))+"\nlocation = \"L"+string(rune('a'+i%26))+"\"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		select {
-		case e := <-ev:
-			t.Fatalf("applied a half-written config: %+v", e)
-		case <-time.After(8 * time.Millisecond):
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(baseCfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := LoadOptions{Path: path, Getenv: func(string) string { return "" }}
+	cur, err := Load(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// read 1 is the baseline, reads 2 to changing each see new content, and
+	// from then on the content stays put
+	const changing = 30
+	var reads atomic.Int32
+	readFile = func(p string) ([]byte, error) {
+		n := reads.Add(1)
+		switch {
+		case n == 1:
+			return os.ReadFile(p)
+		case n <= changing:
+			return []byte(baseCfg + "location = \"L" + strconv.Itoa(int(n)) + "\"\n"), nil
+		default:
+			return []byte(baseCfg + "location = \"EU\"\n"), nil
 		}
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	ev := Watch(ctx, cur, WatchOptions{Load: opts, Interval: 10 * time.Millisecond, Stability: 50 * time.Millisecond})
+	t.Cleanup(func() {
+		cancel()
+		for range ev {
+		}
+		readFile = os.ReadFile
+	})
 	e := next(t, ev)
-	if e.Err != nil || e.Config.Location == "" {
-		t.Fatalf("%+v", e)
+	if e.Err != nil || e.Config == nil || e.Config.Location != "EU" {
+		t.Fatalf("applied a config that was still changing: %+v", e)
+	}
+	if n := reads.Load(); n <= changing {
+		t.Fatalf("applied after %d reads, before the content settled", n)
 	}
 }
 

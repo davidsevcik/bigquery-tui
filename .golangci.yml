@@ -38,9 +38,9 @@ linters:
     # function from being worse than the worst one; lower them as the functions in the
     # report's complexity section are simplified.
     gocyclo:
-      min-complexity: 58 # (*Model).update in internal/tui/app.go
+      min-complexity: 56 # (*Model).update in internal/tui/app.go
     gocognit:
-      min-complexity: 107 # RunMetadataContract in internal/bq/bqtest/contract.go
+      min-complexity: 84 # (*Searcher).Filter in internal/search/filter.go
     funlen:
       lines: 171 # (*Run).run in internal/runs/runs.go
       statements: -1
