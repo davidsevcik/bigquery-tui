@@ -118,6 +118,50 @@ func TestCompleteUsesTheCatalog(t *testing.T) {
 	}
 }
 
+// A frontend can limit completion to some of the Selected projects and
+// resolve unqualified names in an Execution project of its own. What the
+// text names in full still resolves: its columns are offered.
+func TestCompleteWithLimitsProjectsAndTakesAnExecutionProject(t *testing.T) {
+	_, eng := synced(t, "proj-a", "proj-b")
+	labels := func(sql string, o api.CompleteOptions) string {
+		var out []string
+		for _, c := range eng.CompleteWith(sql, len(sql), o) {
+			out = append(out, c.Label)
+		}
+		return strings.Join(out, ",")
+	}
+	onlyA := api.CompleteOptions{Projects: []string{"proj-a", "not-cached"}}
+	if got := labels("select * from `proj", onlyA); got != "proj-a" {
+		t.Fatalf("projects: %s", got)
+	}
+	if got := labels("select * from `proj", api.CompleteOptions{}); got != "proj-a,proj-b" {
+		t.Fatalf("no limit: %s", got)
+	}
+	if got := labels("select * from `proj-b.", onlyA); got != "" {
+		t.Fatalf("datasets outside the projects: %s", got)
+	}
+	if got := labels("select * from `proj-b.core.", onlyA); got != "" {
+		t.Fatalf("tables outside the projects: %s", got)
+	}
+	if got := labels("select * from core.", onlyA); got != "" {
+		t.Fatalf("an unqualified dataset resolves only in the listed and the Execution projects: %s", got)
+	}
+	if got := labels("select x.c from `proj-b.core.t` x where x.", onlyA); got != "c" {
+		t.Fatalf("columns of a table named in full: %s", got)
+	}
+	inB := api.CompleteOptions{Projects: onlyA.Projects, Execution: "proj-b"}
+	if got := labels("select * from core.", inB); got != "t" {
+		t.Fatalf("unqualified names resolve in the given Execution project: %s", got)
+	}
+	if got := labels("select * from ", api.CompleteOptions{Projects: onlyA.Projects, Execution: "proj-b", Forced: true}); !strings.Contains(got, "core") || strings.Contains(got, "proj-b") {
+		t.Fatalf("the Execution project's datasets, not the project itself: %s", got)
+	}
+	// Complete is CompleteWith with no limit
+	if got := labels("select * from `proj-b.", api.CompleteOptions{}); got != "core" {
+		t.Fatalf("%s", got)
+	}
+}
+
 func setExportDir(eng *Engine, dir string) {
 	cfg := *eng.Config()
 	cfg.ExportDir = dir

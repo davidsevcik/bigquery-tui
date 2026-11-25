@@ -15,6 +15,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/format"
 	"github.com/davidsevcik/bigquery-tui/pkg/handoff"
 	"github.com/davidsevcik/bigquery-tui/pkg/runs"
+	"github.com/davidsevcik/bigquery-tui/pkg/selection"
 	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
@@ -59,21 +60,47 @@ func (e *Engine) Tokenize(text string) []api.Token { return sqlx.Tokenize(text) 
 
 // Complete returns completion candidates for a cursor position (byte offset).
 func (e *Engine) Complete(text string, cursor int, forced bool) []api.Candidate {
-	return sqlx.Complete(text, cursor, completionCatalog{e}, sqlx.Options{Forced: forced})
+	return e.CompleteWith(text, cursor, api.CompleteOptions{Forced: forced})
+}
+
+// CompleteWith is Complete limited to a set of projects and resolving
+// unqualified names in a given Execution project (api.CompleteOptions).
+func (e *Engine) CompleteWith(text string, cursor int, o api.CompleteOptions) []api.Candidate {
+	c := completionCatalog{e: e, exec: o.Execution}
+	if c.exec == "" {
+		c.exec = e.execProject()
+	}
+	if len(o.Projects) > 0 {
+		c.only = make(map[string]bool, len(o.Projects))
+		for _, p := range o.Projects {
+			c.only[p] = true
+		}
+	}
+	return sqlx.Complete(text, cursor, c, sqlx.Options{Forced: o.Forced})
 }
 
 // completionCatalog adapts the in-memory index and the catalog to sqlx.Catalog.
-type completionCatalog struct{ e *Engine }
+type completionCatalog struct {
+	e    *Engine
+	exec string          // where unqualified names resolve
+	only map[string]bool // the projects offered (nil: every Selected one)
+}
 
-func (c completionCatalog) DefaultProject() string { return c.e.execProject() }
+func (c completionCatalog) DefaultProject() string { return c.exec }
 
-// Projects offers the Selected projects that hold data (completion follows
-// the Explorer: deselected projects are not offered).
+// listed reports whether completion offers project by name: a Selected
+// project (completion follows the Explorer: deselected projects are not
+// offered) within the requested set.
+func (c completionCatalog) listed(sel selection.State, project string) bool {
+	return sel.Has(project) && (c.only == nil || c.only[project])
+}
+
+// Projects offers the listed projects that hold data.
 func (c completionCatalog) Projects() []string {
 	sel := c.e.Selection()
 	var out []string
 	for _, n := range c.e.search.Projects() {
-		if sel.Has(n.Name) {
+		if c.listed(sel, n.Name) {
 			out = append(out, n.Name)
 		}
 	}
@@ -81,11 +108,11 @@ func (c completionCatalog) Projects() []string {
 }
 
 // offered reports whether completion offers the names inside project: a
-// Selected project, or the Execution project (unqualified dataset.table
-// names resolve there, selected or not). The columns of a table the query
+// listed project, or the Execution project (unqualified dataset.table
+// names resolve there, listed or not). The columns of a table the query
 // names are offered in any cached project: the user wrote that table.
 func (c completionCatalog) offered(project string) bool {
-	return c.e.Selection().Has(project) || project == c.e.execProject()
+	return project == c.exec || c.listed(c.e.Selection(), project)
 }
 
 func (c completionCatalog) Datasets(project string) []string {
