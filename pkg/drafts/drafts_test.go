@@ -186,3 +186,111 @@ func TestRestorePassesOtherLockErrorsThrough(t *testing.T) {
 		t.Fatalf("only a held lock is ErrHeld: %v", err)
 	}
 }
+
+// A draft can record the Execution project it was written under. The record
+// lives in the lock file, so the draft file keeps the text alone and the
+// record goes wherever the lock goes.
+func TestADraftRecordsItsExecutionProject(t *testing.T) {
+	s := In(t.TempDir())
+	now := time.Now()
+	d, err := s.Hold("x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Execution() != "" {
+		t.Fatalf("a new draft has no record: %q", d.Execution())
+	}
+	if err := d.SetExecution("win-proj"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Hold("x"); !errors.Is(err, ErrHeld) {
+		t.Fatalf("recording the project keeps the draft held: %v", err)
+	}
+	if err := d.Save("select 1"); err != nil {
+		t.Fatal(err)
+	}
+	d.Release()
+	if got, _ := s.read("x"); got != "select 1" {
+		t.Fatalf("the draft file holds the text alone: %q", got)
+	}
+	if o := s.Orphans(now, nil); len(o) != 1 || o[0].Execution != "win-proj" {
+		t.Fatalf("%+v", o)
+	}
+	r, text, err := s.Restore("x")
+	if err != nil || text != "select 1" || r.Execution() != "win-proj" {
+		t.Fatalf("%q %q %v", text, r.Execution(), err)
+	}
+	// the restoring instance records its own project
+	if err := r.SetExecution("other-proj"); err != nil {
+		t.Fatal(err)
+	}
+	r.Release()
+	if o := s.Orphans(now, nil); len(o) != 1 || o[0].Execution != "other-proj" {
+		t.Fatalf("%+v", o)
+	}
+	r, _, _ = s.Restore("x")
+	if err := r.SetExecution(""); err != nil || r.Execution() != "" {
+		t.Fatalf("%v %q", err, r.Execution())
+	}
+	r.Release()
+	if o := s.Orphans(now, nil); len(o) != 1 || o[0].Execution != "" {
+		t.Fatalf("the record is removed: %+v", o)
+	}
+}
+
+// Every draft written without a record (the TUI's, older ones) reads back
+// as unknown, and so does a record that is not a project ID.
+func TestADraftWithoutARecordHasAnUnknownExecutionProject(t *testing.T) {
+	s := In(t.TempDir())
+	if err := os.WriteFile(s.Path("old"), []byte("select 'old'"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.Path("odd"), []byte("select 'odd'"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.lockPath("odd"), []byte("two\nlines"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range s.Orphans(time.Now(), nil) {
+		if o.Execution != "" {
+			t.Fatalf("%+v", o)
+		}
+	}
+	d, _, err := s.Restore("old")
+	if err != nil || d.Execution() != "" {
+		t.Fatalf("%q %v", d.Execution(), err)
+	}
+	d.Release()
+}
+
+// The record is cleaned up with the lock: an empty draft on release, a
+// discarded draft, an expired draft and a lock left without a draft.
+func TestTheExecutionRecordGoesWithTheLock(t *testing.T) {
+	s := In(t.TempDir())
+	now := time.Now()
+	empty, _ := s.Hold("empty")
+	_ = empty.SetExecution("p")
+	empty.Release()
+	discarded, _ := s.Hold("discarded")
+	_ = discarded.SetExecution("p")
+	_ = discarded.Save("select 1")
+	discarded.Discard()
+	stale, _ := s.Hold("stale")
+	_ = stale.SetExecution("p")
+	_ = stale.Save("select 1")
+	stale.Release()
+	at := now.Add(-maxAge - time.Hour)
+	if err := os.Chtimes(s.Path("stale"), at, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.lockPath("lone"), []byte("p"), 0o600); err != nil { // a crash before any text
+		t.Fatal(err)
+	}
+	if o := s.Orphans(now, nil); len(o) != 0 {
+		t.Fatalf("%+v", o)
+	}
+	entries, _ := os.ReadDir(s.dir)
+	for _, e := range entries {
+		t.Errorf("left behind: %s", e.Name())
+	}
+}

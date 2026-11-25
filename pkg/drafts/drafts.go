@@ -46,7 +46,10 @@ func NewID() string {
 }
 
 // Store is one frontend's drafts directory. A draft is the file <id>.sql,
-// and its lock the sibling <id>.lock.
+// and its lock the sibling <id>.lock. The lock file also holds the
+// Execution project the draft was written under (Draft.SetExecution), so
+// the record lives and goes with the lock and the .sql file stays the
+// buffer's text alone.
 type Store struct {
 	dir string
 }
@@ -78,7 +81,21 @@ func (s *Store) Hold(id string) (*Draft, error) {
 	if st, err := os.Stat(s.Path(id)); err == nil && st.Size() > 0 {
 		empty = false
 	}
-	return &Draft{s: s, id: id, lock: l, empty: empty}, nil
+	return &Draft{s: s, id: id, lock: l, empty: empty, exec: s.execution(id)}, nil
+}
+
+// execution reads the Execution project recorded in draft id's lock file:
+// "" when there is none (a draft written without one) or it is unreadable.
+func (s *Store) execution(id string) string {
+	data, err := os.ReadFile(s.lockPath(id))
+	if err != nil {
+		return ""
+	}
+	p := strings.TrimSpace(string(data))
+	if strings.ContainsFunc(p, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+		return ""
+	}
+	return p
 }
 
 // read returns the text of draft id.
@@ -88,7 +105,8 @@ func (s *Store) read(id string) (string, error) {
 }
 
 // Restore reads a draft no instance holds and takes it over: its text and
-// the held draft. ErrHeld means another instance holds it; any other error
+// the held draft, whose Execution is the project it was written under.
+// ErrHeld means another instance holds it; any other error
 // is the read's or Hold's.
 func (s *Store) Restore(id string) (*Draft, string, error) {
 	text, err := s.read(id)
@@ -108,6 +126,9 @@ type Orphan struct {
 	ModTime time.Time
 	First   string // the first line that is not blank, trimmed
 	Lines   int
+	// Execution is the Execution project the draft was written under, ""
+	// when none was recorded (Draft.SetExecution).
+	Execution string
 }
 
 // Orphans lists the drafts no instance holds, newest first. open are the IDs
@@ -178,7 +199,7 @@ func (s *Store) orphan(e os.DirEntry, id string, now time.Time) (Orphan, bool) {
 			break
 		}
 	}
-	return Orphan{ID: id, ModTime: info.ModTime(), First: first, Lines: strings.Count(string(data), "\n") + 1}, true
+	return Orphan{ID: id, ModTime: info.ModTime(), First: first, Lines: strings.Count(string(data), "\n") + 1, Execution: s.execution(id)}, true
 }
 
 // Draft is a draft this instance holds.
@@ -186,7 +207,31 @@ type Draft struct {
 	s     *Store
 	id    string
 	lock  *store.Lock
-	empty bool // the text last saved (or found on disk) is empty
+	empty bool   // the text last saved (or found on disk) is empty
+	exec  string // the Execution project recorded with the draft
+}
+
+// Execution is the Execution project recorded with the draft: the one it
+// was restored with, or the last SetExecution. "" means none is recorded.
+func (d *Draft) Execution() string { return d.exec }
+
+// SetExecution records the Execution project the draft is written under,
+// so whoever restores it can tell where its SQL was meant to run; ""
+// removes the record. It goes wherever the lock file goes: an empty draft
+// keeps no record once released. On an error the record on disk is
+// unchanged.
+func (d *Draft) SetExecution(project string) error {
+	project = strings.TrimSpace(project)
+	if project == d.exec {
+		return nil
+	}
+	// Written in place, not renamed over: a new file would not be the one
+	// this instance holds the lock on.
+	if err := os.WriteFile(d.s.lockPath(d.id), []byte(project), 0o600); err != nil {
+		return err
+	}
+	d.exec = project
+	return nil
 }
 
 // Save writes text as the draft, atomically. Empty text has no draft: the
