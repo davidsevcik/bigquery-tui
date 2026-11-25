@@ -406,7 +406,7 @@ func (m *Model) onRun(msg runMsg) tea.Cmd {
 				b.viewID = info.ID
 			}
 			// the position only means something in the text that was run
-			if mk, ok := m.runs.ErrorMark(info.ID); ok && b.runID == info.ID && b.ed.version == mk.TextVersion {
+			if mk, ok := m.runs.MarkIn(info.ID, b.runID, b.ed.version); ok {
 				b.ed.moveTo(mk.Line, mk.Col)
 				b.ed.errLine, b.ed.errCol = mk.Line, mk.Col
 			}
