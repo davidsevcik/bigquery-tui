@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/search"
 )
 
 func fg(c string) lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color(c)) }
@@ -412,8 +413,9 @@ func chips(q api.ParsedQuery, w int, scope string) string {
 	return chipsWith(q, w, scope, `p: d: type: col: label: desc:  -neg  a,b=OR  "quoted"  proj.ds.table`)
 }
 
-// historyHint lists the History search filters.
-const historyHint = `status:done|failed|cancelled  project:  source:tui|gui|cli|mcp  since:7d|2026-10-01  -neg  a,b=OR`
+// historyHint lists the History search filters; the status: and source:
+// values come from search, which validates them.
+var historyHint = "status:" + strings.Join(search.HistoryStates, "|") + "  project:  source:" + strings.Join(search.HistorySources, "|") + "  since:7d|2026-10-01  -neg  a,b=OR"
 
 // chipsWith shows the parsed query, or hint when it is empty.
 func chipsWith(q api.ParsedQuery, w int, scope, hint string) string {

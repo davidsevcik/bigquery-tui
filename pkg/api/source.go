@@ -2,10 +2,8 @@ package api
 
 // Source names the frontend that started a Run. It is stored on the History
 // entry (`source:` in History search) and, for every Source but the TUI, put
-// on the job as the bqt_source label. Only the engine's agent methods use it
-// to decide what a Run may do: they pick the policy profile from it (MCP, or
-// the CLI's for any other Source). Runs started any other way, as the TUI and
-// a GUI start them, get no agent limits whatever their Source.
+// on the job as the bqt_source label. The engine's agent methods also use it
+// to pick a policy profile (see engine and policy).
 type Source string
 
 const (
