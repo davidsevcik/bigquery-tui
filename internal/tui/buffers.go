@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davidsevcik/bigquery-tui/internal/store"
+	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
 // buffer is one query being edited. A scratch buffer autosaves to a draft

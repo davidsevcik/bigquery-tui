@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
-	"github.com/davidsevcik/bigquery-tui/internal/search"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/search"
 )
 
 // PruneResult is the output of `bqt history prune`.

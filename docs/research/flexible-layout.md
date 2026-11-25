@@ -113,7 +113,7 @@ Settled with the user in a grilling session. These supersede the recommendations
 
 - `uiState{Layout, Panes, ZoomStacked}` (`app.go:225-230`) is written as JSON by `saveState` (`app.go:255-262`) and read by `loadState` (`app.go:232-253`). Unknown names are ignored (the loops at `app.go:242-251`), so adding fields is backward compatible.
 - The path is `<data_dir>/state/tui.json` (`internal/tui/backend.go:120`). The spec calls it frontend-only and "last writer wins, nothing critical" (`docs/spec/bqt-v1.md:143`). Layouts and the remembered layout are frontend-only by rule (`docs/spec/bqt-v1.md:67`, `:522`).
-- **The config file** has a `[tui]` table with exactly one key, `editing`. Unknown `[tui]` keys are hard errors (`internal/config/config.go:329-337`). `[tui]` is live-reloaded (`docs/spec/bqt-v1.md:129`). Adding `[tui] layout = …` would mean extending that switch and the spec's key table (`docs/spec/bqt-v1.md:94`).
+- **The config file** has a `[tui]` table with exactly one key, `editing`. Unknown `[tui]` keys are hard errors (`pkg/config/config.go:329-337`). `[tui]` is live-reloaded (`docs/spec/bqt-v1.md:129`). Adding `[tui] layout = …` would mean extending that switch and the spec's key table (`docs/spec/bqt-v1.md:94`).
 
 ### 1.3 Zones and focus
 
@@ -144,11 +144,11 @@ Each item below is removed or changed. **Update 2026-10-26:** the free sample st
 | Rendering | `internal/tui/views.go:265` (zoom footer hint), `:584-618` (`detailBlock` both/tab logic), `:620-640` (`paneTitle` tabs), `:860-943` (`previewPane`) | Remove; `cellText` (`views.go:945-953`) stays because the grid uses it (`internal/tui/grid.go:110, 388`) |
 | Record popup | `internal/tui/record.go:15-20` (preview `key`), `:43-84` (`previewRows`, `openRecord`, `loadRecord`), `:128-142` (`recordStep` preview branch) | Remove the preview half; `openRunRecord` (`record.go:87-97`) stays for Results |
 | Backend port | `internal/tui/backend.go:62` (`Preview`) | Remove from the interface |
-| Engine | `internal/engine/explore.go:221-251` (`Engine.Preview`) | Remove (or keep unused; see open questions) |
-| BigQuery port | `internal/bq/tables.go:49` (`Tables.ListRows`), `:76-93` (REST `tabledata.list`), `:95-96` (`ErrNeedsQuery`) | `ListRows` and `ErrNeedsQuery` become unused; `GetTable` stays for live stats |
-| Fake | `internal/bq/bqtest/fake.go:399-412` (`ListRows`), `TableData.Rows` (`:96`) | Remove the rows half; `TableData` also feeds `GetTable` |
-| Shared type | `internal/api/search.go:226-239` (`PreviewColumn`, `PreviewPage`) | **Keep**: used by `internal/runs/pages.go:93`, `internal/engine/query.go:33`, `internal/tui/grid.go:53`, `internal/handoff/handoff.go:110`, `internal/cli/cmd_query.go:378`. A rename to `RowPage` is optional and touches the JSON contract only by name, since the JSON tags do not change |
-| Engine test | `internal/engine/explore_test.go:89-127` (`TestTableDetailStatsAndPreview`) | Split: keep the stats half |
+| Engine | `pkg/engine/explore.go:221-251` (`Engine.Preview`) | Remove (or keep unused; see open questions) |
+| BigQuery port | `pkg/bq/tables.go:49` (`Tables.ListRows`), `:76-93` (REST `tabledata.list`), `:95-96` (`ErrNeedsQuery`) | `ListRows` and `ErrNeedsQuery` become unused; `GetTable` stays for live stats |
+| Fake | `pkg/bq/bqtest/fake.go:399-412` (`ListRows`), `TableData.Rows` (`:96`) | Remove the rows half; `TableData` also feeds `GetTable` |
+| Shared type | `pkg/api/search.go:226-239` (`PreviewColumn`, `PreviewPage`) | **Keep**: used by `pkg/runs/pages.go:93`, `pkg/engine/query.go:33`, `internal/tui/grid.go:53`, `pkg/handoff/handoff.go:110`, `internal/cli/cmd_query.go:378`. A rename to `RowPage` is optional and touches the JSON contract only by name, since the JSON tags do not change |
+| Engine test | `pkg/engine/explore_test.go:89-127` (`TestTableDetailStatsAndPreview`) | Split: keep the stats half |
 | TUI tests | `internal/tui/tui_test.go:65` (golden `miller_preview`), `:263-280` (`TestPreviewPagesAndStops`), `:417` (`TestPreviewContinuesAfterAShortPage`), `:433` (`TestPreviewScrollsIndependentlyOfTheSchema`), `:471` (`TestRecordPopupShowsTheFullRow`, preview part), `:500` (`TestZoomMovementKeysStayInTheDetailPane`, preview part), `:574-603` (`TestZoomSplitSwitchesBetweenSideBySideAndStacked`); `internal/tui/projects_test.go:199` (help wording); `internal/tui/dump_test.go:20`; `internal/tui/harness_test.go:66-81` (fake rows) | Remove or rewrite |
 | Goldens | `internal/tui/testdata/miller_preview_{60x20,80x24,120x36}.txt`; nine 120x36 goldens draw a "Preview" pane (`flat`, `flat_filter`, `miller_filter_tables`, `miller_filter_typing`, `miller_preview`, `miller_table`, `palette`, `tree`, `tree_filter`) | Regenerate (`go test ./internal/tui -update`) |
 | Tutorial | `internal/tui/tutorial.go:88` ("`tab` switches to the preview (`p` loads rows), `P` moves the pane") | Rewrite |
@@ -169,7 +169,7 @@ Each item below is removed or changed. **Update 2026-10-26:** the free sample st
   - inserts at the cursor;
   - switches to the Editor;
   - saves the draft in tests.
-- **`Y` (copy in backticks)** does the same wrapping inline (`app.go:910-920`). A shared `quotedName(api.ObjectPath)` helper would serve `i`, `Y` and the new action. `ObjectPath.String()` joins with dots (`internal/api/search.go:21-30`).
+- **`Y` (copy in backticks)** does the same wrapping inline (`app.go:910-920`). A shared `quotedName(api.ObjectPath)` helper would serve `i`, `Y` and the new action. `ObjectPath.String()` joins with dots (`pkg/api/search.go:21-30`).
 - **The quoting is valid GoogleSQL.** A table path can have "up to three quoted or unquoted identifiers", the example is `` `myproject.mydataset.mytable` ``, and only the first identifier may contain dashes ([lexical structure, "Table names"](https://docs.cloud.google.com/bigquery/docs/reference/standard-sql/lexical#table_names)).
 - **Key conflicts in the Explorer zone** (`keymap.go:62-93`):
   - `p` is free once preview goes.
@@ -367,7 +367,7 @@ All the options share a foundation that any of them needs:
   [[tui.layout.split]] …
   ```
 
-- **Configuration:** the user edits `config.toml`. It is live-reloaded with the rest of `[tui]` (`docs/spec/bqt-v1.md:129`), and errors carry key and line through the existing `config.Error` (`internal/config/config.go:329-337`).
+- **Configuration:** the user edits `config.toml`. It is live-reloaded with the rest of `[tui]` (`docs/spec/bqt-v1.md:129`), and errors carry key and line through the existing `config.Error` (`pkg/config/config.go:329-337`).
 - **Complexity:** low to medium on top of Option 2, from parsing, validation and the spec table. A mini-DSL needs its own parser and error positions; nested TOML tables are verbose for a tree.
 - **Fit:** the config is shared by every frontend. The spec routes TUI-only keys through `[tui]` (`docs/spec/bqt-v1.md:94`), so this fits. But the spec also says the *remembered* layout lives in state, not config (`:143`, `:522`). Two sources of truth need a rule, for example: "the config sets the default, `ctrl+w` changes are remembered in state, and a palette entry resets to the config".
 - **Focus and small terminals:** as Option 2.
@@ -405,12 +405,12 @@ The default and the other presets are in section 8.
   - **Decided 2026-10-26:** the engine/bq pieces stay, because the free sample moves into the Results pane (section 6).
 - **Cost and behaviour of the replacement:**
   - Google: "For non-clustered tables, applying a `LIMIT` clause to a query doesn't affect the amount of data that is read" and "You are billed for reading all bytes in the entire table as indicated by the query". It recommends table preview / `tabledata.list` "to view data at no charge" ([Control query costs: "Avoid using LIMIT in non-clustered tables", "Avoid running queries to explore table data"](https://docs.cloud.google.com/bigquery/docs/best-practices-costs)). So the new shortcut is strictly more expensive than `p` was.
-  - On a table with "Require partition filter", a query without a qualifying `WHERE` fails with "Cannot query over table … without a filter that can be used for partition elimination" ([Querying partitioned tables](https://docs.cloud.google.com/bigquery/docs/querying-partitioned-tables)). The catalog knows the partitioning column (`api.ColumnMeta.Partitioning`, `internal/api/catalog.go:77`; shown in the schema at `views.go:725-748`), but no code reads the `requirePartitionFilter` flag (`grep` finds none). Unverified whether `tables.get` in `internal/bq/tables.go` could cheaply return it.
+  - On a table with "Require partition filter", a query without a qualifying `WHERE` fails with "Cannot query over table … without a filter that can be used for partition elimination" ([Querying partitioned tables](https://docs.cloud.google.com/bigquery/docs/querying-partitioned-tables)). The catalog knows the partitioning column (`api.ColumnMeta.Partitioning`, `pkg/api/catalog.go:77`; shown in the schema at `views.go:725-748`), but no code reads the `requirePartitionFilter` flag (`grep` finds none). Unverified whether `tables.get` in `pkg/bq/tables.go` could cheaply return it.
   - Mitigation already in bqt: running goes through the dry-run estimate, `confirm_bytes` and `max_bytes_billed` (`docs/spec/bqt-v1.md:87-88`). Insert-only (never auto-run) keeps that guard.
 - **Proposed behaviour** (an open question for the user where marked):
   - **Key:** superseded. `s` for the SELECT, `p` for the free sample (section 7).
   - **Text:** ``SELECT * FROM `proj.ds.tbl`\nLIMIT 100``, using the same quoting as `i` (`query.go:1151`).
-  - For a shard family: ``SELECT * FROM `proj.ds.prefix*`\nWHERE _TABLE_SUFFIX = '<newest>'\nLIMIT 100``. The newest shard is `ShardFamily.Last`, `internal/api/catalog.go:133-138`; its exact format is not checked. The spec already promises a `_TABLE_SUFFIX` hint for family inserts (`docs/spec/bqt-v1.md:238`).
+  - For a shard family: ``SELECT * FROM `proj.ds.prefix*`\nWHERE _TABLE_SUFFIX = '<newest>'\nLIMIT 100``. The newest shard is `ShardFamily.Last`, `pkg/api/catalog.go:133-138`; its exact format is not checked. The spec already promises a `_TABLE_SUFFIX` hint for family inserts (`docs/spec/bqt-v1.md:238`).
   - For a partitioned table, optionally a commented `-- WHERE <partition column> …` line.
   - **Where it goes:** decided: always a **new buffer** (decision 2; section 7.3), like harlequin's `show_select_star` (section 3).
   - Focus moves to the Editor (as `insertPath` does, `query.go:1156`), with the cursor at the end or on `100`. In vim mode, Normal mode, so `enter` runs it (`docs/spec/bqt-v1.md:276`).
@@ -429,13 +429,13 @@ The default and the other presets are in section 8.
 - When there are rows, `resultsPane` delegates to the grid (`queryview.go:249-250`).
 - **The grid** is "a window over server-side pages with a cell cursor" (`grid.go:25-46`).
   - It is keyed by Run ID in `m.grids` (`app.go:148`).
-  - It fetches pages of `gridPage = runs.PageRows = 500` rows (`grid.go:17`, `internal/runs/runs.go:32`), through `m.be.RunRows(ctx, id, start, n, gridFormat)` (`grid.go:413-420`).
+  - It fetches pages of `gridPage = runs.PageRows = 500` rows (`grid.go:17`, `pkg/runs/runs.go:32`), through `m.be.RunRows(ctx, id, start, n, gridFormat)` (`grid.go:413-420`).
   - Cells are cut at 200 characters (`grid.go:19`). That is the same limit as `previewChars` (`app.go:67`).
   - `pageMsg` carries the Run ID (`grid.go:48-53`), and `onPage` stores the page (`grid.go:435-448`).
 - **The record popup for Results** (`openRunRecord`, `internal/tui/record.go:87-97`) reads the one row again in full, through `RunRows(id, row, 1, recordFormat)`. `recordStep` moves the grid cursor (`record.go:115-127`).
 - The bqt-side half of `tabledata.list` is already the same shape:
-  - `Engine.Preview(ctx, path, startIndex, rows, maxChars) (api.PreviewPage, error)` (`internal/engine/explore.go:221-251`).
-  - It returns `Columns`, `StartIndex`, `TotalRows` and `Rows` (`internal/api/search.go:233-239`). That is the same type `RunRows` returns (`internal/engine/query.go:33`).
+  - `Engine.Preview(ctx, path, startIndex, rows, maxChars) (api.PreviewPage, error)` (`pkg/engine/explore.go:221-251`).
+  - It returns `Columns`, `StartIndex`, `TotalRows` and `Rows` (`pkg/api/search.go:233-239`). That is the same type `RunRows` returns (`pkg/engine/query.go:33`).
   - So the grid needs only a different page function.
 
 ### 6.2 Options
@@ -466,7 +466,7 @@ The default and the other presets are in section 8.
   - `newGrid(info)` (`grid.go:55-58`) gains a twin `newSampleGrid(page)`, built from the first page's `Columns` and `TotalRows`.
   - Paging is the grid's own: `need`/`store` (`grid.go:202-249`) and `gridEnsure` (`grid.go:423-433`).
   - **"Fetch more" goes away.** Scrolling, `G` and `ctrl+d` page through the whole table on demand, as they do for a Run. The 20-row step and the 1,000-row cap (`app.go:65-66`, `:1179-1181`) were UI limits, not API limits. `tabledata.list` is free at any page ("view data at no charge and without affecting quotas", [cost best practices](https://docs.cloud.google.com/bigquery/docs/best-practices-costs)).
-  - **Short pages.** `tabledata.list` can return fewer rows than asked when rows are wide (the comment at `app.go:1211-1212`). The sample's source should loop until it has `n` rows or reaches the end, as `Run.Rows` does across server pages (`internal/runs/pages.go:90-115`). Without that, rows past a short page would stay blank: `grid.cells` returns nil for them (`grid.go:65-75`).
+  - **Short pages.** `tabledata.list` can return fewer rows than asked when rows are wide (the comment at `app.go:1211-1212`). The sample's source should loop until it has `n` rows or reaches the end, as `Run.Rows` does across server pages (`pkg/runs/pages.go:90-115`). Without that, rows past a short page would stay blank: `grid.cells` returns nil for them (`grid.go:65-75`).
 - **The record view.** `Enter`/`v` in the Results already open the record popup (`keymap.go:123`), and `n`/`N` step through rows (`keymap.go:168-169`).
   - Generalise `openRunRecord` so that it reads the full row through the grid's source with `recordFormat` (`record.go:40`). For a sample that is `Preview(path, row, 1, recordCellMax)`, exactly what the preview's `loadRecord` does today (`record.go:80-82`).
   - **`J` is then unnecessary** and is removed.
@@ -478,24 +478,24 @@ The default and the other presets are in section 8.
   - It has no History entry, because there is no job. History records query Runs (`CONTEXT.md`, **History entry**).
   - It does not appear in the run list.
   - `ctrl+c` does not cancel it, because it is not a Run. A slow fetch is a plain command, and a new `p` replaces it.
-  - **Export (`e`)** is disabled at first ("export needs a query: s writes one"). Export reads raw Run rows (`internal/runs/pages.go:125-139`, `RawRows`). A free export over `ListRows` is possible later.
+  - **Export (`e`)** is disabled at first ("export needs a query: s writes one"). Export reads raw Run rows (`pkg/runs/pages.go:125-139`, `RawRows`). A free export over `ListRows` is possible later.
 - **Hand-off.** `focusedRun` (`internal/tui/handoff.go:39-54`) stays Run-only.
   - Add sample items when the sample is shown: `"First 20 rows of proj.ds.tbl (free sample, markdown|TSV|NDJSON)"`.
-  - They are built with the core's `handoff.Sample(cols, rows, f)` (`internal/handoff/handoff.go:110`, `SampleRows = 20` at `:18`) over the loaded page.
+  - They are built with the core's `handoff.Sample(cols, rows, f)` (`pkg/handoff/handoff.go:110`, `SampleRows = 20` at `:18`) over the loaded page.
   - Mind the NDJSON caveat: the Run version is written from raw values so that strings keep their line breaks (`docs/spec/bqt-v1.md:415`). For the sample, read the 20 rows again with `KeepNewlines`, as `recordFormat` does.
-- **Views and external tables.** The Results pane shows `"views and external tables cannot be read for free: s writes a SELECT (billed)"`. This is the existing `bq.ErrNeedsQuery` path (`app.go:1196-1197`, `internal/engine/explore.go:228-238`).
-- **Shard families.** `search.Lookup` resolves a family path to a member, `ShardMembers(…)[0]` (`internal/search/browse.go:185-192`). I did not check whether that member is the newest shard. The schema pane promises "the latest shard" (`docs/spec/bqt-v1.md:238`).
+- **Views and external tables.** The Results pane shows `"views and external tables cannot be read for free: s writes a SELECT (billed)"`. This is the existing `bq.ErrNeedsQuery` path (`app.go:1196-1197`, `pkg/engine/explore.go:228-238`).
+- **Shard families.** `search.Lookup` resolves a family path to a member, `ShardMembers(…)[0]` (`pkg/search/browse.go:185-192`). I did not check whether that member is the newest shard. The schema pane promises "the latest shard" (`docs/spec/bqt-v1.md:238`).
 
 ### 6.4 Removed versus kept (this replaces the §1.4 verdicts)
 
 | Kept | Where | Why |
 |---|---|---|
-| `Engine.Preview` (rename to `Sample`, optional) | `internal/engine/explore.go:221-251` | It is the free read. The spec lists "preview fetching" as core (`docs/spec/bqt-v1.md:66`), which suits a future GUI |
+| `Engine.Preview` (rename to `Sample`, optional) | `pkg/engine/explore.go:221-251` | It is the free read. The spec lists "preview fetching" as core (`docs/spec/bqt-v1.md:66`), which suits a future GUI |
 | `Backend.Preview` | `internal/tui/backend.go:62` | The TUI's port to it |
-| `bq.Tables.ListRows`, `ErrNeedsQuery` | `internal/bq/tables.go:49, 76-96` | `tabledata.list` |
-| `bqtest.Fake.ListRows`, `TableData.Rows` | `internal/bq/bqtest/fake.go:96, 399-412` | Tests |
-| `TestTableDetailStatsAndPreview` | `internal/engine/explore_test.go:89-127` | Unchanged |
-| `api.PreviewPage`/`PreviewColumn` | `internal/api/search.go:226-239` | Shared by Runs and the sample |
+| `bq.Tables.ListRows`, `ErrNeedsQuery` | `pkg/bq/tables.go:49, 76-96` | `tabledata.list` |
+| `bqtest.Fake.ListRows`, `TableData.Rows` | `pkg/bq/bqtest/fake.go:96, 399-412` | Tests |
+| `TestTableDetailStatsAndPreview` | `pkg/engine/explore_test.go:89-127` | Unchanged |
+| `api.PreviewPage`/`PreviewColumn` | `pkg/api/search.go:226-239` | Shared by Runs and the sample |
 | `onPreview`'s rule for the end of a page, and the `ErrNeedsQuery` message | `app.go:1192-1216` | Moves into the sample's source and message |
 
 | Removed | Where |

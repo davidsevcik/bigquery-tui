@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 )
 
 // orderID is the 24-hex-digit object id of the i-th orders shard.

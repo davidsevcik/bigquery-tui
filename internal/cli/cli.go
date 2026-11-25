@@ -19,15 +19,15 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq"
-	"github.com/davidsevcik/bigquery-tui/internal/config"
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
-	"github.com/davidsevcik/bigquery-tui/internal/favorites"
-	"github.com/davidsevcik/bigquery-tui/internal/policy"
-	"github.com/davidsevcik/bigquery-tui/internal/runs"
-	catsync "github.com/davidsevcik/bigquery-tui/internal/sync"
-	"github.com/davidsevcik/bigquery-tui/internal/version"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq"
+	"github.com/davidsevcik/bigquery-tui/pkg/config"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/favorites"
+	"github.com/davidsevcik/bigquery-tui/pkg/policy"
+	"github.com/davidsevcik/bigquery-tui/pkg/runs"
+	catsync "github.com/davidsevcik/bigquery-tui/pkg/sync"
+	"github.com/davidsevcik/bigquery-tui/pkg/version"
 )
 
 // Env holds everything a command touches outside its arguments, so tests can

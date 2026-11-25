@@ -15,8 +15,8 @@ type Model struct {
 // Package is one package of the module.
 type Package struct {
 	Path       string   `json:"path"`  // full import path
-	Short      string   `json:"short"` // path inside the module, e.g. internal/bq
-	Label      string   `json:"label"` // Short without the leading internal/
+	Short      string   `json:"short"` // path inside the module, e.g. pkg/bq
+	Label      string   `json:"label"` // Short without the leading pkg/ or internal/
 	Name       string   `json:"name"`
 	Group      string   `json:"group"` // frontend, core or test
 	Doc        string   `json:"doc"`

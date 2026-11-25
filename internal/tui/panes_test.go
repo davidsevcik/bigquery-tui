@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 )
 
 // onOrders selects acme-prod.sales.orders in the columns style.

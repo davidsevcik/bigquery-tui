@@ -23,7 +23,7 @@ linters:
     errcheck:
       exclude-functions:
         - (*database/sql.Tx).Rollback # deferred after Commit, where it only reports ErrTxDone
-        - (*github.com/davidsevcik/bigquery-tui/internal/store.Lock).Unlock # best effort: the OS drops the lock at exit
+        - (*github.com/davidsevcik/bigquery-tui/pkg/store.Lock).Unlock # best effort: the OS drops the lock at exit
         # bufio.Writer errors are sticky and come back from Flush, which is checked.
         - (*bufio.Writer).Write
         - (*bufio.Writer).WriteByte
@@ -42,7 +42,7 @@ linters:
     gocognit:
       min-complexity: 71 # (*Model).schemaLines in internal/tui/views.go
     funlen:
-      lines: 171 # (*Run).run in internal/runs/runs.go
+      lines: 171 # (*Run).run in pkg/runs/runs.go
       statements: -1
     dupl:
       threshold: 150 # the starting value: no duplication found at it

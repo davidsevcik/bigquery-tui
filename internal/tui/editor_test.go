@@ -7,7 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/davidsevcik/bigquery-tui/internal/sqlx"
+	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
 // edKey builds a key press from a name such as "a", "enter", "shift+left", "ctrl+z" or "alt+b".

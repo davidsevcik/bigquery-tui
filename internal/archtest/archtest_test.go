@@ -1,6 +1,7 @@
 // Package archtest enforces the architecture rules from spec section 3: the
-// core imports no UI libraries and no frontend packages, and the shared api
-// types depend on nothing else in the module.
+// core (every package under pkg/) imports no UI libraries, no frontend
+// packages and nothing under internal/, and the shared api types depend on
+// nothing else in the module.
 package archtest
 
 import (
@@ -11,40 +12,37 @@ import (
 
 const module = "github.com/davidsevcik/bigquery-tui"
 
-// corePackages must never (transitively) import a UI library or a frontend.
-var corePackages = []string{
-	"internal/api", "internal/config", "internal/store", "internal/sync",
-	"internal/bq", "internal/bq/bqtest", "internal/engine", "internal/logging", "internal/version",
-	"internal/search", "internal/format", "internal/sqlx", "internal/runs", "internal/export", "internal/favorites",
-	"internal/policy", "internal/handoff", "internal/selection", "internal/shard",
-}
-
+// forbiddenPrefixes are what no core package may (transitively) import. The
+// core is public so other modules (a GUI) can import it; anything it pulled in
+// from internal/ would leak types those modules cannot name.
 var forbiddenPrefixes = []string{
 	"charm.land/",
 	"github.com/charmbracelet/",
 	"github.com/muesli/termenv",
 	"github.com/modelcontextprotocol/",
-	module + "/internal/cli",
-	module + "/internal/tui",
-	module + "/internal/mcp",
+	module + "/internal/",
 	module + "/cmd/",
 }
 
-func deps(t *testing.T, pkg string) []string {
+func goList(t *testing.T, args ...string) []string {
 	t.Helper()
-	out, err := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}}", "./"+pkg).CombinedOutput()
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go tool not on PATH")
+	}
+	out, err := exec.Command("go", append([]string{"list"}, args...)...).CombinedOutput()
 	if err != nil {
-		t.Fatalf("go list -deps %s: %v\n%s", pkg, err, out)
+		t.Fatalf("go list %v: %v\n%s", args, err, out)
 	}
 	return strings.Fields(string(out))
 }
 
 func TestCoreImportsNoUIOrFrontends(t *testing.T) {
-	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("go tool not on PATH")
+	core := goList(t, "../../pkg/...")
+	if len(core) == 0 {
+		t.Fatal("no packages under pkg/")
 	}
-	for _, pkg := range corePackages {
-		for _, d := range deps(t, "../../"+pkg) {
+	for _, pkg := range core {
+		for _, d := range goList(t, "-deps", "-f", "{{.ImportPath}}", pkg) {
 			for _, bad := range forbiddenPrefixes {
 				if strings.HasPrefix(d, bad) {
 					t.Errorf("%s must not depend on %s (matches %q)", pkg, d, bad)
@@ -55,12 +53,9 @@ func TestCoreImportsNoUIOrFrontends(t *testing.T) {
 }
 
 func TestAPITypesAreSelfContained(t *testing.T) {
-	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("go tool not on PATH")
-	}
-	for _, d := range deps(t, "../../internal/api") {
-		if strings.HasPrefix(d, module) && d != module+"/internal/api" {
-			t.Errorf("internal/api must not import other module packages, found %s", d)
+	for _, d := range goList(t, "-deps", "-f", "{{.ImportPath}}", "../../pkg/api") {
+		if strings.HasPrefix(d, module) && d != module+"/pkg/api" {
+			t.Errorf("pkg/api must not import other module packages, found %s", d)
 		}
 	}
 }

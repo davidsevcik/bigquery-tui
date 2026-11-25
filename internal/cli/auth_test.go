@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq"
-	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 )
 
 const impersonatedSA = "bqt-reader@bqt-sandbox.iam.gserviceaccount.com"
@@ -76,7 +76,7 @@ func impersonatedADC(t *testing.T) {
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", path)
 }
 
-// The errors as the auth libraries build them (internal/bq drives the real
+// The errors as the auth libraries build them (pkg/bq drives the real
 // libraries): golang.org/x/oauth2 for `bqt doctor`, cloud.google.com/go/auth
 // under the BigQuery client's http.Client for every API call.
 func oauth2Refused(status int, body string) error {

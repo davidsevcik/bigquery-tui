@@ -14,13 +14,6 @@ import (
 	"strings"
 )
 
-// frontendPackages are the frontends from spec section 3, besides cmd/*.
-var frontendPackages = map[string]bool{
-	"internal/cli": true,
-	"internal/tui": true,
-	"internal/mcp": true,
-}
-
 // excludedPrefix hides developer tools (this generator) from the map.
 const excludedPrefix = "internal/tools/"
 
@@ -89,7 +82,7 @@ func Load(dir string) (*Model, []string, error) {
 		p := &Package{
 			Path:       lp.ImportPath,
 			Short:      s,
-			Label:      strings.TrimPrefix(s, "internal/"),
+			Label:      label(s),
 			Name:       lp.Name,
 			Group:      classify(s, lp),
 			Files:      len(lp.GoFiles),
@@ -170,15 +163,17 @@ func Load(dir string) (*Model, []string, error) {
 	return m, warnings, nil
 }
 
-// classify puts a package in one of the groups of spec section 3.
+// classify puts a package in one of the groups of spec section 3. The path
+// decides, as in internal/archtest (ADR 0003): a package with only tests is a
+// test, pkg/ is the core, and the rest (cmd/ and internal/) are frontends.
 func classify(short string, lp *listPackage) string {
 	switch {
 	case len(lp.GoFiles) == 0 && len(lp.TestGoFiles)+len(lp.XTestGoFiles) > 0:
 		return "test"
-	case strings.HasPrefix(short, "cmd/") || frontendPackages[short]:
-		return "frontend"
-	default:
+	case strings.HasPrefix(short, "pkg/"):
 		return "core"
+	default:
+		return "frontend"
 	}
 }
 
@@ -223,4 +218,15 @@ func goCmd(dir string, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("go %s: %w\n%s", strings.Join(args, " "), err, stderr.String())
 	}
 	return out, nil
+}
+
+// label is a package's path inside the module without the leading pkg/ or
+// internal/, the part a reader recognises it by.
+func label(short string) string {
+	for _, prefix := range []string{"pkg/", "internal/"} {
+		if s, ok := strings.CutPrefix(short, prefix); ok {
+			return s
+		}
+	}
+	return short
 }
