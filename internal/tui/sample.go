@@ -251,7 +251,7 @@ func (m *Model) openSelect(path api.ObjectPath, det api.TableDetail) {
 		det.Shard = det.Table.Shard
 	}
 	text, at := sqlx.SelectStar(det)
-	b := m.addBuffer(text, "", "")
+	b := m.addBuffer(text, "")
 	b.draftVersion = -1 // write the draft on the next tick
 	b.name = m.bufferName(selectName(path))
 	row, col := lineCol(text, at)

@@ -320,7 +320,7 @@ func (m *Model) finishLoad(req loadReq, replace bool) tea.Cmd {
 		}
 		nb = m.buf()
 	} else {
-		nb = m.addBuffer(req.text, "", "")
+		nb = m.addBuffer(req.text, "")
 		nb.draftVersion = -1 // write the draft on the next tick
 	}
 	for k, v := range req.params {
@@ -469,10 +469,6 @@ func (m *Model) saveBufferAsFavorite(p *promptState) tea.Cmd {
 	id := s.Favorite.ID
 	b.path = s.Favorite.Path
 	b.savedVersion = b.ed.version
-	if b.lock != nil {
-		b.lock.Unlock()
-		b.lock = nil
-	}
 	m.removeDraft(b)
 	m.ov = ovNone
 	m.toast = "saved favorite " + id + " (ctrl+s saves it again)"

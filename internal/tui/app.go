@@ -191,7 +191,7 @@ func New(be Backend, o Options) *Model {
 		}
 	}
 	if len(m.bufs) == 0 {
-		m.addBuffer("", "", "")
+		m.addBuffer("", "")
 	}
 	m.scanOrphans()
 	if n := len(m.orphans); n > 0 && m.toast == "" {

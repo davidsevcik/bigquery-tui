@@ -7,11 +7,11 @@ package tui
 
 import (
 	"context"
-	"path/filepath"
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/config"
+	"github.com/davidsevcik/bigquery-tui/pkg/drafts"
 	"github.com/davidsevcik/bigquery-tui/pkg/engine"
 	"github.com/davidsevcik/bigquery-tui/pkg/export"
 	"github.com/davidsevcik/bigquery-tui/pkg/favorites"
@@ -155,7 +155,7 @@ func (b EngineBackend) StartExport(ctx context.Context, runID int64, path string
 	return h, nil
 }
 
-func (b EngineBackend) DraftDir() string { return filepath.Join(b.Paths().Drafts, "tui") }
+func (b EngineBackend) DraftDir() string { return drafts.Dir(b.Paths().Drafts, api.SourceTUI) }
 
 func (b EngineBackend) WatchCatalog(ctx context.Context) <-chan struct{} {
 	return b.Engine.WatchCatalog(ctx, time.Second)

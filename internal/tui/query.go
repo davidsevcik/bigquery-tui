@@ -271,7 +271,7 @@ func (m *Model) editorAction(act string) tea.Cmd {
 	case "runs":
 		m.ov, m.ovSel, m.ovOff = ovRuns, 0, 0
 	case "newbuf":
-		m.addBuffer("", "", "")
+		m.addBuffer("", "")
 		m.toast = fmt.Sprintf("new buffer (%d open)", len(m.bufs))
 	case "buflist":
 		m.scanOrphans()
@@ -632,10 +632,6 @@ func (m *Model) promptSubmit() tea.Cmd {
 			return nil
 		}
 		// the buffer now lives in the file: its draft is gone
-		if b.lock != nil {
-			b.lock.Unlock()
-			b.lock = nil
-		}
 		m.removeDraft(b)
 		m.ov = ovNone
 		m.toast = "saved " + path
