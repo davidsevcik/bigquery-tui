@@ -1,17 +1,19 @@
 // Package tui is bqt's terminal frontend. It only lays out what the core
 // returns: every piece of product behaviour (search, ranking, sync, formatting)
-// comes from the engine through the Backend interface, or, where no state is
-// involved (a Favorite's header, matching Favorites, binding parameters),
-// from the core package that owns the rule.
+// comes from the engine through the Backend interface, or, where no engine
+// state is involved (a Favorite's header, binding parameters, the drafts,
+// billing, the hand-off items, sync problems), from the core package that
+// owns the rule (spec section 3). This package decides which question to
+// ask and which thing a key acts on, and words every message.
 package tui
 
 import (
 	"context"
-	"path/filepath"
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/config"
+	"github.com/davidsevcik/bigquery-tui/pkg/drafts"
 	"github.com/davidsevcik/bigquery-tui/pkg/engine"
 	"github.com/davidsevcik/bigquery-tui/pkg/export"
 	"github.com/davidsevcik/bigquery-tui/pkg/favorites"
@@ -78,8 +80,8 @@ type Backend interface {
 	// confirms and cancels them for this frontend.
 	FollowRuns() *runs.Follower
 	RunRows(ctx context.Context, id int64, startIndex int64, n int, o format.Options) (api.PreviewPage, error)
-	// RunSample renders a Run's first rows for a hand-off.
-	RunSample(ctx context.Context, id int64, f handoff.SampleFormat) (string, error)
+	// Handoff renders a hand-off item (handoff.Items).
+	Handoff(ctx context.Context, it handoff.Item) (string, error)
 	LearnPricing(ctx context.Context) error
 	StartExport(ctx context.Context, runID int64, path string, f export.Format) (Export, error)
 	DefaultExportPath(f export.Format) string
@@ -155,7 +157,7 @@ func (b EngineBackend) StartExport(ctx context.Context, runID int64, path string
 	return h, nil
 }
 
-func (b EngineBackend) DraftDir() string { return filepath.Join(b.Paths().Drafts, "tui") }
+func (b EngineBackend) DraftDir() string { return drafts.Dir(b.Paths().Drafts, api.SourceTUI) }
 
 func (b EngineBackend) WatchCatalog(ctx context.Context) <-chan struct{} {
 	return b.Engine.WatchCatalog(ctx, time.Second)

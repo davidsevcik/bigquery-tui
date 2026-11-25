@@ -89,9 +89,6 @@ type (
 
 var inferParamFn = sqlx.InferParam
 
-// exportAskRows is the row count above which an export asks first.
-const exportAskRows = 1_000_000
-
 // --- editor zone
 
 func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
@@ -205,32 +202,13 @@ func (m *Model) acceptCompletion() tea.Cmd {
 	}
 	c := m.comp.cands[m.comp.sel]
 	ed := m.buf().ed
-	text := ed.text()
-	ins := c.Insert
-	after := ""
-	if c.End < len(text) {
-		after = text[c.End:]
-	}
-	again := false
-	switch c.Kind {
-	case api.CandProject, api.CandDataset:
-		// continue with the next path segment
-		if !strings.HasPrefix(after, ".") {
-			ins += "."
-		}
-		again = true
-	case api.CandTable:
-		// close a backtick path the user opened
-		if strings.Count(text[:c.Start], "`")%2 == 1 && !strings.HasPrefix(after, "`") && !strings.HasPrefix(ins, "`") {
-			ins += "`"
-		}
-	}
-	ed.replaceBytes(c.Start, c.End, ins)
-	if again && strings.HasPrefix(after, ".") {
+	a := sqlx.Accept(ed.text(), c)
+	ed.replaceBytes(c.Start, c.End, a.Insert)
+	if a.StepOver {
 		ed.col++ // step over the dot that was already there
 	}
 	m.comp.open = false
-	if again {
+	if a.Again {
 		m.updateCompletion(false)
 	}
 	if m.o.NoBackground {
@@ -271,13 +249,13 @@ func (m *Model) editorAction(act string) tea.Cmd {
 	case "runs":
 		m.ov, m.ovSel, m.ovOff = ovRuns, 0, 0
 	case "newbuf":
-		m.addBuffer("", "", "")
+		m.addBuffer("", "")
 		m.toast = fmt.Sprintf("new buffer (%d open)", len(m.bufs))
 	case "buflist":
 		m.scanOrphans()
 		m.ov, m.ovSel, m.ovOff = ovBuffers, m.cur, 0
 	case "closebuf":
-		if b.modified() || (b.path == "" && !b.ed.empty()) {
+		if b.state().Unsaved() {
 			what := "discard this buffer? Its text is not saved to a file."
 			if b.path != "" {
 				what = "close " + b.title() + " without saving the changes?"
@@ -428,7 +406,7 @@ func (m *Model) onRun(msg runMsg) tea.Cmd {
 				b.viewID = info.ID
 			}
 			// the position only means something in the text that was run
-			if mk, ok := m.runs.ErrorMark(info.ID); ok && b.runID == info.ID && b.ed.version == mk.TextVersion {
+			if mk, ok := m.runs.MarkIn(info.ID, b.runID, b.ed.version); ok {
 				b.ed.moveTo(mk.Line, mk.Col)
 				b.ed.errLine, b.ed.errCol = mk.Line, mk.Col
 			}
@@ -632,10 +610,6 @@ func (m *Model) promptSubmit() tea.Cmd {
 			return nil
 		}
 		// the buffer now lives in the file: its draft is gone
-		if b.lock != nil {
-			b.lock.Unlock()
-			b.lock = nil
-		}
 		m.removeDraft(b)
 		m.ov = ovNone
 		m.toast = "saved " + path
@@ -665,7 +639,7 @@ func (m *Model) promptSubmit() tea.Cmd {
 		if path == "" {
 			return nil
 		}
-		if g.total > exportAskRows && !p.armed {
+		if g.total > export.AskAboveRows && !p.armed {
 			p.armed = true
 			p.note = sWarn.Render(fmt.Sprintf("%s rows: press enter again to export them all", format.Count(g.total)))
 			return nil
@@ -917,14 +891,10 @@ func (m *Model) cancelFocused() bool {
 func (m *Model) requestCancel(id int64) {
 	m.runs.Cancel(id)
 	m.toast = fmt.Sprintf("cancel requested for run #%d", id)
-	if r, ok := m.runs.Info(id); !ok || mayBeBilled(r) {
+	if r, ok := m.runs.Info(id); !ok || runs.MayBeBilled(r) {
 		m.toast += " (it may still be billed)"
 	}
 }
-
-// mayBeBilled reports whether a Run is on-demand by its own dry-run, or of
-// unknown pricing, which counts as on-demand (spec 10.2).
-func mayBeBilled(r api.RunInfo) bool { return r.Estimate == nil || !r.Estimate.Capacity }
 
 // --- external editor
 
@@ -1090,7 +1060,11 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 		m.toast = fmt.Sprintf("copied %d rows as TSV", len(rows))
 		return tea.SetClipboard(export.TSV(g.cols, rows))
 	case "export":
+		origin := export.FromRun
 		if m.sampleShown() {
+			origin = export.FromSample
+		}
+		if !export.Exportable(origin) {
 			m.toast = "a Sample cannot be exported: s writes a SELECT whose result can be (billed)"
 			return nil
 		}

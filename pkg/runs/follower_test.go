@@ -247,3 +247,22 @@ func TestQueryFailureNamesThePosition(t *testing.T) {
 		t.Fatalf("a position already in the message is not repeated: %s", got)
 	}
 }
+
+func TestMarkInAppliesOnlyToTheUnchangedTextOfTheLatestRun(t *testing.T) {
+	r := newRig(t)
+	f := r.m.Follow()
+	r.fake.OnQuery = func(string) bqtest.QueryScript {
+		return bqtest.QueryScript{DryRunErr: bqtest.QueryError("Syntax error: Unexpected end at [1:8]")}
+	}
+	id := f.Start(context.Background(), Request{SQL: "select x"}, Origin{TextVersion: 7})
+	follow(t, f, id)
+	if mk, ok := f.MarkIn(id, id, 7); !ok || mk.Line != 1 || mk.Col != 8 {
+		t.Fatalf("%+v %v", mk, ok)
+	}
+	if _, ok := f.MarkIn(id, id, 8); ok {
+		t.Fatal("the text changed since the Run: no mark")
+	}
+	if _, ok := f.MarkIn(id, id+1, 7); ok {
+		t.Fatal("a newer Run of the buffer: no mark for the old one")
+	}
+}

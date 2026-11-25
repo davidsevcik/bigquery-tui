@@ -167,6 +167,18 @@ func (f *Follower) ErrorMark(id int64) (Mark, bool) {
 	return mk, true
 }
 
+// MarkIn is ErrorMark where the mark applies to a buffer's text: Run id is
+// the buffer's latest (latest) and the text has not changed since the Run
+// took it (version is its version now). A position in older text would mark
+// the wrong place.
+func (f *Follower) MarkIn(id, latest int64, version int) (Mark, bool) {
+	mk, ok := f.ErrorMark(id)
+	if !ok || id != latest || version != mk.TextVersion {
+		return Mark{}, false
+	}
+	return mk, true
+}
+
 // List returns every Run of the process as it is now, newest first.
 func (f *Follower) List() []api.RunInfo { return f.m.List() }
 

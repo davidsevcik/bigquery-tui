@@ -12,6 +12,7 @@ import (
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/bq"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
 	"github.com/davidsevcik/bigquery-tui/pkg/format"
 	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
@@ -94,14 +95,14 @@ func (m *Model) sampleAction() tea.Cmd {
 	if m.tut != nil {
 		m.tut.sampled = true
 	}
-	switch s.node.Type {
-	case api.TypeView:
+	switch engine.NoSample(s.node.Type) {
+	case engine.NoSampleView:
 		m.toast = viewNoSample
 		return nil
-	case api.TypeExternal:
+	case engine.NoSampleExternal:
 		m.toast = externalNoSample
 		return nil
-	case api.TypeMView:
+	case engine.NoSampleMView:
 		m.toast = mviewNoSample
 		return nil
 	}
@@ -251,7 +252,7 @@ func (m *Model) openSelect(path api.ObjectPath, det api.TableDetail) {
 		det.Shard = det.Table.Shard
 	}
 	text, at := sqlx.SelectStar(det)
-	b := m.addBuffer(text, "", "")
+	b := m.addBuffer(text, "")
 	b.draftVersion = -1 // write the draft on the next tick
 	b.name = m.bufferName(selectName(path))
 	row, col := lineCol(text, at)

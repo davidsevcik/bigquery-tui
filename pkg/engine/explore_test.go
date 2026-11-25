@@ -12,6 +12,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/bq"
 	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 	"github.com/davidsevcik/bigquery-tui/pkg/format"
+	"github.com/davidsevcik/bigquery-tui/pkg/handoff"
 )
 
 func (e *env) openWithTables() *Engine {
@@ -454,5 +455,49 @@ func TestDetailRejectsAStaleIndexEntry(t *testing.T) {
 	}
 	if _, err := eng.TableDetail(ctx, api.ObjectPath{Project: "proj-a", Dataset: "us_data", Table: "u1"}); !errors.Is(err, ErrUnknownTable) {
 		t.Fatalf("%v", err)
+	}
+}
+
+// Only stored tables have a free Sample; the others are read by a SELECT,
+// which is billed.
+func TestNoSampleByTableType(t *testing.T) {
+	for _, typ := range []api.TableType{api.TypeTable, api.TypeSnapshot, api.TypeClone, api.TypeOther, ""} {
+		if got := NoSample(typ); got != SampleFree {
+			t.Errorf("%q has a free Sample, got %v", typ, got)
+		}
+	}
+	for typ, want := range map[api.TableType]NoSampleReason{
+		api.TypeView: NoSampleView, api.TypeMView: NoSampleMView, api.TypeExternal: NoSampleExternal,
+	} {
+		if got := NoSample(typ); got != want {
+			t.Errorf("%q: %v, want %v", typ, got, want)
+		}
+	}
+}
+
+func TestHandoffRendersEachKind(t *testing.T) {
+	_, eng := synced(t, "proj-a")
+	p := api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "orders"}
+	items := handoff.Items(handoff.Situation{Table: &p})
+	md, err := eng.Handoff(ctx, items[0])
+	if err != nil || !strings.HasPrefix(md, "## `proj-a.sales.orders`") {
+		t.Fatalf("%q %v", md, err)
+	}
+	js, err := eng.Handoff(ctx, items[1])
+	if err != nil || !strings.Contains(js, `"table": "proj-a.sales.orders"`) {
+		t.Fatalf("%q %v", js, err)
+	}
+	r := api.RunInfo{ID: 4, State: api.RunFailed, SQL: "select nope", Error: &api.QueryError{Message: "Unrecognized name: nope"}}
+	for _, it := range handoff.Items(handoff.Situation{Run: &r}) {
+		got, err := eng.Handoff(ctx, it)
+		if err != nil || !strings.Contains(got, "select nope") {
+			t.Fatalf("%s: %q %v", it.Kind, got, err)
+		}
+	}
+	if _, err := eng.Handoff(ctx, handoff.Item{Kind: handoff.KindQueryError}); err == nil {
+		t.Fatal("a Run without an error has no query-error hand-off")
+	}
+	if _, err := eng.Handoff(ctx, handoff.Item{Kind: "nope"}); err == nil {
+		t.Fatal("an unknown kind is an error")
 	}
 }
