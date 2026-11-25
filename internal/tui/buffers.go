@@ -47,6 +47,11 @@ func (m *Model) draftPath(id string) string { return m.draftStore().Path(id) }
 
 func (b *buffer) modified() bool { return b.path != "" && b.ed.version != b.savedVersion }
 
+// state is what the drafts package knows of b.
+func (b *buffer) state() drafts.Buffer {
+	return drafts.Buffer{Path: b.path, Empty: b.ed.empty(), Modified: b.modified(), Ran: b.runID != 0}
+}
+
 func (b *buffer) title() string {
 	if b.path != "" {
 		return filepath.Base(b.path)
@@ -187,7 +192,7 @@ func (m *Model) restoreOrphan(o orphan) error {
 	}
 	old := m.buf()
 	m.addBufferWith(text, "", o.id, d)
-	if old.path == "" && old.ed.empty() && old.runID == 0 {
+	if old.state().Disposable() {
 		for i, x := range m.bufs {
 			if x != old {
 				continue

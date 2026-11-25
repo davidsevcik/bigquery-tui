@@ -297,8 +297,7 @@ func (m *Model) loadPick(req loadReq) tea.Cmd {
 		}
 	}
 	b := m.buf()
-	dirty := b.modified() || (b.path == "" && !b.ed.empty())
-	if dirty {
+	if b.state().Unsaved() {
 		m.pendingLoad = &req
 		m.askConfirm(confirmState{kind: "load", lines: []string{
 			"Replace the text of " + b.title() + " with " + req.what + "?",

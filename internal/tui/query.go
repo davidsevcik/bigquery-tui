@@ -277,7 +277,7 @@ func (m *Model) editorAction(act string) tea.Cmd {
 		m.scanOrphans()
 		m.ov, m.ovSel, m.ovOff = ovBuffers, m.cur, 0
 	case "closebuf":
-		if b.modified() || (b.path == "" && !b.ed.empty()) {
+		if b.state().Unsaved() {
 			what := "discard this buffer? Its text is not saved to a file."
 			if b.path != "" {
 				what = "close " + b.title() + " without saving the changes?"
