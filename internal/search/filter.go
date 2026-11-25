@@ -27,16 +27,18 @@ func (s *Searcher) Filter(ctx context.Context, raw string, o api.FilterOptions) 
 	if err := f.passTables(ctx); err != nil {
 		return resp, err
 	}
-	f.containerHits()
+	f.addContainers()
 	if f.want(api.KindTable) || f.want(api.KindShards) {
-		f.tableHits()
+		f.addTables()
 	}
 	resp.Matches = f.matches()
 	resp.TookMS = float64(time.Since(start).Microseconds()) / 1000
 	return resp, nil
 }
 
-// filterRun holds one Filter call's state between its stages.
+// filterRun holds one Filter call's state between its stages, which run in
+// order: passTables fills pass and own, addContainers and addTables read them
+// and append to out, and matches sorts out into the response.
 type filterRun struct {
 	x  *Index
 	c  *compiled
@@ -68,7 +70,8 @@ func newFilterRun(x *Index, c *compiled, o api.FilterOptions, path *api.ObjectPa
 	}
 	if path != nil {
 		if i, ok := x.resolve(path.String()); ok {
-			// a pasted path keeps that table and the containers that hold it
+			// a pasted path keeps that table and the containers that hold it,
+			// so its text is not matched as terms (this clears c.terms)
 			f.pasted, c.terms, f.tableFilters, f.dsFilters = i, nil, true, true
 		}
 	}
@@ -106,8 +109,8 @@ func (f *filterRun) passTables(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// add appends a hit for a container whose own name matches the terms.
-func (f *filterRun) add(k api.ResultKind, p api.ObjectPath, lname, name string) {
+// addIfNamed appends a hit for a container whose own name matches the terms.
+func (f *filterRun) addIfNamed(k api.ResultKind, p api.ObjectPath, lname, name string) {
 	if maxS, sum, ok := ownScore(lname, f.c.terms, true); ok {
 		f.addHit(hit{kind: k, max: maxS, sum: sum, name: name}, p)
 	}
@@ -120,8 +123,8 @@ func (f *filterRun) addHit(h hit, p api.ObjectPath) {
 	f.paths = append(f.paths, p)
 }
 
-// containerHits adds the projects and datasets that pass.
-func (f *filterRun) containerHits() {
+// addContainers adds the projects and datasets that pass.
+func (f *filterRun) addContainers() {
 	x := f.x
 	for pi := range x.projects {
 		p := &x.projects[pi]
@@ -136,11 +139,11 @@ func (f *filterRun) containerHits() {
 			}
 			projHolds = true
 			if f.want(api.KindDataset) {
-				f.add(api.KindDataset, api.ObjectPath{Project: p.name, Dataset: d.name}, d.lname, d.name)
+				f.addIfNamed(api.KindDataset, api.ObjectPath{Project: p.name, Dataset: d.name}, d.lname, d.name)
 			}
 		}
 		if f.want(api.KindProject) && (projHolds || !f.dsFilters) && passDataset(p, &dsEntry{}, onlyP(f.c.filters)) {
-			f.add(api.KindProject, api.ObjectPath{Project: p.name}, p.lname, p.name)
+			f.addIfNamed(api.KindProject, api.ObjectPath{Project: p.name}, p.lname, p.name)
 		}
 	}
 }
@@ -172,10 +175,10 @@ type famKey struct {
 	typ  api.TableType
 }
 
-// tableHits adds the tables that pass and the shard families they belong
+// addTables adds the tables that pass and the shard families they belong
 // to. A family passes when one of its members does, ranked by its best
 // member.
-func (f *filterRun) tableHits() {
+func (f *filterRun) addTables() {
 	x := f.x
 	cols := len(f.c.colVals) > 0
 	fams := map[famKey]int{} // index into out
@@ -220,6 +223,7 @@ func (f *filterRun) matches() []api.FilterMatch {
 	return ms
 }
 
+// ownHit is a table's own-name score.
 type ownHit struct {
 	max, sum int
 	ok       bool
