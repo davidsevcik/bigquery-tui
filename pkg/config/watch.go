@@ -148,6 +148,7 @@ func Diff(a, b *Config) []string {
 	add("agent_timeout", a.AgentTimeout, b.AgentTimeout)
 	add("cli_allow_writes", a.CLIAllowWrites, b.CLIAllowWrites)
 	add("tui", a.TUI, b.TUI)
+	add("gui", a.GUI, b.GUI)
 	sort.Strings(out)
 	return out
 }

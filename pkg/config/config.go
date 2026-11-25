@@ -30,18 +30,27 @@ const (
 	DefaultMaxConcurrent        = 4
 )
 
-// Editing styles of the TUI's query editor ([tui] editing).
+// Editing styles of a query editor ([tui] editing and [gui] editing).
 const (
 	EditingVim   = "vim"
 	EditingPlain = "plain"
 )
 
-// Editing returns the editor's editing style: vim (the default) or plain.
+// Editing returns the TUI editor's editing style: vim (the default) or plain.
 func (c *Config) Editing() string {
 	if s, _ := c.TUI["editing"].(string); s == EditingPlain {
 		return EditingPlain
 	}
 	return EditingVim
+}
+
+// GUIEditing returns the GUI editor's editing style ([gui] editing): plain
+// (the default, unlike the TUI's) or vim. bqt itself never reads it.
+func (c *Config) GUIEditing() string {
+	if s, _ := c.GUI["editing"].(string); s == EditingVim {
+		return EditingVim
+	}
+	return EditingPlain
 }
 
 // Config is the effective, validated configuration.
@@ -68,6 +77,9 @@ type Config struct {
 	AgentTimeout         time.Duration
 	CLIAllowWrites       bool
 	TUI                  map[string]any
+	// GUI is the [gui] table, read by BigQuery Studio (a separate module
+	// that shares this file); the TUI, CLI and MCP ignore it.
+	GUI map[string]any
 
 	// Path is the file the configuration was read from.
 	Path string
@@ -348,23 +360,37 @@ func Parse(raw []byte, path string, opts LoadOptions) (*Config, error) {
 		}
 	}
 
-	c := &Config{Path: path, TUI: fc.TUI, Ignore: fc.Ignore, ShardPatterns: fc.ShardPatterns}
+	c := &Config{Path: path, TUI: fc.TUI, GUI: fc.GUI, Ignore: fc.Ignore, ShardPatterns: fc.ShardPatterns}
 	if c.TUI == nil {
 		c.TUI = map[string]any{}
 	}
+	if c.GUI == nil {
+		c.GUI = map[string]any{}
+	}
 	b.build(c, values, &errs)
+	editingMsg := fmt.Sprintf(`must be "%s" or "%s"`, EditingVim, EditingPlain)
 	for k, v := range c.TUI {
 		switch k {
 		case "editing":
 			if s, ok := v.(string); !ok || (s != EditingVim && s != EditingPlain) {
-				errs = append(errs, &Error{Key: "tui.editing", Line: b.lineOfKey("editing"), Msg: fmt.Sprintf(`must be "%s" or "%s"`, EditingVim, EditingPlain)})
+				errs = append(errs, &Error{Key: "tui.editing", Line: b.lineOfTableKey("tui", "editing"), Msg: editingMsg})
 			}
 		case "family_rows":
 			if n, ok := v.(int64); !ok || n < 0 {
-				errs = append(errs, &Error{Key: "tui.family_rows", Line: b.lineOfKey("family_rows"), Msg: "must be a whole number, 0 or more (0 shows only the … N more row)"})
+				errs = append(errs, &Error{Key: "tui.family_rows", Line: b.lineOfTableKey("tui", "family_rows"), Msg: "must be a whole number, 0 or more (0 shows only the … N more row)"})
 			}
 		default:
-			errs = append(errs, &Error{Key: "tui." + k, Line: b.lineOfKey(k), Msg: "unknown key"})
+			errs = append(errs, &Error{Key: "tui." + k, Line: b.lineOfTableKey("tui", k), Msg: "unknown key"})
+		}
+	}
+	for k, v := range c.GUI {
+		switch k {
+		case "editing":
+			if s, ok := v.(string); !ok || (s != EditingVim && s != EditingPlain) {
+				errs = append(errs, &Error{Key: "gui.editing", Line: b.lineOfTableKey("gui", "editing"), Msg: editingMsg})
+			}
+		default:
+			errs = append(errs, &Error{Key: "gui." + k, Line: b.lineOfTableKey("gui", k), Msg: "unknown key"})
 		}
 	}
 
@@ -407,6 +433,27 @@ func (b *builder) lineOfKey(key string) int {
 		return 0
 	}
 	return strings.Count(b.raw[:loc[0]], "\n") + 1
+}
+
+// lineOfTableKey finds key inside the [table] section, so the same key in
+// [tui] and [gui] is told apart. A dotted key (table.key = …) or an inline
+// table (table = { … }) gives the line of that assignment instead.
+func (b *builder) lineOfTableKey(table, key string) int {
+	header := regexp.MustCompile(`(?m)^[ \t]*\[[ \t]*` + regexp.QuoteMeta(table) + `[ \t]*\]`)
+	if loc := header.FindStringIndex(b.raw); loc != nil {
+		body := b.raw[loc[1]:]
+		if next := regexp.MustCompile(`(?m)^[ \t]*\[`).FindStringIndex(body); next != nil {
+			body = body[:next[0]]
+		}
+		re := regexp.MustCompile(`(?m)^[ \t]*` + regexp.QuoteMeta(key) + `[ \t]*=`)
+		if kl := re.FindStringIndex(body); kl != nil {
+			return strings.Count(b.raw[:loc[1]+kl[0]], "\n") + 1
+		}
+	}
+	if n := b.lineOfKey(table + "." + key); n > 0 {
+		return n
+	}
+	return b.lineOfKey(table)
 }
 
 func (b *builder) lineOfValue(val string) int {

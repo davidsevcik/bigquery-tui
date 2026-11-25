@@ -74,7 +74,7 @@ func TestTemplateExamplesParseUncommented(t *testing.T) {
 		case inPatterns:
 			inPatterns = l != "# ]"
 			l = strings.TrimPrefix(l, "# ")
-		case strings.HasPrefix(l, "# [tui]"), strings.HasPrefix(l, "# editing"), strings.HasPrefix(l, "# family_rows"):
+		case strings.HasPrefix(l, "# [tui]"), strings.HasPrefix(l, "# [gui]"), strings.HasPrefix(l, "# editing"), strings.HasPrefix(l, "# family_rows"):
 			l = strings.TrimPrefix(l, "# ")
 		}
 		b.WriteString(l + "\n")
@@ -85,6 +85,9 @@ func TestTemplateExamplesParseUncommented(t *testing.T) {
 	}
 	if len(c.Shards().Sources()) != 4 || c.FamilyRows() != 20 {
 		t.Fatalf("%q %d", c.Shards().Sources(), c.FamilyRows())
+	}
+	if c.Editing() != EditingVim || c.GUIEditing() != EditingPlain {
+		t.Fatalf("the template shows the defaults: tui %s, gui %s", c.Editing(), c.GUIEditing())
 	}
 	// the examples do what their comments say
 	for _, name := range []string{"events_20240101", "orders_0123456789abcdef01234567", "orders_0123456789abcdef01234567_history", "sessions_123e4567-e89b-12d3-a456-426614174000", "customer_123"} {
