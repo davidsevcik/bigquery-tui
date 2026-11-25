@@ -93,6 +93,24 @@ func TestWatchReportsChangedKeys(t *testing.T) {
 	quiet(t, ev)
 }
 
+// A [gui] change is reported like a [tui] one, as live (BigQuery Studio
+// applies it without a restart).
+func TestWatchReportsGUIChange(t *testing.T) {
+	path, _, ev, _ := watchSetup(t)
+	save(t, path, baseCfg+"[gui]\nediting = \"vim\"\n")
+	e := next(t, ev)
+	if e.Err != nil || e.Config.GUIEditing() != EditingVim {
+		t.Fatalf("%+v", e)
+	}
+	if !reflect.DeepEqual(e.Changed, []string{"gui"}) || len(e.RestartRequired) != 0 {
+		t.Fatalf("%v %v", e.Changed, e.RestartRequired)
+	}
+	save(t, path, baseCfg+"[gui]\nediting = \"vim\"\n\n[tui]\nediting = \"plain\"\n")
+	if e = next(t, ev); !reflect.DeepEqual(e.Changed, []string{"tui"}) {
+		t.Fatalf("an unchanged [gui] is not reported: %v", e.Changed)
+	}
+}
+
 func TestWatchInvalidThenFixed(t *testing.T) {
 	path, _, ev, _ := watchSetup(t)
 	save(t, path, "ingore = 1\n")

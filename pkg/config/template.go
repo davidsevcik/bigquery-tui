@@ -67,4 +67,9 @@ const template = `# bqt configuration. Unknown keys are errors, so typos do not 
 # [tui]
 # editing = "vim"   # the query editor: "vim" (modes, motions, operators) or "plain" (modeless)
 # family_rows = 20  # newest members an expanded shard family shows in the tree (0: only "… N more")
+
+# Settings read by BigQuery Studio, the desktop GUI that shares this file.
+# bqt ignores them.
+# [gui]
+# editing = "plain" # the query editor: "plain" (modeless, the platform's shortcuts) or "vim"
 `

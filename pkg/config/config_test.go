@@ -291,6 +291,51 @@ func TestTUIEditingKey(t *testing.T) {
 	}
 }
 
+// [gui] is read by BigQuery Studio, which shares this file; bqt loads it but
+// reads nothing from it.
+func TestGUIEditingKey(t *testing.T) {
+	c := mustParse(t, `location = "EU"`, LoadOptions{})
+	if c.GUIEditing() != EditingPlain {
+		t.Fatalf("plain is the GUI's default: %s", c.GUIEditing())
+	}
+	c = mustParse(t, "[tui]\nediting = \"plain\"\n\n[gui]\nediting = \"vim\"\n", LoadOptions{})
+	if c.GUIEditing() != EditingVim || c.Editing() != EditingPlain {
+		t.Fatalf("each frontend reads its own table: gui %s, tui %s", c.GUIEditing(), c.Editing())
+	}
+	if c = mustParse(t, "[gui]\nediting = \"vim\"\n", LoadOptions{}); c.Editing() != EditingVim {
+		t.Fatalf("[gui] does not change the TUI's editing: %s", c.Editing())
+	}
+	es := parseErrs(t, "location = \"EU\"\n\n[gui]\nediting = \"emacs\"\n", LoadOptions{})
+	if len(es) != 1 || es[0].Key != "gui.editing" || es[0].Line != 4 || es[0].Msg != `must be "vim" or "plain"` {
+		t.Fatalf("an unknown style: %v", es)
+	}
+	es = parseErrs(t, "[gui]\neditng = \"vim\"\n", LoadOptions{})
+	if len(es) != 1 || es[0].Key != "gui.editng" || es[0].Line != 2 || es[0].Msg != "unknown key" {
+		t.Fatalf("an unknown [gui] key: %v", es)
+	}
+}
+
+// The same key in [tui] and [gui] is reported at the line of the table it is
+// wrong in.
+func TestTableKeyLines(t *testing.T) {
+	src := "[gui]\nediting = \"vim\"\n\n[tui]\nediting = \"emacs\"\n"
+	if es := parseErrs(t, src, LoadOptions{}); len(es) != 1 || es[0].Key != "tui.editing" || es[0].Line != 5 {
+		t.Fatalf("%v", es)
+	}
+	src = "[tui]\nediting = \"vim\"\n\n[gui]\nediting = 1\n"
+	if es := parseErrs(t, src, LoadOptions{}); len(es) != 1 || es[0].Key != "gui.editing" || es[0].Line != 5 {
+		t.Fatalf("%v", es)
+	}
+	src = "location = \"EU\"\ngui.editing = \"emacs\"\n"
+	if es := parseErrs(t, src, LoadOptions{}); len(es) != 1 || es[0].Key != "gui.editing" || es[0].Line != 2 {
+		t.Fatalf("a dotted key: %v", es)
+	}
+	src = "location = \"EU\"\ngui = { editing = \"emacs\" }\n"
+	if es := parseErrs(t, src, LoadOptions{}); len(es) != 1 || es[0].Key != "gui.editing" || es[0].Line != 2 {
+		t.Fatalf("an inline table: %v", es)
+	}
+}
+
 // Codex review 4, finding 2: a retention so large it would overflow is refused.
 func TestRetentionDaysBound(t *testing.T) {
 	es := parseErrs(t, "location = \"EU\"\nhistory_retention_days = 200000\n", LoadOptions{})
