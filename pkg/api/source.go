@@ -2,9 +2,10 @@ package api
 
 // Source names the frontend that started a Run. It is stored on the History
 // entry (`source:` in History search) and, for every Source but the TUI, put
-// on the job as the bqt_source label. It decides nothing about what a Run may
-// do: the agent limits apply in the engine's agent methods, which only the CLI
-// and MCP call.
+// on the job as the bqt_source label. Only the engine's agent methods use it
+// to decide what a Run may do: they pick the policy profile from it (MCP, or
+// the CLI's for any other Source). Runs started any other way, as the TUI and
+// a GUI start them, get no agent limits whatever their Source.
 type Source string
 
 const (

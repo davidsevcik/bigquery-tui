@@ -47,7 +47,8 @@ type Options struct {
 	// Execution project, for listing projects only). nil uses bq.NewClient.
 	// Meta, Tables and Jobs win over it.
 	Client func(ctx context.Context, exec string) (Client, error)
-	// Source names the frontend on History entries and job labels (api.Sources).
+	// Source names the frontend on History entries and job labels: tui, gui,
+	// cli or mcp (api.Sources).
 	Source api.Source
 	// Execution, when set, fixes the Execution project for the engine's
 	// lifetime (bqt mcp keeps the one it started with: ResolveExecution).

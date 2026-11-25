@@ -178,7 +178,7 @@ Both SQLite files use `modernc.org/sqlite`, WAL, `busy_timeout`, `synchronous=NO
 - Identity: unique `(project, location, job_id)` plus the Execution project.
 - Content: SQL text, statement type, destination (anonymous) table.
 - Outcome: state, error message, `total_bytes_processed`, `total_bytes_billed`, cache hit, creation, start and end time, duration, nullable `total_slot_ms`, and the observed `reservation_id` and edition (both null for an on-demand Run) from the job statistics.
-- bqt-only: `source` (`tui`, `cli`, `mcp`), originating Favorite path (nullable, also written back on promotion), parameter names, types and values.
+- bqt-only: `source` (`tui`, `gui`, `cli`, `mcp`), originating Favorite path (nullable, also written back on promotion), parameter names, types and values.
 - An FTS5 table over the SQL text.
 - `recent_objects`: path, kind, last opened, open count (feeds the empty-query search).
 - Every job bqt submits is labelled `bqt=1`; every job but the TUI's also carries `bqt_source` with its Source (`gui`, `cli` or `mcp`; the list is `api.Sources`). Together with the `(project, location, job_id)` key, this lets a later `history import` from `JOBS_BY_USER` or `jobs.list` be idempotent and filter out foreign jobs. The import is not in v1.

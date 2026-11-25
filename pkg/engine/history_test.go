@@ -35,9 +35,15 @@ func TestGUIRunsAreTheirOwnHistorySource(t *testing.T) {
 	tui.StartRun(ctx, runs.Request{SQL: "select 1 from tui_orders"}).Wait()
 	gui.StartRun(ctx, runs.Request{SQL: "select 1 from gui_orders"}).Wait()
 
-	calls := e.fake.QueryCalls()
-	if got := calls[len(calls)-1].Req.Labels; got["bqt_source"] != "gui" || got["bqt"] != "1" {
+	labels := map[string]map[string]string{}
+	for _, c := range e.fake.QueryCalls() {
+		labels[c.Req.SQL] = c.Req.Labels
+	}
+	if got := labels["select 1 from gui_orders"]; got["bqt_source"] != "gui" || got["bqt"] != "1" {
 		t.Errorf("GUI job labels = %v, want bqt=1 and bqt_source=gui", got)
+	}
+	if got := labels["select 1 from tui_orders"]; got["bqt"] != "1" || got["bqt_source"] != "" {
+		t.Errorf("TUI job labels = %v, want bqt=1 and no bqt_source", got)
 	}
 	for query, want := range map[string]string{
 		"source:gui":  "select 1 from gui_orders",

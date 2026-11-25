@@ -44,8 +44,8 @@ type Options struct {
 	// Execution returns the Execution project jobs run in now.
 	Execution func() string
 	Now       func() time.Time
-	// Source is recorded on History entries and, unless it is the TUI, as the
-	// bqt_source job label.
+	// Source (tui, gui, cli or mcp) is recorded on History entries and, unless
+	// it is the TUI, as the bqt_source job label.
 	Source api.Source
 	// Record stores a finished real Run (History). It may be nil.
 	Record func(api.RunInfo)
