@@ -17,7 +17,7 @@ One execution of a SQL snapshot, with its own state, dry-run estimate and result
 _Avoid_: Job (that is the BigQuery object behind a Run), query tab
 
 **Execution project**:
-The GCP project that query and sync jobs run in, chosen in the Projects dialog (`e`) or with `bqt projects exec`; until the user first chooses one, it is the earliest-selected project that is still selected. Under on-demand pricing it is billed for the bytes processed; under capacity pricing it is assigned to a reservation, and slots are billed to the reservation's administration project. It can differ from the project whose data is being read. `--execution-project` and `BQT_EXECUTION_PROJECT` override it for one invocation.
+The GCP project that query and sync jobs run in, chosen in the Projects dialog (`e`) or with `bqt projects exec`; until the user first chooses one, it is the earliest-selected project that is still selected. Under on-demand pricing it is billed for the bytes processed; under capacity pricing it is assigned to a reservation, and slots are billed to the reservation's administration project. It can differ from the project whose data is being read. `--execution-project` and `BQT_EXECUTION_PROJECT` override it for one invocation. A frontend may start a single Run in another project given for that Run; sync always runs in this one.
 _Avoid_: Billing project, default project, quota project
 
 **Accessible project**:
