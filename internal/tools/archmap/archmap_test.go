@@ -166,6 +166,18 @@ func TestLoadThisModule(t *testing.T) {
 	if p := byShort["internal/archtest"]; p == nil || p.Group != "test" {
 		t.Errorf("archtest should be a test-only package: %+v", p)
 	}
+	for _, p := range m.Packages {
+		if p.Group == "test" {
+			continue
+		}
+		want := "frontend"
+		if strings.HasPrefix(p.Short, "pkg/") {
+			want = "core"
+		}
+		if p.Group != want {
+			t.Errorf("%s group = %s, want %s (the path decides)", p.Short, p.Group, want)
+		}
+	}
 	if !hasEdge(m.Edges, "pkg/engine", "pkg/runs") {
 		t.Error("edge pkg/engine -> pkg/runs missing")
 	}

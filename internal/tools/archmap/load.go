@@ -14,13 +14,6 @@ import (
 	"strings"
 )
 
-// frontendPackages are the frontends from spec section 3, besides cmd/*.
-var frontendPackages = map[string]bool{
-	"internal/cli": true,
-	"internal/tui": true,
-	"internal/mcp": true,
-}
-
 // excludedPrefix hides developer tools (this generator) from the map.
 const excludedPrefix = "internal/tools/"
 
@@ -170,15 +163,17 @@ func Load(dir string) (*Model, []string, error) {
 	return m, warnings, nil
 }
 
-// classify puts a package in one of the groups of spec section 3.
+// classify puts a package in one of the groups of spec section 3. The path
+// decides, as in internal/archtest (ADR 0003): a package with only tests is a
+// test, pkg/ is the core, and the rest (cmd/ and internal/) are frontends.
 func classify(short string, lp *listPackage) string {
 	switch {
 	case len(lp.GoFiles) == 0 && len(lp.TestGoFiles)+len(lp.XTestGoFiles) > 0:
 		return "test"
-	case strings.HasPrefix(short, "cmd/") || frontendPackages[short]:
-		return "frontend"
-	default:
+	case strings.HasPrefix(short, "pkg/"):
 		return "core"
+	default:
+		return "frontend"
 	}
 }
 
