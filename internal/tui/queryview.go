@@ -9,6 +9,7 @@ import (
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/format"
+	"github.com/davidsevcik/bigquery-tui/pkg/runs"
 )
 
 // editorRows is the number of text lines the editor shows: its Pane less
@@ -212,7 +213,7 @@ func (m *Model) resultsPane(w, h int) []string {
 	case !r.State.Finished():
 		line := stateWord(r)
 		switch {
-		case r.CancelRequested && mayBeBilled(r):
+		case r.CancelRequested && runs.MayBeBilled(r):
 			line = "cancel requested: waiting for BigQuery to confirm (the query may still be billed)"
 		case r.CancelRequested:
 			line = "cancel requested: waiting for BigQuery to confirm"

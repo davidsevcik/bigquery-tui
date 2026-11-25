@@ -913,14 +913,10 @@ func (m *Model) cancelFocused() bool {
 func (m *Model) requestCancel(id int64) {
 	m.runs.Cancel(id)
 	m.toast = fmt.Sprintf("cancel requested for run #%d", id)
-	if r, ok := m.runs.Info(id); !ok || mayBeBilled(r) {
+	if r, ok := m.runs.Info(id); !ok || runs.MayBeBilled(r) {
 		m.toast += " (it may still be billed)"
 	}
 }
-
-// mayBeBilled reports whether a Run is on-demand by its own dry-run, or of
-// unknown pricing, which counts as on-demand (spec 10.2).
-func mayBeBilled(r api.RunInfo) bool { return r.Estimate == nil || !r.Estimate.Capacity }
 
 // --- external editor
 
