@@ -42,6 +42,13 @@ func (e *Engine) RunRows(ctx context.Context, id int64, startIndex int64, n int,
 // LearnPricing pre-learns the pricing model with a free dry-run (spec 10.2).
 func (e *Engine) LearnPricing(ctx context.Context) error { return e.runs.LearnPricing(ctx) }
 
+// LearnPricingIn is LearnPricing in an Execution project given per call, as
+// runs.Request.Execution is; "" is the shared one. Follower.PricingIn reads
+// what it learned.
+func (e *Engine) LearnPricingIn(ctx context.Context, project string) error {
+	return e.runs.LearnPricingIn(ctx, project)
+}
+
 func (e *Engine) recordRun(info api.RunInfo) {
 	h, err := e.History()
 	if err != nil {

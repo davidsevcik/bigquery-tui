@@ -185,6 +185,10 @@ func (f *Follower) List() []api.RunInfo { return f.m.List() }
 // Pricing reports what the dry-runs so far revealed about billing.
 func (f *Follower) Pricing() api.PricingModel { return f.m.Pricing() }
 
+// PricingIn reports what the dry-runs in an Execution project revealed
+// about billing there ("" is the shared one, as Pricing).
+func (f *Follower) PricingIn(exec string) api.PricingModel { return f.m.pricingIn(exec) }
+
 // Confirm lets a Run waiting for confirmation proceed. Its applied state
 // moves on to queued at once, so the question is not asked again.
 func (f *Follower) Confirm(id int64) {

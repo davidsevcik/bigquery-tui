@@ -72,6 +72,10 @@ type Request struct {
 	// refused after the dry-run instead of asking for confirmation, and it
 	// times out. nil (the TUI) asks instead.
 	Policy *policy.Profile
+	// Execution is the Execution project the Run runs in: its dry-run, its
+	// job, its result pages and its cancel. Empty means the one
+	// Options.Execution returns when the Run starts.
+	Execution string
 }
 
 // Manager owns the Runs of one process.
@@ -83,7 +87,7 @@ type Manager struct {
 	runs    []*Run
 	running int
 	waiting []chan struct{}
-	pricing api.PricingModel
+	pricing map[string]api.PricingModel // by Execution project
 	events  chan api.RunEvent
 	// busy counts job submissions and cancel requests in flight, so Close can
 	// wait for them before the process exits.
@@ -133,35 +137,43 @@ func (m *Manager) publish(info api.RunInfo) {
 	}
 }
 
-// Pricing reports what the dry-runs so far revealed about billing.
-func (m *Manager) Pricing() api.PricingModel {
+// Pricing reports what the dry-runs so far revealed about billing in the
+// Execution project Options.Execution returns now.
+func (m *Manager) Pricing() api.PricingModel { return m.pricingIn("") }
+
+// pricingIn reports what the dry-runs in exec revealed about billing there
+// ("" is the Execution project Options.Execution returns now).
+func (m *Manager) pricingIn(exec string) api.PricingModel {
+	if exec == "" {
+		exec = m.o.Execution() // outside m.mu: it reads the selection state
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.pricing
+	return m.pricing[exec]
 }
 
-// learn records the pricing model a dry-run in exec revealed. A query that
-// scans nothing and names no reservation (SELECT 1) says nothing either way:
-// BigQuery reports no reservation for it even on a reservation-backed project.
-// A dry-run of a project that is no longer the Execution project teaches
-// nothing (the model is per project).
+// learn records the pricing model a dry-run in exec revealed; the model is
+// per project. A query that scans nothing and names no reservation
+// (SELECT 1) says nothing either way: BigQuery reports no reservation for it
+// even on a reservation-backed project.
 func (m *Manager) learn(exec string, dr bq.DryRunResult, force bool) {
-	if exec != m.o.Execution() { // outside m.mu: it reads the selection state
-		return
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if dr.ReservationID == "" && dr.BytesProcessed == 0 && !force {
 		return
 	}
-	m.pricing = api.PricingModel{Known: true, Capacity: dr.ReservationID != "", ReservationID: dr.ReservationID, Edition: dr.Edition}
+	if m.pricing == nil {
+		m.pricing = map[string]api.PricingModel{}
+	}
+	m.pricing[exec] = api.PricingModel{Known: true, Capacity: dr.ReservationID != "", ReservationID: dr.ReservationID, Edition: dr.Edition}
 }
 
-// ForgetPricing drops the learned model (the Execution project changed).
+// ForgetPricing drops every learned model (the location or the Execution
+// project changed).
 func (m *Manager) ForgetPricing() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.pricing = api.PricingModel{}
+	m.pricing = nil
 }
 
 // pricingProbe is a free query that still needs slots, so its dry-run names
@@ -171,12 +183,18 @@ const pricingProbe = "SELECT x FROM UNNEST(GENERATE_ARRAY(1, 2)) AS x ORDER BY x
 // LearnPricing runs a free dry-run in the configured location so the first
 // Run is presented correctly. Without a location it does nothing:
 // the model depends on where the job runs.
-func (m *Manager) LearnPricing(ctx context.Context) error {
+func (m *Manager) LearnPricing(ctx context.Context) error { return m.LearnPricingIn(ctx, "") }
+
+// LearnPricingIn is LearnPricing in exec ("" is the Execution project
+// Options.Execution returns now).
+func (m *Manager) LearnPricingIn(ctx context.Context, exec string) error {
 	cfg := m.o.Config()
 	if cfg.Location == "" {
 		return nil
 	}
-	exec := m.o.Execution()
+	if exec == "" {
+		exec = m.o.Execution()
+	}
 	jobs, err := m.o.Jobs(ctx, exec)
 	if err != nil {
 		return err
@@ -389,7 +407,10 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 			rctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), p.Timeout)
 		}
 	}
-	exec := m.o.Execution() // outside m.mu: it reads the selection state
+	exec := req.Execution
+	if exec == "" {
+		exec = m.o.Execution() // outside m.mu: it reads the selection state
+	}
 	m.mu.Lock()
 	m.seq++
 	r := &Run{

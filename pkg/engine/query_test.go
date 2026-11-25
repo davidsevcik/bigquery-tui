@@ -1,11 +1,14 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
@@ -159,6 +162,72 @@ func TestCompleteWithLimitsProjectsAndTakesAnExecutionProject(t *testing.T) {
 	// Complete is CompleteWith with no limit
 	if got := labels("select * from `proj-b.", api.CompleteOptions{}); got != "core" {
 		t.Fatalf("%s", got)
+	}
+}
+
+// A Run started in an Execution project of its own runs on that project's
+// client (built once, beside the shared one's) and its History entry names
+// that project.
+func TestARunRunsInTheExecutionProjectItIsGiven(t *testing.T) {
+	e := newEnv(t, "proj-a") // exec-proj is chosen
+	var mu sync.Mutex
+	var asked []string
+	eng, err := Open(ctx, Options{
+		Config: e.cfg, Now: func() time.Time { return e.now },
+		Client: func(_ context.Context, exec string) (Client, error) {
+			mu.Lock()
+			asked = append(asked, exec)
+			mu.Unlock()
+			return e.fake.In(exec), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
+	for _, exec := range []string{"window-proj", "", "window-proj"} {
+		info := eng.StartRun(ctx, runs.Request{SQL: "select 1", Execution: exec}).Wait()
+		want := exec
+		if want == "" {
+			want = "exec-proj"
+		}
+		if info.State != api.RunDone || info.ExecutionProject != want || info.Job.Project != want {
+			t.Fatalf("%q: %+v", exec, info)
+		}
+	}
+	h, _ := eng.History()
+	rows, err := h.DB().Query("SELECT execution_project, project FROM history ORDER BY rowid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var exec, project string
+		if err := rows.Scan(&exec, &project); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, exec+"/"+project)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "window-proj/window-proj,exec-proj/exec-proj,window-proj/window-proj" {
+		t.Fatalf("History: %q", got)
+	}
+	e.cfg.Location = "EU"
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.QueryScript{ReservationID: "res"} }
+	if err := eng.LearnPricingIn(ctx, "window-proj"); err != nil {
+		t.Fatal(err)
+	}
+	if f := eng.FollowRuns(); !f.PricingIn("window-proj").Capacity || f.Pricing().Capacity { // the shared project ran on-demand
+		t.Fatalf("%+v %+v", f.PricingIn("window-proj"), f.Pricing())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(asked, ",") != "window-proj,exec-proj" {
+		t.Fatalf("clients built for %q", asked)
 	}
 }
 
