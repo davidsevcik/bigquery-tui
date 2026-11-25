@@ -19,7 +19,7 @@ import (
 
 // agent opens a read-only engine for an agent entry point over the synced
 // catalog, as `bqt query` or `bqt mcp` do.
-func (e *env) agent(source string) *Engine {
+func (e *env) agent(source api.Source) *Engine {
 	e.t.Helper()
 	eng, err := Open(ctx, Options{
 		Config: e.cfg, ReadOnly: true, Source: source,

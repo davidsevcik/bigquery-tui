@@ -747,7 +747,7 @@ func (m *Model) pickerPreview(w int) []string {
 				kv("all runs", format.Bytes(g.BytesBilled)+" billed", sFaint)
 			}
 		}
-		kv("from", e.Source+" · "+e.ExecutionProject+" · "+e.Job.Location, sFaint)
+		kv("from", string(e.Source)+" · "+e.ExecutionProject+" · "+e.Job.Location, sFaint)
 		kv("favorite", e.FavoritePath, sAcc)
 		for _, p := range e.Params {
 			v := p.Value

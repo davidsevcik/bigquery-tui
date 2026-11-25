@@ -166,7 +166,7 @@ func (s *Server) MCP(version string) *sdk.Server {
 			out, err := s.engine(ctx).FavoriteList(in.Query, listLimit(in.Limit), off, in.IncludeSQL)
 			return nil, out, toolErr(err)
 		})
-	sdk.AddTool(srv, &sdk.Tool{Name: "search_history", Annotations: ro, Description: `Queries run before (newest first, identical SQL grouped). Free terms match the SQL; filters status:done|failed|cancelled, source:tui|cli|mcp, project:, since:7d or since:2026-10-01. A done entry carries a result_id for get_results while BigQuery keeps it.`},
+	sdk.AddTool(srv, &sdk.Tool{Name: "search_history", Annotations: ro, Description: `Queries run before (newest first, identical SQL grouped). Free terms match the SQL; filters status:done|failed|cancelled, source:tui|gui|cli|mcp, project:, since:7d or since:2026-10-01. A done entry carries a result_id for get_results while BigQuery keeps it.`},
 		func(ctx context.Context, _ *sdk.CallToolRequest, in historyIn) (*sdk.CallToolResult, api.HistoryList, error) {
 			off, err := cursor(in.Cursor)
 			if err != nil {

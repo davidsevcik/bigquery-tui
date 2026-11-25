@@ -41,11 +41,11 @@ type AgentQuery struct {
 	Timeout  time.Duration
 }
 
-func (e *Engine) agentSource() string {
-	if e.o.Source == "mcp" {
-		return "mcp"
+func (e *Engine) agentSource() api.Source {
+	if e.o.Source == api.SourceMCP {
+		return api.SourceMCP
 	}
-	return "cli"
+	return api.SourceCLI
 }
 
 // AgentProfile returns the policy profile agent queries run under, with the

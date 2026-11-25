@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/davidsevcik/bigquery-tui/internal/tui"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/engine"
 	"github.com/davidsevcik/bigquery-tui/pkg/logging"
 	"github.com/davidsevcik/bigquery-tui/pkg/store"
@@ -45,7 +46,7 @@ func cmdTUI(ctx context.Context, o *out, g *globals, args []string) error {
 		return usageErr("%v", err)
 	}
 	defer func() { _ = closeLog() }() // a failed log close at exit has nobody to tell
-	eng, err := engine.Open(ctx, engine.Options{Config: cfg, Meta: env.Meta, Now: env.Now, Log: log, Source: "tui"})
+	eng, err := engine.Open(ctx, engine.Options{Config: cfg, Meta: env.Meta, Now: env.Now, Log: log, Source: api.SourceTUI})
 	if err != nil {
 		return err
 	}

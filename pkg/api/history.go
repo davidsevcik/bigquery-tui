@@ -22,7 +22,7 @@ type HistoryEntry struct {
 	SlotMs           *int64       `json:"slot_ms,omitempty"`
 	ReservationID    string       `json:"reservation_id,omitempty"`
 	Edition          string       `json:"edition,omitempty"`
-	Source           string       `json:"source"`
+	Source           Source       `json:"source"`
 	FavoritePath     string       `json:"favorite_path,omitempty"`
 	Params           []QueryParam `json:"params,omitempty"`
 }

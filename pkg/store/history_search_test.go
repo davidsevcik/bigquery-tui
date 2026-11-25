@@ -11,12 +11,12 @@ import (
 
 var hbase = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 
-func addRun(t *testing.T, h *History, job, sql string, state api.RunState, source string, at time.Time, billed int64, reservation string) {
+func addRun(t *testing.T, h *History, job, sql string, state api.RunState, source api.Source, at time.Time, billed int64, reservation string) {
 	t.Helper()
 	ended := at.Add(time.Second)
 	r := api.RunInfo{
-		SQL: sql, State: state, Source: source, ExecutionProject: "exec-" + source, Created: at, Started: &at, Ended: &ended,
-		Job:   &api.JobRef{Project: "exec-" + source, Location: "EU", ID: job},
+		SQL: sql, State: state, Source: source, ExecutionProject: "exec-" + string(source), Created: at, Started: &at, Ended: &ended,
+		Job:   &api.JobRef{Project: "exec-" + string(source), Location: "EU", ID: job},
 		Stats: &api.RunStats{BytesBilled: billed, SlotMs: 1000, ReservationID: reservation},
 	}
 	if err := h.InsertRun(context.Background(), r); err != nil {

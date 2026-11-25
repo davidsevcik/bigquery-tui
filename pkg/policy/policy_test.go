@@ -24,7 +24,7 @@ func TestCheckEveryStatementAndAccuracy(t *testing.T) {
 	cases := []struct {
 		name   string
 		c      *config.Config
-		source string
+		source api.Source
 		est    api.Estimate
 		want   string // refusal code, "" for allowed
 	}{

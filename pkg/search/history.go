@@ -17,8 +17,16 @@ var HistoryKeys = map[string]bool{"status": true, "project": true, "p": true, "s
 // (matched by prefix).
 var (
 	HistoryStates  = []string{string(api.RunDone), string(api.RunFailed), string(api.RunCancelled)}
-	HistorySources = []string{"tui", "cli", "mcp"}
+	HistorySources = sourceNames()
 )
+
+func sourceNames() []string {
+	names := make([]string, len(api.Sources))
+	for i, s := range api.Sources {
+		names[i] = string(s)
+	}
+	return names
+}
 
 // ParseHistory parses a History search query. Free terms match the SQL text.
 func ParseHistory(raw string) api.ParsedQuery {

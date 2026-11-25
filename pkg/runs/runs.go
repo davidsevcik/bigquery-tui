@@ -44,8 +44,9 @@ type Options struct {
 	// Execution returns the Execution project jobs run in now.
 	Execution func() string
 	Now       func() time.Time
-	// Source is recorded on History entries and as a job label: tui, cli, mcp.
-	Source string
+	// Source is recorded on History entries and, unless it is the TUI, as the
+	// bqt_source job label.
+	Source api.Source
 	// Record stores a finished real Run (History). It may be nil.
 	Record func(api.RunInfo)
 	Log    *slog.Logger
@@ -99,7 +100,7 @@ func New(o Options) *Manager {
 		o.Log = slog.New(slog.DiscardHandler)
 	}
 	if o.Source == "" {
-		o.Source = "tui"
+		o.Source = api.SourceTUI
 	}
 	if o.Execution == nil {
 		o.Execution = func() string { return "" }
@@ -190,8 +191,8 @@ func (m *Manager) LearnPricing(ctx context.Context) error {
 
 func (m *Manager) labels() map[string]string {
 	l := map[string]string{"bqt": "1"}
-	if m.o.Source != "tui" {
-		l["bqt_source"] = m.o.Source
+	if m.o.Source != api.SourceTUI {
+		l["bqt_source"] = string(m.o.Source)
 	}
 	return l
 }

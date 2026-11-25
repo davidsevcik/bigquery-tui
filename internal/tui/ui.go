@@ -413,7 +413,7 @@ func chips(q api.ParsedQuery, w int, scope string) string {
 }
 
 // historyHint lists the History search filters.
-const historyHint = `status:done|failed|cancelled  project:  source:tui|cli|mcp  since:7d|2026-10-01  -neg  a,b=OR`
+const historyHint = `status:done|failed|cancelled  project:  source:tui|gui|cli|mcp  since:7d|2026-10-01  -neg  a,b=OR`
 
 // chipsWith shows the parsed query, or hint when it is empty.
 func chipsWith(q api.ParsedQuery, w int, scope, hint string) string {
