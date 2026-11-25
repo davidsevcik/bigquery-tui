@@ -78,7 +78,7 @@ bqt cannot tell an agent from a person at the command line, so `bqt query`, `bqt
 - At most `agent_max_bytes` (default 1 GiB) per query; an `UNKNOWN` estimate is refused; a scan over `confirm_bytes` is refused instead of asked about.
 - `agent_timeout` (default 60s) per query, up to 1,000 rows per call, cells cut at 200 characters.
 - Flags and tool arguments can only lower these limits. Raising them takes the config file, which an agent that can edit your files can also do: give the Execution project read-only IAM for the real guarantee.
-- Every job carries the labels `bqt=1` and `bqt_source=cli|mcp`, and lands in History with its source.
+- Every job these run carries the labels `bqt=1` and `bqt_source=cli|mcp`, and lands in History with its source.
 
 ## Search syntax
 

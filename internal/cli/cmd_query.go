@@ -55,7 +55,7 @@ func openAgent(ctx context.Context, o *out, g *globals) (*engine.Engine, func(),
 	if err != nil {
 		return nil, nil, err
 	}
-	eng, err := engine.Open(ctx, engine.Options{Config: cfg, ReadOnly: true, Now: env.Now, Log: log.Logger, Source: "cli", Jobs: env.Jobs})
+	eng, err := engine.Open(ctx, engine.Options{Config: cfg, ReadOnly: true, Now: env.Now, Log: log.Logger, Source: api.SourceCLI, Jobs: env.Jobs})
 	if err != nil {
 		closeLog()
 		return nil, nil, err

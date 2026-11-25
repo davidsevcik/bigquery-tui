@@ -30,7 +30,7 @@ const (
 // Profile is the set of limits one agent query runs under.
 type Profile struct {
 	// Source is the entry point: cli or mcp.
-	Source string `json:"source"`
+	Source api.Source `json:"source"`
 	// MaxBytes is the most bytes the dry-run may estimate (agent_max_bytes,
 	// or lower).
 	MaxBytes int64 `json:"max_bytes"`
@@ -43,10 +43,10 @@ type Profile struct {
 }
 
 // For returns the profile of an entry point (cli or mcp) under cfg.
-func For(cfg *config.Config, source string) Profile {
+func For(cfg *config.Config, source api.Source) Profile {
 	p := Profile{
 		Source: source, MaxBytes: cfg.AgentMaxBytes, Timeout: cfg.AgentTimeout,
-		AllowWrites: source == "cli" && cfg.CLIAllowWrites,
+		AllowWrites: source == api.SourceCLI && cfg.CLIAllowWrites,
 	}
 	if p.MaxBytes <= 0 {
 		p.MaxBytes = config.DefaultAgentMaxBytes
@@ -102,7 +102,7 @@ func (p Profile) Check(cfg *config.Config, est api.Estimate) *api.Refusal {
 		return &api.Refusal{Code: api.RefuseNotReadOnly, Message: "BigQuery did not report the statement type, so bqt cannot tell that the query only reads"}
 	case st != "SELECT" && !p.AllowWrites:
 		msg := fmt.Sprintf("%s statements are not allowed from %s: only SELECT runs here (run it in the TUI", st, p.where())
-		if p.Source == "cli" {
+		if p.Source == api.SourceCLI {
 			msg += ", or set cli_allow_writes = true in the config"
 		}
 		return &api.Refusal{Code: api.RefuseNotReadOnly, Message: msg + ")", StatementType: st}
@@ -133,7 +133,7 @@ func (p Profile) Check(cfg *config.Config, est api.Estimate) *api.Refusal {
 }
 
 func (p Profile) where() string {
-	if p.Source == "mcp" {
+	if p.Source == api.SourceMCP {
 		return "the MCP server"
 	}
 	return "the command line"

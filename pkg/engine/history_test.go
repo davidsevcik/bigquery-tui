@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -8,11 +9,57 @@ import (
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq"
 	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 	"github.com/davidsevcik/bigquery-tui/pkg/favorites"
 	"github.com/davidsevcik/bigquery-tui/pkg/format"
 	"github.com/davidsevcik/bigquery-tui/pkg/runs"
 )
+
+// A GUI runs the engine in-process like the TUI, under its own Source: its
+// Runs are History entries of source gui, and its jobs say so in their labels.
+func TestGUIRunsAreTheirOwnHistorySource(t *testing.T) {
+	e, tui := synced(t, "proj-a")
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(3) }
+	gui, err := Open(ctx, Options{
+		Config: e.cfg, Source: api.SourceGUI,
+		Meta: func(context.Context) (bq.Metadata, error) { return e.fake, nil },
+		Jobs: func(context.Context) (bq.Jobs, error) { return e.fake, nil },
+		Now:  func() time.Time { return e.now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { gui.Close() })
+
+	tui.StartRun(ctx, runs.Request{SQL: "select 1 from tui_orders"}).Wait()
+	gui.StartRun(ctx, runs.Request{SQL: "select 1 from gui_orders"}).Wait()
+
+	labels := map[string]map[string]string{}
+	for _, c := range e.fake.QueryCalls() {
+		labels[c.Req.SQL] = c.Req.Labels
+	}
+	if got := labels["select 1 from gui_orders"]; got["bqt_source"] != "gui" || got["bqt"] != "1" {
+		t.Errorf("GUI job labels = %v, want bqt=1 and bqt_source=gui", got)
+	}
+	if got := labels["select 1 from tui_orders"]; got["bqt"] != "1" || got["bqt_source"] != "" {
+		t.Errorf("TUI job labels = %v, want bqt=1 and no bqt_source", got)
+	}
+	for query, want := range map[string]string{
+		"source:gui":  "select 1 from gui_orders",
+		"source:g":    "select 1 from gui_orders",
+		"source:tui":  "select 1 from tui_orders",
+		"-source:gui": "select 1 from tui_orders",
+	} {
+		page, err := tui.SearchHistory(ctx, query, 10, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Groups) != 1 || page.Groups[0].Latest.SQL != want {
+			t.Errorf("%s: groups %+v, want only %q", query, page.Groups, want)
+		}
+	}
+}
 
 func TestHistorySearchPromoteAndReopen(t *testing.T) {
 	e, eng := synced(t, "proj-a")

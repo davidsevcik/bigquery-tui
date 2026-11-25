@@ -194,7 +194,7 @@ type HistoryItem struct {
 	State        RunState  `json:"state"`
 	Error        string    `json:"error,omitempty"`
 	Created      time.Time `json:"created"`
-	Source       string    `json:"source"`
+	Source       Source    `json:"source"`
 	Favorite     string    `json:"favorite,omitempty"`
 	// Runs counts the Runs of this SQL text that match the filters.
 	Runs           int    `json:"runs"`

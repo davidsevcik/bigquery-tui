@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/davidsevcik/bigquery-tui/internal/mcp"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/engine"
 	"github.com/davidsevcik/bigquery-tui/pkg/version"
 )
@@ -47,7 +48,7 @@ func cmdMCP(ctx context.Context, o *out, g *globals, args []string) error {
 		return err
 	}
 	srv, err := mcp.New(ctx, func(ctx context.Context) (*engine.Engine, error) {
-		return engine.Open(ctx, engine.Options{Config: cfg, ReadOnly: true, Now: env.Now, Log: log.Logger, Source: "mcp", Jobs: env.Jobs, Execution: &exec})
+		return engine.Open(ctx, engine.Options{Config: cfg, ReadOnly: true, Now: env.Now, Log: log.Logger, Source: api.SourceMCP, Jobs: env.Jobs, Execution: &exec})
 	})
 	if err != nil {
 		return err

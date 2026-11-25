@@ -98,7 +98,7 @@ type RunInfo struct {
 	Params     []QueryParam `json:"params,omitempty"`
 	State      RunState     `json:"state"`
 	DryRunOnly bool         `json:"dry_run_only,omitempty"`
-	Source     string       `json:"source"`
+	Source     Source       `json:"source"`
 	// Favorite is the ID of the Favorite the SQL came from, if any.
 	Favorite string `json:"favorite,omitempty"`
 	// FromHistory is the History entry a reopened Run shows the result of;

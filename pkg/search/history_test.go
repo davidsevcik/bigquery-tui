@@ -1,6 +1,7 @@
 package search
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -84,5 +85,27 @@ func TestSinceBoundsAndOr(t *testing.T) {
 		if len(hq.Conds) != 1 || !hq.Conds[0].Since.Equal(now.Add(-7*24*time.Hour)) {
 			t.Errorf("%s: %+v", raw, hq.Conds)
 		}
+	}
+}
+
+func TestHistorySourceFilter(t *testing.T) {
+	for raw, want := range map[string][]string{
+		"source:gui":     {"gui"},
+		"source:g":       {"gui"},
+		"source:tui,cli": {"tui", "cli"},
+		"source:m":       {"mcp"},
+	} {
+		q := ParseHistory(raw)
+		if len(q.Filters) != 1 || q.Filters[0].Status != api.FilterOK {
+			t.Errorf("%s: filters %+v, want one valid filter", raw, q.Filters)
+			continue
+		}
+		conds := HistoryQuery(q, time.Now()).Conds
+		if len(conds) != 1 || conds[0].Field != "source" || !slices.Equal(conds[0].Values, want) {
+			t.Errorf("%s: conds %+v, want source in %v", raw, conds, want)
+		}
+	}
+	if q := ParseHistory("source:x"); len(q.Filters) != 1 || q.Filters[0].Status != api.FilterInvalid {
+		t.Errorf("source:x: %+v, want invalid", q.Filters)
 	}
 }
