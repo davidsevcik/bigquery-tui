@@ -241,6 +241,31 @@ func (e *Engine) TableStats(ctx context.Context, p api.ObjectPath) (api.TableSta
 	return e.stats[ref.Path.String()].stats, nil
 }
 
+// NoSampleReason is why a table has no free Sample.
+type NoSampleReason int
+
+const (
+	SampleFree       NoSampleReason = iota // it has one
+	NoSampleView                           // a view: only a SELECT (billed) reads it
+	NoSampleMView                          // a materialized view: the same
+	NoSampleExternal                       // an external table: the same
+)
+
+// NoSample says why a table of type t has no free Sample, or SampleFree.
+// BigQuery refuses tabledata.list on views, materialized views and external
+// tables, so they are read only by a query, which is billed.
+func NoSample(t api.TableType) NoSampleReason {
+	switch t {
+	case api.TypeView:
+		return NoSampleView
+	case api.TypeMView:
+		return NoSampleMView
+	case api.TypeExternal:
+		return NoSampleExternal
+	}
+	return SampleFree
+}
+
 // Preview reads rows straight from a table (no query, no cost): the free
 // Sample. Views, materialized views and external tables return
 // bq.ErrNeedsQuery (BigQuery refuses tabledata.list on them); a shard family
@@ -253,15 +278,14 @@ func (e *Engine) Preview(ctx context.Context, p api.ObjectPath, startIndex int64
 	if !ok {
 		return api.PreviewPage{}, ErrUnknownTable
 	}
-	switch ref.Type {
-	case api.TypeView, api.TypeMView, api.TypeExternal:
+	if NoSample(ref.Type) != SampleFree {
 		return api.PreviewPage{}, bq.ErrNeedsQuery
 	}
 	info, err := e.tableInfo(ctx, ref)
 	if err != nil {
 		return api.PreviewPage{}, err
 	}
-	if info.Type == api.TypeView || info.Type == api.TypeMView || info.Type == api.TypeExternal {
+	if NoSample(info.Type) != SampleFree {
 		return api.PreviewPage{}, bq.ErrNeedsQuery
 	}
 	tp, err := e.tables(ctx)

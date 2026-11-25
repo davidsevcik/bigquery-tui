@@ -1079,7 +1079,11 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 		m.toast = fmt.Sprintf("copied %d rows as TSV", len(rows))
 		return tea.SetClipboard(export.TSV(g.cols, rows))
 	case "export":
+		origin := export.FromRun
 		if m.sampleShown() {
+			origin = export.FromSample
+		}
+		if !export.Exportable(origin) {
 			m.toast = "a Sample cannot be exported: s writes a SELECT whose result can be (billed)"
 			return nil
 		}

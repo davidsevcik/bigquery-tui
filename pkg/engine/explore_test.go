@@ -456,3 +456,20 @@ func TestDetailRejectsAStaleIndexEntry(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+// Only stored tables have a free Sample; the others are read by a SELECT,
+// which is billed.
+func TestNoSampleByTableType(t *testing.T) {
+	for _, typ := range []api.TableType{api.TypeTable, api.TypeSnapshot, api.TypeClone, api.TypeOther, ""} {
+		if got := NoSample(typ); got != SampleFree {
+			t.Errorf("%q has a free Sample, got %v", typ, got)
+		}
+	}
+	for typ, want := range map[api.TableType]NoSampleReason{
+		api.TypeView: NoSampleView, api.TypeMView: NoSampleMView, api.TypeExternal: NoSampleExternal,
+	} {
+		if got := NoSample(typ); got != want {
+			t.Errorf("%q: %v, want %v", typ, got, want)
+		}
+	}
+}

@@ -132,3 +132,9 @@ func TestAnExportAsksAboveAMillionRows(t *testing.T) {
 		t.Fatalf("spec 10.4 asks above 1M rows, not %d", AskAboveRows)
 	}
 }
+
+func TestASampleIsNotExportable(t *testing.T) {
+	if !Exportable(FromRun) || Exportable(FromSample) {
+		t.Fatal("a Run's result is exported; a Sample is not a Run and is not")
+	}
+}

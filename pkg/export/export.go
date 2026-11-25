@@ -32,6 +32,19 @@ const (
 // (spec 10.4).
 const AskAboveRows = 1_000_000
 
+// Origin is where a result a frontend shows comes from.
+type Origin int
+
+const (
+	FromRun    Origin = iota // a Run's result
+	FromSample               // a Sample: a free read of a table, with no job
+)
+
+// Exportable reports whether a result of origin o can be exported. A Sample
+// cannot: it is not a Run, so there is no job result to page through
+// (Engine.StartExport takes a Run). A SELECT of the table can, and is billed.
+func Exportable(o Origin) bool { return o == FromRun }
+
 // Formats lists the formats in the order a frontend should offer them.
 var Formats = []Format{CSV, JSON, NDJSON}
 
