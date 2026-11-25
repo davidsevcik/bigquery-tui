@@ -28,8 +28,7 @@ type sandbox struct {
 	tty     bool
 	edit    func(argv []string)
 	stdin   string
-	runs    int // each command runs a minute after the one before
-	// authErr, when set, is what the credentials check fails with.
+	runs    int
 	authErr error
 }
 
@@ -47,9 +46,6 @@ func newSandbox(t *testing.T) *sandbox {
 
 var projectsLine = regexp.MustCompile(`(?m)^projects = \[(.*)\]\n?`)
 
-// writeConfig writes the config. A `projects = [...]` line in extra is not
-// config: it becomes the saved selection, with exec-proj as the chosen
-// Execution project.
 func (s *sandbox) writeConfig(extra string) {
 	s.t.Helper()
 	if err := os.MkdirAll(filepath.Dir(s.cfgPath), 0o700); err != nil {
@@ -239,7 +235,6 @@ func TestConfigPathAndEdit(t *testing.T) {
 		t.Fatalf("%v", data)
 	}
 
-	// an edit that breaks the file reports a config error
 	s.edit = func([]string) {
 		if err := os.WriteFile(s.cfgPath, []byte("nonsense = 1\n"), 0o600); err != nil {
 			t.Error(err)
@@ -343,7 +338,6 @@ func TestSyncAuthFailureIsExit4(t *testing.T) {
 	s.writeConfig("projects = [\"proj-a\"]\n")
 	s.fake.Projects["proj-a"].ListErr = &bq.Error{Kind: bq.KindAuth, Err: os_err("invalid_grant")}
 	code, out, errOut := s.run("sync")
-	// a discovery auth failure marks the unit failed; the run is still reported
 	if code != api.ExitAuth || !strings.Contains(errOut, "gcloud auth application-default login") {
 		t.Fatalf("%d %s %s", code, out, errOut)
 	}
@@ -393,7 +387,6 @@ func TestDoctor(t *testing.T) {
 	if !strings.HasSuffix(logPath, filepath.Join("logs", "bqt.log")) || rep["log_missing"] != nil {
 		t.Fatalf("%v %v", logPath, rep["log_missing"])
 	}
-	// the sync left its start record and one record per unit (#92)
 	logged, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatal(err)
@@ -410,7 +403,6 @@ func TestDoctor(t *testing.T) {
 	if rep := decode(t, out).Data.(map[string]any); rep["log_missing"] != true {
 		t.Fatalf("a missing log file is reported: %v", rep)
 	}
-	// a log directory bqt may not enter is an error, not a missing file
 	logDir := filepath.Dir(logPath)
 	if err := os.Chmod(logDir, 0); err != nil {
 		t.Fatal(err)
@@ -426,7 +418,6 @@ func TestDoctor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// a broken config does not stop doctor from reporting
 	if err := os.WriteFile(s.cfgPath, []byte("nonsense = 1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -475,7 +466,6 @@ func TestSearchCommand(t *testing.T) {
 	if q := data["query"].(map[string]any); len(q["filters"].([]any)) != 1 {
 		t.Fatalf("the parsed query is part of the contract: %v", q)
 	}
-	// paging
 	code, out, _ = s.run("search", "--limit", "1", "--tables-only", "type:table")
 	env = decode(t, out)
 	if code != 0 || !env.Truncated || env.NextCursor != "1" {
@@ -485,7 +475,6 @@ func TestSearchCommand(t *testing.T) {
 	if env = decode(t, out); env.Truncated || env.NextCursor != "" {
 		t.Fatalf("%+v", env)
 	}
-	// a query may begin with a negated filter
 	code, out, _ = s.run("search", "--tables-only", "-d:us_data", "type:table")
 	if code != 0 || len(decode(t, out).Data.(map[string]any)["results"].([]any)) != 1 {
 		t.Fatalf("%d %s", code, out)
@@ -500,7 +489,6 @@ func TestSearchCommand(t *testing.T) {
 	}
 }
 
-// Issue #32: a flag after the arguments is a flag, never part of the query.
 func TestFlagsAfterTheArguments(t *testing.T) {
 	s := syncedSandbox(t)
 	code, out, errOut := s.run("search", "orders", "--format", "text")
@@ -511,17 +499,14 @@ func TestFlagsAfterTheArguments(t *testing.T) {
 	if env := decode(t, out); code != 0 || env.NextCursor != "" || len(env.Data.(map[string]any)["results"].([]any)) != 1 {
 		t.Fatalf("search QUERY --limit 1 -d:x: %d %s", code, out)
 	}
-	// an unknown flag is refused by name, not swallowed into the query
 	code, _, errOut = s.run("search", "orders", "--tables-onyl")
 	if code != api.ExitUsage || !strings.Contains(errOut, "tables-onyl") {
 		t.Fatalf("misspelt flag: %d %s", code, errOut)
 	}
-	// after a lone -- everything is the query
 	code, out, _ = s.run("search", "orders", "--", "--limit")
 	if q := decode(t, out).Data.(map[string]any)["query"].(map[string]any); code != 0 || q["raw"] != "orders --limit" {
 		t.Fatalf("search -- : %d %v", code, q)
 	}
-	// commands without arguments refuse one instead of ignoring the flags after it
 	for _, args := range [][]string{
 		{"sync", "now", "--project", "proj-a"},
 		{"status", "x", "--format", "text"},

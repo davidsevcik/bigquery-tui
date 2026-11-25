@@ -4,7 +4,6 @@ import (
 	"testing"
 )
 
-// arrangeP arranges a preset's tree, with the focus history at its start.
 func arrangeP(preset string, focused, zoom Zone, w, h int) arrangement {
 	return arrange(preset, presetTree(preset), focused, zoom, paneOrder, w, h)
 }
@@ -40,10 +39,6 @@ func checkRects(t *testing.T, got, want map[Zone]rect) {
 	}
 }
 
-// checkInvariants holds for every arrangement: the drawn Panes, separators and
-// pane bar tile the body exactly, each drawn Pane meets its minimum (unless
-// the Layout is focus, which has no minimum but the body), and the cycle keeps
-// the order Explorer, Schema, Editor, Results.
 func checkInvariants(t *testing.T, a arrangement, w, h int) {
 	t.Helper()
 	cells := make([]int, w*h)
@@ -87,13 +82,12 @@ func checkInvariants(t *testing.T, a arrangement, w, h int) {
 }
 
 func TestSmallTerminalsStepDown(t *testing.T) {
-	// the classic tree at that size, with nothing left out
 	full := func(w, h int) map[Zone]rect { return lay(presetTree("classic"), rect{0, 0, w, h}, nil).rects }
 	cases := []struct {
 		name    string
 		w, h    int
 		focused Zone
-		drawn   []Zone // the Panes drawn
+		drawn   []Zone
 		bar     bool
 		stepped bool
 		cycle   []Zone
@@ -131,7 +125,6 @@ func TestSmallTerminalsStepDown(t *testing.T) {
 			}
 		})
 	}
-	// without the Schema, the Explorer takes the left column's full height
 	if r := arrangeP("classic", ZoneExplorer, "", 99, 22).rects[ZoneExplorer]; r != (rect{0, 0, 34, 22}) {
 		t.Fatalf("explorer %v", r)
 	}
@@ -150,7 +143,6 @@ func TestFocusLayoutDrawsTheFocusedPaneUnderABar(t *testing.T) {
 			t.Fatalf("every Pane is reachable in focus: %v", a.cycle)
 		}
 	}
-	// the focus preset never steps down
 	if a := arrangeP("focus", ZoneEditor, "", 60, 18); a.stepped || len(a.rects) != 1 {
 		t.Fatalf("%+v", a)
 	}
@@ -164,13 +156,11 @@ func TestAMaximisedPaneFillsTheBodyUnderABar(t *testing.T) {
 		if a.bar == nil || *a.bar != (rect{0, 0, w, 1}) || len(a.seps) != 0 || a.zoom != ZoneEditor {
 			t.Fatalf("only the pane bar beside it: %+v", a)
 		}
-		checkRects(t, a.nav, arrangeP("classic", ZoneEditor, "", w, 22).nav) // the Layout's own directions
+		checkRects(t, a.nav, arrangeP("classic", ZoneEditor, "", w, 22).nav)
 		if a.stepped != (w < 100) {
 			t.Fatalf("%d: stepped %v", w, a.stepped)
 		}
 	}
-	// the focused Pane is always on screen: a Schema the step-down left out
-	// is shown maximised, which is not a zoom
 	a := arrangeP("classic", ZoneSchema, "", 80, 22)
 	checkRects(t, a.rects, map[Zone]rect{ZoneSchema: {0, 1, 80, 21}})
 	if a.zoom != "" || !a.offLayout || !equalZones(a.barPanes, paneOrder) {
@@ -201,7 +191,7 @@ func TestNeighbourFollowsTheScreen(t *testing.T) {
 		from Zone
 		dir  direction
 		mru  []Zone
-		want Zone // "" for none
+		want Zone
 	}{
 		{"classic: right of the Explorer is the Editor", classicNav, ZoneExplorer, dirRight, start, ZoneEditor},
 		{"classic: left of the Editor is the Explorer", classicNav, ZoneEditor, dirLeft, start, ZoneExplorer},
@@ -224,7 +214,6 @@ func TestNeighbourFollowsTheScreen(t *testing.T) {
 			t.Errorf("%s: %q %v, want %q", c.name, got, ok, c.want)
 		}
 	}
-	// the larger overlap wins when no candidate was focused
 	nav := map[Zone]rect{ZoneExplorer: {0, 0, 30, 23}, ZoneEditor: {31, 0, 49, 10}, ZoneResults: {31, 10, 49, 13}}
 	if got, _ := neighbour(nav, ZoneExplorer, dirRight, nil); got != ZoneResults {
 		t.Errorf("larger overlap: %s", got)
@@ -236,7 +225,7 @@ func TestTheNewPresetsAndTheirStepDowns(t *testing.T) {
 	noSchema := []Zone{ZoneExplorer, ZoneEditor, ZoneResults}
 	cases := []struct {
 		preset string
-		w, h   int // the terminal; the body is two rows shorter
+		w, h   int
 		drawn  []Zone
 		bar    bool
 	}{
@@ -279,7 +268,6 @@ func TestTheNewPresetsAndTheirStepDowns(t *testing.T) {
 	checkRects(t, arrangeP("query", ZoneExplorer, "", 120, 34).rects, map[Zone]rect{
 		ZoneExplorer: {0, 0, 30, 34}, ZoneEditor: {31, 0, 89, 17}, ZoneResults: {31, 17, 89, 17},
 	})
-	// the Explorer keeps its minimum width, taking it from the right column
 	checkRects(t, arrangeP("query", ZoneExplorer, "", 70, 22).rects, map[Zone]rect{
 		ZoneExplorer: {0, 0, 20, 22}, ZoneEditor: {21, 0, 49, 11}, ZoneResults: {21, 11, 49, 11},
 	})
@@ -293,7 +281,6 @@ func TestTheNewPresetsAndTheirStepDowns(t *testing.T) {
 
 func TestBrowseSharesTheEditorAndResultsSlotOnAShortTerminal(t *testing.T) {
 	tree := presetTree("browse")
-	// the Results were focused last
 	a := arrange("browse", tree, ZoneExplorer, "", []Zone{ZoneExplorer, ZoneResults, ZoneEditor, ZoneSchema}, 100, 26)
 	checkInvariants(t, a, 100, 26)
 	checkRects(t, a.rects, map[Zone]rect{
@@ -305,14 +292,11 @@ func TestBrowseSharesTheEditorAndResultsSlotOnAShortTerminal(t *testing.T) {
 	if !equalZones(a.cycle, paneOrder) {
 		t.Fatalf("both stay in the cycle: %v", a.cycle)
 	}
-	// focusing the Editor puts it in the slot
 	b := arrange("browse", tree, ZoneEditor, "", []Zone{ZoneEditor, ZoneResults}, 100, 26)
 	checkRects(t, map[Zone]rect{ZoneEditor: b.rects[ZoneEditor]}, map[Zone]rect{ZoneEditor: {0, 16, 100, 10}})
-	// directions follow the Layout before the slot: below the Editor are the Results
 	if z, _ := neighbour(b.nav, ZoneEditor, dirDown, nil); z != ZoneResults {
 		t.Fatalf("ctrl+w j from the Editor: %q", z)
 	}
-	// 28 body rows (a 30-row terminal) have room for both
 	if c := arrangeP("browse", ZoneEditor, "", 100, 28); c.bar != nil || len(c.rects) != 4 {
 		t.Fatalf("%+v", c)
 	}
@@ -331,18 +315,15 @@ func TestHiddenPanesTakeNoSpace(t *testing.T) {
 	if !equalZones(a.cycle, []Zone{ZoneExplorer, ZoneEditor, ZoneResults}) || a.stepped {
 		t.Fatalf("cycle %v stepped %v", a.cycle, a.stepped)
 	}
-	// a split of hidden Panes only takes no space
 	a = arrange("classic", hid(presetTree("classic"), ZoneExplorer, ZoneSchema), ZoneEditor, "", paneOrder, 120, 34)
 	checkInvariants(t, a, 120, 34)
 	checkRects(t, a.rects, map[Zone]rect{ZoneEditor: {0, 0, 120, 17}, ZoneResults: {0, 17, 120, 17}})
 	if len(a.seps) != 0 {
 		t.Fatalf("no separator: %v", a.seps)
 	}
-	// the step-down never hides the last Pane left visible
 	a = arrange("classic", hid(presetTree("classic"), ZoneExplorer, ZoneEditor, ZoneResults), ZoneSchema, "", paneOrder, 90, 22)
 	checkInvariants(t, a, 90, 22)
 	checkRects(t, a.rects, map[Zone]rect{ZoneSchema: {0, 0, 90, 22}})
-	// the focus fallback names the visible Panes only
 	a = arrange("classic", hid(presetTree("classic"), ZoneSchema), ZoneEditor, "", paneOrder, 60, 18)
 	if !equalZones(a.barPanes, []Zone{ZoneExplorer, ZoneEditor, ZoneResults}) || !equalZones(a.cycle, a.barPanes) {
 		t.Fatalf("bar %v cycle %v", a.barPanes, a.cycle)

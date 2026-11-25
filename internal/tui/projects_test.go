@@ -17,8 +17,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 )
 
-// projectsRig is a rig whose credentials also list acme-billing (no data)
-// and acme-new (data, never selected).
 func projectsRig(t *testing.T) *rig {
 	t.Helper()
 	r := newRig(t, 120, 30)
@@ -29,7 +27,6 @@ func projectsRig(t *testing.T) *rig {
 	return r
 }
 
-// row is the dialog line of a project.
 func (r *rig) row(id string) string {
 	r.t.Helper()
 	for _, l := range strings.Split(r.screen(), "\n") {
@@ -51,7 +48,6 @@ func TestProjectsDialogListsYourProjectsAndTheExecutionProject(t *testing.T) {
 	if l := r.row("acme-billing"); !strings.Contains(l, "[ ]") || !strings.Contains(l, "Billing") {
 		t.Fatalf("listed row: %q", l)
 	}
-	// Selected first, then the rest, each A–Z
 	sc := r.screen()
 	order := []string{"] acme-prod", "] acme-staging", "] acme-billing", "] acme-new"}
 	for i := 1; i < len(order); i++ {
@@ -66,7 +62,7 @@ func TestProjectsDialogListsYourProjectsAndTheExecutionProject(t *testing.T) {
 
 func TestProjectsDialogSelectsWhatIsSyncedAndBrowsed(t *testing.T) {
 	r := projectsRig(t)
-	r.press("ctrl+x", "p", "j", "space") // deselect acme-staging
+	r.press("ctrl+x", "p", "j", "space")
 	if l := r.row("acme-staging"); !strings.Contains(l, "[ ]") || !strings.Contains(l, "1 dataset") {
 		t.Fatalf("deselected, cache kept: %q", l)
 	}
@@ -74,7 +70,7 @@ func TestProjectsDialogSelectsWhatIsSyncedAndBrowsed(t *testing.T) {
 	if strings.Index(sc, "] acme-staging") > strings.Index(sc, "] acme-billing") {
 		t.Fatal("a row moved while the dialog is open")
 	}
-	r.press("j", "j", "space") // select acme-new
+	r.press("j", "j", "space")
 	if l := r.row("acme-new"); !strings.Contains(l, "[x]") || !strings.Contains(l, "not synced yet") {
 		t.Fatalf("selected, no cache: %q", l)
 	}
@@ -82,22 +78,19 @@ func TestProjectsDialogSelectsWhatIsSyncedAndBrowsed(t *testing.T) {
 		t.Fatalf("nothing syncs while the dialog is open (%d calls)", n)
 	}
 	r.press("esc")
-	// one sync of the newly selected project only
 	calls := r.fake.CallsTo("ListDatasets")
 	if len(calls) != 3 || calls[2].Project != "acme-new" {
 		t.Fatalf("calls %+v", calls)
 	}
-	r.press("h") // the projects column
+	r.press("h")
 	r.contains("2 projects", "acme-new")
 	r.lacks("acme-staging")
 	if got := strings.Join(r.eng.Selection().IDs(), ","); got != "acme-new,acme-prod" {
 		t.Fatalf("saved %s", got)
 	}
-	// search leaves the deselected project out
 	r.press("ctrl+t", "orders")
 	r.lacks("acme-staging")
 
-	// reopened: the groups follow the new selection
 	r.press("esc", "ctrl+x", "p")
 	sc = r.screen()
 	if strings.Index(sc, "] acme-new") > strings.Index(sc, "] acme-billing") || strings.Index(sc, "] acme-staging") < strings.Index(sc, "] acme-prod") {
@@ -111,7 +104,6 @@ func TestTheLastSelectedProjectStays(t *testing.T) {
 	if !strings.Contains(r.m.toast, "the last selected project stays selected") || !r.eng.Selection().Has("acme-staging") {
 		t.Fatalf("toast %q selection %v", r.m.toast, r.eng.Selection().IDs())
 	}
-	// o selects only this one: the Miller project column goes
 	r.press("k", "o", "esc")
 	r.contains("project acme-prod", "Datasets ")
 	r.lacks("Projects 1/")
@@ -119,12 +111,12 @@ func TestTheLastSelectedProjectStays(t *testing.T) {
 
 func TestChoosingTheExecutionProject(t *testing.T) {
 	r := projectsRig(t)
-	r.press("ctrl+x", "p", "j", "j", "e") // acme-billing: listed, not selected
+	r.press("ctrl+x", "p", "j", "j", "e")
 	r.contains("Execution project: acme-billing (chosen)", "exec acme-billing")
 	if r.eng.Selection().Has("acme-billing") {
 		t.Fatal("choosing the Execution project selected it")
 	}
-	r.press("e") // on the current one: nothing happens
+	r.press("e")
 	if p, _ := r.eng.ExecutionProject(); p != "acme-billing" {
 		t.Fatalf("e on the current project changed it to %q", p)
 	}
@@ -132,14 +124,14 @@ func TestChoosingTheExecutionProject(t *testing.T) {
 
 func TestProjectsDialogFilterAndAddByID(t *testing.T) {
 	r := projectsRig(t)
-	shared := r.fake.AddProject("shared-proj") // dataset-level share: not listed
+	shared := r.fake.AddProject("shared-proj")
 	shared.Unlisted = true
 	shared.Datasets = []bqtest.Dataset{bqtest.DS("pub", "EU", bqtest.Table("t", "c"))}
 	r.press("ctrl+x", "p", "/")
 	r.typeText("bill")
 	r.contains("acme-billing")
 	r.lacks("] acme-prod")
-	r.press("enter", "esc") // esc clears the filter, the dialog stays
+	r.press("enter", "esc")
 	r.contains("] acme-prod", "Execution project")
 
 	r.press("/")
@@ -179,7 +171,7 @@ func TestNothingSelectedOpensTheDialog(t *testing.T) {
 
 func TestASelectionChangedElsewhereShowsUp(t *testing.T) {
 	r := newRig(t, 120, 30)
-	if err := r.eng.DeselectProjects("acme-staging"); err != nil { // bqt projects deselect, in another terminal
+	if err := r.eng.DeselectProjects("acme-staging"); err != nil {
 		t.Fatal(err)
 	}
 	r.run(r.m.selectionChanged())
@@ -195,7 +187,6 @@ func TestHelpWrapsDescriptions(t *testing.T) {
 				t.Fatalf("width %d: line is %d wide: %q", w, wid(l), l)
 			}
 		}
-		// a long description is wrapped, not cut
 		words := strings.Join(strings.Fields(ansi.Strip(strings.Join(lines, "\n"))), " ")
 		if !strings.Contains(words, "result sample or summary, to the clipboard or a file") {
 			t.Fatalf("width %d: description cut:\n%s", w, strings.Join(lines, "\n"))
@@ -205,7 +196,7 @@ func TestHelpWrapsDescriptions(t *testing.T) {
 
 func TestJumpToAPathInADeselectedProjectSelectsIt(t *testing.T) {
 	r := newRig(t, 120, 30)
-	r.press("ctrl+x", "p", "o", "esc") // only acme-prod
+	r.press("ctrl+x", "p", "o", "esc")
 	r.press("ctrl+t")
 	r.typeText("acme-staging.sales.orders")
 	r.press("enter")
@@ -222,7 +213,6 @@ func TestJumpToAPathInADeselectedProjectSelectsIt(t *testing.T) {
 
 func TestTurningAProjectOffDropsItsOpenShardFamily(t *testing.T) {
 	r := newRig(t, 120, 30)
-	// staging gets an events dataset with a family of the same prefix
 	staging := r.fake.Projects["acme-staging"]
 	staging.Datasets = append(staging.Datasets, bqtest.DS("events", "EU",
 		bqtest.Table("sessions", "id"), bqtest.Table("events_20240101", "id"), bqtest.Table("events_20240102", "id")))
@@ -257,7 +247,7 @@ func TestProjectsDialogGoldenScreens(t *testing.T) {
 		name := fmt.Sprintf("%dx%d", sz[0], sz[1])
 		r := newRig(t, sz[0], sz[1])
 		r.fake.Listed = []api.ListedProject{{ID: "acme-billing", FriendlyName: "Billing and invoicing"}}
-		for i := 0; i < 30; i++ { // a long list
+		for i := 0; i < 30; i++ {
 			r.fake.Listed = append(r.fake.Listed, api.ListedProject{ID: fmt.Sprintf("team-%02d-analytics", i), FriendlyName: "Team analytics"})
 		}
 		r.press("ctrl+x", "p")
@@ -273,8 +263,6 @@ func TestProjectsDialogGoldenScreens(t *testing.T) {
 	}
 }
 
-// Codex review 6, finding 4: a pasted path in a project the catalog does
-// not hold selects the project, syncs it and opens the path.
 func TestPastingAPathInAnUncachedProjectOpensItAfterItsSync(t *testing.T) {
 	r := projectsRig(t)
 	r.press("ctrl+t")
@@ -288,12 +276,10 @@ func TestPastingAPathInAnUncachedProjectOpensItAfterItsSync(t *testing.T) {
 	}
 }
 
-// Codex review 6, finding 5: projects selected while a sync runs sync
-// right after it.
 func TestClosingTheDialogDuringASyncQueuesTheNewProjects(t *testing.T) {
 	r := projectsRig(t)
-	r.press("ctrl+x", "p", "j", "j", "j", "space") // select acme-new
-	r.m.syncing = true                             // another sync is running
+	r.press("ctrl+x", "p", "j", "j", "j", "space")
+	r.m.syncing = true
 	r.press("esc")
 	if strings.Contains(fmt.Sprint(r.fake.CallsTo("ListDatasets")), "acme-new") {
 		t.Fatal("started a second sync")
@@ -305,14 +291,12 @@ func TestClosingTheDialogDuringASyncQueuesTheNewProjects(t *testing.T) {
 	}
 }
 
-// Codex review 6, finding 9: a change from another process keeps the
-// dialog's cursor on its project.
 func TestAnOutsideChangeKeepsTheDialogCursor(t *testing.T) {
 	r := projectsRig(t)
-	r.press("ctrl+x", "p", "j", "j", "j") // acme-new
+	r.press("ctrl+x", "p", "j", "j", "j")
 	if err := r.eng.SelectProjects("acme-another"); err != nil {
 		t.Fatal(err)
-	} // bqt projects select, elsewhere: a row above
+	}
 	r.run(r.m.selectionChanged())
 	r.press("space")
 	if !r.eng.Selection().Has("acme-new") {
@@ -320,7 +304,6 @@ func TestAnOutsideChangeKeepsTheDialogCursor(t *testing.T) {
 	}
 }
 
-// Codex review 6, finding 10: the open dialog's rows follow a sync.
 func TestTheDialogRowsFollowASync(t *testing.T) {
 	r := projectsRig(t)
 	r.press("ctrl+x", "p", "j", "j", "j", "space")
@@ -333,16 +316,14 @@ func TestTheDialogRowsFollowASync(t *testing.T) {
 	}
 }
 
-// A change made in the dialog is not applied a second time by the tick.
 func TestADialogChangeIsNotSeenAsAnOutsideOne(t *testing.T) {
 	r := projectsRig(t)
-	r.press("ctrl+x", "p", "j", "j", "e") // a new Execution project
+	r.press("ctrl+x", "p", "j", "j", "e")
 	if cmd := r.m.selectionChanged(); cmd != nil {
 		t.Fatal("the tick re-applies the dialog's own change")
 	}
 }
 
-// A deselected project's sync problems are not counted: nothing refreshes it.
 func TestADeselectedProjectsProblemsAreNotShown(t *testing.T) {
 	r := projectsRig(t)
 	r.fake.Projects["acme-staging"].ListErr = bqtest.PermissionError("datasets.list")
@@ -354,8 +335,6 @@ func TestADeselectedProjectsProblemsAreNotShown(t *testing.T) {
 	r.lacks("sync problem")
 }
 
-// A list longer than the dialog scrolls with the cursor at every size; the
-// header, the filter row included, stays.
 func TestALongProjectsListScrolls(t *testing.T) {
 	for _, sz := range [][2]int{{120, 36}, {80, 24}, {60, 20}} {
 		t.Run(fmt.Sprintf("%dx%d", sz[0], sz[1]), func(t *testing.T) {
@@ -376,12 +355,11 @@ func TestALongProjectsListScrolls(t *testing.T) {
 			if !r.eng.Selection().Has("acme-x39") {
 				t.Fatalf("space hit another project: %v", r.eng.Selection().IDs())
 			}
-			for range 25 { // half a page at a time
+			for range 25 {
 				r.press("ctrl+u")
 			}
 			r.contains("] acme-prod")
 
-			// filtered: the filter row stays above the scrolled rows
 			r.press("/")
 			r.typeText("acme-x")
 			r.press("enter")
@@ -397,32 +375,29 @@ func TestALongProjectsListScrolls(t *testing.T) {
 	}
 }
 
-// s syncs the project under the cursor now, even when its cache is fresh
-// (a deselected one too, when cached); S syncs every Selected project.
 func TestTheDialogSyncsOnDemand(t *testing.T) {
 	r := projectsRig(t)
 	before := len(r.fake.CallsTo("ListDatasets"))
-	r.press("ctrl+x", "p", "s") // acme-prod, synced 3h ago
+	r.press("ctrl+x", "p", "s")
 	calls := r.fake.CallsTo("ListDatasets")
 	if len(calls) != before+1 || calls[len(calls)-1].Project != "acme-prod" {
 		t.Fatalf("calls %+v", calls[before:])
 	}
-	r.contains("Projects") // the dialog stays open
+	r.contains("Projects")
 	r.press("S")
 	if got := syncedSince(r, before+1); got != "acme-prod,acme-staging" {
 		t.Fatalf("S synced %s", got)
 	}
-	r.press("j", "space") // deselect acme-staging: cached
+	r.press("j", "space")
 	n := len(r.fake.CallsTo("ListDatasets"))
 	r.press("s")
 	if got := syncedSince(r, n); got != "acme-staging" {
 		t.Fatalf("s on a cached deselected project synced %q", got)
 	}
-	r.press("j", "s") // acme-billing: not selected, no cache
+	r.press("j", "s")
 	r.contains("space selects it")
 }
 
-// syncedSince lists the projects synced after the first n ListDatasets calls.
 func syncedSince(r *rig, n int) string {
 	got := map[string]bool{}
 	for _, c := range r.fake.CallsTo("ListDatasets")[n:] {
@@ -432,13 +407,11 @@ func syncedSince(r *rig, n int) string {
 	return strings.Join(ids, ",")
 }
 
-// s and S while a sync runs are not dropped: they run right after it, however
-// fresh the caches are by then.
 func TestSyncKeysWaitForARunningSync(t *testing.T) {
 	r := projectsRig(t)
 	r.press("ctrl+x", "p")
 	before := len(r.fake.CallsTo("ListDatasets"))
-	r.m.syncing = true // another sync is running
+	r.m.syncing = true
 	r.press("s")
 	if !strings.Contains(r.m.toast, "acme-prod syncs right after it") {
 		t.Fatalf("toast %q", r.m.toast)
@@ -460,12 +433,10 @@ func TestSyncKeysWaitForARunningSync(t *testing.T) {
 	}
 }
 
-// Closing the dialog while s syncs a newly selected project does not
-// promise it a second sync.
 func TestClosingDuringAnOnDemandSyncPromisesNothing(t *testing.T) {
 	r := projectsRig(t)
-	r.press("ctrl+x", "p", "j", "j", "j", "space")          // select acme-new
-	r.m.syncing, r.m.syncScope = true, []string{"acme-new"} // s is syncing it
+	r.press("ctrl+x", "p", "j", "j", "j", "space")
+	r.m.syncing, r.m.syncScope = true, []string{"acme-new"}
 	r.m.toast = ""
 	r.press("esc")
 	if len(r.m.syncLater) != 0 || strings.Contains(r.m.toast, "right after it") {
@@ -473,8 +444,6 @@ func TestClosingDuringAnOnDemandSyncPromisesNothing(t *testing.T) {
 	}
 }
 
-// On a short terminal the key hint gives way: the status, the filter and a
-// row stay visible.
 func TestAShortDialogKeepsTheFilterAndARow(t *testing.T) {
 	r := newRig(t, 60, 12)
 	r.fake.Listed = []api.ListedProject{{ID: "acme-billing", FriendlyName: "Billing"}}
@@ -482,7 +451,7 @@ func TestAShortDialogKeepsTheFilterAndARow(t *testing.T) {
 	r.typeText("bill")
 	r.contains("2 selected", " / bill", "] acme-billing")
 	r.lacks("space select")
-	r.press("esc", "esc", "esc") // filter, then close
+	r.press("esc", "esc", "esc")
 	if r.m.ov != ovNone {
 		t.Fatal("the dialog stayed open")
 	}

@@ -14,23 +14,12 @@ import (
 	catsync "github.com/davidsevcik/bigquery-tui/internal/sync"
 )
 
-// The Selected projects and the Execution project (the Projects dialog and
-// `bqt projects`). They live in the selection state file, shared by every
-// frontend and process, not in the config.
-
-// ErrLastSelected is returned when a change would deselect the last Selected
-// project.
 var ErrLastSelected = selection.ErrLastSelected
 
-// ErrNoExecution is returned when a job needs an Execution project and there
-// is none.
 var ErrNoExecution = errors.New("no Execution project: select a project in Projects (ctrl+x p) or with `bqt projects select`")
 
-// ErrNotSelected is returned (as a *NotSelectedError) for a sync of a
-// project that is neither selected nor cached.
 var ErrNotSelected = errors.New("project is not selected")
 
-// NotSelectedError names the project of an ErrNotSelected.
 type NotSelectedError struct{ Project string }
 
 func (e *NotSelectedError) Error() string {
@@ -43,8 +32,6 @@ func selectionPath(dataDir string) string {
 	return filepath.Join(dataDir, "state", "projects.json")
 }
 
-// Selection returns the saved selection. A state file that cannot be read is
-// logged and treated as empty.
 func (e *Engine) Selection() selection.State {
 	s, err := e.sel.Load()
 	if err != nil {
@@ -72,9 +59,6 @@ func (e *Engine) updateSelection(fn func(*selection.State) error) error {
 	return err
 }
 
-// SelectProjects selects projects. A project already selected keeps its
-// selection time (which decides the default Execution project). Nothing is
-// synced here.
 func (e *Engine) SelectProjects(ids ...string) error {
 	if err := validIDs(ids); err != nil {
 		return err
@@ -86,13 +70,10 @@ func (e *Engine) SelectProjects(ids ...string) error {
 	})
 }
 
-// DeselectProjects deselects projects. Their cache stays. The last Selected
-// project cannot be deselected (ErrLastSelected).
 func (e *Engine) DeselectProjects(ids ...string) error {
 	return e.updateSelection(func(s *selection.State) error { return s.Deselect(ids...) })
 }
 
-// SelectOnly leaves id as the one Selected project.
 func (e *Engine) SelectOnly(id string) error {
 	if err := validIDs([]string{id}); err != nil {
 		return err
@@ -104,8 +85,6 @@ func (e *Engine) SelectOnly(id string) error {
 	})
 }
 
-// ChooseExecution makes id the Execution project. A chosen project can be
-// replaced but not cleared.
 func (e *Engine) ChooseExecution(id string) error {
 	if err := validIDs([]string{id}); err != nil {
 		return err
@@ -116,8 +95,6 @@ func (e *Engine) ChooseExecution(id string) error {
 	})
 }
 
-// ExecutionProject returns the effective Execution project and where it comes
-// from: flag > environment > chosen > earliest Selected project > none.
 func (e *Engine) ExecutionProject() (string, api.ExecutionSource) {
 	if p := e.o.Execution; p != nil {
 		return p.Project, p.Source
@@ -125,14 +102,11 @@ func (e *Engine) ExecutionProject() (string, api.ExecutionSource) {
 	return resolveExecution(e.Config(), e.Selection())
 }
 
-// PinnedExecution is an Execution project fixed for an engine's lifetime.
 type PinnedExecution struct {
 	Project string
 	Source  api.ExecutionSource
 }
 
-// ResolveExecution reads the effective Execution project for cfg without an
-// engine (bqt mcp resolves it once, at startup).
 func ResolveExecution(cfg *config.Config) (PinnedExecution, error) {
 	s, err := selection.Open(selectionPath(cfg.DataDir)).Load()
 	p, src := resolveExecution(cfg, s)
@@ -160,8 +134,6 @@ func (e *Engine) execProject() string {
 	return p
 }
 
-// noticeExecution forgets the learned pricing model when the effective
-// Execution project changed.
 func (e *Engine) noticeExecution() {
 	p := e.execProject()
 	e.execMu.Lock()
@@ -173,8 +145,6 @@ func (e *Engine) noticeExecution() {
 	}
 }
 
-// checkScope allows an explicit sync of Selected projects and of cached
-// deselected ones (refreshing a cache does not select the project).
 func (e *Engine) checkScope(ctx context.Context, scope api.SyncScope, selected []string) error {
 	if len(scope.Projects) == 0 {
 		return nil
@@ -195,7 +165,6 @@ func (e *Engine) checkScope(ctx context.Context, scope api.SyncScope, selected [
 	return nil
 }
 
-// cachedProjects are the projects the catalog holds data or sync state for.
 func (e *Engine) cachedProjects(ctx context.Context) (map[string][]api.UnitState, error) {
 	out := map[string][]api.UnitState{}
 	for _, n := range e.search.Projects() {
@@ -218,8 +187,6 @@ func (e *Engine) cachedProjects(ctx context.Context) (map[string][]api.UnitState
 	return out, nil
 }
 
-// NeedsSync returns the projects among ids with no cache, or a cache older
-// than sync_ttl.
 func (e *Engine) NeedsSync(ctx context.Context, ids []string) ([]string, error) {
 	cached, err := e.cachedProjects(ctx)
 	if err != nil {
@@ -235,16 +202,13 @@ func (e *Engine) NeedsSync(ctx context.Context, ids []string) ([]string, error) 
 	return out, nil
 }
 
-// syncedAt is a project's oldest successful unit sync; ok is false when a
-// unit never succeeded. A project with no unit is synced when its discovery
-// unit succeeded (a complete listing found no datasets).
 func syncedAt(units []api.UnitState) (time.Time, bool) {
 	var oldest time.Time
 	var discovery *time.Time
 	known := false
 	for _, u := range units {
 		if u.Location == "" {
-			discovery = u.LastSuccess // carries a sync only for an empty project
+			discovery = u.LastSuccess
 			continue
 		}
 		if u.LastSuccess == nil {
@@ -261,8 +225,6 @@ func syncedAt(units []api.UnitState) (time.Time, bool) {
 	return oldest, known
 }
 
-// lastAttemptFailed reports whether a unit's latest sync attempt failed: it
-// never succeeded, or it failed after an earlier success (the cache stays).
 func lastAttemptFailed(u api.UnitState) bool {
 	if u.LastAttempt == nil || u.Status == api.UnitOK {
 		return false
@@ -270,9 +232,6 @@ func lastAttemptFailed(u api.UnitState) bool {
 	return u.LastSuccess == nil || u.LastAttempt.After(*u.LastSuccess)
 }
 
-// AccessibleProjects lists the projects BigQuery returns for the credentials,
-// sorted by ID. The list is kept for the engine's lifetime; refresh fetches
-// it again.
 func (e *Engine) AccessibleProjects(ctx context.Context, refresh bool) ([]api.ListedProject, error) {
 	e.mu.Lock()
 	list, ok := e.listed, e.listedOK
@@ -295,9 +254,6 @@ func (e *Engine) AccessibleProjects(ctx context.Context, refresh bool) ([]api.Li
 	return list, nil
 }
 
-// ProjectInfos merges the listed projects (nil when no list could be
-// fetched: every project then counts as listed), the Selected ones and the
-// cached ones, sorted by ID.
 func (e *Engine) ProjectInfos(ctx context.Context, listed []api.ListedProject) ([]api.ProjectInfo, error) {
 	cached, err := e.cachedProjects(ctx)
 	if err != nil {
@@ -316,7 +272,7 @@ func (e *Engine) ProjectInfos(ctx context.Context, listed []api.ListedProject) (
 	for _, l := range listed {
 		p := add(l.ID)
 		p.Listed = true
-		if l.FriendlyName != l.ID { // often just the ID again
+		if l.FriendlyName != l.ID {
 			p.FriendlyName = l.FriendlyName
 		}
 	}
@@ -338,7 +294,7 @@ func (e *Engine) ProjectInfos(ctx context.Context, listed []api.ListedProject) (
 			case u.Location == "" && catsync.DeniedUnit(u):
 				p.Accessible, p.Error = false, u.Error
 			case u.Location == "" && u.Status == api.UnitInaccessible, u.Location != "" && lastAttemptFailed(u):
-				p.Sync, p.Error = api.ProjectFailed, u.Error // SyncedAt keeps the cache's age
+				p.Sync, p.Error = api.ProjectFailed, u.Error
 			}
 		}
 	}
@@ -350,8 +306,6 @@ func (e *Engine) ProjectInfos(ctx context.Context, listed []api.ListedProject) (
 	return out, nil
 }
 
-// ProjectsReport is `bqt projects`: the project view with a fresh list from
-// BigQuery (a failed list is reported, not fatal).
 func (e *Engine) ProjectsReport(ctx context.Context) (api.ProjectsReport, error) {
 	var rep api.ProjectsReport
 	rep.ExecutionProject, rep.ExecutionSource = e.ExecutionProject()

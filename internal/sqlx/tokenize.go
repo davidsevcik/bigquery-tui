@@ -1,7 +1,3 @@
-// Package sqlx is bqt's SQL language intelligence: a BigQuery tokenizer and a
-// completion engine built on the token stream. Both are pure functions that
-// never fail on broken input, because a half-typed query is the editor's
-// normal state. Offsets are UTF-8 byte offsets.
 package sqlx
 
 import (
@@ -10,8 +6,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// Tokenize splits SQL into tokens. Whitespace yields no token; every other
-// byte belongs to exactly one token, and tokens are in order.
 func Tokenize(text string) []api.Token {
 	var out []api.Token
 	n := len(text)
@@ -74,7 +68,6 @@ func Tokenize(text string) []api.Token {
 				j++
 			}
 			word := text[i:j]
-			// string prefixes: r'..', b"..", rb'..', br'..'
 			if j < n && (text[j] == '\'' || text[j] == '"') && isStringPrefix(word) {
 				end := scanString(text, j, strings.ContainsAny(word, "rR"))
 				emit(i, end, api.TokString)
@@ -85,7 +78,6 @@ func Tokenize(text string) []api.Token {
 			up := strings.ToUpper(word)
 			switch {
 			case prevIsDot(out, text, i):
-				// a field or path segment, whatever it is spelled like
 			case keywords[up]:
 				kind = api.TokKeyword
 			default:
@@ -100,7 +92,6 @@ func Tokenize(text string) []api.Token {
 			emit(i, j, kind)
 			i = j
 		default:
-			// one punctuation character (a multi-byte rune stays whole)
 			j := i + 1
 			for j < n && text[j]&0xC0 == 0x80 {
 				j++
@@ -140,8 +131,6 @@ func prevIsIdent(toks []api.Token, at int) bool {
 	return p.End == at && (p.Kind == api.TokIdent || p.Kind == api.TokQuoted || p.Kind == api.TokKeyword || p.Kind == api.TokFunction)
 }
 
-// scanString returns the end of the string literal starting at the quote at i.
-// An unterminated literal ends at the line end (triple-quoted: at the text end).
 func scanString(text string, i int, raw bool) int {
 	n := len(text)
 	q := text[i]
@@ -162,7 +151,6 @@ func scanString(text string, i int, raw bool) int {
 	j := i + 1
 	for j < n && text[j] != '\n' {
 		if text[j] == '\\' && j+1 < n && text[j+1] != '\n' {
-			// a raw string keeps the backslash but it still guards the quote
 			j += 2
 			continue
 		}
@@ -208,8 +196,6 @@ func scanNumber(text string, i int) int {
 	return j
 }
 
-// Params lists the named query parameters (@name) in order of first use.
-// System variables (@@name) are not parameters.
 func Params(text string) []string {
 	var out []string
 	seen := map[string]bool{}
@@ -230,8 +216,6 @@ func Params(text string) []string {
 	return out
 }
 
-// InferParam guesses a parameter's type from the text the user typed. A
-// "TYPE:" prefix forces the type ("STRING:42"); "NULL" is a null STRING.
 func InferParam(name, input string) api.QueryParam {
 	p := api.QueryParam{Name: name, Type: "STRING", Value: input}
 	if i := strings.IndexByte(input, ':'); i > 0 {

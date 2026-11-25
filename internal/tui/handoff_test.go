@@ -49,7 +49,6 @@ func TestHandoffOfARunAndItsResult(t *testing.T) {
 		t.Fatal(run)
 	}
 
-	// w writes a file, after asking about an existing one
 	path := filepath.Join(t.TempDir(), "sub", "run.md")
 	r.press("ctrl+x", "y", "j", "j", "j", "w")
 	r.contains("Write Run #1", ".bqt-handoff/run-1.md")
@@ -82,7 +81,6 @@ func TestHandoffOfAFailedQuery(t *testing.T) {
 		t.Fatal(text)
 	}
 	r.press("esc")
-	// a palette command copies directly; one that does not apply says why
 	r.m.handoffDirect("hosamplemd")
 	if !strings.Contains(r.m.toast, "no result rows") {
 		t.Fatal(r.m.toast)
@@ -113,7 +111,6 @@ func TestHandoffFileIsNotReplacedUnasked(t *testing.T) {
 	if err := writeHandoff(path, "one", false); err != nil {
 		t.Fatal(err)
 	}
-	// the file appeared between the prompt's check and the write
 	if err := writeHandoff(path, "two", false); err == nil || !strings.Contains(err.Error(), "created meanwhile") {
 		t.Fatalf("%v", err)
 	}

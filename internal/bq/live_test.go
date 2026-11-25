@@ -15,12 +15,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/sqlx"
 )
 
-// Run with:
-//
-//	BQT_LIVE_EXECUTION_PROJECT=... BQT_LIVE_PROJECT=... go test -tags live ./internal/bq -run Live -v
-//
-// It only reads metadata (INFORMATION_SCHEMA queries, each billing the 10 MiB
-// minimum) and never writes to the project.
 func TestLiveMetadataContract(t *testing.T) {
 	exec := os.Getenv("BQT_LIVE_EXECUTION_PROJECT")
 	proj := os.Getenv("BQT_LIVE_PROJECT")
@@ -33,14 +27,6 @@ func TestLiveMetadataContract(t *testing.T) {
 	}
 	defer c.Close()
 	o := bqtest.ContractOptions{Project: proj, MaxDatasets: 40, MaxLocations: 2, FallbackSamples: 3}
-	// BQT_LIVE_SHARD_DATASET (in BQT_LIVE_SHARD_PROJECT, default
-	// BQT_LIVE_PROJECT, at BQT_LIVE_SHARD_LOCATION) holds a family that
-	// BQT_LIVE_SHARD_PATTERN matches; BQT_LIVE_SHARD_KEEP names members
-	// (comma-separated) to keep: the phase 2 column filter is then checked
-	// against it. For example the public google_analytics_sample:
-	//
-	//	BQT_LIVE_SHARD_PROJECT=bigquery-public-data BQT_LIVE_SHARD_DATASET=google_analytics_sample \
-	//	BQT_LIVE_SHARD_LOCATION=US BQT_LIVE_SHARD_PATTERN='ga_sessions_(\d{8})' BQT_LIVE_SHARD_KEEP=ga_sessions_20170801
 	if ds, pat := os.Getenv("BQT_LIVE_SHARD_DATASET"), os.Getenv("BQT_LIVE_SHARD_PATTERN"); ds != "" && pat != "" {
 		f := &bqtest.FamilyCase{Project: os.Getenv("BQT_LIVE_SHARD_PROJECT"), Location: os.Getenv("BQT_LIVE_SHARD_LOCATION"), Dataset: ds, Patterns: []string{pat}}
 		if k := os.Getenv("BQT_LIVE_SHARD_KEEP"); k != "" {
@@ -51,7 +37,6 @@ func TestLiveMetadataContract(t *testing.T) {
 	bqtest.RunMetadataContract(t, c, o)
 }
 
-// TestLiveJobsContract runs a handful of queries that read no tables.
 func TestLiveJobsContract(t *testing.T) {
 	exec := os.Getenv("BQT_LIVE_EXECUTION_PROJECT")
 	if exec == "" {
@@ -65,9 +50,6 @@ func TestLiveJobsContract(t *testing.T) {
 	bqtest.RunJobsContract(t, c, bqtest.JobsContractOptions{Location: os.Getenv("BQT_LIVE_LOCATION")})
 }
 
-// TestLiveListProjectsNeedsNoExecutionProject lists the credentials'
-// projects with a client built without an Execution project, as the
-// Projects dialog does on a fresh install.
 func TestLiveListProjectsNeedsNoExecutionProject(t *testing.T) {
 	proj := os.Getenv("BQT_LIVE_PROJECT")
 	if proj == "" {
@@ -92,15 +74,6 @@ func TestLiveListProjectsNeedsNoExecutionProject(t *testing.T) {
 	t.Logf("%d projects listed", len(ps))
 }
 
-// TestLivePartitionFilterMetadata checks what sync reads for tables that
-// require a partition filter, and that the s shortcut's SELECT passes a
-// dry-run on them (dry-runs are free; nothing is run or written):
-//
-//	BQT_LIVE_EXECUTION_PROJECT=... BQT_LIVE_FILTER_TABLE=p.d.t BQT_LIVE_INGESTION_TABLE=p.d.t \
-//	  go test -tags live ./internal/bq -run TestLivePartitionFilterMetadata -v
-//
-// BQT_LIVE_FILTER_TABLE is column-partitioned and requires a filter;
-// BQT_LIVE_INGESTION_TABLE is partitioned by ingestion time and requires one.
 func TestLivePartitionFilterMetadata(t *testing.T) {
 	exec := os.Getenv("BQT_LIVE_EXECUTION_PROJECT")
 	filterT, ingestT := os.Getenv("BQT_LIVE_FILTER_TABLE"), os.Getenv("BQT_LIVE_INGESTION_TABLE")

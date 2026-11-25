@@ -13,7 +13,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// RegionTables implements Metadata with region-qualified views (phase 1).
 func (c *Client) RegionTables(ctx context.Context, req RegionRequest) (*api.Snapshot, error) {
 	sc := regionScope(req.Project, req.Location)
 	params := []bqapi.QueryParameter{{Name: "ds", Value: nonNil(req.Datasets)}}
@@ -21,8 +20,6 @@ func (c *Client) RegionTables(ctx context.Context, req RegionRequest) (*api.Snap
 	if err != nil {
 		return nil, Wrap(fmt.Sprintf("region tables %s/%s", req.Project, req.Location), err)
 	}
-	// SCHEMATA_OPTIONS only lists datasets that carry options, so start from
-	// the requested names and overlay what the view returned.
 	byName := map[string]api.DatasetMeta{}
 	for _, d := range snap.Datasets {
 		byName[d.Name] = d
@@ -36,7 +33,6 @@ func (c *Client) RegionTables(ctx context.Context, req RegionRequest) (*api.Snap
 	return snap, nil
 }
 
-// RegionColumns implements Metadata with region-qualified views (phase 2).
 func (c *Client) RegionColumns(ctx context.Context, req RegionRequest, f ColumnFilter) ([]TableColumns, error) {
 	sc := regionScope(req.Project, req.Location)
 	params := append([]bqapi.QueryParameter{{Name: "ds", Value: nonNil(req.Datasets)}}, f.params()...)
@@ -47,7 +43,6 @@ func (c *Client) RegionColumns(ctx context.Context, req RegionRequest, f ColumnF
 	return cols, nil
 }
 
-// DatasetTables implements Metadata with dataset-qualified views (phase 1).
 func (c *Client) DatasetTables(ctx context.Context, req DatasetRequest) (*api.Snapshot, error) {
 	sc := datasetScope(req.Project, req.Dataset)
 	snap, err := c.tables(ctx, sc, req.Location, nil)
@@ -61,7 +56,6 @@ func (c *Client) DatasetTables(ctx context.Context, req DatasetRequest) (*api.Sn
 	return snap, nil
 }
 
-// DatasetColumns implements Metadata with dataset-qualified views (phase 2).
 func (c *Client) DatasetColumns(ctx context.Context, req DatasetRequest, f ColumnFilter) ([]TableColumns, error) {
 	sc := datasetScope(req.Project, req.Dataset)
 	cols, err := c.columns(ctx, sc, req.Location, f.params(), f)
@@ -81,7 +75,6 @@ func nonNil(s []string) []string {
 	return s
 }
 
-// params are the query parameters the filter's clause names.
 func (f ColumnFilter) params() []bqapi.QueryParameter {
 	switch {
 	case len(f.Only) > 0:
@@ -92,8 +85,6 @@ func (f ColumnFilter) params() []bqapi.QueryParameter {
 	return nil
 }
 
-// clause is the WHERE condition that leaves collapsed shard members out on
-// BigQuery's side.
 func (f ColumnFilter) clause() string {
 	const name = "CONCAT(table_schema, '.', table_name)"
 	switch {
@@ -137,9 +128,6 @@ type (
 	}
 )
 
-// group runs INFORMATION_SCHEMA queries concurrently, each producing its own
-// typed rows. On a 1,200-dataset region this halves the wall time of a
-// sequential run.
 type group struct {
 	c        *Client
 	g        *errgroup.Group
@@ -167,7 +155,6 @@ func (g *group) run(name, sql string, fn func(r []bqapi.Value)) {
 	})
 }
 
-// tables is phase 1: datasets, tables, table options and views, no columns.
 func (c *Client) tables(ctx context.Context, sc scope, location string, params []bqapi.QueryParameter) (*api.Snapshot, error) {
 	var (
 		dsOpts []dsOptRow
@@ -193,8 +180,6 @@ func (c *Client) tables(ctx context.Context, sc scope, location string, params [
 	return mergeTables(dsOpts, tables, opts, views), nil
 }
 
-// columns is phase 2: COLUMNS and COLUMN_FIELD_PATHS for the tables the
-// filter keeps.
 func (c *Client) columns(ctx context.Context, sc scope, location string, params []bqapi.QueryParameter, f ColumnFilter) ([]TableColumns, error) {
 	var (
 		cols   []colRow
@@ -207,7 +192,6 @@ func (c *Client) columns(ctx context.Context, sc scope, location string, params 
 		if r[5] != nil {
 			cr.clustering = int(num(r[5]))
 		}
-		// REPEATED columns are also reported as not nullable
 		cr.required = str(r[6]) == "NO" && !strings.HasPrefix(str(r[7]), "ARRAY<")
 		cols = append(cols, cr)
 	})
@@ -327,7 +311,6 @@ func mergeColumns(cols []colRow, fields []fieldRow) []TableColumns {
 	return out
 }
 
-// GetTableMeta implements Metadata with REST tables.get.
 func (c *Client) GetTableMeta(ctx context.Context, project, dataset, table string) (api.TableMeta, error) {
 	t, err := c.svc.Tables.Get(project, dataset, table).Context(ctx).Do()
 	if err != nil {
@@ -336,10 +319,6 @@ func (c *Client) GetTableMeta(ctx context.Context, project, dataset, table strin
 	return tableMetaOf(dataset, t), nil
 }
 
-// tableMetaOf converts a REST table into the catalog's shape, the way the
-// INFORMATION_SCHEMA views report it: standard SQL type names, one column
-// per field path, partitioning and clustering on the top-level columns, and
-// REQUIRED on top-level columns only.
 func tableMetaOf(dataset string, t *bqv2.Table) api.TableMeta {
 	name := table(t)
 	m := api.TableMeta{Dataset: dataset, Name: name, Type: api.ParseTableType(t.Type), Description: t.Description, Labels: t.Labels}
@@ -404,7 +383,6 @@ func appendNested(out []api.ColumnMeta, parent string, fs []*bqv2.TableFieldSche
 	return out
 }
 
-// sqlType writes a REST field's type as COLUMN_FIELD_PATHS.data_type does.
 func sqlType(f *bqv2.TableFieldSchema) string {
 	var s string
 	switch strings.ToUpper(f.Type) {

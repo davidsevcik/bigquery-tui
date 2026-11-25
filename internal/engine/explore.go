@@ -16,7 +16,6 @@ import (
 	catsync "github.com/davidsevcik/bigquery-tui/internal/sync"
 )
 
-// ErrUnknownTable is returned for a path that is not in the catalog.
 var ErrUnknownTable = errors.New("table is not in the catalog")
 
 type statsEntry struct {
@@ -26,7 +25,6 @@ type statsEntry struct {
 
 const statsTTL = 5 * time.Minute
 
-// ReloadIndex rebuilds the in-memory search index from the catalog.
 func (e *Engine) ReloadIndex(ctx context.Context) error {
 	e.colMu.Lock()
 	e.colCache = nil
@@ -56,8 +54,6 @@ func (e *Engine) recent(ctx context.Context, n int) ([]string, error) {
 	return h.Recent(ctx, n)
 }
 
-// Search runs a catalog search (spec 8.2). SelectedOnly leaves out the
-// deselected projects' caches; PreferSelected ranks them last.
 func (e *Engine) Search(ctx context.Context, query string, o api.SearchOptions) (api.SearchResponse, error) {
 	if o.SelectedOnly {
 		o.Hidden = append(o.Hidden, e.deselectedCached()...)
@@ -78,8 +74,6 @@ func (e *Engine) Search(ctx context.Context, query string, o api.SearchOptions) 
 	return resp, err
 }
 
-// Filter lists every object that passes the Explorer's in-place filter, best
-// match first. Free terms match only an object's own name.
 func (e *Engine) Filter(ctx context.Context, query string, o api.FilterOptions) (api.FilterResponse, error) {
 	if o.SelectedOnly {
 		o.Hidden = append(o.Hidden, e.deselectedCached()...)
@@ -87,8 +81,6 @@ func (e *Engine) Filter(ctx context.Context, query string, o api.FilterOptions) 
 	return e.search.Filter(ctx, query, o)
 }
 
-// deselectedCached are the projects in the search index that are not
-// selected.
 func (e *Engine) deselectedCached() []string {
 	sel := e.Selection()
 	var out []string
@@ -100,15 +92,10 @@ func (e *Engine) deselectedCached() []string {
 	return out
 }
 
-// ParseQuery parses a query without running it (for input colouring and chips).
 func (e *Engine) ParseQuery(query string) api.ParsedQuery { return search.Parse(query) }
 
-// WarmSearch prepares the column data used by the col: filter.
 func (e *Engine) WarmSearch(ctx context.Context) error { return e.search.WarmColumns(ctx) }
 
-// Projects lists the Selected projects (synced or not) with sync health: the
-// Explorer's project list. Deselected projects keep their cache but are not
-// browsed.
 func (e *Engine) Projects() []api.BrowseNode {
 	have := map[string]api.BrowseNode{}
 	for _, n := range e.search.Projects() {
@@ -128,24 +115,18 @@ func (e *Engine) Projects() []api.BrowseNode {
 	return out
 }
 
-// Datasets lists a project's datasets. A pending one is marked Syncing while
-// this process's sync is reading its unit.
 func (e *Engine) Datasets(project string) []api.BrowseNode {
 	return e.markSyncing(e.search.Datasets(project))
 }
 
-// Tables lists a dataset's tables with shard families collapsed.
 func (e *Engine) Tables(project, dataset string) []api.BrowseNode {
 	return e.search.Tables(project, dataset)
 }
 
-// ShardMembers lists the tables of a shard family (by its name), newest
-// first.
 func (e *Engine) ShardMembers(project, dataset, family string, typ api.TableType) []api.BrowseNode {
 	return e.search.ShardMembers(project, dataset, family, typ)
 }
 
-// TableDetail returns everything the schema pane shows, from the catalog.
 func (e *Engine) TableDetail(ctx context.Context, p api.ObjectPath) (api.TableDetail, error) {
 	ref, ok := e.search.Lookup(p)
 	if !ok || e.catalog == nil {
@@ -158,19 +139,14 @@ func (e *Engine) TableDetail(ctx context.Context, p api.ObjectPath) (api.TableDe
 	if err != nil {
 		return api.TableDetail{}, err
 	}
-	// The index can be a moment older than the catalog; a deleted table's row
-	// id may already belong to another table.
 	if t.Name != ref.Path.Table || t.Dataset != ref.Path.Dataset {
 		return api.TableDetail{}, ErrUnknownTable
 	}
 	d := api.TableDetail{Path: ref.Path, Table: t, Location: ref.Location, NamesOnly: ref.NamesOnly, Shard: t.Shard, Stale: true}
 	switch {
 	case ref.Family != nil:
-		d.SchemaFrom = t.Name // the family's schema is its newest shard's
+		d.SchemaFrom = t.Name
 	case t.Shard != nil && t.SharedSchema:
-		// a member whose columns were not read: show its family's, read
-		// from the newest shard it records (not through the family's name,
-		// which a family of another type can share)
 		fp := api.ObjectPath{Project: ref.Path.Project, Dataset: ref.Path.Dataset, Table: t.Shard.Newest}
 		if nref, ok := e.search.Lookup(fp); ok && nref.ID != ref.ID {
 			if newest, err := e.catalog.TableByID(ctx, nref.ID); err == nil && newest.Name == nref.Path.Table {
@@ -224,10 +200,6 @@ func requiredPaths(out []string, prefix string, fields []bq.Field) []string {
 	return out
 }
 
-// TableStats fetches the live row and byte counts and the required fields
-// (cached for a few minutes).
-// It needs credentials and one API call, so frontends call it off the UI thread
-// and treat a failure as "unknown".
 func (e *Engine) TableStats(ctx context.Context, p api.ObjectPath) (api.TableStats, error) {
 	ref, ok := e.search.Lookup(p)
 	if !ok {
@@ -241,13 +213,6 @@ func (e *Engine) TableStats(ctx context.Context, p api.ObjectPath) (api.TableSta
 	return e.stats[ref.Path.String()].stats, nil
 }
 
-// Preview reads rows straight from a table (no query, no cost): the free
-// Sample. Views, materialized views and external tables return
-// bq.ErrNeedsQuery (BigQuery refuses tabledata.list on them); a shard family
-// path reads its newest shard. o formats the cells, as for RunRows.
-// BigQuery can return fewer rows than asked when rows are wide, so it reads
-// on from the next index until it has the rows, a call returns none, or the
-// table ends.
 func (e *Engine) Preview(ctx context.Context, p api.ObjectPath, startIndex int64, rows int, o format.Options) (api.PreviewPage, error) {
 	ref, ok := e.search.Lookup(p)
 	if !ok {
@@ -287,7 +252,6 @@ func (e *Engine) Preview(ctx context.Context, p api.ObjectPath, startIndex int64
 	return page, nil
 }
 
-// TouchRecent records that a table was opened (feeds the empty-query search).
 func (e *Engine) TouchRecent(ctx context.Context, p api.ObjectPath) error {
 	if e.o.ReadOnly {
 		return ErrReadOnly
@@ -303,9 +267,6 @@ func (e *Engine) TouchRecent(ctx context.Context, p api.ObjectPath) error {
 	return h.TouchRecent(ctx, p.String(), kind, e.o.Now())
 }
 
-// WatchCatalog reloads the search index whenever the catalog changes (through
-// this process or another one) and signals each reload. The channel closes
-// when ctx ends.
 func (e *Engine) WatchCatalog(ctx context.Context, interval time.Duration) <-chan struct{} {
 	if interval <= 0 {
 		interval = time.Second
@@ -328,7 +289,7 @@ func (e *Engine) WatchCatalog(ctx context.Context, interval time.Duration) <-cha
 			case <-tick.C:
 			}
 			if e.catalog == nil {
-				continue // read-only engine opened before the first sync
+				continue
 			}
 			if w == nil {
 				nw, err := e.catalog.NewWatcher(ctx)
@@ -336,8 +297,6 @@ func (e *Engine) WatchCatalog(ctx context.Context, interval time.Duration) <-cha
 					continue
 				}
 				w = nw
-				// Anything committed between Open loading the index and this
-				// baseline would otherwise go unnoticed: reload once now.
 				if err := e.ReloadIndex(ctx); err == nil {
 					select {
 					case out <- struct{}{}:
@@ -363,9 +322,6 @@ func (e *Engine) WatchCatalog(ctx context.Context, interval time.Duration) <-cha
 	return out
 }
 
-// Reconcile applies a changed project/ignore filter to the catalog by pruning
-// locally. It needs the sync lock; if another process is syncing it does
-// nothing (that sync reconciles itself) and reports skipped.
 func (e *Engine) Reconcile(ctx context.Context) (rec catsync.Reconciliation, skipped bool, err error) {
 	if e.o.ReadOnly {
 		return rec, true, ErrReadOnly
@@ -388,10 +344,6 @@ func (e *Engine) Reconcile(ctx context.Context) (rec catsync.Reconciliation, ski
 	return rec, false, err
 }
 
-// AutoRefresh starts the background sync a frontend wants at startup: a full
-// sync when the catalog is empty, a refresh of the stale projects otherwise.
-// It returns nil when nothing needs doing (or when a sync runs elsewhere). A
-// "config changed" state is never synced automatically; the user decides.
 func (e *Engine) AutoRefresh(ctx context.Context) (*SyncHandle, error) {
 	st, err := e.Status(ctx)
 	if err != nil {
@@ -400,8 +352,6 @@ func (e *Engine) AutoRefresh(ctx context.Context) (*SyncHandle, error) {
 	if st.SyncRunning || st.ExecutionProject == "" {
 		return nil, nil
 	}
-	// Selected projects that are stale or were never synced (selecting a
-	// project asks for its sync). Deselected ones are never refreshed.
 	var scope api.SyncScope
 	selected := 0
 	for _, p := range st.Projects {
@@ -417,7 +367,7 @@ func (e *Engine) AutoRefresh(ctx context.Context) (*SyncHandle, error) {
 		return nil, nil
 	}
 	if len(scope.Projects) == selected && !st.SyncNeeded {
-		scope.Projects = nil // everything: a full sync
+		scope.Projects = nil
 	}
 	h, err := e.StartSync(ctx, scope)
 	if errors.Is(err, ErrSyncRunning) {
@@ -426,10 +376,6 @@ func (e *Engine) AutoRefresh(ctx context.Context) (*SyncHandle, error) {
 	return h, err
 }
 
-// SetConfig swaps in a reloaded configuration. Run-related and sync-related
-// keys apply to operations started afterwards. A changed Execution project
-// takes effect on the next BigQuery call (each project has its own client).
-// data_dir cannot change at run time; callers report it as restart-required.
 func (e *Engine) SetConfig(cfg *config.Config) {
 	e.cfgMu.Lock()
 	changed := e.cfg.Location != cfg.Location

@@ -84,8 +84,6 @@ func TestParseLevel(t *testing.T) {
 	}
 }
 
-// The log file exists as soon as the logger does, even if nothing reaches
-// its level (#92: a sync that went well left no bqt.log at all).
 func TestFileExistsBeforeAnyRecord(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	_, closeFn, err := New(Options{Dir: dir, Level: "error"})
@@ -98,8 +96,6 @@ func TestFileExistsBeforeAnyRecord(t *testing.T) {
 	}
 }
 
-// With a command, the first line is the start record, at any level, and it
-// stays out of stderr.
 func TestStartRecord(t *testing.T) {
 	var stderr bytes.Buffer
 	dir := filepath.Join(t.TempDir(), "logs")
@@ -126,8 +122,6 @@ func TestStartRecord(t *testing.T) {
 	}
 }
 
-// A log file that cannot be written does not stop the command (#92 review:
-// read-only commands on a read-only data_dir must still work).
 func TestUnwritableLogFileIsNotFatal(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -144,7 +138,6 @@ func TestUnwritableLogFileIsNotFatal(t *testing.T) {
 	_ = closeFn()
 }
 
-// A log directory that cannot be created does not stop the command either.
 func TestUncreatableLogDirIsNotFatal(t *testing.T) {
 	parent := filepath.Join(t.TempDir(), "ro")
 	if err := os.MkdirAll(parent, 0o500); err != nil {
@@ -163,7 +156,6 @@ func TestUncreatableLogDirIsNotFatal(t *testing.T) {
 	}
 }
 
-// A handler that fails does not keep the record from the others.
 func TestFanoutReachesEveryHandler(t *testing.T) {
 	var stderr bytes.Buffer
 	failing := slog.NewJSONHandler(failWriter{}, nil)
@@ -178,8 +170,6 @@ type failWriter struct{}
 
 func (failWriter) Write([]byte) (int, error) { return 0, os.ErrPermission }
 
-// A log directory and file an older bqt left readable to others are
-// tightened, and the old records stay.
 func TestNewTightensExistingModes(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no Unix modes")
@@ -188,7 +178,7 @@ func TestNewTightensExistingModes(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(dir, 0o755); err != nil { // past the umask
+	if err := os.Chmod(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, FileName)

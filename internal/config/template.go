@@ -1,6 +1,5 @@
 package config
 
-// Template returns the commented config written by `bqt init`.
 func Template() string { return template }
 
 const template = `# bqt configuration. Unknown keys are errors, so typos do not go unnoticed.

@@ -53,7 +53,6 @@ func TestHistorySearchGroupsIdenticalSQL(t *testing.T) {
 	if err != nil || more {
 		t.Fatal(err, more)
 	}
-	// "select revenue from sales.orders" differs in case, so it is its own group
 	want := []string{"SELECT customer_id FROM sales.customers", "SELECT   revenue   FROM sales.orders", "select revenue from sales.orders", "SELECT 1"}
 	if got := groupSQL(gs); len(got) != 4 || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] {
 		t.Fatalf("%q", got)
@@ -65,7 +64,6 @@ func TestHistorySearchGroupsIdenticalSQL(t *testing.T) {
 	if g.Latest.Started == nil || g.Latest.DurationMs == nil || *g.Latest.DurationMs != 1000 {
 		t.Fatalf("times: %+v", g.Latest)
 	}
-	// paging
 	gs, more, total, _ := h.SearchHistory(ctx, HistoryQuery{}, 3, 0)
 	if len(gs) != 3 || !more || total != 4 {
 		t.Fatalf("first page: total %d", total)
@@ -123,7 +121,6 @@ func TestHistorySearchTermsAndFilters(t *testing.T) {
 	if got := q(HistoryQuery{Conds: []HistoryCond{{Field: "since", Since: hbase.Add(-time.Minute)}}}); len(got) != 3 {
 		t.Fatalf("since: %q", got)
 	}
-	// a filtered group counts only the matching Runs
 	gs, _, _, _ := h.SearchHistory(ctx, HistoryQuery{Conds: []HistoryCond{{Field: "source", Values: []string{"tui"}}}, Terms: terms("revenue")}, 10, 0)
 	if len(gs) != 2 || gs[1].Runs != 1 {
 		t.Fatalf("%+v", gs)
@@ -180,7 +177,6 @@ func TestHistoryRunFavoriteAndParamsRoundTrip(t *testing.T) {
 	}
 }
 
-// Rows written by the v1 schema get their grouping key on open.
 func TestHistoryKeysAreFilledAfterMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "history.db")
 	h, err := openHistory(path, historyMigrations[:1], time.Now)
@@ -204,8 +200,6 @@ func TestHistoryKeysAreFilledAfterMigration(t *testing.T) {
 	}
 }
 
-// Codex review 4, finding 7: whitespace inside literals and comments is
-// part of the query.
 func TestNormalizeSQL(t *testing.T) {
 	same := [][2]string{
 		{"SELECT  1;\n", "SELECT 1"},
@@ -235,8 +229,6 @@ func TestNormalizeSQL(t *testing.T) {
 	}
 }
 
-// Codex review 4, finding 6: a group shows its newest Run even when an
-// older one finished (and was recorded) later.
 func TestHistoryGroupShowsTheNewestRun(t *testing.T) {
 	h := historyFixture(t)
 	addRun(t, h, "slow", "select z", api.RunFailed, "tui", hbase.Add(10*time.Hour), 0, "")

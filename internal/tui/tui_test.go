@@ -45,7 +45,7 @@ func TestEveryPaletteCommandHasAnAction(t *testing.T) {
 				}
 			}()
 			if c.action == "config" {
-				return // spawns an editor
+				return
 			}
 			r.run(r.m.explorerAction(c.action))
 			r.press("esc")
@@ -62,16 +62,16 @@ func TestGoldenScreens(t *testing.T) {
 		r.golden(name("columns_projects"))
 		r.press("l", "j", "j", "l")
 		r.golden(name("columns_table"))
-		r.press("j", "j", "p") // orders
+		r.press("j", "j", "p")
 		r.golden(name("sample"))
-		if r.m.zone == ZoneResults { // the focus fallback shows one Pane: p went to the Results
+		if r.m.zone == ZoneResults {
 			r.press("ctrl+o")
 		}
 		r.press("k", "k", "L")
 		r.golden(name("tree"))
 		r.press("L")
 		r.golden(name("list"))
-		r.press("L", "/", "ord") // columns again, in the tables of sales
+		r.press("L", "/", "ord")
 		r.golden(name("columns_filter_typing"))
 		r.press("enter")
 		r.golden(name("columns_filter_tables"))
@@ -93,12 +93,12 @@ func TestGoldenScreens(t *testing.T) {
 func TestMillerNavigationAndDetail(t *testing.T) {
 	r := newRig(t, 120, 32)
 	r.contains("Projects 1/2", "acme-prod", "✓ 3h", "↑↓←→/hjkl move")
-	r.press("l") // datasets
+	r.press("l")
 	r.contains("Datasets 1/4")
-	r.press("j", "j") // sales
-	r.press("l")      // tables
+	r.press("j", "j")
+	r.press("l")
 	r.contains("Tables 1/4", "customers")
-	r.press("j", "j") // orders
+	r.press("j", "j")
 	if s := r.m.sel(); s.path.String() != "acme-prod.sales.orders" {
 		t.Fatalf("selection %v", s.path)
 	}
@@ -117,7 +117,7 @@ func TestMillerNavigationAndDetail(t *testing.T) {
 
 func TestShardFamilyExpandsAndCollapses(t *testing.T) {
 	r := newRig(t, 120, 30)
-	r.press("l", "l", "j") // events dataset, the family row
+	r.press("l", "l", "j")
 	if s := r.m.sel(); s.kind != api.KindShards {
 		t.Fatalf("%+v", s)
 	}
@@ -127,7 +127,7 @@ func TestShardFamilyExpandsAndCollapses(t *testing.T) {
 	if s := r.m.sel(); s.kind != api.KindTable || s.path.Table != "events_20240104" {
 		t.Fatalf("newest shard first: %+v", s.path)
 	}
-	r.press("esc") // one level back: collapse
+	r.press("esc")
 	if s := r.m.sel(); s.kind != api.KindShards {
 		t.Fatalf("esc collapses the family and returns to its row: %+v", s)
 	}
@@ -139,7 +139,7 @@ func TestShardFamilyExpandsAndCollapses(t *testing.T) {
 
 func TestExplorerStyleCycleKeepsSelection(t *testing.T) {
 	r := newRig(t, 120, 30)
-	r.press("l", "j", "j", "l", "j", "j") // acme-prod.sales.orders
+	r.press("l", "j", "j", "l", "j", "j")
 	want := "acme-prod.sales.orders"
 	for _, style := range []string{"tree", "list", "columns"} {
 		r.press("L")
@@ -148,7 +148,6 @@ func TestExplorerStyleCycleKeepsSelection(t *testing.T) {
 		}
 		r.contains("  " + style)
 	}
-	// a shard member survives the round trip as well
 	r.press("h", "k", "k", "l", "j", "enter", "j")
 	member := r.m.sel().path.String()
 	if !strings.HasPrefix(member, "acme-prod.events.events_2024") {
@@ -170,7 +169,6 @@ func TestExplorerStyleIsRemembered(t *testing.T) {
 	}
 }
 
-// writeState replaces state/tui.json and starts a second model on it.
 func (r *rig) restartWith(state string) *Model {
 	r.t.Helper()
 	p := r.m.be.StatePath()
@@ -230,15 +228,15 @@ func TestSavedStateHasOnlyTheNewKeys(t *testing.T) {
 func TestTreeExpandCollapse(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.press("L")
-	r.press("l") // open project
+	r.press("l")
 	r.contains("▾ acme-prod", "▸ events")
-	r.press("j", "l") // open events
+	r.press("j", "l")
 	r.contains("▾ events", "events_YYYYMMDD", "×4")
-	r.press("j", "j", "l") // open the family
+	r.press("j", "j", "l")
 	r.contains("events_20240104")
-	r.press("h")               // close family
-	r.lacks("events_20240103") // the Schema pane still names the newest shard
-	r.press("h", "h")          // parent dataset, then collapse it
+	r.press("h")
+	r.lacks("events_20240103")
+	r.press("h", "h")
 	r.lacks("clicks")
 }
 
@@ -270,13 +268,13 @@ func TestJumpListsRecentlyOpenedTables(t *testing.T) {
 }
 
 func TestListStyleChipsAndColumnHits(t *testing.T) {
-	r := newRig(t, 140, 30) // an Explorer wide enough for the chips
+	r := newRig(t, 140, 30)
 	r.press("L", "L", "/", "type:foo d: -p:staging col:amount")
 	r.contains("[type:foo]", "[d:…]", "[-p:staging]", "[col:amount]")
 	r.press("ctrl+u", "col:amount")
 	r.contains("↳ amount")
 	r.press("ctrl+u", "email")
-	r.contains("no matches") // columns are not searched without col:
+	r.contains("no matches")
 }
 
 func TestTypingInTheJumpPopupNeverTriggersCommands(t *testing.T) {
@@ -295,11 +293,11 @@ func TestStaleSearchResultsAreDropped(t *testing.T) {
 	r.press("ctrl+t")
 	st := r.m.jump
 	st.in.set("ord")
-	first := r.m.runSearch(st) // not delivered yet
+	first := r.m.runSearch(st)
 	st.in.set("refunds")
 	second := r.m.runSearch(st)
 	r.send(second())
-	r.send(first()) // the older answer arrives late and must be ignored
+	r.send(first())
 	if len(st.results) != 1 || st.results[0].Path.Table != "refunds" {
 		t.Fatalf("%+v", st.results)
 	}
@@ -312,10 +310,10 @@ func TestListStyleFilterScopeAndEsc(t *testing.T) {
 	r.press("/", "ord", "enter")
 	r.contains("1/5")
 	r.press("j")
-	r.press("S") // scope to the selected result's project
+	r.press("S")
 	r.contains("⊂ acme-staging", "1/1")
 	r.press("S")
-	r.press("esc") // clears the filter
+	r.press("esc")
 	if r.m.flat.in.value() != "" {
 		t.Fatal("esc clears the flat filter")
 	}
@@ -331,7 +329,6 @@ func TestSyncFromTheUI(t *testing.T) {
 	r.press("g", "d")
 	r.contains("Sync progress", "found 3 unit(s)", "finished:")
 	r.press("esc")
-	// a failing project shows up as a problem, without a modal
 	r.fake.Projects["acme-staging"].ListErr = errFake("boom")
 	r.press("R")
 	if r.m.ov != ovNone {
@@ -342,8 +339,6 @@ func TestSyncFromTheUI(t *testing.T) {
 	r.contains("Sync problems", "acme-staging", "boom")
 }
 
-// A sync warning (such as the Storage Read API fallback) is listed with the
-// sync problems as a warning; a warning a unit already shows is not repeated.
 func TestSyncWarningsAreSyncProblems(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.send(syncDoneMsg{res: api.SyncResult{Warnings: []string{"sync reads results through REST paging"}}})
@@ -371,13 +366,13 @@ type errFake string
 func (e errFake) Error() string { return string(e) }
 
 func TestConfigReloadEvents(t *testing.T) {
-	r := newRig(t, 160, 30) // room for the error in the status line
+	r := newRig(t, 160, 30)
 	closed := make(chan config.Event)
 	close(closed)
 	bad := config.Event{Err: errFake("line 3: ingore: unknown key")}
 	r.send(configWait{ev: bad, ch: closed})
 	r.contains("config error (using the last good config)", "ingore")
-	r.contains("acme-staging") // still running on the last good config
+	r.contains("acme-staging")
 
 	src := "data_dir = \"" + r.dir + "/data\"\nignore = [\"acme-staging\"]\n"
 	if err := os.WriteFile(r.cfg, []byte(src), 0o600); err != nil {
@@ -417,13 +412,13 @@ func TestEnterOnEmptyContainersInTreeDoesNotRecurse(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.m.reloadBrowse()
-	r.press("L") // tree
+	r.press("L")
 	r.press("g", "g")
 	if r.m.sel().path.Project != "acme-empty" {
 		t.Fatalf("precondition: %+v", r.m.sel().path)
 	}
-	r.press("enter", "enter", "l", "l", "enter") // used to overflow the stack
-	r.press("L", "g", "g", "enter", "l")         // Miller: an empty project has no next column
+	r.press("enter", "enter", "l", "l", "enter")
+	r.press("L", "g", "g", "enter", "l")
 	if r.m.mil.col != 0 {
 		t.Fatalf("col %d", r.m.mil.col)
 	}
@@ -440,13 +435,13 @@ func TestListStyleExpandsShardFamilies(t *testing.T) {
 		t.Fatalf("enter lists the shards: %+v", s)
 	}
 	r.contains("1/4")
-	r.press("esc") // back to the unfiltered, collapsed list
+	r.press("esc")
 	r.contains("events_YYYYMMDD", "1/10")
 }
 
 func TestListStyleRestoredAtStartupIsNotEmpty(t *testing.T) {
 	r := newRig(t, 120, 30)
-	r.press("L", "L") // saves "list"
+	r.press("L", "L")
 	m2 := New(r.m.be, Options{NoBackground: true, StableOutput: true, Now: func() time.Time { return r.now }})
 	defer m2.Close()
 	r2 := &rig{t: t, m: m2, fake: r.fake, now: r.now}
@@ -455,7 +450,6 @@ func TestListStyleRestoredAtStartupIsNotEmpty(t *testing.T) {
 	r2.contains("filter ▸", "1/10", "customers")
 }
 
-// wideRefunds gives finance.refunds rows with a long text and a nested value.
 func wideRefunds(r *rig) {
 	rows := [][]any{}
 	for i := 0; i < 3; i++ {

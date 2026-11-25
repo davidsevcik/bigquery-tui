@@ -1,10 +1,3 @@
-// Command archmap writes an interactive map of this module's architecture:
-// the packages, the imports between them and each package's exported API.
-// It reads the current source every time it runs.
-//
-//	go run ./internal/tools/archmap            # writes bin/architecture.html
-//	go run ./internal/tools/archmap -open      # and opens it in the browser
-//	go run ./internal/tools/archmap -o map.html
 package main
 
 import (

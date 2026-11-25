@@ -16,7 +16,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 )
 
-// logBuf collects JSON log records from parallel units.
 type logBuf struct {
 	mu  gosync.Mutex
 	buf bytes.Buffer
@@ -32,7 +31,6 @@ func (b *logBuf) logger() *slog.Logger {
 	return slog.New(slog.NewJSONHandler(b, &slog.HandlerOptions{Level: slog.LevelInfo}))
 }
 
-// records returns the records whose msg starts with prefix.
 func (b *logBuf) records(t *testing.T, prefix string) []map[string]any {
 	t.Helper()
 	b.mu.Lock()
@@ -53,8 +51,6 @@ func (b *logBuf) records(t *testing.T, prefix string) []map[string]any {
 	return out
 }
 
-// Every unit that starts logs its start and exactly one end with a
-// duration, for region units and a single-table sync alike (#92).
 func TestSyncLogsEachUnitStartAndEnd(t *testing.T) {
 	h := newHarness(t, `projects = ["proj-a", "proj-b"]`)
 	twoProjectFake(h.fake)
@@ -77,8 +73,6 @@ func TestSyncLogsEachUnitStartAndEnd(t *testing.T) {
 	}
 }
 
-// A project whose discovery failed started no unit: one warn record says
-// so, with no duration taken from other projects' work.
 func TestSyncLogsDiscoveryFailure(t *testing.T) {
 	h := newHarness(t, `projects = ["proj-a", "proj-b"]`)
 	twoProjectFake(h.fake)
@@ -96,7 +90,6 @@ func TestSyncLogsDiscoveryFailure(t *testing.T) {
 	}
 }
 
-// A cancel ends the record of each unit it stopped.
 func TestSyncLogsCancelledUnits(t *testing.T) {
 	h := newHarness(t, `projects = ["proj-a", "proj-b"]`)
 	twoProjectFake(h.fake)

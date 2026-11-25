@@ -23,8 +23,6 @@ var ctx = context.Background()
 
 var projectsLine = regexp.MustCompile(`(?m)^projects = \[(.*)\]\n?`)
 
-// splitProjects takes a `projects = [...]` line (the Selected projects, as
-// these tests write them) out of a config snippet.
 func splitProjects(extra string) (selected []string, rest string) {
 	if m := projectsLine.FindStringSubmatch(extra); m != nil {
 		for _, p := range strings.Split(m[1], ",") {
@@ -107,7 +105,6 @@ func (h *harness) unit(project, loc string) api.UnitState {
 	return api.UnitState{}
 }
 
-// statuses maps "project.dataset" to its catalog status.
 func (h *harness) statuses(projects ...string) map[string]api.DatasetStatus {
 	h.t.Helper()
 	out := map[string]api.DatasetStatus{}
@@ -239,7 +236,7 @@ func TestSyncPermissionLadder(t *testing.T) {
 		bqtest.DS("names", "EU", bqtest.Table("t2", "a"), bqtest.Table("t3", "a")),
 		bqtest.DS("locked", "EU", bqtest.Table("t4", "a")),
 	}
-	h.run(api.SyncScope{}) // everything readable first, so "locked" has old data
+	h.run(api.SyncScope{})
 	p.Datasets[1].Denied, p.Datasets[1].NamesOK = true, true
 	p.Datasets[2].Denied = true
 	h.now = h.now.Add(time.Hour)
@@ -277,8 +274,6 @@ func TestSyncPermissionLadder(t *testing.T) {
 	}
 }
 
-// Dataset-level grants refuse every region view, and SCHEMATA_OPTIONS has no
-// dataset scope, so the fallback reads dataset options from datasets.get.
 func TestSyncDatasetScopeFallbackKeepsDatasetOptions(t *testing.T) {
 	h := newHarness(t, `projects = ["proj-a"]`)
 	p := h.fake.AddProject("proj-a")
@@ -395,7 +390,6 @@ func TestSyncDiscoveryFailureIsolated(t *testing.T) {
 	if u.Status != api.UnitInaccessible || u.Error == "" {
 		t.Fatalf("%+v", u)
 	}
-	// recovery clears the discovery failure
 	h.fake.Projects["proj-b"].ListErr = nil
 	h.run(api.SyncScope{})
 	us, _ := h.cat.Units(ctx)
@@ -420,8 +414,6 @@ func TestSyncUnreachableWarning(t *testing.T) {
 	}
 }
 
-// warningMeta reports a client warning (bq.Warn) on every dataset listing,
-// as the real client does on every query once it reads through REST paging.
 type warningMeta struct{ *bqtest.Fake }
 
 func (m warningMeta) ListDatasets(ctx context.Context, project string) (bq.DatasetList, error) {
@@ -467,8 +459,8 @@ func TestSyncRemovesVanishedLocationAndDatasets(t *testing.T) {
 	twoProjectFake(h.fake)
 	h.run(api.SyncScope{})
 	p := h.fake.Projects["proj-a"]
-	p.Datasets = p.Datasets[:2] // us_data disappears, the US location with it
-	p.Datasets[1].Tables = nil  // logs loses its table
+	p.Datasets = p.Datasets[:2]
+	p.Datasets[1].Tables = nil
 	h.now = h.now.Add(time.Hour)
 	h.run(api.SyncScope{})
 
@@ -482,9 +474,6 @@ func TestSyncRemovesVanishedLocationAndDatasets(t *testing.T) {
 	}
 }
 
-// Issue 33: a project with no datasets has no (project, location) unit, so
-// its discovery unit records the successful sync. It gives way to real units
-// once datasets appear, and comes back when they are all gone.
 func TestSyncRecordsAnEmptyProjectOnItsDiscoveryUnit(t *testing.T) {
 	h := newHarness(t, `projects = ["proj-e"]`)
 	p := h.fake.AddProject("proj-e")
@@ -496,7 +485,6 @@ func TestSyncRecordsAnEmptyProjectOnItsDiscoveryUnit(t *testing.T) {
 		t.Fatalf("%+v", u)
 	}
 
-	// A failed listing keeps the earlier success, like any failed unit.
 	p.ListErr = bqtest.TransientError("boom")
 	h.now = h.now.Add(time.Hour)
 	h.run(api.SyncScope{})
@@ -504,7 +492,6 @@ func TestSyncRecordsAnEmptyProjectOnItsDiscoveryUnit(t *testing.T) {
 		t.Fatalf("%+v", u)
 	}
 
-	// Datasets appear: the real unit holds the sync, the discovery unit goes.
 	p.ListErr = nil
 	p.Datasets = []bqtest.Dataset{bqtest.DS("core", "EU", bqtest.Table("t", "c"))}
 	h.now = h.now.Add(time.Hour)
@@ -519,7 +506,6 @@ func TestSyncRecordsAnEmptyProjectOnItsDiscoveryUnit(t *testing.T) {
 		}
 	}
 
-	// They are all deleted: empty again, and synced now.
 	p.Datasets = nil
 	h.now = h.now.Add(time.Hour)
 	h.run(api.SyncScope{})
@@ -531,7 +517,6 @@ func TestSyncRecordsAnEmptyProjectOnItsDiscoveryUnit(t *testing.T) {
 	}
 }
 
-// Issue 33: a project whose listing never succeeded records no success.
 func TestSyncAFailedListingRecordsNoSuccess(t *testing.T) {
 	h := newHarness(t, `projects = ["proj-e"]`)
 	h.fake.AddProject("proj-e").ListErr = bqtest.TransientError("boom")
@@ -640,8 +625,6 @@ func TestScopeValidation(t *testing.T) {
 	if _, err := h.syncer().Run(ctx, api.SyncScope{}, nil); !errors.Is(err, ErrNoProjects) {
 		t.Fatalf("%v", err)
 	}
-	// an explicit scope may name a project that is not selected (the
-	// engine decides which are allowed); it is not a full sync
 	h2 := newHarness(t, `projects = ["proj-a"]`)
 	twoProjectFake(h2.fake)
 	h2.run(api.SyncScope{Projects: []string{"proj-b"}})
@@ -681,13 +664,11 @@ ignore = ["proj-a.logs"]
 		t.Fatal("clean after a full sync")
 	}
 
-	// 1. same config: no change
 	r, err := ReconcileConfig(ctx, h.cat, h.cfg)
 	if err != nil || r.Changed || r.SyncNeeded {
 		t.Fatalf("%+v %v", r, err)
 	}
 
-	// 2. tighten: append an ignore -> prune, no sync needed
 	h.cfg = cfgFrom(t, "projects = [\"proj-a\", \"proj-b\"]\nignore = [\"proj-a.logs\", \"proj-a.sales\"]\n")
 	r, err = ReconcileConfig(ctx, h.cat, h.cfg)
 	if err != nil || !r.Changed || r.SyncNeeded || r.Pruned.Datasets != 1 {
@@ -703,8 +684,6 @@ ignore = ["proj-a.logs"]
 		}
 	}
 
-	// 3. loosen ignore -> sync needed; every project keeps its data (the
-	// selection never prunes)
 	h.cfg = cfgFrom(t, "ignore = [\"proj-a.logs\"]\n")
 	r, _ = ReconcileConfig(ctx, h.cat, h.cfg)
 	if !r.SyncNeeded || r.Reason != "ignore patterns changed" || !needed() || r.Pruned.Projects != 0 || h.counts().Projects != 2 {
@@ -720,7 +699,6 @@ func TestACatalogFromBeforeTheProjectsDialogNeedsNoSync(t *testing.T) {
 	h := newHarness(t, "projects = [\"proj-a\"]\nignore = [\"proj-a.logs\"]\n")
 	twoProjectFake(h.fake)
 	h.run(api.SyncScope{})
-	// the stored filter also had the old `projects` list
 	if err := h.cat.SetMeta(ctx, MetaConfigHash, "an older hash"); err != nil {
 		t.Fatal(err)
 	}
@@ -737,7 +715,6 @@ func TestUnreachableLocationKeepsItsData(t *testing.T) {
 	twoProjectFake(h.fake)
 	h.run(api.SyncScope{})
 	before := h.counts()
-	// BigQuery cannot reach the US location: datasets.list omits it and says so
 	p := h.fake.Projects["proj-a"]
 	p.Datasets = p.Datasets[:2]
 	p.Unreachable = []string{"us"}
@@ -752,8 +729,6 @@ func TestUnreachableLocationKeepsItsData(t *testing.T) {
 	}
 }
 
-// Issue 82: the listed datasets are in the catalog, pending, before any unit
-// is read; each committed unit replaces its pending rows.
 func TestSyncListedDatasetsArePendingUntilTheirUnitCommits(t *testing.T) {
 	h := newHarness(t, `projects = ["proj-a", "proj-b"]`)
 	twoProjectFake(h.fake)
@@ -816,7 +791,6 @@ func TestSyncFailedUnitLeavesItsDatasetsPending(t *testing.T) {
 		t.Fatalf("the failed unit says why: %+v", u)
 	}
 
-	// The next sync that reaches the unit clears it.
 	h.fake.Failures = nil
 	h.now = h.now.Add(time.Hour)
 	h.run(api.SyncScope{})
@@ -864,7 +838,6 @@ func TestSyncCompleteListingRemovesVanishedPendingDatasets(t *testing.T) {
 		t.Fatalf("%v", st)
 	}
 
-	// An incomplete listing (unreachable locations) removes nothing.
 	p.Datasets = all
 	p.Unreachable = []string{"asia-east1"}
 	h.now = h.now.Add(time.Hour)
@@ -873,8 +846,6 @@ func TestSyncCompleteListingRemovesVanishedPendingDatasets(t *testing.T) {
 		t.Fatalf("an incomplete listing keeps pending rows: %v", st)
 	}
 
-	// A complete listing removes both: one in a location still listed
-	// (whose unit fails again), one in a location gone.
 	p.Unreachable = nil
 	h.now = h.now.Add(time.Hour)
 	h.run(api.SyncScope{})
@@ -890,10 +861,6 @@ func TestSyncCompleteListingRemovesVanishedPendingDatasets(t *testing.T) {
 	}
 }
 
-// A dataset recreated in another location is a new, unsynced dataset there.
-// Its row moves with the listing, so it stays visible when the new location's
-// unit fails: whether the old location is gone (fresh) or still listed (logs),
-// and whether the old row was pending (fresh) or synced (logs).
 func TestSyncDatasetRecreatedElsewhereStaysListedWhenItsUnitFails(t *testing.T) {
 	h := newHarness(t, `projects = ["proj-a"]`)
 	twoProjectFake(h.fake)

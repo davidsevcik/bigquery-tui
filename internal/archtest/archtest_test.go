@@ -1,6 +1,3 @@
-// Package archtest enforces the architecture rules from spec section 3: the
-// core imports no UI libraries and no frontend packages, and the shared api
-// types depend on nothing else in the module.
 package archtest
 
 import (
@@ -11,7 +8,6 @@ import (
 
 const module = "github.com/davidsevcik/bigquery-tui"
 
-// corePackages must never (transitively) import a UI library or a frontend.
 var corePackages = []string{
 	"internal/api", "internal/config", "internal/store", "internal/sync",
 	"internal/bq", "internal/bq/bqtest", "internal/engine", "internal/logging", "internal/version",

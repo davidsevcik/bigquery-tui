@@ -1,7 +1,3 @@
-// Package shard turns the configured shard patterns into shard families
-// (spec section 8.3): tables of one dataset and type whose names differ only
-// in the part a pattern's capturing group marks. There is no built-in rule:
-// with no patterns, nothing collapses.
 package shard
 
 import (
@@ -19,20 +15,15 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// Pattern is one compiled shard pattern.
 type Pattern struct {
-	// Source is the pattern as configured.
 	Source string
 	re     *regexp.Regexp
 }
 
-// Patterns is the ordered list of shard patterns. The zero value and nil
-// hold no patterns.
 type Patterns struct {
 	list []Pattern
 }
 
-// PatternError explains why one configured pattern was refused.
 type PatternError struct {
 	Index   int
 	Pattern string
@@ -43,9 +34,6 @@ func (e PatternError) Error() string {
 	return fmt.Sprintf("shard_patterns[%d] %q: %s", e.Index, e.Pattern, e.Reason)
 }
 
-// Compile checks and compiles the configured patterns. Each must be valid RE2
-// with exactly one capturing group (non-capturing groups are fine). bqt
-// anchors each to the whole table name.
 func Compile(src []string) (*Patterns, []PatternError) {
 	p := &Patterns{}
 	var errs []PatternError
@@ -69,13 +57,10 @@ func Compile(src []string) (*Patterns, []PatternError) {
 	return p, errs
 }
 
-// anchor makes a pattern match the whole name.
 func anchor(s string) string { return "^(?:" + s + ")$" }
 
-// Empty reports whether there are no patterns.
 func (p *Patterns) Empty() bool { return p == nil || len(p.list) == 0 }
 
-// Sources returns the configured patterns in order.
 func (p *Patterns) Sources() []string {
 	if p == nil {
 		return []string{}
@@ -87,17 +72,12 @@ func (p *Patterns) Sources() []string {
 	return out
 }
 
-// Hash is a stable hash of the effective patterns. A change of it means the
-// families in the catalog no longer match the config.
 func (p *Patterns) Hash() string {
 	b, _ := json.Marshal(p.Sources())
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
 
-// Combined is one RE2 expression that matches a name when any pattern does,
-// for BigQuery's REGEXP_CONTAINS, which uses the same dialect. It is "" when
-// there are no patterns.
 func (p *Patterns) Combined() string {
 	if p.Empty() {
 		return ""
@@ -109,7 +89,6 @@ func (p *Patterns) Combined() string {
 	return strings.Join(parts, "|")
 }
 
-// MatchesAny reports whether a name matches any pattern.
 func (p *Patterns) MatchesAny(name string) bool {
 	if p == nil {
 		return false
@@ -122,7 +101,6 @@ func (p *Patterns) MatchesAny(name string) bool {
 	return false
 }
 
-// split returns the text before, inside and after a pattern's group.
 func (x Pattern) split(name string) (before, varying, after string, ok bool) {
 	m := x.re.FindStringSubmatchIndex(name)
 	if m == nil || m[2] < 0 {
@@ -131,11 +109,6 @@ func (x Pattern) split(name string) (before, varying, after string, ok bool) {
 	return name[:m[2]], name[m[2]:m[3]], name[m[3]:], true
 }
 
-// Assign sets Shard on every table that belongs to a family and clears it on
-// the rest. Patterns are tried in order on the tables no earlier pattern put
-// in a family. Under one pattern the matching tables are grouped by dataset,
-// the text before and after the group, and table type; a group of two or more
-// is a family, and the others are tried against the next pattern.
 func Assign(tables []api.TableMeta, p *Patterns) {
 	for i := range tables {
 		tables[i].Shard = nil
@@ -216,8 +189,6 @@ func family(tables []api.TableMeta, idx []int, varying map[int]string, prefix, s
 	return f
 }
 
-// Newer reports whether member a is newer than member b by creation time,
-// ties broken by name (the later name is newer).
 func Newer(aCreated time.Time, aName string, bCreated time.Time, bName string) bool {
 	if !aCreated.Equal(bCreated) {
 		return aCreated.After(bCreated)
@@ -225,8 +196,6 @@ func Newer(aCreated time.Time, aName string, bCreated time.Time, bName string) b
 	return aName > bName
 }
 
-// SortNewestFirst orders a family's members newest first: by date for a date
-// family (the varying part), by creation time for any other.
 func SortNewestFirst[T any](f api.ShardFamily, items []T, name func(T) string, created func(T) time.Time) {
 	sort.SliceStable(items, func(i, j int) bool {
 		a, b := items[i], items[j]
@@ -237,7 +206,6 @@ func SortNewestFirst[T any](f api.ShardFamily, items []T, name func(T) string, c
 	})
 }
 
-// ValidDate reports whether s is a YYYYMMDD date between 1990 and 2100.
 func ValidDate(s string) bool {
 	if len(s) != 8 {
 		return false

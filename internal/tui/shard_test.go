@@ -10,13 +10,8 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 )
 
-// orderID is the 24-hex-digit object id of the i-th orders shard.
 func orderID(i int) string { return fmt.Sprintf("5f%02x00000000000000000abc", i) }
 
-// shopRig is a rig whose acme-prod has a shop dataset with the non-date
-// family orders_* (25 shards; orders_<id 25> is the newest, orders_<id 3>
-// has a column the others lack), orders_*_history (2 shards) and a plain
-// table.
 func shopRig(t *testing.T, w, h int, tui string) *rig {
 	t.Helper()
 	rigTUI = tui
@@ -42,7 +37,6 @@ func shopRig(t *testing.T, w, h int, tui string) *rig {
 	return newRig(t, w, h)
 }
 
-// toShopFamily puts the columns style's cursor on orders_*.
 func (r *rig) toShopFamily() {
 	r.t.Helper()
 	r.press("l", "j", "j", "j", "l", "j")
@@ -57,12 +51,12 @@ func TestShardGoldenScreens(t *testing.T) {
 		r := shopRig(t, sz[0], sz[1], "")
 		r.toShopFamily()
 		r.golden(name("shard_columns_family"))
-		r.press("enter", "j") // drill in, then an older member
+		r.press("enter", "j")
 		r.golden(name("shard_columns_member"))
-		r.press("esc", "L") // back to the family row, tree style
-		r.press("l")        // open the family
+		r.press("esc", "L")
+		r.press("l")
 		r.golden(name("shard_tree_open"))
-		r.press("h", "g", "g", "j", "l", "j", "j", "l") // close it; open the date family in events
+		r.press("h", "g", "g", "j", "l", "j", "j", "l")
 		r.golden(name("shard_tree_date_open"))
 
 		r = shopRig(t, sz[0], sz[1], "family_rows = 0\n")
@@ -81,19 +75,18 @@ func TestDrillingIntoAFamily(t *testing.T) {
 		t.Fatalf("newest first: %+v", s.path)
 	}
 	r.contains("orders_* 1/25")
-	r.lacks("customers") // only the family's members
+	r.lacks("customers")
 	r.press("j")
 	r.contains("schema of orders_"+orderID(25)+" (family of 25)", "gs syncs")
 
-	// / filters the members by an id fragment
 	r.press("/", "5f17", "enter")
 	if s := r.m.sel(); s.path.Table != "orders_"+orderID(23) {
 		t.Fatalf("%+v", s.path)
 	}
 	r.contains("orders_* 1/1 of 25")
-	r.press("esc") // clears the filter
+	r.press("esc")
 	r.contains("Tables")
-	r.press("esc") // back to the family row
+	r.press("esc")
 	if s := r.m.sel(); s.kind != api.KindShards || s.path.Table != "orders_*" {
 		t.Fatalf("esc returns to the family row: %+v", s)
 	}
@@ -102,22 +95,18 @@ func TestDrillingIntoAFamily(t *testing.T) {
 func TestFamilyActions(t *testing.T) {
 	r := shopRig(t, 200, 70, "")
 	r.toShopFamily()
-	// p samples the newest shard
 	r.press("p")
 	r.contains("Sample · free read, no query job · acme-prod.shop.orders_" + orderID(25))
-	// s reads one shard through the wildcard
 	r.press("s")
 	want := "SELECT *\nFROM `acme-prod.shop.orders_*`\nWHERE _TABLE_SUFFIX = '" + orderID(25) + "'\nLIMIT 100"
 	if r.text() != want {
 		t.Fatalf("s on a family:\n%s", r.text())
 	}
-	r.contains("orders_*") // the buffer's name
-	// i inserts the wildcard
+	r.contains("orders_*")
 	r.press("ctrl+w", "h", "i")
 	if !strings.Contains(r.text(), "WHERE `acme-prod.shop.orders_*`_TABLE_SUFFIX") {
 		t.Fatalf("i on a family inserts its wildcard at the cursor: %q", r.text())
 	}
-	// on orders_*_history the wildcard is still prefix*, and s pins the suffix
 	r.press("ctrl+w", "h", "j", "s")
 	if !strings.Contains(r.text(), "FROM `acme-prod.shop.orders_*`\nWHERE _TABLE_SUFFIX = '"+orderID(2)+"_history'") {
 		t.Fatalf("s on a suffixed family:\n%s", r.text())
@@ -127,7 +116,7 @@ func TestFamilyActions(t *testing.T) {
 func TestGSSyncsAMembersOwnSchema(t *testing.T) {
 	r := shopRig(t, 200, 70, "")
 	r.toShopFamily()
-	r.press("enter", "G", "k", "k") // orders_<id 3>: newest first, so third from the end
+	r.press("enter", "G", "k", "k")
 	if s := r.m.sel(); s.path.Table != "orders_"+orderID(3) {
 		t.Fatalf("%+v", s.path)
 	}
@@ -139,8 +128,7 @@ func TestGSSyncsAMembersOwnSchema(t *testing.T) {
 	if n := len(r.fake.CallsTo("GetTableMeta")); n != 1 {
 		t.Fatalf("one tables.get: %d", n)
 	}
-	// from the Schema pane too, and on a plain table
-	r.press("esc", "k") // the family row, then customers
+	r.press("esc", "k")
 	r.press("ctrl+w", "j", "g", "s")
 	r.contains("synced the schema of acme-prod.shop.customers")
 }
@@ -151,7 +139,6 @@ func TestTreeFamilyRowsAndFilter(t *testing.T) {
 	r.press("L", "l")
 	r.contains("orders_"+orderID(25), "orders_"+orderID(6), "… 5 more · / to filter")
 	r.lacks("orders_" + orderID(5) + " ")
-	// the tree filter reveals only the members that match
 	r.press("h", "/", "5f17", "enter")
 	var shown []string
 	for _, row := range r.m.tree.rows {
@@ -197,8 +184,6 @@ func TestSearchReturnsTheFamilyUnlessAnIDIsTyped(t *testing.T) {
 	}
 }
 
-// A filter match carries its family, so a member is found under it even when
-// the family's fixed parts hold YYYYMMDD and its name reads two ways.
 func TestMatchedFamilyUsesTheFamilysOwnParts(t *testing.T) {
 	cases := []struct {
 		fam    api.ShardFamily

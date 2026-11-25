@@ -49,7 +49,6 @@ func TestSelectedProjectsDecideWhatAFullSyncCovers(t *testing.T) {
 		t.Fatalf("explorer projects %+v", ps)
 	}
 
-	// another process sees the selection
 	other := e.open(true)
 	if got := other.Selection().IDs(); len(got) != 1 || got[0] != "proj-b" {
 		t.Fatalf("second engine sees %v", got)
@@ -66,7 +65,6 @@ func TestDeselectKeepsTheCacheButStopsSyncing(t *testing.T) {
 	if ps := eng.Projects(); len(ps) != 1 || ps[0].Name != "proj-b" {
 		t.Fatalf("explorer projects %+v", ps)
 	}
-	// still cached: an exact lookup works
 	if _, err := eng.TableDetail(ctx, api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "orders"}); err != nil {
 		t.Fatalf("cache dropped: %v", err)
 	}
@@ -75,7 +73,6 @@ func TestDeselectKeepsTheCacheButStopsSyncing(t *testing.T) {
 	if got := syncedProjects(e); got["proj-a"] || !got["proj-b"] {
 		t.Fatalf("synced %v", got)
 	}
-	// a day later, background refresh leaves it alone too
 	e.now = e.now.Add(25 * time.Hour)
 	e.fake.Calls = nil
 	h, err := eng.AutoRefresh(ctx)
@@ -123,7 +120,6 @@ func TestExecutionProjectDefaultsToTheEarliestSelected(t *testing.T) {
 	if p, src := eng.ExecutionProject(); p != "proj-b" || src != api.ExecutionFirstSelected {
 		t.Fatalf("default %q %q", p, src)
 	}
-	// selecting it again keeps its place
 	e.now = e.now.Add(time.Minute)
 	if err := eng.SelectProjects("proj-b"); err != nil {
 		t.Fatal(err)
@@ -131,14 +127,12 @@ func TestExecutionProjectDefaultsToTheEarliestSelected(t *testing.T) {
 	if p, _ := eng.ExecutionProject(); p != "proj-b" {
 		t.Fatalf("reselect moved the default to %q", p)
 	}
-	// deselect it: the next earliest takes over
 	if err := eng.DeselectProjects("proj-b"); err != nil {
 		t.Fatal(err)
 	}
 	if p, _ := eng.ExecutionProject(); p != "proj-a" {
 		t.Fatalf("after deselect %q", p)
 	}
-	// a chosen project, selected or not, survives selection changes
 	if err := eng.ChooseExecution("billing"); err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +224,7 @@ func TestStatusListsSelectedThenCachedProjects(t *testing.T) {
 	if err := eng.DeselectProjects("proj-a"); err != nil {
 		t.Fatal(err)
 	}
-	e.now = e.now.Add(25 * time.Hour) // both stale
+	e.now = e.now.Add(25 * time.Hour)
 	st, err := eng.Status(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -247,8 +241,8 @@ func TestStatusListsSelectedThenCachedProjects(t *testing.T) {
 func TestProjectInfosMergeListedSelectedAndCached(t *testing.T) {
 	e := newEnv(t, "proj-a", "proj-b")
 	e.fake.Projects["proj-a"].FriendlyName = "Project A"
-	e.fake.Projects["proj-b"].Unlisted = true                                   // shared at dataset level
-	e.fake.Listed = []api.ListedProject{{ID: "proj-c", FriendlyName: "proj-c"}} // just the ID again
+	e.fake.Projects["proj-b"].Unlisted = true
+	e.fake.Listed = []api.ListedProject{{ID: "proj-c", FriendlyName: "proj-c"}}
 	e.fake.AddProject("proj-d").ListErr = bqtest.PermissionError("datasets.list")
 	e.fake.AddProject("proj-e").ListErr = bqtest.TransientError("boom")
 	eng := e.open(false)
@@ -294,7 +288,6 @@ func TestProjectInfosMergeListedSelectedAndCached(t *testing.T) {
 		t.Fatalf("other failure proj-e %+v", x)
 	}
 
-	// no list: every project counts as listed
 	infos, _ = eng.ProjectInfos(ctx, nil)
 	for _, p := range infos {
 		if !p.Listed {
@@ -344,7 +337,6 @@ func TestTheTUISearchesOnlySelectedProjects(t *testing.T) {
 	if len(f.Matches) != 0 {
 		t.Fatalf("a deselected project is filtered: %+v", f.Matches)
 	}
-	// a pasted path still resolves
 	if r, _ := eng.Search(ctx, "proj-b.core.t", api.SearchOptions{SelectedOnly: true}); len(r.Results) != 1 {
 		t.Fatalf("pasted path: %+v", r.Results)
 	}
@@ -364,8 +356,6 @@ func TestAgentsSeeDeselectedCachesRankedLastWithWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// proj-a also has v_orders; its exact "orders" would rank first without
-	// the preference for Selected projects
 	if len(hits.Hits) != 3 || hits.Hits[0].Path != "proj-b.core.orders" || !hits.Hits[0].Selected ||
 		hits.Hits[1].Path != "proj-a.sales.orders" || hits.Hits[1].Selected || hits.Hits[2].Selected {
 		t.Fatalf("selected projects rank first: %+v", hits.Hits)
@@ -394,11 +384,8 @@ type fakeClient struct{ *bqtest.Fake }
 
 func (fakeClient) Close() error { return nil }
 
-// Codex review 6, finding 7: listing projects never uses the Execution
-// project (an unusable one must not hide the list to pick another from),
-// and each Execution project gets its own client.
 func TestEachExecutionProjectHasItsOwnClient(t *testing.T) {
-	e := newEnv(t, "proj-a") // exec-proj is chosen
+	e := newEnv(t, "proj-a")
 	var mu sync.Mutex
 	var asked []string
 	eng, err := Open(ctx, Options{
@@ -430,16 +417,12 @@ func TestEachExecutionProjectHasItsOwnClient(t *testing.T) {
 	}
 }
 
-// Codex review 6, finding 2: bqt mcp resolves the Execution project once and
-// every engine it opens (also the one opened when the first catalog
-// appears) keeps it.
 func TestAPinnedExecutionProjectSurvivesSelectionChanges(t *testing.T) {
-	e := newEnv(t, "proj-a") // exec-proj is chosen
+	e := newEnv(t, "proj-a")
 	pin, err := ResolveExecution(e.cfg)
 	if err != nil || pin.Project != "exec-proj" || pin.Source != api.ExecutionChosen {
 		t.Fatalf("%+v %v", pin, err)
 	}
-	// after the server started
 	if err := e.open(false).ChooseExecution("later-proj"); err != nil {
 		t.Fatal(err)
 	}
@@ -453,8 +436,6 @@ func TestAPinnedExecutionProjectSurvivesSelectionChanges(t *testing.T) {
 	}
 }
 
-// Codex review 6, finding 6: a refresh that fails after an earlier success
-// shows as failed, keeping the cache's age.
 func TestAFailedRefreshOfACachedProjectShowsAsFailed(t *testing.T) {
 	e := newEnv(t, "proj-a")
 	eng := e.open(false)
@@ -473,9 +454,6 @@ func TestAFailedRefreshOfACachedProjectShowsAsFailed(t *testing.T) {
 	}
 }
 
-// Codex review 6, finding 8: completion offers no names inside a
-// deselected project, except in the Execution project (where unqualified
-// dataset.table names resolve).
 func TestCompletionLeavesOutDeselectedProjects(t *testing.T) {
 	_, eng := synced(t, "proj-a", "proj-b")
 	if err := eng.ChooseExecution("proj-a"); err != nil {
@@ -502,15 +480,12 @@ func TestCompletionLeavesOutDeselectedProjects(t *testing.T) {
 	}
 	if err := eng.DeselectProjects("proj-a"); err != nil {
 		t.Fatal(err)
-	} // still the Execution project
+	}
 	if got := labels("select * from sales."); !strings.Contains(got, "orders") {
 		t.Fatalf("unqualified names resolve in the Execution project: %s", got)
 	}
 }
 
-// Issue 33: a project with no datasets has no (project, location) unit, but a
-// complete dataset listing still syncs it: status, the Projects dialog and
-// the Explorer all count it as synced (0 datasets).
 func TestAnEmptyProjectCountsAsSynced(t *testing.T) {
 	e := newEnv(t, "proj-empty")
 	e.fake.AddProject("proj-empty")
@@ -544,15 +519,12 @@ func TestAnEmptyProjectCountsAsSynced(t *testing.T) {
 		t.Fatalf("needs sync %v %v", need, err)
 	}
 
-	// Once older than sync_ttl it is stale like any other project.
 	e.now = e.now.Add(25 * time.Hour)
 	if st, _ := eng.Status(ctx); !st.Projects[0].Stale {
 		t.Fatalf("not stale after the TTL: %+v", st.Projects[0])
 	}
 }
 
-// Issue 33: a project whose dataset listing fails has no (project, location)
-// unit either, and is not synced.
 func TestAProjectWhoseListingFailsIsNotSynced(t *testing.T) {
 	e := newEnv(t, "proj-x")
 	e.fake.AddProject("proj-x").ListErr = bqtest.TransientError("boom")

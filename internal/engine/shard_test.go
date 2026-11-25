@@ -12,8 +12,6 @@ import (
 
 const hexA, hexB = "0123456789abcdef0000000a", "0123456789abcdef0000000b"
 
-// withOrderShards adds the family orders_* (newest: orders_<hexB>) to
-// proj-a.sales, with the hex pattern next to the date one.
 func withOrderShards(t *testing.T) (*env, *Engine) {
 	t.Helper()
 	e := newEnv(t, "proj-a")
@@ -59,7 +57,6 @@ func TestSyncTableScope(t *testing.T) {
 	if d.SchemaFrom != "" || len(d.Table.Columns) != 2 || d.Table.Columns[1].FieldPath != "legacy" || !d.Table.OwnSchema {
 		t.Fatalf("gs syncs the member's own schema: %+v", d)
 	}
-	// a family's path syncs its newest shard
 	fam := api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "orders_*"}
 	h, err = eng.StartSync(ctx, api.SyncScope{Table: &fam})
 	if err != nil {
@@ -72,7 +69,6 @@ func TestSyncTableScope(t *testing.T) {
 	if len(calls) != 2 || calls[1].Table != "orders_"+hexB {
 		t.Fatalf("%+v", calls)
 	}
-	// ... and only refreshes it: the family's schema, no own-schema mark
 	newest := api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "orders_" + hexB}
 	if d, _ := eng.TableDetail(ctx, newest); d.Table.OwnSchema {
 		t.Fatalf("gs on the family marked its newest shard: %+v", d.Table)
@@ -109,9 +105,6 @@ func TestAgentsSeeTheCollapsedCatalog(t *testing.T) {
 	}
 }
 
-// Shards of two table types under one pattern are two families with one
-// name. A member shows its own family's schema, each family lists only its
-// members, and the shared name resolves to the TABLE family.
 func TestFamiliesOfTwoTypesShareANameWithoutMixing(t *testing.T) {
 	e := newEnv(t, "proj-a")
 	e.cfg = e.config("shard_patterns = ['orders_(\\d+)']\n")

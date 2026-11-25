@@ -11,8 +11,6 @@ import (
 //go:embed page.html
 var page []byte
 
-// dataMarker is replaced by the model JSON. encoding/json escapes <, > and &,
-// so the JSON cannot end the <script> element it sits in.
 var dataMarker = []byte("__ARCHMAP_DATA__")
 
 func render(w io.Writer, m *Model) error {

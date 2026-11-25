@@ -41,7 +41,6 @@ func TestRunIsRecordedInHistoryAndPaged(t *testing.T) {
 	if sql != "select n, label from t" || state != "done" || !strings.Contains(params, `"2024-01-01"`) || source != "tui" || bytes != 70000 {
 		t.Fatalf("%q %q %q %q %d", sql, state, params, source, bytes)
 	}
-	// a dry-run leaves no trace
 	eng.StartRun(ctx, runs.Request{SQL: "select 1", DryRunOnly: true}).Wait()
 	if n, _ := h.RunCount(ctx); n != 1 {
 		t.Fatalf("history rows = %d", n)
@@ -68,7 +67,6 @@ func TestExportStreamsToAFileAndCleansUpOnCancel(t *testing.T) {
 		t.Fatalf("%d lines, last %q", len(lines), lines[len(lines)-1])
 	}
 
-	// a cancelled export leaves no file behind
 	path2 := filepath.Join(dir, "cancelled.ndjson")
 	h, err = eng.StartExport(ctx, info.ID, path2, export.NDJSON)
 	if err != nil {
@@ -77,7 +75,6 @@ func TestExportStreamsToAFileAndCleansUpOnCancel(t *testing.T) {
 	h.Cancel()
 	ev = h.Wait()
 	if ev.Error == "" {
-		// the export may have finished before the cancel landed
 		return
 	}
 	left, _ := filepath.Glob(filepath.Join(dir, "*cancelled*"))
@@ -103,7 +100,6 @@ func TestCompleteUsesTheCatalog(t *testing.T) {
 	if got := labels("select * from `proj-a.sales.|"); got != "events_*,events_20240102,orders,v_orders" {
 		t.Fatalf("tables, with the shard family as its wildcard and newest shard: %s", got)
 	}
-	// members only once the typed text reaches into the varying part
 	if got := labels("select * from `proj-a.sales.events|"); got != "events_*,events_20240102" {
 		t.Fatalf("before the varying part: %s", got)
 	}
@@ -121,7 +117,7 @@ func TestCompleteUsesTheCatalog(t *testing.T) {
 func setExportDir(eng *Engine, dir string) {
 	cfg := *eng.Config()
 	cfg.ExportDir = dir
-	eng.SetConfig(&cfg) // the path a live reload takes
+	eng.SetConfig(&cfg)
 }
 
 func TestDefaultExportPathFollowsExportDir(t *testing.T) {
@@ -157,7 +153,6 @@ func TestDefaultExportPathFollowsExportDir(t *testing.T) {
 		t.Fatalf("only the finished export is in export_dir: %v", ents)
 	}
 
-	// a cancelled export leaves nothing behind in export_dir
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1203) }
 	big := eng.StartRun(ctx, runs.Request{SQL: "select many"}).Wait()
 	h, err = eng.StartExport(ctx, big.ID, filepath.Join(dir, "cancelled.ndjson"), export.NDJSON)

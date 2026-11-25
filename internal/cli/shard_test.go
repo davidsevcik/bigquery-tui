@@ -15,7 +15,6 @@ func TestSyncTableSyncsOneTablesSchema(t *testing.T) {
 	if code, out, errOut := s.run("sync"); code != 0 {
 		t.Fatalf("%d %s %s", code, out, errOut)
 	}
-	// orders_2 is the newest (equal creation times: by name)
 	code, out, errOut := s.run("schema", "proj-a.sales.orders_1")
 	if code != 0 || !strings.Contains(out, `"schema_from":"orders_2"`) || !strings.Contains(out, "total") {
 		t.Fatalf("%d %s %s", code, out, errOut)
@@ -32,7 +31,6 @@ func TestSyncTableSyncsOneTablesSchema(t *testing.T) {
 	if code != 0 || strings.Contains(out, "schema_from") || !strings.Contains(out, "legacy") {
 		t.Fatalf("the member's own schema after --table: %s", out)
 	}
-	// the family is reported, and accepted, by its name
 	code, out, _ = s.run("search", "orders_")
 	if code != 0 || !strings.Contains(out, `"table":"orders_*"`) || !strings.Contains(out, `"kind":"shard_family"`) {
 		t.Fatalf("%s", out)
@@ -48,8 +46,6 @@ func TestSyncTableSyncsOneTablesSchema(t *testing.T) {
 	}
 }
 
-// A date family without a suffix is reported by its wildcard events_*, as it
-// always was, in bqt search as in the MCP tools.
 func TestSearchNamesADateFamilyByItsWildcard(t *testing.T) {
 	s := newSandbox(t)
 	s.writeConfig("projects = [\"proj-a\"]\nshard_patterns = ['.+(\\d{8})']\n")

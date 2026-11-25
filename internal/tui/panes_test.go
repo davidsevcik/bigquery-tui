@@ -9,14 +9,12 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 )
 
-// onOrders selects acme-prod.sales.orders in the columns style.
 func (r *rig) onOrders() {
 	r.t.Helper()
 	r.press("l", "j", "j", "l", "j", "j")
 	r.selected("acme-prod.sales.orders")
 }
 
-// line is the first screen row containing sub, or -1.
 func (r *rig) line(sub string) int {
 	for i, l := range strings.Split(r.screen(), "\n") {
 		if strings.Contains(l, sub) {
@@ -56,7 +54,6 @@ func TestEnterOnATableGoesToTheSchemaPane(t *testing.T) {
 	if r.m.detOff != 2 || r.m.zone != ZoneExplorer {
 		t.Fatalf("ctrl+e scrolls the Schema from the Explorer: %d %s", r.m.detOff, r.m.zone)
 	}
-	// h and left go back too
 	r.press("enter", "h")
 	if r.m.zone != ZoneExplorer {
 		t.Fatalf("h: %s", r.m.zone)
@@ -90,7 +87,6 @@ func TestEnterShowsASteppedDownSchemaMaximised(t *testing.T) {
 	}
 	r.contains("Tables 3/4", "SQL · query 1")
 	r.lacks("schema · 8 fields")
-	// ctrl+w z restores as well: back to a Pane the Layout has room for
 	r.press("enter", "ctrl+w", "z")
 	if r.m.zone != ZoneExplorer || r.m.maxed != "" {
 		t.Fatalf("ctrl+w z restores: pane %s maxed %q", r.m.zone, r.m.maxed)
@@ -115,14 +111,11 @@ func TestCtrlWZMaximisesAnyPaneAndTheZoomFollowsFocus(t *testing.T) {
 	}
 	r.contains("Tables 3/4", "SQL · query 1")
 	r.lacks("(maximised)")
-	// the zoom follows ctrl+w l, found on the real Layout: right of the
-	// Schema are the Results
 	r.press("ctrl+w", "z", "ctrl+w", "l")
 	if r.m.zone != ZoneResults || r.m.maxed != ZoneResults {
 		t.Fatalf("ctrl+w l moves the zoom: pane %s maxed %q", r.m.zone, r.m.maxed)
 	}
 	r.contains("Explorer  Schema  Editor  [Results]", "(maximised)")
-	// and ctrl+o, skipping a hidden Pane
 	r.press("ctrl+w", "z", "ctrl+w", "k", "ctrl+w", "c", "ctrl+w", "j", "ctrl+w", "z")
 	if r.m.zone != ZoneResults || r.m.maxed != ZoneResults || !r.m.panes.hiddenPane(ZoneEditor) {
 		t.Fatalf("pane %s maxed %q tree %s", r.m.zone, r.m.maxed, r.m.panes)
@@ -132,13 +125,10 @@ func TestCtrlWZMaximisesAnyPaneAndTheZoomFollowsFocus(t *testing.T) {
 		t.Fatalf("ctrl+o skips the hidden Editor: pane %s maxed %q", r.m.zone, r.m.maxed)
 	}
 	r.contains("[Explorer]  Schema  Results   ctrl+w z restore")
-	// esc does not restore: it keeps its meaning in the Pane (here the
-	// Schema's: back to the Explorer, which the zoom follows)
 	r.press("ctrl+o", "esc")
 	if r.m.zone != ZoneExplorer || r.m.maxed != ZoneExplorer {
 		t.Fatalf("esc: pane %s maxed %q", r.m.zone, r.m.maxed)
 	}
-	// the palette names the Panes too
 	r.press("ctrl+p", "Go to the Schema", "enter")
 	if r.m.zone != ZoneSchema || r.m.maxed != ZoneSchema {
 		t.Fatalf("the palette goes to the Schema pane: %s %q", r.m.zone, r.m.maxed)
@@ -146,13 +136,13 @@ func TestCtrlWZMaximisesAnyPaneAndTheZoomFollowsFocus(t *testing.T) {
 }
 
 func TestPagingKeysMoveByHalfThePane(t *testing.T) {
-	r := newRig(t, 120, 40) // a 38-row body: each Pane is 19 rows
-	r.press("L", "L")       // the list style: ten tables
+	r := newRig(t, 120, 40)
+	r.press("L", "L")
 	r.press("ctrl+d")
 	if want := (19 - 2) / 2; r.m.flat.cur != want {
 		t.Fatalf("ctrl+d in the Explorer moves %d rows, want %d", r.m.flat.cur, want)
 	}
-	r.press("L", "ctrl+t", "orders", "enter") // back to the columns style, on a table
+	r.press("L", "ctrl+t", "orders", "enter")
 	r.selected("acme-prod.sales.orders")
 	r.press("enter", "ctrl+d")
 	if r.m.detOff != 19/2 {
@@ -187,7 +177,7 @@ func TestARunInTheFocusLayoutShowsTheResults(t *testing.T) {
 	for _, c := range []struct {
 		name   string
 		w, h   int
-		choose bool // choose focus in the palette
+		choose bool
 		want   Zone
 	}{
 		{"stepped down below 70 columns", 60, 20, false, ZoneResults},
@@ -235,7 +225,7 @@ func TestLayoutIsRememberedAndTheStepDownIsNot(t *testing.T) {
 	}
 
 	small := newRig(t, 60, 20)
-	small.press("L") // saves while the step-down applies
+	small.press("L")
 	b, err := os.ReadFile(small.m.be.StatePath())
 	if err != nil {
 		t.Fatal(err)
@@ -266,8 +256,6 @@ func TestViewsListTheirFieldsBeforeTheSQL(t *testing.T) {
 	}
 }
 
-// addViewWithFields adds acme-prod.sales.v_customers, a view with columns, and
-// syncs it (the shared v_orders fixture has none, and col: searches rely on that).
 func (r *rig) addViewWithFields() {
 	r.t.Helper()
 	view := bqtest.Table("v_customers", "id", "email")

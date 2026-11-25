@@ -1,6 +1,3 @@
-// Package export writes a query result to a file format. It streams: rows
-// are pulled page by page and written as they arrive, so the size of a
-// result is bounded by the disk, not by memory.
 package export
 
 import (
@@ -18,19 +15,16 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/format"
 )
 
-// Format is an export file format.
 type Format string
 
 const (
 	CSV    Format = "csv"
-	JSON   Format = "json" // one JSON array of objects
+	JSON   Format = "json"
 	NDJSON Format = "ndjson"
 )
 
-// Formats lists the formats in the order a frontend should offer them.
 var Formats = []Format{CSV, JSON, NDJSON}
 
-// FormatOf picks the format from a file name; unknown extensions are CSV.
 func FormatOf(path string) Format {
 	switch strings.ToLower(strings.TrimPrefix(filepath.Ext(path), ".")) {
 	case "json":
@@ -41,7 +35,6 @@ func FormatOf(path string) Format {
 	return CSV
 }
 
-// ParseFormat validates a format name.
 func ParseFormat(s string) (Format, error) {
 	switch f := Format(strings.ToLower(s)); f {
 	case CSV, JSON, NDJSON:
@@ -52,12 +45,8 @@ func ParseFormat(s string) (Format, error) {
 	return "", fmt.Errorf("unknown export format %q (csv, json, ndjson)", s)
 }
 
-// Next returns the rows from startIndex on (any number of them); no rows
-// means the end.
 type Next func(ctx context.Context, startIndex int64) ([][]any, error)
 
-// Write streams every row to w. progress is called after each batch with the
-// number of rows written so far. It returns the row count.
 func Write(ctx context.Context, w io.Writer, f Format, schema []bq.Field, next Next, progress func(rows int64)) (int64, error) {
 	bw := bufio.NewWriterSize(w, 1<<16)
 	var cw *csv.Writer
@@ -149,8 +138,6 @@ func Write(ctx context.Context, w io.Writer, f Format, schema []bq.Field, next N
 	return n, bw.Flush()
 }
 
-// TSV renders formatted cells for the clipboard: a header line and one line
-// per row, tab-separated. Tabs and line breaks inside values become spaces.
 func TSV(cols []api.PreviewColumn, rows [][]api.Cell) string {
 	clean := strings.NewReplacer("\t", " ", "\n", " ", "\r", " ")
 	var b strings.Builder

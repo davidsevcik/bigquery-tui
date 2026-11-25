@@ -9,7 +9,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 )
 
-// datasetNodes are proj-a's datasets by name.
 func datasetNodes(eng *Engine) map[string]api.BrowseNode {
 	out := map[string]api.BrowseNode{}
 	for _, n := range eng.Datasets("proj-a") {
@@ -18,8 +17,6 @@ func datasetNodes(eng *Engine) map[string]api.BrowseNode {
 	return out
 }
 
-// Issue 82: a pending dataset is "syncing" only while this process's sync is
-// reading its unit, and "not synced" once that unit failed or anywhere else.
 func TestPendingDatasetsSyncOnlyWhileTheirUnitIsInFlight(t *testing.T) {
 	e := newEnv(t, "proj-a")
 	reached, release := make(chan struct{}), make(chan struct{})
@@ -56,7 +53,6 @@ func TestPendingDatasetsSyncOnlyWhileTheirUnitIsInFlight(t *testing.T) {
 		t.Fatalf("%+v", r.Results)
 	}
 
-	// Another process never sees "syncing": sync events reach only the writer.
 	ro := e.open(true)
 	if n := datasetNodes(ro)["us_data"]; n.Status != api.DatasetPending || n.Syncing {
 		t.Fatalf("%+v", n)
@@ -83,9 +79,6 @@ func TestPendingDatasetsSyncOnlyWhileTheirUnitIsInFlight(t *testing.T) {
 	}
 }
 
-// Issue 82: a cancelled sync records no unit state for the locations it did
-// not reach. Their pending datasets still make the project unsynced, so the
-// next start refreshes it.
 func TestAProjectWithPendingDatasetsInAnUnsyncedLocationNeedsASync(t *testing.T) {
 	e := newEnv(t, "proj-a")
 	rw := e.open(false)
@@ -119,9 +112,6 @@ func TestAProjectWithPendingDatasetsInAnUnsyncedLocationNeedsASync(t *testing.T)
 	}
 }
 
-// A committed unit's datasets are pending in the search index until it
-// reloads (the catalog watcher does that within a second). They must read
-// "syncing" in that gap, not "not synced" as if their unit had failed.
 func TestACommittedUnitIsNotShownNotSyncedBeforeTheIndexReloads(t *testing.T) {
 	e := newEnv(t, "proj-a")
 	eu, us := make(chan struct{}), make(chan struct{})
@@ -143,7 +133,6 @@ func TestACommittedUnitIsNotShownNotSyncedBeforeTheIndexReloads(t *testing.T) {
 			break
 		}
 	}
-	// The watcher picks up the listing: the datasets show pending.
 	if err := rw.ReloadIndex(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -168,8 +157,6 @@ func TestACommittedUnitIsNotShownNotSyncedBeforeTheIndexReloads(t *testing.T) {
 	}
 }
 
-// A table sync (gs) reads no unit, so it never flags a not synced dataset
-// syncing.
 func TestATableSyncLeavesNotSyncedDatasetsNotSynced(t *testing.T) {
 	e := newEnv(t, "proj-a")
 	e.fake.Fail(bqtest.Failure{Method: "RegionTables", Location: "US", Err: bqtest.TransientError("down")})

@@ -13,28 +13,23 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/store"
 )
 
-// buffer is one query being edited. A scratch buffer autosaves to a draft
-// file that this instance holds under an advisory lock, so several bqt
-// instances never overwrite each other's drafts. A file buffer saves back to
-// its file and has no draft.
 type buffer struct {
 	id   string
 	name string
 	ed   *editor
-	path string // file buffers; "" for a scratch buffer
+	path string
 
 	lock         *store.Lock
-	draftVersion int // editor version in the draft file
-	savedVersion int // editor version in the file (file buffers)
+	draftVersion int
+	savedVersion int
 
-	vim vim // state of the vim layer ([tui] editing = "vim")
+	vim vim
 
-	runID  int64 // latest Run started from this buffer
-	viewID int64 // Run shown in the results pane
+	runID  int64
+	viewID int64
 	params map[string]string
 }
 
-// orphan is a draft no running instance owns (a crash or a closed terminal).
 type orphan struct {
 	id      string
 	modTime time.Time
@@ -66,7 +61,6 @@ func (b *buffer) title() string {
 
 func (m *Model) buf() *buffer { return m.bufs[m.cur] }
 
-// addBuffer appends a buffer and makes it current.
 func (m *Model) addBuffer(text, path, id string) *buffer {
 	b := &buffer{id: id, ed: newEditor(text), path: path, params: map[string]string{}}
 	if b.id == "" {
@@ -88,7 +82,6 @@ func (m *Model) addBuffer(text, path, id string) *buffer {
 	return b
 }
 
-// openFile opens a .sql file as a buffer (bqt path/to/query.sql).
 func (m *Model) openFile(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -115,9 +108,6 @@ func (m *Model) saveFile(b *buffer) error {
 	return nil
 }
 
-// saveDraft writes a scratch buffer's draft if it changed. An empty buffer
-// has no draft.
-// removeDraft deletes a buffer's draft and lock files (it now lives in a file).
 func (m *Model) removeDraft(b *buffer) {
 	os.Remove(m.draftPath(b.id))
 	os.Remove(m.lockPath(b.id))
@@ -127,8 +117,6 @@ func (m *Model) saveDraft(b *buffer) {
 	if b.path != "" || b.lock == nil || b.draftVersion == b.ed.version {
 		return
 	}
-	// The version counts as saved only once the file is really there, so a
-	// failed write (a full disk) is tried again on the next tick.
 	version := b.ed.version
 	p := m.draftPath(b.id)
 	if b.ed.empty() {
@@ -146,7 +134,7 @@ func (m *Model) saveDraft(b *buffer) {
 	}
 	if err != nil {
 		os.Remove(tmp)
-		m.draftErr = err.Error() // shown in the status line until a write succeeds
+		m.draftErr = err.Error()
 		return
 	}
 	b.draftVersion, m.draftErr = version, ""
@@ -158,8 +146,6 @@ func (m *Model) saveDrafts() {
 	}
 }
 
-// releaseBuffers saves the drafts and gives up their locks (on quit), so the
-// next start can offer them for restore.
 func (m *Model) releaseBuffers() {
 	for _, b := range m.bufs {
 		m.saveDraft(b)
@@ -173,7 +159,6 @@ func (m *Model) releaseBuffers() {
 	}
 }
 
-// closeBuffer discards the current buffer and its draft.
 func (m *Model) closeBuffer() {
 	b := m.buf()
 	if b.lock != nil {
@@ -192,8 +177,6 @@ func (m *Model) closeBuffer() {
 	m.comp.open = false
 }
 
-// scanOrphans lists the drafts no instance holds, deleting empty ones and
-// those older than 30 days.
 func (m *Model) scanOrphans() {
 	m.orphans = nil
 	dir := m.be.DraftDir()
@@ -211,7 +194,6 @@ func (m *Model) scanOrphans() {
 		id, isSQL := strings.CutSuffix(name, ".sql")
 		if !isSQL {
 			if lid, ok := strings.CutSuffix(name, ".lock"); ok && !mine[lid] {
-				// a lock file without a draft is left over from an empty buffer
 				if _, err := os.Stat(m.draftPath(lid)); os.IsNotExist(err) {
 					if l, err := store.TryLock(filepath.Join(dir, name)); err == nil {
 						os.Remove(filepath.Join(dir, name))
@@ -226,7 +208,7 @@ func (m *Model) scanOrphans() {
 		}
 		l, err := store.TryLock(m.lockPath(id))
 		if err != nil {
-			continue // another instance is editing it
+			continue
 		}
 		info, ierr := e.Info()
 		data, rerr := os.ReadFile(filepath.Join(dir, name))
@@ -249,8 +231,6 @@ func (m *Model) scanOrphans() {
 	sort.Slice(m.orphans, func(i, j int) bool { return m.orphans[i].modTime.After(m.orphans[j].modTime) })
 }
 
-// restoreOrphan opens an orphaned draft as a buffer and takes over its lock.
-// An empty scratch buffer it would leave behind is dropped.
 func (m *Model) restoreOrphan(o orphan) error {
 	data, err := os.ReadFile(m.draftPath(o.id))
 	if err != nil {

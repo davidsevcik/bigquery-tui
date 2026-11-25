@@ -1,10 +1,3 @@
-// Package sync keeps the local catalog in line with BigQuery (spec section 7).
-//
-// The unit of work is a (project, location) pair. Each unit is fetched with
-// region-qualified INFORMATION_SCHEMA views and applied to the catalog in one
-// transaction. When the region views are not accessible the unit degrades
-// through a ladder: per-dataset views, then table names only, then "keep the
-// old data and mark the dataset inaccessible".
 package sync
 
 import (
@@ -24,33 +17,24 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/store"
 )
 
-// ErrNoProjects is returned when there is nothing to sync.
 var ErrNoProjects = errors.New("no projects selected: pick them in the Projects dialog (ctrl+x p) or with `bqt projects select`")
 
-// Options configures a Syncer.
 type Options struct {
-	Config *config.Config
-	// Selected are the Selected projects: what a full sync covers. A scope
-	// may name other projects (the caller decides which are allowed).
-	Selected []string
-	Meta     bq.Metadata
-	Catalog  *store.Catalog
-	Now      func() time.Time
-	// Parallelism bounds concurrent units (default 4).
+	Config      *config.Config
+	Selected    []string
+	Meta        bq.Metadata
+	Catalog     *store.Catalog
+	Now         func() time.Time
 	Parallelism int
-	// Retries is the number of retries for transient errors (default 2).
-	Retries int
-	// Backoff returns the wait before retry number attempt (1-based).
-	Backoff func(attempt int) time.Duration
-	Log     *slog.Logger
+	Retries     int
+	Backoff     func(attempt int) time.Duration
+	Log         *slog.Logger
 }
 
-// Syncer runs syncs. It does not take the process lock; the caller must.
 type Syncer struct {
 	o Options
 }
 
-// New returns a Syncer with defaults applied.
 func New(o Options) *Syncer {
 	if o.Now == nil {
 		o.Now = time.Now
@@ -89,24 +73,22 @@ type unitJob struct {
 type discovery struct {
 	project     string
 	units       []unitJob
-	state       *api.UnitState // set when discovery failed or was partial
+	state       *api.UnitState
 	failed      bool
 	unreachable []string
 }
 
 type run struct {
-	s      *Syncer
-	emit   func(api.SyncEvent)
-	mu     gosync.Mutex
-	done   int
-	total  int
-	states []api.UnitState
-	failed map[api.UnitRef]bool
-	warns  []string
-	// clientWarns are the bq.Warn messages already added.
+	s           *Syncer
+	emit        func(api.SyncEvent)
+	mu          gosync.Mutex
+	done        int
+	total       int
+	states      []api.UnitState
+	failed      map[api.UnitRef]bool
+	warns       []string
 	clientWarns map[string]bool
-	// started holds when each unit in progress started, for its log record.
-	started map[api.UnitRef]time.Time
+	started     map[api.UnitRef]time.Time
 }
 
 func (r *run) event(e api.SyncEvent) {
@@ -119,7 +101,6 @@ func (r *run) event(e api.SyncEvent) {
 	}
 }
 
-// finishUnit records a finished unit and emits its event with updated counters.
 func (r *run) finishUnit(st api.UnitState, kind api.SyncEventKind) {
 	r.logUnit(st, kind)
 	r.mu.Lock()
@@ -141,8 +122,6 @@ func (r *run) finishUnit(st api.UnitState, kind api.SyncEventKind) {
 	}
 }
 
-// startUnit logs a unit's start; what names it beyond project and location
-// (a dataset count, or the table of a single-table sync).
 func (r *run) startUnit(ref api.UnitRef, what ...any) {
 	r.mu.Lock()
 	if r.started == nil {
@@ -153,9 +132,6 @@ func (r *run) startUnit(ref api.UnitRef, what ...any) {
 	r.s.o.Log.Info("sync unit started", append([]any{"project", ref.Project, "location", ref.Location}, what...)...)
 }
 
-// logUnit writes one record per finished unit: what it stored and how long
-// it took since startUnit, at warn when it failed. A project whose discovery
-// failed never started a unit, so its record says so and has no duration.
 func (r *run) logUnit(st api.UnitState, kind api.SyncEventKind) {
 	args := []any{"project", st.Project}
 	if st.Location == "" {
@@ -181,8 +157,6 @@ func (r *run) logUnit(st api.UnitState, kind api.SyncEventKind) {
 	r.s.o.Log.Info("sync unit done", args...)
 }
 
-// logUnfinished ends the record of every unit a cancel stopped: such a unit
-// stores nothing and keeps its old rows.
 func (r *run) logUnfinished() {
 	r.mu.Lock()
 	refs := make([]api.UnitRef, 0, len(r.started))
@@ -214,8 +188,6 @@ func (r *run) warn(project, msg string) {
 	r.event(api.SyncEvent{Kind: api.EventWarning, Project: project, Message: msg})
 }
 
-// clientWarn adds a warning the BigQuery client reported (bq.Warn) once per
-// run, however many queries report it.
 func (r *run) clientWarn(msg string) {
 	r.mu.Lock()
 	seen := r.clientWarns[msg]
@@ -229,9 +201,6 @@ func (r *run) clientWarn(msg string) {
 	}
 }
 
-// Run syncs the scope and emits structured events. It returns early with
-// Cancelled set when ctx is cancelled; committed units stay. A scope with a
-// Table syncs that one table (see syncTable).
 func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.SyncEvent)) (api.SyncResult, error) {
 	res := api.SyncResult{Started: s.o.Now()}
 	var projects []string
@@ -303,8 +272,6 @@ func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.Syn
 	return res, nil
 }
 
-// syncProjects discovers the projects' datasets, groups them into units and
-// processes the units.
 func (s *Syncer) syncProjects(ctx context.Context, projects []string, r *run) {
 	disc := make([]discovery, len(projects))
 	s.parallel(ctx, len(projects), func(i int) { disc[i] = s.discover(ctx, projects[i], r) })
@@ -330,8 +297,6 @@ func (s *Syncer) syncProjects(ctx context.Context, projects []string, r *run) {
 	s.parallel(ctx, len(jobs), func(i int) { s.processUnit(ctx, jobs[i], r) })
 }
 
-// resolveScope returns the projects to sync and whether they cover every
-// Selected project (a full sync clears "sync needed").
 func (s *Syncer) resolveScope(scope api.SyncScope) (projects []string, full bool, err error) {
 	if len(scope.Projects) == 0 {
 		if len(s.o.Selected) == 0 {
@@ -353,8 +318,6 @@ func (s *Syncer) resolveScope(scope api.SyncScope) (projects []string, full bool
 	return projects, full, nil
 }
 
-// parallel runs fn(0..n-1) with the configured bound, stopping to start new
-// work once ctx is cancelled.
 func (s *Syncer) parallel(ctx context.Context, n int, fn func(i int)) {
 	sem := make(chan struct{}, s.o.Parallelism)
 	var wg gosync.WaitGroup
@@ -403,9 +366,6 @@ func (s *Syncer) discover(ctx context.Context, project string, r *run) discovery
 		byLoc[ds.Location] = append(byLoc[ds.Location], ds)
 		listed = append(listed, ds)
 	}
-	// The listed datasets show at once, as pending until their unit commits
-	// (a large unit can take many minutes). An incomplete listing removes
-	// nothing, like the vanished-location check below.
 	if _, _, err := s.o.Catalog.RecordListing(ctx, project, listed, len(list.Unreachable) == 0); err != nil && ctx.Err() == nil {
 		s.o.Log.Error("record dataset listing", "project", project, "err", err)
 	}
@@ -420,9 +380,6 @@ func (s *Syncer) discover(ctx context.Context, project string, r *run) discovery
 		d.units = append(d.units, unitJob{ref: api.UnitRef{Project: project, Location: l}, datasets: ds})
 	}
 
-	// Locations the catalog knows but BigQuery no longer lists for this project.
-	// When BigQuery reports unreachable locations the listing is incomplete:
-	// a missing location may only be skipped, so nothing is removed.
 	known, err := s.o.Catalog.Locations(ctx, project)
 	if err == nil && len(list.Unreachable) == 0 {
 		for _, l := range known {
@@ -443,8 +400,6 @@ func (s *Syncer) discover(ctx context.Context, project string, r *run) discovery
 		}
 		d.unreachable = list.Unreachable
 	} else if len(d.units) == 0 {
-		// Nothing to sync, so no unit records the success: the discovery
-		// unit does, or the project would never count as synced.
 		if err := s.o.Catalog.RecordEmptyProject(ctx, project, now); err != nil {
 			s.o.Log.Error("record empty project", "project", project, "err", err)
 		}
@@ -530,14 +485,13 @@ func (s *Syncer) processUnit(ctx context.Context, job unitJob, r *run) {
 	r.finishUnit(state, kind)
 }
 
-// failUnit records a whole-unit failure, keeping the old data.
 func (s *Syncer) failUnit(ctx context.Context, job unitJob, now time.Time, err error, r *run) {
 	status := api.UnitInaccessible
 	var lastSuccess *time.Time
 	if units, uerr := s.o.Catalog.Units(ctx); uerr == nil {
 		for _, u := range units {
 			if u.Project == job.ref.Project && u.Location == job.ref.Location && u.LastSuccess != nil {
-				status = api.UnitDegraded // stale but still holds data
+				status = api.UnitDegraded
 				lastSuccess = u.LastSuccess
 			}
 		}
@@ -549,9 +503,6 @@ func (s *Syncer) failUnit(ctx context.Context, job unitJob, now time.Time, err e
 	r.finishUnit(st, api.EventUnitFailed)
 }
 
-// fromSnapshot turns a full region snapshot into dataset applies, dropping
-// datasets that were not requested (region views can leak deleted and
-// temporary datasets) and tables the ignore rules exclude.
 func (s *Syncer) fromSnapshot(job unitJob, snap *api.Snapshot, marks map[string]bool) []store.DatasetApply {
 	meta := map[string]api.DatasetMeta{}
 	for _, d := range job.datasets {
@@ -597,8 +548,6 @@ func (s *Syncer) fromSnapshot(job unitJob, snap *api.Snapshot, marks map[string]
 	return applies
 }
 
-// ladder handles a unit whose region views are not accessible: per dataset it
-// tries dataset-scope views, then table names only, then keeps old data.
 func (s *Syncer) ladder(ctx context.Context, job unitJob, marks map[string]bool, r *run) []store.DatasetApply {
 	out := make([]store.DatasetApply, len(job.datasets))
 	keep := make([]bool, len(job.datasets))
@@ -646,7 +595,7 @@ func (s *Syncer) fallbackDataset(ctx context.Context, job unitJob, d api.Dataset
 	}
 	switch bq.KindOf(err) {
 	case bq.KindNotFound:
-		return store.DatasetApply{}, false // deleted since datasets.list
+		return store.DatasetApply{}, false
 	case bq.KindPermission:
 	default:
 		return keepOld(err)
@@ -667,7 +616,7 @@ func (s *Syncer) fallbackDataset(ctx context.Context, job unitJob, d api.Dataset
 		sort.Slice(kept, func(i, j int) bool { return kept[i].Name < kept[j].Name })
 		shard.Assign(kept, s.o.Config.Shards())
 		for i := range kept {
-			kept[i].OwnSchema = marks[d.Name+"."+kept[i].Name] // gs marks outlast a names-only refresh
+			kept[i].OwnSchema = marks[d.Name+"."+kept[i].Name]
 		}
 		return s.withDatasetOptions(ctx, store.DatasetApply{Meta: m, Mode: store.ModeNamesOnly, Status: api.DatasetNamesOnly, Tables: kept}), true
 	}
@@ -680,9 +629,6 @@ func (s *Syncer) fallbackDataset(ctx context.Context, job unitJob, d api.Dataset
 	return keepOld(nerr)
 }
 
-// withDatasetOptions fills the description, friendly name and labels from
-// datasets.get, since SCHEMATA_OPTIONS exists only at region scope. A failure
-// is logged and leaves the datasets.list values: the tables are still fresh.
 func (s *Syncer) withDatasetOptions(ctx context.Context, a store.DatasetApply) store.DatasetApply {
 	m := a.Meta
 	got, err := retry(ctx, s, "get dataset "+m.Project+"."+m.Name, func() (api.DatasetMeta, error) {
@@ -698,7 +644,6 @@ func (s *Syncer) withDatasetOptions(ctx context.Context, a store.DatasetApply) s
 	return a
 }
 
-// summarize derives the unit status and a short error summary.
 func summarize(applies []store.DatasetApply) (api.UnitStatus, string) {
 	var namesOnly, inaccessible []string
 	for _, a := range applies {
@@ -747,9 +692,6 @@ func joinNames(n []string) string {
 	return out
 }
 
-// DeniedUnit reports whether a unit's last failure was a permission (or
-// not found) error, as errText records it: the project is not accessible,
-// rather than failing for another reason.
 func DeniedUnit(u api.UnitState) bool {
 	return u.Status == api.UnitInaccessible &&
 		(strings.HasPrefix(u.Error, bq.KindPermission.String()+":") || strings.HasPrefix(u.Error, bq.KindNotFound.String()+":"))
@@ -763,7 +705,6 @@ func errText(err error) string {
 	return err.Error()
 }
 
-// retry runs fn, retrying transient failures with backoff.
 func retry[T any](ctx context.Context, s *Syncer, op string, fn func() (T, error)) (T, error) {
 	var zero T
 	for attempt := 0; ; attempt++ {

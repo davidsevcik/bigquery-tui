@@ -12,13 +12,10 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/format"
 )
 
-// recordData is the row shown in the record popup: a row of the grid the
-// Results show (a Run's or the Sample's). Grids hold clipped cells, so the
-// row is read again in full through the grid's row source.
 type recordData struct {
 	g     *grid
 	row   int64
-	total int64 // rows n/N can reach
+	total int64
 	name  string
 	cols  []api.PreviewColumn
 	cells []api.Cell
@@ -33,12 +30,10 @@ type recordMsg struct {
 	err  error
 }
 
-// recordCellMax is the size above which a value is clipped in the record view.
 const recordCellMax = 1 << 20
 
 var recordFormat = format.Options{MaxChars: recordCellMax, KeepNewlines: true}
 
-// openGridRecord shows the grid's cursor row as a full record.
 func (m *Model) openGridRecord(g *grid) tea.Cmd {
 	if g == nil || g.total == 0 {
 		return nil
@@ -66,7 +61,6 @@ func (m *Model) onRecord(msg recordMsg) {
 	}
 }
 
-// recordStep moves the popup to the next or previous row.
 func (m *Model) recordStep(d int) tea.Cmd {
 	if m.rec == nil || m.rec.g == nil || !m.kept(m.rec.g) {
 		return nil
@@ -80,7 +74,6 @@ func (m *Model) recordStep(d int) tea.Cmd {
 	return tea.Batch(m.openGridRecord(g), m.gridEnsure())
 }
 
-// recordPopup shows a row of the Results as a full record (enter, v).
 type recordPopup struct{ textPopup }
 
 func (recordPopup) page(m *Model, inner, _ int) scrollPage {
@@ -147,8 +140,6 @@ func (m *Model) recordLines(w int) (string, []string) {
 	return ttl, out
 }
 
-// recordValue lays one cell out over as many lines as it needs. Nested and
-// JSON values are indented; text is wrapped, keeping its own line breaks.
 func recordValue(c api.PreviewColumn, cell api.Cell, w int) []string {
 	if cell.Null {
 		return []string{sFaint.Render("NULL")}
@@ -191,7 +182,6 @@ func colorJSON(l string) string {
 	return l
 }
 
-// hardWrap breaks text at w cells, at a space when the line has one.
 func hardWrap(s string, w int) []string {
 	var out []string
 	for wid(s) > w {
@@ -207,7 +197,7 @@ func hardWrap(s string, w int) []string {
 				space = cut
 			}
 		}
-		if cut == 0 { // one rune wider than the pane
+		if cut == 0 {
 			cut = len(string([]rune(s)[:1]))
 		} else if space > w/2 {
 			cut = space

@@ -7,18 +7,12 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 )
 
-// vimDo feeds keys to the vim layer over a bare editor, the way the model
-// does: Normal and Visual keys to the layer, Insert keys to the editor. The
-// text may hold one "|" for the cursor.
 func vimDo(t *testing.T, text string, keys ...string) (*editor, *vim) {
 	t.Helper()
 	e, v, _ := vimDoOut(t, text, keys...)
 	return e, v
 }
 
-// vimDoOut is vimDo that also returns what the keys asked of the model: the
-// last action, toast and clipboard text, and whether any key opened the
-// search prompt.
 func vimDoOut(t *testing.T, text string, keys ...string) (*editor, *vim, vimOut) {
 	t.Helper()
 	var all vimOut
@@ -77,7 +71,6 @@ func vimDoOut(t *testing.T, text string, keys ...string) (*editor, *vim, vimOut)
 	return e, v, all
 }
 
-// marked renders the text with the cursor as "|".
 func marked(e *editor) string {
 	off := e.offset()
 	s := e.text()
@@ -184,7 +177,7 @@ func TestVimMotionsAndOperators(t *testing.T) {
 	for _, c := range cases {
 		keys := []string{c.keys}
 		want := c.want
-		if c.want == "esc" { // an insert command: finish with esc and compare below
+		if c.want == "esc" {
 			keys = append(keys, "esc")
 		}
 		e, v := vimDo(t, c.in, keys...)
@@ -197,7 +190,7 @@ func TestVimMotionsAndOperators(t *testing.T) {
 			}[c.name]
 		}
 		if c.name == "an unknown key after an operator cancels it" {
-			want = "| b" // d is cancelled by z, then x deletes one character
+			want = "| b"
 		}
 		if got != want {
 			t.Errorf("%s: %q + %s\n  got  %q\n  want %q", c.name, c.in, c.keys, got, want)
@@ -246,7 +239,7 @@ func TestVimSearch(t *testing.T) {
 	if e.row != 1 {
 		t.Fatalf("%q", marked(e))
 	}
-	v.key(e, "n", 10) // wraps
+	v.key(e, "n", 10)
 	if e.row != 0 || e.col != 7 {
 		t.Fatalf("wrap: %q", marked(e))
 	}
@@ -278,7 +271,6 @@ func TestVimModesInTheUI(t *testing.T) {
 	r := vimRig(t, 120, 30)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(7) }
 	r.contains("NORMAL", "i inserts")
-	// printable keys are commands in Normal mode, text in Insert mode
 	r.press("i")
 	r.contains("INSERT")
 	r.typeText("select one")
@@ -286,7 +278,6 @@ func TestVimModesInTheUI(t *testing.T) {
 	if r.text() != "select one" || r.m.buf().vim.mode != vimNormal {
 		t.Fatalf("%q %s", r.text(), r.m.buf().vim.mode)
 	}
-	// ctrl+r is redo in Normal mode, never a run
 	r.press("u")
 	if r.text() != "" {
 		t.Fatalf("u undoes the whole insert: %q", r.text())
@@ -295,17 +286,14 @@ func TestVimModesInTheUI(t *testing.T) {
 	if r.text() != "select one" || len(r.fake.QueryCalls()) != 0 {
 		t.Fatalf("ctrl+r must redo, not run: %q, %d queries", r.text(), len(r.fake.QueryCalls()))
 	}
-	// enter runs the buffer
 	r.press("enter")
 	r.contains("#1 done", "7 rows")
-	// space d is the dry-run; ctrl+d scrolls
 	r.press("ctrl+d")
 	if n := len(r.fake.QueryCalls()); n != 2 {
 		t.Fatalf("ctrl+d must not dry-run in Normal mode (%d queries)", n)
 	}
 	r.press("space", "d")
 	r.contains("dry-run:")
-	// in Insert mode ctrl+r runs and ctrl+d dry-runs, as in plain editing
 	r.press("A")
 	r.typeText(" -- x")
 	r.press("ctrl+r")
@@ -314,7 +302,6 @@ func TestVimModesInTheUI(t *testing.T) {
 		t.Fatal("the run uses the text as typed")
 	}
 	r.press("esc")
-	// : opens the palette, ? the help, and the registry's ctrl keys still work
 	r.press(":")
 	if r.m.ov != ovPalette {
 		t.Fatal(": opens the palette")
@@ -345,7 +332,6 @@ func TestVimVisualRunsTheSelectionAndDotRepeats(t *testing.T) {
 	if r.m.buf().vim.mode != vimNormal {
 		t.Fatal("back to Normal mode after the run")
 	}
-	// dot repeats the last change, including what was typed
 	r.press("g", "g", "c", "w")
 	r.typeText("SELECT")
 	r.press("esc", "j", "0", ".")
@@ -360,7 +346,6 @@ func TestVimVisualRunsTheSelectionAndDotRepeats(t *testing.T) {
 	if r.text() != "SELECT 1;\nSELECT 2" {
 		t.Fatalf("each repeat is its own undo step: %q", r.text())
 	}
-	// y also goes to the system clipboard; / finds
 	r.press("/")
 	r.contains("Find in the buffer")
 	r.typeText("2")
@@ -368,7 +353,6 @@ func TestVimVisualRunsTheSelectionAndDotRepeats(t *testing.T) {
 	if ed := r.m.buf().ed; ed.row != 1 || ed.col != 7 {
 		t.Fatalf("/ jumped to %d:%d", ed.row, ed.col)
 	}
-	// the draft holds the text
 	r.m.saveDrafts()
 	if b := r.m.buf(); b.draftVersion != b.ed.version {
 		t.Fatal("changes made in Normal mode reach the draft")
@@ -386,7 +370,6 @@ func TestVimCompletionInInsertMode(t *testing.T) {
 	if r.text() != "select * from `acme-prod." {
 		t.Fatalf("%q", r.text())
 	}
-	// esc closes the popup and leaves Insert mode in one press
 	r.press("esc")
 	if r.m.comp.open || r.m.buf().vim.mode != vimNormal {
 		t.Fatal("esc leaves Insert mode")
@@ -398,7 +381,7 @@ func TestVimCompletionInInsertMode(t *testing.T) {
 }
 
 func TestPlainEditingIsStillAvailable(t *testing.T) {
-	r := editorRig(t, 120, 30) // [tui] editing = "plain"
+	r := editorRig(t, 120, 30)
 	r.typeText("dd")
 	if r.text() != "dd" {
 		t.Fatalf("plain editing types every key: %q", r.text())
@@ -406,8 +389,6 @@ func TestPlainEditingIsStillAvailable(t *testing.T) {
 	r.lacks("NORMAL", "INSERT")
 }
 
-// ctrl+p is kept from bqt in every vim mode (spec 9.1): it opens the command
-// palette, also in Normal mode.
 func TestCtrlPOpensThePaletteInNormalMode(t *testing.T) {
 	r := vimRig(t, 120, 30)
 	if r.m.buf().vim.mode != vimNormal {
@@ -419,11 +400,6 @@ func TestCtrlPOpensThePaletteInNormalMode(t *testing.T) {
 	}
 }
 
-// TestVimKeyPaths covers the key paths the motion and operator table above
-// leaves out: the second key of a two-key command, counts, the leader, what
-// the keys ask of the model, and Visual mode's own keys. pending is what is
-// still pending after the keys, as the pane title shows it ("" when idle).
-// The clipboard text is compared only where a case names it.
 func TestVimKeyPaths(t *testing.T) {
 	cases := []struct {
 		name, in string
@@ -433,7 +409,6 @@ func TestVimKeyPaths(t *testing.T) {
 		out      vimOut
 		pending  string
 	}{
-		// the second key of f F t T, r and g
 		{name: "f space", in: "|a b", keys: []string{"f "}, want: "a| b"},
 		{name: "f then a named key cancels it and the count", in: "|abc", keys: []string{"2f", "esc", "x"}, want: "|bc"},
 		{name: "f with no match cancels the count", in: "|abc", keys: []string{"2fzx"}, want: "|bc"},
@@ -445,14 +420,12 @@ func TestVimKeyPaths(t *testing.T) {
 		{name: "count gg", in: "one\ntwo\n|three", keys: []string{"2gg"}, want: "one\n|two\nthree"},
 		{name: "dgg", in: "one\n|two\nthree", keys: []string{"dgg"}, want: "|three"},
 
-		// the space leader
 		{name: "space r runs", in: "|a", keys: []string{"space", "r"}, want: "|a", out: vimOut{action: "run"}},
 		{name: "space y hands off", in: "|a", keys: []string{"space", "y"}, want: "|a", out: vimOut{action: "handoff"}},
 		{name: "space then an unbound key", in: "|a", keys: []string{"space", "z"}, want: "|a", out: vimOut{toast: "space z is not bound (space r runs, space d dry-runs)"}},
 		{name: "space waits for the leader key", in: "|a", keys: []string{"space"}, want: "|a", pending: "leader"},
 		{name: "a count makes space a motion", in: "|abc", keys: []string{"2", "space"}, want: "ab|c"},
 
-		// counts and pending operators
 		{name: "esc clears a count", in: "|abc", keys: []string{"2", "esc", "x"}, want: "|bc"},
 		{name: "a count is pending", in: "|abc", keys: []string{"12"}, want: "|abc", pending: "12"},
 		{name: "an operator count is pending", in: "|abc", keys: []string{"2d3"}, want: "|abc", pending: "32d"},
@@ -468,13 +441,11 @@ func TestVimKeyPaths(t *testing.T) {
 		{name: "; before any f does nothing", in: "|a,b", keys: []string{";"}, want: "|a,b"},
 		{name: "{", in: "a\n\nb\n|c", keys: []string{"{"}, want: "a\n|\nb\nc"},
 
-		// cw
 		{name: "cw on the last letter of a word", in: "selec|t a", keys: []string{"cwX", "esc"}, want: "selec|X a"},
 		{name: "2cw on the last letter of a word is 2ce", in: "selec|t a b", keys: []string{"2cwX", "esc"}, want: "selec|X"},
 		{name: "cW", in: "|a.b c", keys: []string{"cWX", "esc"}, want: "|X c"},
 		{name: "cw on blanks changes them", in: "a|  b", keys: []string{"cwX", "esc"}, want: "a|Xb"},
 
-		// commands that ask the model
 		{name: ": opens the palette", in: "|a", keys: []string{":"}, want: "|a", out: vimOut{action: "palette"}},
 		{name: "? opens the help", in: "|a", keys: []string{"?"}, want: "|a", out: vimOut{action: "help"}},
 		{name: "/ opens the search prompt", in: "|a", keys: []string{"/"}, want: "|a", out: vimOut{prompt: true}},
@@ -490,7 +461,6 @@ func TestVimKeyPaths(t *testing.T) {
 		{name: "x on an empty line does nothing", in: "|\na", keys: []string{"x"}, want: "|\na"},
 		{name: "~ on an empty line does nothing", in: "|\na", keys: []string{"~"}, want: "|\na"},
 
-		// text objects
 		{name: "diw on an empty line", in: "a\n|\nb", keys: []string{"diw"}, want: "a\n|\nb"},
 		{name: "daw takes the leading blanks at the line end", in: "a |b", keys: []string{"daw"}, want: "|a"},
 		{name: `di" between two pairs`, in: `"a" | "b"`, keys: []string{`di"`}, want: `"a" | "b"`},
@@ -502,7 +472,6 @@ func TestVimKeyPaths(t *testing.T) {
 		{name: "di( with no opener", in: "a|b)", keys: []string{"di("}, want: "a|b)"},
 		{name: "di( with no closer", in: "(a|b", keys: []string{"di("}, want: "(a|b"},
 
-		// Visual mode
 		{name: "v esc", in: "|abc", keys: []string{"vl", "esc"}, want: "a|bc"},
 		{name: "v v leaves", in: "|abc", keys: []string{"vlv"}, want: "a|bc"},
 		{name: "V v is charwise", in: "|abc", keys: []string{"Vlv"}, want: "a|bc", mode: vimVisual},
@@ -558,8 +527,6 @@ func TestVimKeyPaths(t *testing.T) {
 	}
 }
 
-// TestVimScrollAndSearchMisses covers the page motions, which move by the
-// viewport height, and a search with no match.
 func TestVimScrollAndSearchMisses(t *testing.T) {
 	var lines []string
 	for i := range 40 {
@@ -577,7 +544,7 @@ func TestVimScrollAndSearchMisses(t *testing.T) {
 		{[]string{"G", "ctrl+b"}, 30},
 		{[]string{"G", "pgup"}, 30},
 		{[]string{"ctrl+u"}, 0},
-		{[]string{"2", "ctrl+d"}, 5}, // the count does not scale a page
+		{[]string{"2", "ctrl+d"}, 5},
 	} {
 		e, _ := vimDo(t, text, c.keys...)
 		if e.row != c.row {

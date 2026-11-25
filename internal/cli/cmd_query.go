@@ -18,10 +18,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/format"
 )
 
-// The agent-facing commands (spec 14.1): schema, query, results, history,
-// favorites. Every query runs under the CLI's policy profile (spec 14.3).
-
-// limits holds the flags that lower the policy limits.
 type limits struct {
 	maxBytes string
 	timeout  time.Duration
@@ -43,14 +39,12 @@ func (l *limits) bytes() (int64, error) {
 	return n, nil
 }
 
-// openAgent opens a read-only engine whose queries run as source cli.
 func openAgent(ctx context.Context, o *out, g *globals) (*engine.Engine, func(), error) {
 	env := o.env
 	cfg, err := load(env, g)
 	if err != nil {
 		return nil, nil, err
 	}
-	// no start record: agents call these short commands often
 	closeLog, log, err := newLogger(env, g, cfg, "")
 	if err != nil {
 		return nil, nil, err
@@ -92,7 +86,6 @@ func cursorOf(s string) (int64, error) {
 	return n, nil
 }
 
-// listCursor is a --cursor into a list held in memory (History, Favorites).
 func listCursor(s string) (int, error) {
 	n, err := cursorOf(s)
 	if err != nil || n > math.MaxInt32 {
@@ -185,8 +178,6 @@ func printSchema(w io.Writer, s api.TableSchema) {
 	}
 }
 
-// querySQL reads the SQL of `bqt query`: the arguments, --file, or stdin
-// ("-", or no SQL at all with stdin not a terminal).
 func querySQL(env Env, pos []string, file string) (string, error) {
 	var sql string
 	switch {
@@ -331,7 +322,6 @@ func printResult(o *out, res api.QueryResult) error {
 	return nil
 }
 
-// printTable writes rows as aligned text columns (each at most 40 wide).
 func printTable(w io.Writer, cols []api.PreviewColumn, rows [][]*string) {
 	const maxW = 40
 	cell := func(v *string) string {
@@ -420,7 +410,6 @@ func cmdResults(ctx context.Context, o *out, g *globals, args []string) error {
 	return printResult(o, res)
 }
 
-// cmdHistory handles `bqt history [QUERY]` and `bqt history prune`.
 func cmdHistory(ctx context.Context, o *out, g *globals, args []string) error {
 	if len(args) > 0 && args[0] == "prune" {
 		return cmdHistoryPrune(ctx, o, g, args[1:])

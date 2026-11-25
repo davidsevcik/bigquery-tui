@@ -291,7 +291,6 @@ func TestTUIEditingKey(t *testing.T) {
 	}
 }
 
-// Codex review 4, finding 2: a retention so large it would overflow is refused.
 func TestRetentionDaysBound(t *testing.T) {
 	es := parseErrs(t, "location = \"EU\"\nhistory_retention_days = 200000\n", LoadOptions{})
 	if !strings.Contains(es.Error(), "at most 36500") {

@@ -13,16 +13,11 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// HistoryQuery is a resolved History search: free terms over the SQL and
-// conditions that all must hold.
 type HistoryQuery struct {
 	Terms []api.QueryTerm
 	Conds []HistoryCond
 }
 
-// HistoryCond is one filter. Field is "state" or "source" (Values match
-// exactly), "project" (Values are substrings of the job or Execution
-// project) or "since" (Since is the earliest creation time).
 type HistoryCond struct {
 	Field   string
 	Values  []string
@@ -30,15 +25,11 @@ type HistoryCond struct {
 	Negated bool
 }
 
-// NormalizeSQL collapses whitespace outside string literals, quoted
-// identifiers and comments, and drops a trailing semicolon, so the same
-// query typed twice groups as one History entry while 'a  b' and 'a b' stay
-// apart.
 func NormalizeSQL(s string) string {
 	var b strings.Builder
 	space := false
-	var quote byte // ' " or ` while inside one
-	comment := ""  // "--" (to the line end) or "/*" while inside one
+	var quote byte
+	comment := ""
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch {
@@ -91,14 +82,11 @@ func NormalizeSQL(s string) string {
 	return out
 }
 
-// SQLKey is the grouping key of a SQL text.
 func SQLKey(s string) string {
 	sum := sha256.Sum256([]byte(NormalizeSQL(s)))
 	return hex.EncodeToString(sum[:16])
 }
 
-// fillKeys computes sql_key for rows written before the column existed.
-//
 //nolint:contextcheck // a one-off migration while opening the file, which takes no context
 func (h *History) fillKeys() error {
 	var has int
@@ -181,12 +169,10 @@ func nullInt(v sql.NullInt64) *int64 {
 	return &n
 }
 
-// HistoryEntry returns one entry by ID.
 func (h *History) HistoryEntry(ctx context.Context, id int64) (api.HistoryEntry, error) {
 	return scanEntry(h.db.QueryRowContext(ctx, "SELECT "+entryCols+" FROM history h WHERE h.id=?", id))
 }
 
-// SetFavoritePath records that an entry was promoted to a Favorite.
 func (h *History) SetFavoritePath(ctx context.Context, id int64, fav string) error {
 	res, err := h.db.ExecContext(ctx, "UPDATE history SET favorite_path=? WHERE id=?", fav, id)
 	if err != nil {
@@ -198,7 +184,6 @@ func (h *History) SetFavoritePath(ctx context.Context, id int64, fav string) err
 	return nil
 }
 
-// Prune deletes the entries created before t and returns how many went.
 func (h *History) Prune(ctx context.Context, before time.Time) (int64, error) {
 	res, err := h.db.ExecContext(ctx, "DELETE FROM history WHERE created_at < ?", before.Unix())
 	if err != nil {
@@ -207,11 +192,6 @@ func (h *History) Prune(ctx context.Context, before time.Time) (int64, error) {
 	return res.RowsAffected()
 }
 
-// SearchHistory returns one group per SQL text, newest first. Free terms
-// match the SQL through full-text search (each term as a prefix; a term with
-// punctuation matches as a phrase).
-// SearchHistory returns one page of groups, whether more follow, and the
-// number of groups that match (0 when the page is past the end).
 func (h *History) SearchHistory(ctx context.Context, q HistoryQuery, limit, offset int) ([]api.HistoryGroup, bool, int, error) {
 	if limit <= 0 {
 		limit = 50
@@ -319,8 +299,6 @@ func likeEscape(s string) string {
 	return r.Replace(strings.ToLower(s))
 }
 
-// termSpans marks every case-insensitive occurrence of the terms (byte
-// offsets; only ASCII letters are folded, so offsets stay valid).
 func termSpans(text string, terms []api.QueryTerm) []api.Span {
 	lower := asciiLower(text)
 	var out []api.Span

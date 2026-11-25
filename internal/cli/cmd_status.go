@@ -164,8 +164,6 @@ func cmdDoctor(ctx context.Context, o *out, g *globals, args []string) error {
 	return nil
 }
 
-// printDoctor prints the report; withHint adds the ADC login hint under an
-// auth error.
 func printDoctor(w io.Writer, r api.DoctorReport, withHint bool) {
 	yn := func(b bool) string {
 		if b {

@@ -10,10 +10,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/engine"
 )
 
-// pendingSync refreshes acme-prod after BigQuery started listing two more
-// datasets: ml_features in a new region, whose unit it holds in flight, and
-// raw_landing in US, whose unit fails. It returns once the other units are
-// done; release lets the held unit finish.
 func pendingSync(t *testing.T, r *rig) (h *engine.SyncHandle, release func()) {
 	t.Helper()
 	p := r.fake.Projects["acme-prod"]
@@ -27,7 +23,7 @@ func pendingSync(t *testing.T, r *rig) (h *engine.SyncHandle, release func()) {
 	r.fake.OnCall = func(c bqtest.Call) {
 		if c.Method == "RegionTables" && c.Location == "asia-northeast1" {
 			once.Do(func() { close(reached) })
-			<-hold // released: later syncs pass
+			<-hold
 		}
 	}
 	h, err := r.eng.StartSync(context.Background(), api.SyncScope{Projects: []string{"acme-prod"}})
@@ -50,7 +46,6 @@ func pendingSync(t *testing.T, r *rig) (h *engine.SyncHandle, release func()) {
 	return h, func() { close(hold) }
 }
 
-// catalogChanged is what the catalog watcher does after a commit.
 func (r *rig) catalogChanged() {
 	r.t.Helper()
 	if err := r.eng.ReloadIndex(context.Background()); err != nil {
@@ -61,20 +56,17 @@ func (r *rig) catalogChanged() {
 	r.send(catalogWait{ch})
 }
 
-// Issue 82: listed datasets show before their unit syncs, flagged syncing
-// while it is in flight and not synced once it failed, in every Explorer
-// style; the Schema pane says which and why.
 func TestGoldenPendingDatasets(t *testing.T) {
 	for _, sz := range []struct{ w, h int }{{120, 36}, {80, 24}, {60, 20}} {
 		name := func(s string) string { return s + "_" + itoa(sz.w) + "x" + itoa(sz.h) }
 		r := newRig(t, sz.w, sz.h)
 		h, release := pendingSync(t, r)
-		r.press("l", "j", "j") // the datasets of acme-prod: ml_features
+		r.press("l", "j", "j")
 		if sz.w == 120 {
 			r.contains("⟳ syncing", "● not synced", "ML feature store", "labels team:ml tier:gold")
 		}
 		r.golden(name("pending_columns"))
-		r.press("j") // raw_landing
+		r.press("j")
 		r.golden(name("pending_schema_not_synced"))
 		r.press("L")
 		r.golden(name("pending_tree"))
@@ -120,7 +112,7 @@ func TestRefreshSyncsNotSyncedDatasets(t *testing.T) {
 	r.m.syncing = false
 	r.catalogChanged()
 	r.fake.Failures = nil
-	r.press("l", "j", "j", "j") // raw_landing
+	r.press("l", "j", "j", "j")
 	r.contains("● not synced")
 	r.press("r")
 	r.contains("raw_landing                             1")

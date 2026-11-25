@@ -14,14 +14,12 @@ import (
 	"strings"
 )
 
-// frontendPackages are the frontends from spec section 3, besides cmd/*.
 var frontendPackages = map[string]bool{
 	"internal/cli": true,
 	"internal/tui": true,
 	"internal/mcp": true,
 }
 
-// excludedPrefix hides developer tools (this generator) from the map.
 const excludedPrefix = "internal/tools/"
 
 type listPackage struct {
@@ -36,9 +34,6 @@ type listPackage struct {
 	Module       *struct{ Path string }
 }
 
-// Load reads the module that contains dir and builds the full model:
-// packages, imports, public API and graph layout. Problems that do not stop
-// the map (a file that does not parse) come back as warnings.
 func Load(dir string) (*Model, []string, error) {
 	modPath, root, err := moduleOf(dir)
 	if err != nil {
@@ -170,7 +165,6 @@ func Load(dir string) (*Model, []string, error) {
 	return m, warnings, nil
 }
 
-// classify puts a package in one of the groups of spec section 3.
 func classify(short string, lp *listPackage) string {
 	switch {
 	case len(lp.GoFiles) == 0 && len(lp.TestGoFiles)+len(lp.XTestGoFiles) > 0:

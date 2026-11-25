@@ -34,7 +34,6 @@ func TestParseHeader(t *testing.T) {
 	if len(f.Problems) != 0 {
 		t.Fatal(f.Problems)
 	}
-	// round trip
 	if got := Render(f); got != dau {
 		t.Fatalf("render:\n%s", got)
 	}
@@ -60,14 +59,12 @@ func TestParseProblemsAndEdgeCases(t *testing.T) {
 	if f.SQL != "SELECT 1" {
 		t.Fatalf("%q", f.SQL)
 	}
-	// no header at all, and a header with no body
 	if f := Parse("SELECT 1\n-- tags: x\n"); len(f.Tags) != 0 || f.SQL != "SELECT 1\n-- tags: x\n" {
 		t.Fatalf("a header must lead: %+v", f)
 	}
 	if f := Parse("-- tags: x"); f.SQL != "" || len(f.Tags) != 1 {
 		t.Fatalf("%+v", f)
 	}
-	// a default that needs quotes keeps its spaces through a round trip
 	sp := " padded "
 	g := api.Favorite{Params: []api.ParamSpec{{Name: "s", Type: "STRING", Default: &sp}, {Name: "x"}}, SQL: "SELECT @s"}
 	if back := Parse(Render(g)); *back.Params[0].Default != sp || len(back.Params) != 1 {
@@ -126,7 +123,6 @@ func TestSchemaAndBind(t *testing.T) {
 	}
 }
 
-// bind1 binds one value, given by name, to "SELECT @p" with p declared typ.
 func bind1(typ, v string) (api.QueryParam, error) {
 	ps, err := Bind(api.Favorite{SQL: "SELECT @p", Params: []api.ParamSpec{{Name: "p", Type: typ}}}, Given(map[string]string{"p": v}))
 	if err != nil {
@@ -135,9 +131,6 @@ func bind1(typ, v string) (api.QueryParam, error) {
 	return ps[0], nil
 }
 
-// The agent surface (spec 14): a default fills only a missing value, a
-// value given empty stays empty, names ignore case, and a missing or unused
-// parameter is an error.
 func TestBindGivenValues(t *testing.T) {
 	f := Parse("-- param: start DATE = 2024-01-01\n-- param: country STRING\nSELECT 1 WHERE @start > '2000-01-01' AND @country = 'x' AND @n > 0\n")
 	if _, err := Bind(f, Given(map[string]string{"country": "CZ"})); err == nil || !strings.Contains(err.Error(), "@n") {
@@ -171,10 +164,6 @@ func TestBindGivenValues(t *testing.T) {
 	}
 }
 
-// The same Favorite binds the same way from the TUI's prompt and from the
-// CLI or MCP: the values given bind identically, and only an empty value
-// differs, as the spec has it (spec 11: an empty answer takes the default;
-// spec 14: a value given empty stays empty).
 func TestPromptedAndGivenBindTheSameFavorite(t *testing.T) {
 	f := Parse("-- param: d DATE = 2024-01-01\n-- param: s STRING = CZ\n-- param: n INT64\nselect @d, @s, @n, @x")
 	vals := map[string]string{"d": "DATE:2025-05-05", "s": "null", "n": " 7 ", "x": "true"}
@@ -197,7 +186,6 @@ func TestPromptedAndGivenBindTheSameFavorite(t *testing.T) {
 	if cli, err := Bind(f, Given(empty)); err != nil || cli[1].Value != "" || cli[1].Null {
 		t.Fatalf("a STRING given empty stays empty: %+v %v", cli, err)
 	}
-	// a Run's parameters, remembered, bind back to the same parameters
 	ran := []api.QueryParam{{Name: "d", Type: "DATE", Value: "2025-05-05"}, {Name: "s", Type: "STRING", Null: true}, {Name: "n", Type: "INT64", Value: "7"}, {Name: "x", Type: "BOOL", Value: "true"}}
 	again, err := Bind(f, Prompted(Remembered(ran)))
 	if err != nil || !reflect.DeepEqual(again, ran) {
@@ -227,7 +215,7 @@ func TestCleanID(t *testing.T) {
 
 func TestDirOperations(t *testing.T) {
 	root := t.TempDir()
-	d := Dir(filepath.Join(root, "favorites")) // does not exist yet
+	d := Dir(filepath.Join(root, "favorites"))
 	if fs, err := d.List(); err != nil || len(fs) != 0 {
 		t.Fatalf("a missing dir is empty: %v %v", fs, err)
 	}
@@ -263,7 +251,6 @@ func TestDirOperations(t *testing.T) {
 	if fs[0].Path != filepath.Join(string(d), "events", "dau.sql") {
 		t.Fatalf("a Favorite knows its file: %q", fs[0].Path)
 	}
-	// rename refuses an existing target, moves across folders and prunes empty ones
 	if _, err := d.Rename(fs[0], "top"); !errors.Is(err, ErrExists) {
 		t.Fatalf("%v", err)
 	}
@@ -340,8 +327,6 @@ func TestSearch(t *testing.T) {
 	}
 }
 
-// Codex review 4, finding 5: a default with a line break must not end the
-// comment line; every awkward default round-trips.
 func TestDefaultsRoundTrip(t *testing.T) {
 	for _, d := range []string{"first\nsecond", "a\r\nb", `say "hi"`, `back\slash`, "'single'", " edge ", "", "plain value", "null"} {
 		f := api.Favorite{Params: []api.ParamSpec{{Name: "p", Type: "STRING", Default: &d}}, SQL: "SELECT @p\n"}
@@ -354,14 +339,11 @@ func TestDefaultsRoundTrip(t *testing.T) {
 			t.Errorf("%q: %q -> %+v", d, text, back)
 		}
 	}
-	// hand-written quoted defaults keep working
 	if f := Parse("-- param: s STRING = \"a b\"\n-- param: t STRING = 'c d'\nSELECT @s, @t"); *f.Params[0].Default != "a b" || *f.Params[1].Default != "c d" {
 		t.Fatalf("%+v", f.Params)
 	}
 }
 
-// Codex review 4, finding 4: a remembered "TYPE:value" binds under the
-// declared type.
 func TestBindStripsTheDeclaredTypePrefix(t *testing.T) {
 	q, err := bind1("INT64", "INT64:7")
 	if err != nil || q.Value != "7" {
@@ -378,8 +360,6 @@ func TestBindStripsTheDeclaredTypePrefix(t *testing.T) {
 	}
 }
 
-// Codex review 4, finding 3: rename and delete act only on the file that
-// was shown, so a favorites_dir reload meanwhile cannot redirect them.
 func TestRenameAndDeleteActOnTheShownFile(t *testing.T) {
 	root := t.TempDir()
 	a, b := Dir(filepath.Join(root, "a")), Dir(filepath.Join(root, "b"))
@@ -414,7 +394,7 @@ func TestRenameAndDeleteActOnTheShownFile(t *testing.T) {
 
 func TestSaveRewritesTheHeader(t *testing.T) {
 	d := Dir(t.TempDir())
-	text := "-- description: old\n-- param: start DATE = 2024-01-01\nselect @start" // no final newline
+	text := "-- description: old\n-- param: start DATE = 2024-01-01\nselect @start"
 	s, err := d.Save(SaveRequest{Text: text, Name: "sales/daily", Description: " Daily ", Tags: []string{"sales", "daily"}})
 	if err != nil || s.Favorite.ID != "sales/daily.sql" || s.Favorite.Path != filepath.Join(string(d), "sales", "daily.sql") {
 		t.Fatal(s, err)
@@ -429,7 +409,6 @@ func TestSaveRewritesTheHeader(t *testing.T) {
 	if got := s.Header.New + text[s.Header.Old:]; got != head+"select @start" {
 		t.Fatalf("the edit gives the text the file's header: %q", got)
 	}
-	// saving under its own name again replaces it; another existing name asks
 	if _, err := d.Save(SaveRequest{Text: text, Name: "sales/daily.sql ", Own: "sales/daily.sql"}); err != nil {
 		t.Fatal(err)
 	}
@@ -442,7 +421,6 @@ func TestSaveRewritesTheHeader(t *testing.T) {
 	if _, err := d.Save(SaveRequest{Text: text, Name: "taken", Overwrite: true}); err != nil {
 		t.Fatal(err)
 	}
-	// a text without a header, and an empty body
 	if s, _ := d.Save(SaveRequest{Text: "select 1\n", Name: "plain"}); s.Header != (HeaderEdit{Old: 0, New: ""}) {
 		t.Fatalf("%+v", s.Header)
 	}
@@ -452,8 +430,6 @@ func TestSaveRewritesTheHeader(t *testing.T) {
 }
 
 func TestFromHistory(t *testing.T) {
-	// a Run from a Favorite's buffer carries its header: it is replaced, not
-	// stacked; the declared default stays; NULL is written as null
 	sql := "-- description: old\n-- tags: a\n-- param: d DATE = 2024-01-01\nselect @d, @p, @n"
 	got := FromHistory(sql, []api.QueryParam{
 		{Name: "d", Type: "DATE", Value: "2025-05-05"},
@@ -492,8 +468,6 @@ func TestIDOf(t *testing.T) {
 	}
 }
 
-// Codex review 4, finding 1: links never carry an operation out of the
-// favorites directory.
 func TestLinksCannotLeaveTheDirectory(t *testing.T) {
 	root := t.TempDir()
 	d := Dir(filepath.Join(root, "favs"))
@@ -550,7 +524,6 @@ func TestLinksCannotLeaveTheDirectory(t *testing.T) {
 	if left, _ := os.ReadDir(outside); len(left) != 1 {
 		t.Fatalf("nothing was written outside: %v", left)
 	}
-	// a link that stays inside is fine
 	if _, err := d.Write("alias/ok", "select 2\n", false); err != nil {
 		t.Fatal(err)
 	}

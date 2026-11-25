@@ -5,41 +5,28 @@ import (
 	"strings"
 )
 
-// The tutorial is a panel docked under the screen that teaches the
-// navigation one step at a time. The UI works as usual while it runs; each
-// step watches the model and opens the next step once its task is done.
-// ctrl+g starts it; while it runs, ctrl+g is a chord prefix for the
-// tutorial's own keys (n next, p back, q quit).
-
-// tutorialRows is the panel's fixed height, so the screen does not jump
-// between steps.
 const tutorialRows = 7
 
 type tutStep struct {
 	title string
-	// text is the instruction; `backticks` mark keys. It may depend on the
-	// editing mode.
-	text func(m *Model) string
-	// done reports that the task is complete; nil steps advance only with
-	// ctrl+g n.
-	done func(m *Model, t *tutorial) bool
+	text  func(m *Model) string
+	done  func(m *Model, t *tutorial) bool
 }
 
 type tutorial struct {
 	step    int
-	pending bool // ctrl+g was pressed: the next key is the tutorial's
+	pending bool
 	praise  string
 
-	// observed since the step started
 	start    tutSnap
-	keys     map[string]bool // keys pressed in the Pane the step starts in
+	keys     map[string]bool
 	seenOv   map[overlayKind]bool
-	schema   bool // the Schema pane had focus
-	zoomed   bool // a Pane was maximised (ctrl+w z)
-	sampled  bool // p was pressed on a table
-	inserts  bool // vim Insert mode was entered
+	schema   bool
+	zoomed   bool
+	sampled  bool
+	inserts  bool
 	styles   bool
-	filtered bool // an Explorer filter was set
+	filtered bool
 }
 
 type tutSnap struct {
@@ -65,8 +52,6 @@ func (t *tutorial) pressed(names ...string) bool {
 	return false
 }
 
-// closedAfter is true once overlay kind was opened during the step and no
-// overlay is open now.
 func closedAfter(kind overlayKind) func(m *Model, t *tutorial) bool {
 	return func(m *Model, t *tutorial) bool { return t.seenOv[kind] && m.ov == ovNone }
 }
@@ -182,7 +167,6 @@ func (m *Model) tutGo(step int) {
 	m.fitHeight()
 }
 
-// fitHeight gives the tutorial panel its rows.
 func (m *Model) fitHeight() {
 	m.h = m.termH
 	if m.tut != nil {
@@ -190,15 +174,12 @@ func (m *Model) fitHeight() {
 	}
 }
 
-// tutorialKey handles ctrl+g and the key after it. It reports whether it
-// used the key.
 func (m *Model) tutorialKey(name string) bool {
 	if m.tut == nil {
 		if keys.action(ZoneGlobal, name) != "tutorial" {
 			return false
 		}
 		if m.ov == ovPrompt || m.ov == ovConfirm {
-			// closing these would drop the question unanswered
 			m.toast = "answer the popup first, then ctrl+g starts the tutorial"
 			return true
 		}
@@ -240,8 +221,6 @@ func (m *Model) tutorialKey(name string) bool {
 	return false
 }
 
-// tutorialObserve runs after every update: it records what happened and
-// moves on when the step's task is done.
 func (m *Model) tutorialObserve() {
 	t := m.tut
 	if t == nil {
@@ -272,7 +251,6 @@ func (m *Model) tutorialObserve() {
 	}
 }
 
-// tutorialPanel draws the panel, tutorialRows lines high.
 func (m *Model) tutorialPanel(w int) []string {
 	t := m.tut
 	st := tutSteps[t.step]
@@ -299,8 +277,6 @@ func (m *Model) tutorialPanel(w int) []string {
 	return popup(head, lines, w)
 }
 
-// keyMarkup highlights the `backticked` keys of wrapped lines; a key may be
-// split across lines.
 func keyMarkup(lines []string) []string {
 	in := false
 	out := make([]string, len(lines))

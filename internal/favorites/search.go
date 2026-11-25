@@ -8,11 +8,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// Search ranks Favorites for a query: every whitespace-separated term must
-// match the name (path), a tag, the description or the body. Name hits rank
-// above tag hits, tag hits above description hits, description above body.
-// Within the name: exact, prefix, word start, substring, then a fuzzy
-// subsequence. An empty query returns everything by ID.
 func Search(favs []api.Favorite, query string) []api.FavoriteMatch {
 	terms := strings.Fields(strings.ToLower(query))
 	out := []api.FavoriteMatch{}
@@ -45,7 +40,7 @@ func Search(favs []api.Favorite, query string) []api.FavoriteMatch {
 func scoreTerm(f api.Favorite, t string) (int, []api.Span) {
 	id := strings.ToLower(f.ID)
 	base := strings.ToLower(f.Name)
-	baseAt := len(id) - len(path.Base(id)) // where the base name starts in the ID
+	baseAt := len(id) - len(path.Base(id))
 	switch {
 	case base == t:
 		return 100, []api.Span{{Start: baseAt, End: baseAt + len(t)}}
@@ -81,7 +76,6 @@ func scoreTerm(f api.Favorite, t string) (int, []api.Span) {
 	return 0, nil
 }
 
-// wordStart finds t at the start of a word of s (after / _ - . or a space).
 func wordStart(s, t string) int {
 	for i := 0; i+len(t) <= len(s); i++ {
 		if (i == 0 || strings.ContainsRune("/_-. ", rune(s[i-1]))) && strings.HasPrefix(s[i:], t) {
@@ -91,7 +85,6 @@ func wordStart(s, t string) int {
 	return -1
 }
 
-// subsequence matches t's characters in order in s.
 func subsequence(s, t string) []api.Span {
 	var out []api.Span
 	j := 0

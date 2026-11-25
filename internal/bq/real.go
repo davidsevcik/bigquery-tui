@@ -18,20 +18,10 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// SyncMaxBytesBilled is the safety cap on every sync query (10 GiB). An
-// INFORMATION_SCHEMA query bills the 10 MiB minimum, so this only guards
-// against bugs.
 const SyncMaxBytesBilled = 10 << 30
 
-// Client is the real bq.Metadata backed by BigQuery.
 type Client struct {
-	// bq reads through REST paging: Runs, Samples and agent queries depend on
-	// its page-by-page semantics (spec 10.4), and sync uses it once the
-	// Storage Read API is out of reach.
-	bq *bqapi.Client
-	// syncBQ has the Storage Read client enabled and runs sync's
-	// INFORMATION_SCHEMA queries only; nil when there is no Execution project
-	// or the endpoint is overridden (BQT_BIGQUERY_ENDPOINT).
+	bq            *bqapi.Client
 	syncBQ        *bqapi.Client
 	reads         readPath
 	sessionBudget time.Duration
@@ -41,22 +31,13 @@ type Client struct {
 	jobs          jobTable
 }
 
-// Options configures NewClient.
 type Options struct {
-	// ExtraClientOptions are appended (tests, custom endpoints).
 	ExtraClientOptions []option.ClientOption
 	Log                *slog.Logger
-	// NoStorageRead makes sync read its results through REST paging only.
-	NoStorageRead bool
-	// StorageReadOptions are appended to the Storage Read client's options
-	// (tests: a fake server).
+	NoStorageRead      bool
 	StorageReadOptions []option.ClientOption
 }
 
-// NewClient creates a client whose jobs run in executionProject using
-// Application Default Credentials, with executionProject as the quota project.
-// With no Execution project only ListProjects works (the credentials' own
-// quota project applies).
 func NewClient(ctx context.Context, executionProject string, o Options) (*Client, error) {
 	var opts []option.ClientOption
 	if executionProject != "" {
@@ -81,15 +62,12 @@ func NewClient(ctx context.Context, executionProject string, o Options) (*Client
 	if executionProject != "" && !o.NoStorageRead && EndpointOptions() == nil {
 		client.syncBQ, err = newStorageReadClient(ctx, executionProject, opts, o.StorageReadOptions)
 		if err != nil {
-			// Sync still works through REST paging.
 			log.Warn("Storage Read client not created, sync reads results through REST paging", "execution_project", executionProject, "err", err)
 		}
 	}
 	return client, nil
 }
 
-// newStorageReadClient returns a BigQuery client whose query results are read
-// through the Storage Read API, watched by sessionInterceptor.
 func newStorageReadClient(ctx context.Context, executionProject string, opts, storageOpts []option.ClientOption) (*bqapi.Client, error) {
 	c, err := bqapi.NewClient(ctx, executionProject, opts...)
 	if err != nil {
@@ -111,7 +89,6 @@ type discardWriter struct{}
 
 func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
 
-// Close releases the clients.
 func (c *Client) Close() error {
 	err := c.bq.Close()
 	if c.syncBQ != nil {
@@ -120,7 +97,6 @@ func (c *Client) Close() error {
 	return err
 }
 
-// ListProjects implements Metadata using REST projects.list.
 func (c *Client) ListProjects(ctx context.Context) ([]api.ListedProject, error) {
 	var out []api.ListedProject
 	err := c.svc.Projects.List().MaxResults(1000).Context(ctx).Pages(ctx, func(r *bqv2.ProjectList) error {
@@ -138,8 +114,6 @@ func (c *Client) ListProjects(ctx context.Context) ([]api.ListedProject, error) 
 	return out, nil
 }
 
-// ListDatasets implements Metadata using REST datasets.list, which (unlike the
-// Go iterator) returns each dataset's location.
 func (c *Client) ListDatasets(ctx context.Context, project string) (DatasetList, error) {
 	var out DatasetList
 	seenUnreachable := map[string]bool{}
@@ -170,7 +144,6 @@ func (c *Client) ListDatasets(ctx context.Context, project string) (DatasetList,
 	return out, nil
 }
 
-// GetDataset implements Metadata using REST datasets.get.
 func (c *Client) GetDataset(ctx context.Context, project, dataset string) (api.DatasetMeta, error) {
 	d, err := c.svc.Datasets.Get(project, dataset).Context(ctx).Do()
 	if err != nil {
@@ -186,9 +159,6 @@ func (c *Client) GetDataset(ctx context.Context, project, dataset string) (api.D
 	}, nil
 }
 
-// query runs one labelled, capped, explicitly located query and streams rows.
-// It reads the result through the Storage Read API while the client may, and
-// returns the read path it took (readStorage, readREST or readRESTFallback).
 func (c *Client) query(ctx context.Context, location, sql string, params []bqapi.QueryParameter, fn func(row []bqapi.Value) error) (string, error) {
 	client, watch := c.bq, (*sessionWatch)(nil)
 	if c.syncBQ != nil {
@@ -196,7 +166,7 @@ func (c *Client) query(ctx context.Context, location, sql string, params []bqapi
 			client, watch = c.syncBQ, &sessionWatch{budget: c.sessionBudget}
 			ctx = watchSessions(ctx, watch)
 		} else {
-			Warn(ctx, warning) // the sync run dedupes it: one warning per run
+			Warn(ctx, warning)
 		}
 	}
 	q := client.Query(sql)
@@ -224,10 +194,6 @@ func (c *Client) query(ctx context.Context, location, sql string, params []bqapi
 	}
 }
 
-// readOutcome names the read path q.Read took and acts on a failed read
-// session. The Go client has already fallen back to REST paging for this
-// query, so the same job's result is read and nothing runs again. A result
-// that came whole in the first REST response needed no read session.
 func (c *Client) readOutcome(ctx context.Context, watch *sessionWatch) string {
 	if watch == nil {
 		return readREST
@@ -252,7 +218,6 @@ func (c *Client) readOutcome(ctx context.Context, watch *sessionWatch) string {
 	return readRESTFallback
 }
 
-// ListTableNames implements Metadata with REST tables.list.
 func (c *Client) ListTableNames(ctx context.Context, project, dataset string) ([]api.TableMeta, error) {
 	var out []api.TableMeta
 	err := c.svc.Tables.List(project, dataset).MaxResults(1000).Context(ctx).Pages(ctx, func(r *bqv2.TableList) error {
@@ -303,11 +268,8 @@ func num(v bqapi.Value) int64 {
 	return 0
 }
 
-// EndpointEnv names a BigQuery endpoint to use instead of Google's, without
-// credentials: a local emulator for manual testing (spec section 16).
 const EndpointEnv = "BQT_BIGQUERY_ENDPOINT"
 
-// EndpointOptions are the client options for EndpointEnv, nil when unset.
 func EndpointOptions() []option.ClientOption {
 	ep := strings.TrimSpace(os.Getenv(EndpointEnv))
 	if ep == "" {

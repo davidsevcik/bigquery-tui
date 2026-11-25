@@ -1,7 +1,3 @@
-// emuseed syncs bqt's catalog from a BigQuery emulator whose INFORMATION_SCHEMA
-// is too thin for bqt's views: the dataset snapshot is built from tables.get.
-// Manual testing only: setup.sh builds and runs it with BQT_CONFIG and
-// BQT_BIGQUERY_ENDPOINT set.
 package main
 
 import (
@@ -42,7 +38,6 @@ func cols(prefix string, fs []*bqv2.TableFieldSchema, part string, ord *int, out
 	}
 }
 
-// snapshot is a dataset's tables with their columns, from tables.get.
 func (m meta) snapshot(ctx context.Context, req bq.DatasetRequest) (*api.Snapshot, error) {
 	snap := &api.Snapshot{Datasets: []api.DatasetMeta{{Project: req.Project, Name: req.Dataset, Location: req.Location}}}
 	list, err := m.svc.Tables.List(req.Project, req.Dataset).Context(ctx).Do()
@@ -75,8 +70,6 @@ func (m meta) snapshot(ctx context.Context, req bq.DatasetRequest) (*api.Snapsho
 	return snap, nil
 }
 
-// ListDatasets fills in the location the emulator leaves out: bqt keeps
-// the empty location for a project's discovery state.
 func (m meta) ListDatasets(ctx context.Context, project string) (bq.DatasetList, error) {
 	l, err := m.Client.ListDatasets(ctx, project)
 	for i := range l.Datasets {
@@ -87,7 +80,6 @@ func (m meta) ListDatasets(ctx context.Context, project string) (bq.DatasetList,
 	return l, err
 }
 
-// region is every requested dataset's snapshot from tables.get.
 func (m meta) region(ctx context.Context, req bq.RegionRequest) (*api.Snapshot, error) {
 	out := &api.Snapshot{}
 	for _, d := range req.Datasets {
@@ -101,7 +93,6 @@ func (m meta) region(ctx context.Context, req bq.RegionRequest) (*api.Snapshot, 
 	return out, nil
 }
 
-// tablesOnly drops the columns (phase 1).
 func tablesOnly(s *api.Snapshot, err error) (*api.Snapshot, error) {
 	if err != nil {
 		return nil, err
@@ -112,7 +103,6 @@ func tablesOnly(s *api.Snapshot, err error) (*api.Snapshot, error) {
 	return s, nil
 }
 
-// columnsOnly applies the phase 2 filter in Go, as BigQuery would.
 func columnsOnly(s *api.Snapshot, err error, f bq.ColumnFilter) ([]bq.TableColumns, error) {
 	if err != nil {
 		return nil, err

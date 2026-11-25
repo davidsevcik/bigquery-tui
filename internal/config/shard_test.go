@@ -61,8 +61,6 @@ func TestTUIFamilyRows(t *testing.T) {
 	}
 }
 
-// The template's commented examples must parse once uncommented, so that a
-// user can enable them by deleting the "# ".
 func TestTemplateExamplesParseUncommented(t *testing.T) {
 	var b strings.Builder
 	inPatterns := false
@@ -86,7 +84,6 @@ func TestTemplateExamplesParseUncommented(t *testing.T) {
 	if len(c.Shards().Sources()) != 4 || c.FamilyRows() != 20 {
 		t.Fatalf("%q %d", c.Shards().Sources(), c.FamilyRows())
 	}
-	// the examples do what their comments say
 	for _, name := range []string{"events_20240101", "orders_0123456789abcdef01234567", "orders_0123456789abcdef01234567_history", "sessions_123e4567-e89b-12d3-a456-426614174000", "customer_123"} {
 		if !c.Shards().MatchesAny(name) {
 			t.Errorf("no template example matches %s", name)

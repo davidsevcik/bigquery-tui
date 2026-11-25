@@ -12,17 +12,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/shard"
 )
 
-// TestLiveShardRegexParity checks that BigQuery's REGEXP_CONTAINS agrees with
-// Go's regexp on shard patterns, anchored as bqt anchors them. Sync leaves
-// collapsed members out of the column queries on BigQuery's side, so a
-// construct the two read differently would cost a re-read (the safety net);
-// one BigQuery rejects would fail the column queries. Either must fail here,
-// and config validation must then refuse the construct.
-//
-//	BQT_LIVE_EXECUTION_PROJECT=... go test -tags live ./internal/bq -run TestLiveShardRegexParity -v
-//
-// One query over UNNEST parameters: no INFORMATION_SCHEMA access, and it
-// bills the 10 MB minimum. BQT_LIVE_LOCATION sets the job location.
 func TestLiveShardRegexParity(t *testing.T) {
 	exec := os.Getenv("BQT_LIVE_EXECUTION_PROJECT")
 	if exec == "" {

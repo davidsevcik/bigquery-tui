@@ -10,17 +10,12 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 )
 
-// shownFavorites counts the Favorites the picker's list draws: rows that
-// start with a favorite's file name right after the popup's border.
 func (r *rig) shownFavorites() int {
 	r.t.Helper()
 	row := regexp.MustCompile(`(?m)^.{0,4}│ fav\d\d\.sql`)
 	return len(row.FindAllString(r.screen(), -1))
 }
 
-// The picker pages by the rows its list shows: at the side of the preview
-// (wide) and above it (narrow), page down and page up move the cursor by
-// exactly what is visible.
 func TestPickerPagesByTheRowsItShows(t *testing.T) {
 	for _, size := range []struct{ w, h int }{{120, 36}, {80, 30}, {120, 20}, {60, 20}} {
 		t.Run(fmt.Sprintf("%dx%d", size.w, size.h), func(t *testing.T) {
@@ -46,8 +41,6 @@ func TestPickerPagesByTheRowsItShows(t *testing.T) {
 	}
 }
 
-// boxRows is the number of rows between the top and bottom border of the
-// popup titled ttl, as drawn.
 func (r *rig) boxRows(ttl string) int {
 	r.t.Helper()
 	lines := strings.Split(r.screen(), "\n")
@@ -64,8 +57,6 @@ func (r *rig) boxRows(ttl string) int {
 	return 0
 }
 
-// Jump to table pages by half the results its popup shows, not by the
-// Explorer's list behind it.
 func TestJumpPagesByHalfItsList(t *testing.T) {
 	for _, size := range []struct{ w, h int }{{120, 36}, {120, 20}, {60, 20}} {
 		t.Run(fmt.Sprintf("%dx%d", size.w, size.h), func(t *testing.T) {
@@ -73,7 +64,7 @@ func TestJumpPagesByHalfItsList(t *testing.T) {
 			r.press("ctrl+t")
 			r.typeText("p:acme")
 			n := len(r.m.jump.results)
-			rows := r.boxRows("Jump to table") - 2 // the input and the chips
+			rows := r.boxRows("Jump to table") - 2
 			r.press("pgdown")
 			if want := min(max(1, rows/2), n-1); r.m.jump.cur != want {
 				t.Fatalf("page down went to result %d, want %d (half of %d rows, %d results)", r.m.jump.cur, want, rows, n)
@@ -82,7 +73,6 @@ func TestJumpPagesByHalfItsList(t *testing.T) {
 	}
 }
 
-// The list popups move the cursor half a page by half the rows they show.
 func TestListPopupsPageByHalfTheirRows(t *testing.T) {
 	for _, size := range []struct{ w, h int }{{120, 36}, {80, 24}, {60, 20}} {
 		t.Run(fmt.Sprintf("%dx%d", size.w, size.h), func(t *testing.T) {
@@ -105,7 +95,6 @@ func TestListPopupsPageByHalfTheirRows(t *testing.T) {
 	}
 }
 
-// c in the run list cancels the Run under the cursor.
 func TestRunListCancelsTheSelectedRun(t *testing.T) {
 	r := editorRig(t, 120, 30)
 	block := make(chan struct{})
@@ -123,9 +112,6 @@ func TestRunListCancelsTheSelectedRun(t *testing.T) {
 	}
 }
 
-// The billed warning follows each Run's own pricing, not the model the
-// latest dry-run taught: an on-demand Run started before a capacity one
-// still warns, and the capacity one does not.
 func TestRunListCancelWarnsPerRunPricing(t *testing.T) {
 	r := editorRig(t, 120, 30)
 	block := make(chan struct{})
@@ -153,7 +139,6 @@ func TestRunListCancelWarnsPerRunPricing(t *testing.T) {
 		r.press("c")
 		toast := r.m.toast
 		r.press("esc")
-		// deliver the "cancel requested" update, as the program's subscription would
 		u, _ := r.m.runs.Wait(t.Context(), id, func(i api.RunInfo) bool { return i.CancelRequested })
 		r.send(runMsg{u})
 		return toast
@@ -164,16 +149,13 @@ func TestRunListCancelWarnsPerRunPricing(t *testing.T) {
 	if got := cancel(2); got != "cancel requested for run #2" {
 		t.Errorf("capacity Run: %q", got)
 	}
-	// the Results line of a cancel BigQuery has not confirmed follows the
-	// shown Run's pricing too: the capacity Run, then the on-demand one
 	const waiting = "cancel requested: waiting for BigQuery to confirm"
 	r.contains(waiting)
-	r.lacks("may still be") // the toast is gone; the Results line names no billing
+	r.lacks("may still be")
 	r.press("ctrl+x", "[")
-	r.contains(waiting+" (the query may still be", "billed)") // wrapped in the pane
+	r.contains(waiting+" (the query may still be", "billed)")
 }
 
-// c in the run list on a Run that has finished cancels nothing and says so.
 func TestRunListDoesNotCancelAFinishedRun(t *testing.T) {
 	r := editorRig(t, 120, 30)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
@@ -188,8 +170,6 @@ func TestRunListDoesNotCancelAFinishedRun(t *testing.T) {
 	}
 }
 
-// lines is a scrolling popup of n numbered rows for the tests, with a
-// cursor when cursor is set.
 type lines struct {
 	textPopup
 	n      int
@@ -208,8 +188,6 @@ func (l *lines) page(*Model, int, int) scrollPage {
 	return p
 }
 
-// scrollRig is a bare model with the scrolling popup k open on a w×h
-// terminal. It has no backend, so only the popup's own keys may be pressed.
 func scrollRig(k scrollKind, w, h int) (*Model, scrollOverlay) {
 	return &Model{w: w, h: h, ov: ovHelp}, scrollOverlay{k}
 }
@@ -220,9 +198,6 @@ func (s scrollOverlay) press(m *Model, names ...string) {
 	}
 }
 
-// A scrolling popup's frame shows the rows from the offset on and changes
-// no state. The keys stop at the end however far they go, so the next key
-// up moves at once.
 func TestScrollPopupStopsAtTheEnd(t *testing.T) {
 	m, s := scrollRig(&lines{n: 50}, 80, 24)
 	f := m.overlayFrame(s)
@@ -239,7 +214,7 @@ func TestScrollPopupStopsAtTheEnd(t *testing.T) {
 	if m.ovOff != last {
 		t.Fatalf("scrolled to %d, the end is %d", m.ovOff, last)
 	}
-	m.ovOff = 1 << 30 // the sync log opens at its end
+	m.ovOff = 1 << 30
 	if f := m.overlayFrame(s); f.off != last || m.ovOff != 1<<30 {
 		t.Fatalf("framed from %d, the offset is now %d", f.off, m.ovOff)
 	}
@@ -257,8 +232,6 @@ func TestScrollPopupStopsAtTheEnd(t *testing.T) {
 	}
 }
 
-// With a cursor, the keys move it and the window follows, keeping its place
-// while the cursor moves inside it.
 func TestScrollPopupFollowsItsCursor(t *testing.T) {
 	l := &lines{n: 50, cursor: true}
 	m, s := scrollRig(l, 80, 24)
@@ -290,7 +263,6 @@ func TestScrollPopupFollowsItsCursor(t *testing.T) {
 	}
 }
 
-// Every overlay kind has its module.
 func TestEveryOverlayKindHasAModule(t *testing.T) {
 	if overlays[ovNone] != nil {
 		t.Fatal("ovNone is no overlay")
@@ -305,8 +277,6 @@ func TestEveryOverlayKindHasAModule(t *testing.T) {
 	}
 }
 
-// A question closes on an answer only, and a "close the buffer?" no keeps
-// the buffer.
 func TestQuestionsCloseOnAnAnswer(t *testing.T) {
 	for name, want := range map[string]answer{"y": answerYes, "enter": answerYes, "N": answerNo, "q": answerDismiss, "ctrl+c": answerDismiss, "x": noAnswer} {
 		if got := answerOf(name); got != want {
@@ -324,7 +294,6 @@ func TestQuestionsCloseOnAnAnswer(t *testing.T) {
 	}
 }
 
-// The overlays' footers name the keys the Keymap binds.
 func TestOverlayHintsComeFromTheKeymap(t *testing.T) {
 	m := &Model{pk: &picker{}}
 	for kind, want := range map[overlayKind]string{

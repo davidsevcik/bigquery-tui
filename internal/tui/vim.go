@@ -7,11 +7,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// Vim-style editing for the query editor: Normal, Insert, Visual and
-// Visual-line modes over the same editor widget. It is a deliberate subset
-// (spec 9.1): counts, the usual motions, the d c y > < operators with motions
-// and text objects, one unnamed register, search, and dot-repeat.
-
 type vimMode int
 
 const (
@@ -25,39 +20,36 @@ func (m vimMode) String() string {
 	return [...]string{"NORMAL", "INSERT", "VISUAL", "V-LINE"}[m]
 }
 
-// vim is the per-buffer state of the vim layer.
 type vim struct {
 	mode vimMode
 
 	count    int
 	hasCount bool
-	op       string // pending operator: d c y > <
+	op       string
 	opCount  int
-	wait     string // a key that needs one more: g f F t T r i a (text object) and the space leader
+	wait     string
 
-	reg     string // the unnamed register
+	reg     string
 	regLine bool
 
-	findKind string // last f F t T, for ; and ,
+	findKind string
 	findCh   rune
 	search   string
 
-	anchorR, anchorC int // where visual mode started
+	anchorR, anchorC int
 
-	// dot-repeat: the keys of the command in progress, and of the last change
 	rec     []tea.KeyPressMsg
 	last    []tea.KeyPressMsg
 	idleVer int
-	tainted bool // the command did something replay cannot reproduce
+	tainted bool
 	replay  bool
 }
 
-// vimOut is what a key asks the model to do beyond editing the text.
 type vimOut struct {
-	action string // an editor action from the registry (run, dryrun, palette, ...)
-	clip   string // text for the system clipboard
+	action string
+	clip   string
 	toast  string
-	prompt bool // open the search prompt
+	prompt bool
 }
 
 func (v *vim) idle() bool {
@@ -68,7 +60,6 @@ func (v *vim) reset() {
 	v.count, v.hasCount, v.op, v.opCount, v.wait = 0, false, "", 0, ""
 }
 
-// n is the effective count (operator count times motion count).
 func (v *vim) n() int {
 	c := 1
 	if v.hasCount {
@@ -80,12 +71,8 @@ func (v *vim) n() int {
 	return max(1, c)
 }
 
-// --- helpers over the editor
-
 func (e *editor) lineLen(r int) int { return len(e.lines[r]) }
 
-// clampNormal keeps the cursor on a character (Normal mode never sits past
-// the end of a line).
 func (e *editor) clampNormal() {
 	e.row = clamp(e.row, 0, len(e.lines)-1)
 	e.col = clamp(e.col, 0, max(0, e.lineLen(e.row)-1))
@@ -99,7 +86,6 @@ func (e *editor) firstNonBlank(r int) int {
 	return c
 }
 
-// textRange returns the text between two ordered positions (end exclusive).
 func (e *editor) textRange(r1, c1, r2, c2 int) string {
 	if r1 == r2 {
 		return string(e.lines[r1][c1:c2])
@@ -123,7 +109,6 @@ func (e *editor) linesText(r1, r2 int) string {
 	return strings.Join(parts, "\n")
 }
 
-// deleteLines removes whole lines, leaving one empty line in an emptied buffer.
 func (e *editor) deleteLines(r1, r2 int) {
 	e.lines = append(e.lines[:r1], e.lines[r2+1:]...)
 	if len(e.lines) == 0 {
@@ -152,14 +137,12 @@ func (e *editor) charAt(r, c int) (rune, bool) {
 	return e.lines[r][c], true
 }
 
-// wordForward is w / W: the start of the next word.
 func (e *editor) wordForward(r, c int, big bool) (int, int) {
 	ch, ok := e.charAt(r, c)
 	start := charClass(0)
 	if ok {
 		start = classOf(ch, big)
 	}
-	// leave the current word
 	for ok && classOf(ch, big) == start && start != 0 {
 		if c+1 >= e.lineLen(r) {
 			if r == len(e.lines)-1 {
@@ -167,14 +150,13 @@ func (e *editor) wordForward(r, c int, big bool) (int, int) {
 			}
 			r, c = r+1, 0
 			if e.lineLen(r) == 0 {
-				return r, 0 // an empty line is a word
+				return r, 0
 			}
 			break
 		}
 		c++
 		ch, ok = e.charAt(r, c)
 	}
-	// skip blanks
 	for {
 		ch, ok = e.charAt(r, c)
 		if ok && classOf(ch, big) != 0 {
@@ -194,7 +176,6 @@ func (e *editor) wordForward(r, c int, big bool) (int, int) {
 	}
 }
 
-// wordBack is b / B: the start of the previous word.
 func (e *editor) wordBack(r, c int, big bool) (int, int) {
 	step := func() bool {
 		if c > 0 {
@@ -235,7 +216,6 @@ func (e *editor) wordBack(r, c int, big bool) (int, int) {
 	return r, c
 }
 
-// wordEnd is e / E: the end of the current or next word.
 func (e *editor) wordEnd(r, c int, big bool) (int, int) {
 	adv := func() bool {
 		if c+1 < e.lineLen(r) {
@@ -274,7 +254,6 @@ func (e *editor) wordEnd(r, c int, big bool) (int, int) {
 
 var bracketPairs = map[rune]rune{'(': ')', '[': ']', '{': '}', ')': '(', ']': '[', '}': '{'}
 
-// matchBracket is %: the bracket matching the first one at or after the cursor.
 func (e *editor) matchBracket() (int, int, bool) {
 	r, c := e.row, e.col
 	for c < e.lineLen(r) {
@@ -327,7 +306,6 @@ func (e *editor) matchBracket() (int, int, bool) {
 	}
 }
 
-// findChar is f F t T on the cursor line, count times.
 func (e *editor) findChar(kind string, ch rune, count int) (int, bool) {
 	line := e.lines[e.row]
 	c := e.col
@@ -371,7 +349,6 @@ func (e *editor) findChar(kind string, ch rune, count int) (int, bool) {
 	return c, true
 }
 
-// paragraph is { and }: the previous or next blank line.
 func (e *editor) paragraph(dir, count int) int {
 	r := e.row
 	blank := func(i int) bool { return strings.TrimSpace(string(e.lines[i])) == "" }
@@ -386,8 +363,6 @@ func (e *editor) paragraph(dir, count int) int {
 	return r
 }
 
-// searchFrom finds the next (dir 1) or previous match of pat after the
-// cursor, wrapping. The match is case-insensitive unless pat has a capital.
 func (e *editor) searchFrom(pat string, dir int) (int, int, bool) {
 	if pat == "" {
 		return 0, 0, false
@@ -444,7 +419,6 @@ func (e *editor) searchFrom(pat string, dir int) (int, int, bool) {
 	return 0, 0, false
 }
 
-// objectBrackets are the bracket text objects' keys and their pairs.
 var objectBrackets = map[string][2]rune{
 	"(": {'(', ')'}, ")": {'(', ')'}, "b": {'(', ')'},
 	"[": {'[', ']'}, "]": {'[', ']'},
@@ -452,7 +426,6 @@ var objectBrackets = map[string][2]rune{
 	"<": {'<', '>'}, ">": {'<', '>'},
 }
 
-// textObject resolves i/a + key to a range (end exclusive).
 func (e *editor) textObject(around bool, key string) (r1, c1, r2, c2 int, ok bool) {
 	switch key {
 	case "w", "W":
@@ -466,8 +439,6 @@ func (e *editor) textObject(around bool, key string) (r1, c1, r2, c2 int, ok boo
 	return 0, 0, 0, 0, false
 }
 
-// wordObject is iw aw iW aW on the cursor line. aw takes the blanks after the
-// word, or those before it when none follow.
 func (e *editor) wordObject(around, big bool) (r1, c1, r2, c2 int, ok bool) {
 	r := e.row
 	line := e.lines[r]
@@ -498,8 +469,6 @@ func (e *editor) wordObject(around, big bool) (r1, c1, r2, c2 int, ok bool) {
 	return r, a, r, b, true
 }
 
-// quoteObject is i" a" and the other quotes: the pair the cursor is in, or
-// the first one after it on the line. Quotes pair up from the line start.
 func (e *editor) quoteObject(around bool, q rune) (r1, c1, r2, c2 int, ok bool) {
 	r, c := e.row, e.col
 	var qs []int
@@ -509,7 +478,7 @@ func (e *editor) quoteObject(around bool, q rune) (r1, c1, r2, c2 int, ok bool) 
 		}
 	}
 	for i := 0; i+1 < len(qs); i += 2 {
-		if c <= qs[i+1] { // inside this pair, or before it on the line
+		if c <= qs[i+1] {
 			if c < qs[i] && i > 0 {
 				continue
 			}
@@ -522,8 +491,6 @@ func (e *editor) quoteObject(around bool, q rune) (r1, c1, r2, c2 int, ok bool) 
 	return 0, 0, 0, 0, false
 }
 
-// bracketObject is i( a( and the other brackets: the pair around the cursor,
-// across lines.
 func (e *editor) bracketObject(around bool, open, closeCh rune) (r1, c1, r2, c2 int, ok bool) {
 	or, oc, found := e.enclosingOpener(open, closeCh)
 	if !found {
@@ -536,12 +503,9 @@ func (e *editor) bracketObject(around bool, open, closeCh rune) (r1, c1, r2, c2 
 	if around {
 		return or, oc, cr, cc + 1, true
 	}
-	// inside: step past the opener (to the next line when it ends its line)
 	return or, oc + 1, cr, cc, true
 }
 
-// enclosingOpener finds the opener of the pair around the cursor, searching
-// backwards and skipping the pairs closed on the way.
 func (e *editor) enclosingOpener(open, closeCh rune) (int, int, bool) {
 	r, c, depth := e.row, e.col, 0
 	for {
@@ -567,7 +531,6 @@ func (e *editor) enclosingOpener(open, closeCh rune) (int, int, bool) {
 	}
 }
 
-// matchingCloser finds the closer of the opener at r, c.
 func (e *editor) matchingCloser(r, c int, open, closeCh rune) (int, int, bool) {
 	depth := 0
 	for {
@@ -593,8 +556,6 @@ func (e *editor) matchingCloser(r, c int, open, closeCh rune) (int, int, bool) {
 	}
 }
 
-// --- the layer
-
 type motion struct {
 	r, c      int
 	inclusive bool
@@ -603,7 +564,6 @@ type motion struct {
 	ok        bool
 }
 
-// motionFor resolves a motion key. page is the viewport height.
 func (v *vim) motionFor(e *editor, key string, page int) motion {
 	n := v.n()
 	r, c := e.row, e.col
@@ -645,7 +605,6 @@ func (v *vim) motionFor(e *editor, key string, page int) motion {
 	return motion{}
 }
 
-// wordMotion is w b e and W B E, n times.
 func (e *editor) wordMotion(key string, n int) motion {
 	step := e.wordForward
 	switch key {
@@ -662,8 +621,6 @@ func (e *editor) wordMotion(key string, n int) motion {
 	return motion{r: r, c: c, inclusive: key == "e" || key == "E", ok: true}
 }
 
-// lineJump is G (the last line) and gg (the first); with a count both go to
-// that line.
 func (v *vim) lineJump(e *editor, key string) motion {
 	r := 0
 	if key == "G" {
@@ -675,7 +632,6 @@ func (v *vim) lineJump(e *editor, key string) motion {
 	return motion{r: r, c: e.firstNonBlank(r), linewise: true, ok: true}
 }
 
-// findMotion is f F t T: to (or next to) the n-th ch on the cursor line.
 func (e *editor) findMotion(kind string, ch rune, n int) motion {
 	fc, ok := e.findChar(kind, ch, n)
 	if !ok {
@@ -684,7 +640,6 @@ func (e *editor) findMotion(kind string, ch rune, n int) motion {
 	return motion{r: e.row, c: fc, inclusive: kind == "f" || kind == "t", ok: true}
 }
 
-// repeatFind is ; (the last f F t T again) and , (the same in reverse).
 func (v *vim) repeatFind(e *editor, reverse bool, n int) motion {
 	if v.findKind == "" {
 		return motion{}
@@ -696,8 +651,6 @@ func (v *vim) repeatFind(e *editor, reverse bool, n int) motion {
 	return e.findMotion(kind, v.findCh, n)
 }
 
-// pageMotion is ctrl+d and ctrl+u (half a page) and ctrl+f, ctrl+b, pgdown
-// and pgup (a page less one line), down and up.
 func (e *editor) pageMotion(key string, page int) motion {
 	d := max(1, page/2)
 	switch key {
@@ -712,7 +665,6 @@ func (e *editor) pageMotion(key string, page int) motion {
 	return motion{r: r, c: e.want, linewise: true, keepWant: true, ok: true}
 }
 
-// searchMotion is n (the next match of the last search) and N (the previous).
 func (v *vim) searchMotion(e *editor, back bool) motion {
 	dir := 1
 	if back {
@@ -738,8 +690,6 @@ func (v *vim) setReg(text string, line bool, out *vimOut) {
 	out.clip = text
 }
 
-// operate applies the pending operator to a range. For a charwise range the
-// end is exclusive.
 func (v *vim) operate(e *editor, op string, r1, c1, r2, c2 int, linewise bool, out *vimOut) {
 	if r1 > r2 || (r1 == r2 && c1 > c2) {
 		r1, c1, r2, c2 = r2, c2, r1, c1
@@ -801,7 +751,6 @@ func (v *vim) operate(e *editor, op string, r1, c1, r2, c2 int, linewise bool, o
 	e.want = e.col
 }
 
-// paste puts the register after (p) or before (P) the cursor, count times.
 func (v *vim) paste(e *editor, before bool, count int) {
 	if v.reg == "" {
 		return
@@ -835,7 +784,6 @@ func (v *vim) paste(e *editor, before bool, count int) {
 	e.changed()
 }
 
-// visualRange returns the selection of Visual mode (end exclusive).
 func (v *vim) visualRange(e *editor) (r1, c1, r2, c2 int) {
 	r1, c1, r2, c2 = v.anchorR, v.anchorC, e.row, e.col
 	if r1 > r2 || (r1 == r2 && c1 > c2) {
@@ -847,7 +795,6 @@ func (v *vim) visualRange(e *editor) (r1, c1, r2, c2 int) {
 	return r1, c1, r2, min(c2+1, e.lineLen(r2))
 }
 
-// syncSelection shows Visual mode's range as the editor's selection.
 func (v *vim) syncSelection(e *editor) {
 	if !v.visual() {
 		e.vis = nil
@@ -864,12 +811,6 @@ func (v *vim) enterInsert(e *editor) {
 
 func (v *vim) visual() bool { return v.mode == vimVisual || v.mode == vimVisualLine }
 
-// key handles one key in Normal or a Visual mode. key is the printable text
-// or the key's name; page is the viewport height.
-//
-// A key finishes what is pending first: the second key of a two-key command,
-// a digit of the count, then Visual mode's keys or what follows an operator.
-// Otherwise it starts a Normal-mode command.
 func (v *vim) key(e *editor, key string, page int) vimOut {
 	defer func() {
 		if v.mode != vimInsert {
@@ -893,8 +834,6 @@ func (v *vim) key(e *editor, key string, page int) vimOut {
 	return v.normalKey(e, key, page)
 }
 
-// countDigit adds key to the count when it is a digit. 0 is a digit only
-// after another one; on its own it is the motion.
 func (v *vim) countDigit(key string) bool {
 	if len(key) != 1 || key[0] < '0' || key[0] > '9' || (key == "0" && !v.hasCount) {
 		return false
@@ -904,7 +843,6 @@ func (v *vim) countDigit(key string) bool {
 	return true
 }
 
-// keyRune is the character a key types, for the second key of f and r.
 func keyRune(key string) (rune, bool) {
 	if key == "space" {
 		return ' ', true
@@ -916,7 +854,6 @@ func keyRune(key string) (rune, bool) {
 	return rs[0], true
 }
 
-// secondKey completes a two-key command whose first key, w, is waiting.
 func (v *vim) secondKey(e *editor, w, key string, page int) vimOut {
 	var out vimOut
 	switch w {
@@ -935,7 +872,6 @@ func (v *vim) secondKey(e *editor, w, key string, page int) vimOut {
 	return out
 }
 
-// find is f F t T: a motion to the character key types.
 func (v *vim) find(e *editor, kind, key string, out *vimOut) {
 	ch, ok := keyRune(key)
 	if !ok {
@@ -946,8 +882,6 @@ func (v *vim) find(e *editor, kind, key string, out *vimOut) {
 	v.applyMotion(e, e.findMotion(kind, ch, v.n()), out)
 }
 
-// replaceChars is r: the count characters from the cursor become the one key
-// types, if the line has that many.
 func (v *vim) replaceChars(e *editor, key string) {
 	n := v.n()
 	v.reset()
@@ -963,7 +897,6 @@ func (v *vim) replaceChars(e *editor, key string) {
 	e.changed()
 }
 
-// gKey is the key after g: gg is a motion, gr opens the run list.
 func (v *vim) gKey(e *editor, key string, page int, out *vimOut) {
 	switch key {
 	case "g":
@@ -975,8 +908,6 @@ func (v *vim) gKey(e *editor, key string, page int, out *vimOut) {
 	v.reset()
 }
 
-// textObjectKey is the key after i or a: Visual mode selects the object, an
-// operator applies to it.
 func (v *vim) textObjectKey(e *editor, around bool, key string, out *vimOut) {
 	r1, c1, r2, c2, ok := e.textObject(around, key)
 	switch {
@@ -996,13 +927,11 @@ func (v *vim) textObjectKey(e *editor, around bool, key string, out *vimOut) {
 	}
 }
 
-// leaderActions are the editor actions of the space leader's second key.
 var leaderActions = map[string]string{
 	"r": "run", "d": "dryrun", "e": "exteditor", "l": "runs", "n": "newbuf", "b": "buflist",
 	"w": "closebuf", "[": "prevbuf", "]": "nextbuf", "s": "save", "f": "favorites", "h": "history", "F": "savefav", "p": "projects", "y": "handoff",
 }
 
-// leaderKey is the key after space.
 func leaderKey(key string) vimOut {
 	if action := leaderActions[key]; action != "" {
 		return vimOut{action: action}
@@ -1010,9 +939,6 @@ func leaderKey(key string) vimOut {
 	return vimOut{toast: "space " + key + " is not bound (space r runs, space d dry-runs)"}
 }
 
-// operatorKey handles the key after an operator: the operator again for whole
-// lines (dd, cc, yy, >>, <<), a text object, or a motion. Any other key
-// cancels the operator.
 func (v *vim) operatorKey(e *editor, key string, page int) vimOut {
 	var out vimOut
 	switch {
@@ -1032,10 +958,6 @@ func (v *vim) operatorKey(e *editor, key string, page int) vimOut {
 	return out
 }
 
-// changeWord makes cw and cW change to the end of the word, like ce and cE,
-// so the blanks after it stay. It returns the motion to apply, or "" when it
-// changed the word's last letter itself (ce from there would run into the
-// next word).
 func (v *vim) changeWord(e *editor, key string, out *vimOut) string {
 	ch, ok := e.charAt(e.row, e.col)
 	if v.op != "c" || (key != "w" && key != "W") || !ok || unicode.IsSpace(ch) {
@@ -1054,9 +976,6 @@ func (v *vim) changeWord(e *editor, key string, out *vimOut) string {
 	return key
 }
 
-// startPending begins a command that needs more keys: an operator (taking
-// the count typed so far), a two-key command, or the space leader. With a
-// count, space is the motion instead.
 func (v *vim) startPending(key string) bool {
 	switch key {
 	case "d", "c", "y", ">", "<":
@@ -1077,10 +996,8 @@ func (v *vim) startPending(key string) bool {
 	return true
 }
 
-// normalActions are the Normal-mode keys the model handles.
 var normalActions = map[string]string{":": "palette", "?": "help", "enter": "run", ".": "vimrepeat"}
 
-// normalKey handles a key in Normal mode with nothing pending but a count.
 func (v *vim) normalKey(e *editor, key string, page int) vimOut {
 	var out vimOut
 	if v.startPending(key) {
@@ -1122,7 +1039,6 @@ func (v *vim) normalKey(e *editor, key string, page int) vimOut {
 	return out
 }
 
-// insert is i a I A o O: each starts Insert mode in its own place.
 func (v *vim) insert(e *editor, key string) {
 	switch key {
 	case "a":
@@ -1137,7 +1053,6 @@ func (v *vim) insert(e *editor, key string) {
 	v.enterInsert(e)
 }
 
-// openLine is o and O: a new line below or above the cursor, with its indent.
 func (e *editor) openLine(above bool) {
 	e.push(false)
 	indent := append([]rune(nil), e.lines[e.row][:e.firstNonBlank(e.row)]...)
@@ -1154,8 +1069,6 @@ func (e *editor) openLine(above bool) {
 	e.changed()
 }
 
-// shorthand is x X s S D C Y, each an operator over a range: x is dl, X is
-// dh, s is cl, S is cc, D is d$, C is c$ and Y is yy.
 func (v *vim) shorthand(e *editor, key string, n int, out *vimOut) {
 	row, col, end := e.row, e.col, e.lineLen(e.row)
 	last := min(len(e.lines)-1, row+n-1)
@@ -1181,8 +1094,6 @@ func (v *vim) shorthand(e *editor, key string, n int, out *vimOut) {
 	}
 }
 
-// undoTimes is u (or ctrl+r, redo) n times. It returns a toast when it runs
-// out of changes.
 func (e *editor) undoTimes(n int, redo bool) string {
 	step, toast := e.doUndo, "already at the oldest change"
 	if redo {
@@ -1196,8 +1107,6 @@ func (e *editor) undoTimes(n int, redo bool) string {
 	return ""
 }
 
-// joinLines is J: the next line joins the cursor line, joins times, with one
-// space between them.
 func (e *editor) joinLines(joins int) {
 	e.push(false)
 	for i := 0; i < joins && e.row < len(e.lines)-1; i++ {
@@ -1221,8 +1130,6 @@ func flipCase(ch rune) rune {
 	return unicode.ToUpper(ch)
 }
 
-// flipCaseAtCursor is ~: n characters from the cursor change case, and the
-// cursor moves past them.
 func (e *editor) flipCaseAtCursor(n int) {
 	if e.lineLen(e.row) == 0 {
 		return
@@ -1235,7 +1142,6 @@ func (e *editor) flipCaseAtCursor(n int) {
 	e.changed()
 }
 
-// searchWord is *: search for the word under the cursor.
 func (v *vim) searchWord(e *editor, page int, out *vimOut) {
 	if r1, c1, _, c2, ok := e.textObject(false, "w"); ok && c2 > c1 {
 		v.search = string(e.lines[r1][c1:c2])
@@ -1243,7 +1149,6 @@ func (v *vim) searchWord(e *editor, page int, out *vimOut) {
 	}
 }
 
-// applyMotion moves the cursor, or applies the pending operator over the motion.
 func (v *vim) applyMotion(e *editor, mo motion, out *vimOut) {
 	op, visual := v.op, v.visual()
 	v.reset()
@@ -1270,7 +1175,6 @@ func (v *vim) applyMotion(e *editor, mo motion, out *vimOut) {
 	} else if mo.inclusive {
 		c2 = min(c2+1, e.lineLen(r2))
 	}
-	// dw on the last word of a line stops at the line end
 	if forward && !mo.inclusive && r2 > r1 && c2 <= e.firstNonBlank(r2) && op != "y" || (forward && !mo.inclusive && r2 > r1 && c2 == 0) {
 		r2, c2 = r2-1, e.lineLen(r2-1)
 		for r2 > r1 && e.lineLen(r2) == 0 {
@@ -1281,13 +1185,10 @@ func (v *vim) applyMotion(e *editor, mo motion, out *vimOut) {
 	v.operate(e, op, r1, c1, r2, c2, false, out)
 }
 
-// visualOperators are the operators Visual mode applies to the selection.
 var visualOperators = map[string]string{"d": "d", "x": "d", "delete": "d", "y": "y", "c": "c", "s": "c", ">": ">", "<": "<"}
 
-// caseChanges are Visual mode's ~ (flip), u (lower) and U (upper).
 var caseChanges = map[string]func(rune) rune{"~": flipCase, "u": unicode.ToLower, "U": unicode.ToUpper}
 
-// visualKey handles a key in Visual and Visual-line mode.
 func (v *vim) visualKey(e *editor, key string, page int) vimOut {
 	var out vimOut
 	r1, c1, r2, c2 := v.visualRange(e)
@@ -1325,7 +1226,7 @@ func (v *vim) visualKey(e *editor, key string, page int) vimOut {
 	case "space":
 		v.wait = "leader"
 	case "enter":
-		out.action = "run" // runs the selection
+		out.action = "run"
 	case ":":
 		out.action = "palette"
 	case "/":
@@ -1343,8 +1244,6 @@ func (v *vim) leaveVisual() {
 	v.reset()
 }
 
-// toggleVisual is v and V in Visual mode: the same mode again leaves it, the
-// other one switches to it.
 func (v *vim) toggleVisual(mode vimMode) {
 	if v.mode == mode {
 		v.leaveVisual()
@@ -1353,8 +1252,6 @@ func (v *vim) toggleVisual(mode vimMode) {
 	v.mode = mode
 }
 
-// replaceSelection is p and P in Visual mode: the register replaces the
-// selection, which is deleted without changing the register.
 func (v *vim) replaceSelection(e *editor, r1, c1, r2, c2 int, line bool) {
 	reg, regLine := v.reg, v.regLine
 	var discard vimOut
@@ -1374,8 +1271,6 @@ func (v *vim) replaceSelection(e *editor, r1, c1, r2, c2 int, line bool) {
 	e.changed()
 }
 
-// changeCase applies change to every character of a range (end exclusive),
-// or of whole lines, and puts the cursor at its start.
 func (e *editor) changeCase(r1, c1, r2, c2 int, linewise bool, change func(rune) rune) {
 	e.push(false)
 	for r := r1; r <= r2; r++ {
@@ -1394,12 +1289,8 @@ func (e *editor) changeCase(r1, c1, r2, c2 int, linewise bool, change func(rune)
 	e.changed()
 }
 
-// --- model side
-
 func (m *Model) vimOn() bool { return m.be.Config().Editing() == "vim" }
 
-// vimClaims reports whether Normal and Visual mode handle the key themselves
-// instead of the editor's registry binding (ctrl+r is redo, ctrl+d scrolls).
 func vimClaims(name string) bool {
 	switch name {
 	case "ctrl+r", "ctrl+d", "ctrl+u", "ctrl+f", "ctrl+b", "ctrl+n", "esc":
@@ -1408,7 +1299,6 @@ func vimClaims(name string) bool {
 	return false
 }
 
-// vimKey handles a key in Normal or a Visual mode.
 func (m *Model) vimKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	b := m.buf()
 	v, e := &b.vim, b.ed
@@ -1427,9 +1317,6 @@ func (m *Model) vimKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	return cmd
 }
 
-// vimSettle closes the command in progress once the layer is idle again: the
-// undo group ends, and a command that changed the text becomes the one "."
-// repeats.
 func (m *Model) vimSettle(b *buffer) {
 	v, e := &b.vim, b.ed
 	if !v.idle() {
@@ -1480,10 +1367,9 @@ func (m *Model) vimApply(b *buffer, out vimOut, before int) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// vimRepeat replays the keys of the last change.
 func (m *Model) vimRepeat(b *buffer) tea.Cmd {
 	v := &b.vim
-	v.tainted = true // the repeat itself is not a new "last change"
+	v.tainted = true
 	if len(v.last) == 0 {
 		return nil
 	}
@@ -1497,7 +1383,7 @@ func (m *Model) vimRepeat(b *buffer) tea.Cmd {
 		}
 		v.key(b.ed, keyName(k), max(2, m.editorRows()))
 	}
-	if v.mode == vimInsert { // a recording always ends in Normal mode
+	if v.mode == vimInsert {
 		m.vimLeaveInsert(b)
 	}
 	b.ed.clampNormal()
@@ -1507,7 +1393,6 @@ func (m *Model) vimRepeat(b *buffer) tea.Cmd {
 	return nil
 }
 
-// vimLeaveInsert is esc in Insert mode.
 func (m *Model) vimLeaveInsert(b *buffer) {
 	b.vim.mode = vimNormal
 	b.ed.selOn = false
@@ -1519,7 +1404,6 @@ func (m *Model) vimLeaveInsert(b *buffer) {
 	m.comp.open = false
 }
 
-// vimInsertKey applies a key in Insert mode during a replay (no popup).
 func (m *Model) vimInsertKey(b *buffer, msg tea.KeyPressMsg, name string) {
 	if name == "esc" {
 		m.vimLeaveInsert(b)

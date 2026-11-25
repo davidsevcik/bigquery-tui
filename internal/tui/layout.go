@@ -2,25 +2,15 @@ package tui
 
 import "slices"
 
-// The Layout arranges the four Panes (Explorer, Schema, Editor, Results) on
-// screen: a split tree whose leaves are the Panes (ADR 0002). arrange turns
-// it, the body size and the focus into a rectangle per Pane; drawing and key
-// handling both use it. Nothing here reads the Model.
-
-// rect is a Pane's place in the body, in cells.
 type rect struct{ x, y, w, h int }
 
-// splitDir is how a split lays out its children.
 type splitDir int
 
 const (
-	splitRow splitDir = iota // side by side, separated by a one-column line
-	splitCol                 // stacked; each Pane's title row is the divider
+	splitRow splitDir = iota
+	splitCol
 )
 
-// layoutNode is one node of the split tree: a leaf holds a Pane, a split
-// holds children with an integer weight each. A Pane appears at most once. A
-// hidden leaf keeps its slot but takes no space.
 type layoutNode struct {
 	pane    Zone
 	hidden  bool
@@ -35,16 +25,11 @@ func split(dir splitDir, weights []int, kids ...layoutNode) layoutNode {
 	return layoutNode{dir: dir, weights: weights, kids: kids}
 }
 
-// classicTree is Explorer over Schema on the left, Editor over Results on the
-// right. Both columns use the same weights so that their rows line up: the
-// Explorer sits beside the Editor and the Schema beside the Results.
 var classicTree = split(splitRow, []int{35, 65},
 	split(splitCol, []int{50, 50}, leaf(ZoneExplorer), leaf(ZoneSchema)),
 	split(splitCol, []int{50, 50}, leaf(ZoneEditor), leaf(ZoneResults)),
 )
 
-// Layout presets (layouttree.go has their trees). focus uses the classic tree
-// for directions but draws only the focused Pane, under a one-line pane bar.
 const (
 	presetClassic = "classic"
 	presetQuery   = "query"
@@ -62,10 +47,8 @@ func knownPreset(name string) bool {
 	return false
 }
 
-// paneOrder is the fixed cycle order of ctrl+o.
 var paneOrder = []Zone{ZoneExplorer, ZoneSchema, ZoneEditor, ZoneResults}
 
-// paneMin is the smallest size a Pane is drawn at, title row included.
 var paneMin = map[Zone]struct{ w, h int }{
 	ZoneExplorer: {20, 4},
 	ZoneSchema:   {30, 5},
@@ -73,30 +56,20 @@ var paneMin = map[Zone]struct{ w, h int }{
 	ZoneResults:  {20, 4},
 }
 
-// arrangement is where everything goes for one frame.
 type arrangement struct {
-	rects    map[Zone]rect // Panes drawn now, each exactly this size; they tile the body with seps (and bar)
-	seps     []rect        // one-column vertical separators
-	bar      *rect         // the pane bar row, nil otherwise
-	barPanes []Zone        // the Panes the bar names; the one drawn is in brackets
-	barHint  string
-	nav      map[Zone]rect // rectangles used for ctrl+w h/j/k/l
-	cycle    []Zone        // ctrl+o order: Explorer, Schema, Editor, Results minus Panes not reachable
-	stepped  bool          // a small-terminal step-down applies
-	single   bool          // one Pane at a time: the focus Layout or the small-terminal fallback
-	zoom     Zone          // the Pane maximised with ctrl+w z ("" for none)
-	// the focused Pane is shown maximised because the step-down left it out
+	rects     map[Zone]rect
+	seps      []rect
+	bar       *rect
+	barPanes  []Zone
+	barHint   string
+	nav       map[Zone]rect
+	cycle     []Zone
+	stepped   bool
+	single    bool
+	zoom      Zone
 	offLayout bool
 }
 
-// arrange lays the tree out in a w×h body. preset is the tree's source
-// preset (its step-down rules apply), focused the Pane with focus, zoom the
-// maximised Pane ("" for none) and mru the Panes, most recently focused
-// first.
-//
-// Directions (nav) follow the Layout before the shared slot, the fallback and
-// the zoom, so that ctrl+w h/j/k/l moves as on the full screen; a Pane the
-// step-down leaves out is skipped, as ctrl+o skips it.
 func arrange(preset string, tree layoutNode, focused, zoom Zone, mru []Zone, w, h int) arrangement {
 	visible := tree.visiblePanes()
 	a := arrangement{single: true}
@@ -115,8 +88,6 @@ func arrange(preset string, tree layoutNode, focused, zoom Zone, mru []Zone, w, 
 			single:   true,
 		}
 	}
-	// The focused Pane is always on screen: one the step-down left out is
-	// shown maximised.
 	hint := "ctrl+w z restore"
 	if _, ok := a.rects[focused]; !ok && zoom == "" {
 		zoom, hint, a.offLayout = focused, "ctrl+o next", true
@@ -136,13 +107,6 @@ func arrange(preset string, tree layoutNode, focused, zoom Zone, mru []Zone, w, 
 	return a
 }
 
-// stepDown is the Layout as it fits the body. Below 70 columns, or when the
-// Panes are still too small after the steps below, one Pane at a time is
-// shown (single). Otherwise, in this order: the preset may leave out the
-// Schema below a width; browse shares one slot between the Editor and the
-// Results below a height (the one focused last is drawn, under a pane bar);
-// and the Schema is left out when a Pane would be smaller than its minimum.
-// The last visible Pane is never left out.
 func stepDown(p presetDef, tree layoutNode, focused Zone, mru []Zone, w, h int) arrangement {
 	if w < 70 {
 		return arrangement{single: true, stepped: true}
@@ -192,8 +156,6 @@ func stepDown(p presetDef, tree layoutNode, focused Zone, mru []Zone, w, h int) 
 	}
 }
 
-// mergeInto leaves the Pane gone out of the tree, its share going to into
-// when the two are in the same split (they then share one slot).
 func mergeInto(t layoutNode, gone, into Zone) layoutNode {
 	out := t.clone()
 	p, _ := out.path(gone)
@@ -206,7 +168,6 @@ func mergeInto(t layoutNode, gone, into Zone) layoutNode {
 	return out
 }
 
-// fits reports whether every drawn Pane meets its minimum size.
 func (a arrangement) fits() bool {
 	for z, r := range a.rects {
 		if mn := paneMin[z]; r.w < mn.w || r.h < mn.h {
@@ -216,27 +177,18 @@ func (a arrangement) fits() bool {
 	return true
 }
 
-// lay lays the tree out in the body, leaving out hidden Panes and the Panes
-// in omit. A child too small for its Panes' minimums takes the room from its
-// siblings while they can spare it.
 func lay(t layoutNode, body rect, omit map[Zone]bool) arrangement {
 	a := arrangement{rects: map[Zone]rect{}}
 	place(t, body, omit, true, &a)
 	return a
 }
 
-// rawRects is lay by the weights alone, without the minimums (resizing is
-// clamped on it, so that weights never drift where the screen would not
-// change).
 func rawRects(t layoutNode, body rect, omit map[Zone]bool) map[Zone]rect {
 	a := arrangement{rects: map[Zone]rect{}}
 	place(t, body, omit, false, &a)
 	return a.rects
 }
 
-// place lays node out in r, leaving out hidden Panes and the Panes in omit,
-// and appends the rectangles and separators to a. With fix, children below
-// their minimum are grown at their siblings' expense.
 func place(n layoutNode, r rect, omit map[Zone]bool, fix bool, a *arrangement) {
 	if n.isLeaf() {
 		a.rects[n.pane] = r
@@ -257,8 +209,6 @@ func place(n layoutNode, r rect, omit map[Zone]bool, fix bool, a *arrangement) {
 	if n.dir == splitRow {
 		extent, seps = r.w, len(kids)-1
 	}
-	// Each child gets its share of the whole extent; the last one takes what
-	// is left after the separators.
 	total := sum(weights)
 	sizes := make([]int, len(kids))
 	used := 0
@@ -288,8 +238,6 @@ func place(n layoutNode, r rect, omit map[Zone]bool, fix bool, a *arrangement) {
 	}
 }
 
-// fixMinimums gives each child below its minimum extent that minimum, and
-// shares the rest among the others by weight, when the minimums fit at all.
 func fixMinimums(kids []layoutNode, weights, sizes []int, avail int, dir splitDir, omit map[Zone]bool) {
 	mins := make([]int, len(kids))
 	need, short := 0, false
@@ -341,8 +289,6 @@ func fixMinimums(kids []layoutNode, weights, sizes []int, avail int, dir splitDi
 	}
 }
 
-// minExtent is the smallest width (along splitRow) or height (splitCol) the
-// node's drawn Panes need.
 func minExtent(n layoutNode, axis splitDir, omit map[Zone]bool) int {
 	if n.isLeaf() {
 		if axis == splitRow {
@@ -364,12 +310,11 @@ func minExtent(n layoutNode, axis splitDir, omit map[Zone]bool) int {
 		}
 	}
 	if n.dir == axis && axis == splitRow && count > 1 {
-		total += count - 1 // the separators
+		total += count - 1
 	}
 	return total
 }
 
-// omitted reports whether every Pane under n is hidden or left out.
 func (n layoutNode) omitted(omit map[Zone]bool) bool {
 	if n.isLeaf() {
 		return n.hidden || omit[n.pane]
@@ -382,7 +327,6 @@ func (n layoutNode) omitted(omit map[Zone]bool) bool {
 	return true
 }
 
-// direction is a ctrl+w h/j/k/l move.
 type direction int
 
 const (
@@ -392,10 +336,6 @@ const (
 	dirRight
 )
 
-// neighbour is the Pane ctrl+w moves to from the Pane from: of the Panes that
-// lie entirely on that side and overlap it on the other axis, the nearest;
-// among those the most recently focused (mru, most recent first); failing
-// that the largest overlap, then the earliest in the cycle order.
 func neighbour(nav map[Zone]rect, from Zone, d direction, mru []Zone) (Zone, bool) {
 	f, ok := nav[from]
 	if !ok {
@@ -446,7 +386,7 @@ func neighbour(nav map[Zone]rect, from Zone, d direction, mru []Zone) (Zone, boo
 			}
 		}
 	}
-	best := near[0] // near keeps the cycle order
+	best := near[0]
 	for _, c := range near[1:] {
 		if c.overlap > best.overlap {
 			best = c
@@ -455,22 +395,14 @@ func neighbour(nav map[Zone]rect, from Zone, d direction, mru []Zone) (Zone, boo
 	return best.z, true
 }
 
-// span is how far the ranges [a, a+al) and [b, b+bl) overlap.
 func span(a, al, b, bl int) int {
 	return min(a+al, b+bl) - max(a, b)
 }
 
-// has reports whether the cell (x, y) lies in r (the top-left edge
-// inclusive, the bottom-right exclusive).
 func (r rect) has(x, y int) bool {
 	return x >= r.x && x < r.x+r.w && y >= r.y && y < r.y+r.h
 }
 
-// paneAt is the drawn Pane whose rectangle holds the screen cell (x, y), for
-// the mouse. The body starts at screen row 0, so the rectangles are screen
-// coordinates. A Pane's rectangle includes its title row; the separators, the
-// pane bar, and the tutorial panel, status line and footer below the body lie
-// outside every rectangle.
 func paneAt(rects map[Zone]rect, x, y int) (Zone, bool) {
 	for _, z := range paneOrder {
 		if r, ok := rects[z]; ok && r.has(x, y) {
@@ -480,17 +412,13 @@ func paneAt(rects map[Zone]rect, x, y int) (Zone, bool) {
 	return "", false
 }
 
-// barLabel is one Pane's name on the pane bar, at the screen columns
-// [x, x+w).
 type barLabel struct {
 	pane  Zone
 	text  string
-	drawn bool // the Pane drawn under the bar, named in brackets
+	drawn bool
 	x, w  int
 }
 
-// barLabels lays out the pane bar's names: one cell in, two between them.
-// paneBar draws them here, and a click on one focuses its Pane.
 func barLabels(a arrangement) []barLabel {
 	if a.bar == nil {
 		return nil
@@ -509,7 +437,6 @@ func barLabels(a arrangement) []barLabel {
 	return out
 }
 
-// barAt is the Pane whose name on the pane bar holds the screen cell (x, y).
 func barAt(a arrangement, x, y int) (Zone, bool) {
 	if a.bar == nil || !a.bar.has(x, y) {
 		return "", false

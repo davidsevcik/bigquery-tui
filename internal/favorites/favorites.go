@@ -1,8 +1,3 @@
-// Package favorites reads and writes Favorites: plain .sql files under
-// favorites_dir whose leading "-- key: value" comment lines carry a
-// description, tags and typed parameters (spec section 11). The header is
-// SQL comments, so a Favorite still runs anywhere as it is. There is no
-// index: a directory walk is fast enough below a few thousand files.
 package favorites
 
 import (
@@ -19,17 +14,13 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// Types are the parameter types a header may declare.
 var Types = []string{"STRING", "INT64", "FLOAT64", "BOOL", "DATE", "DATETIME", "TIMESTAMP"}
 
-// Errors.
 var (
 	ErrExists   = errors.New("a favorite with that name already exists")
 	ErrNotFound = errors.New("no such favorite")
 	ErrBadID    = errors.New("invalid favorite name")
-	// ErrMoved refuses a rename or delete of a Favorite whose name now
-	// leads to another file (favorites_dir changed since it was read).
-	ErrMoved = errors.New("favorites_dir changed since the favorite was shown")
+	ErrMoved    = errors.New("favorites_dir changed since the favorite was shown")
 )
 
 func validType(t string) bool {
@@ -41,11 +32,6 @@ func validType(t string) bool {
 	return false
 }
 
-// Parse splits a Favorite file into its header fields and the SQL body. The
-// header is the run of leading lines of the form "-- description: …",
-// "-- tags: …" or "-- param: name TYPE [= default]"; the first other line
-// starts the body. A header line that cannot be read is reported in
-// Problems and kept out of the fields.
 func Parse(text string) api.Favorite {
 	f := api.Favorite{Text: text}
 	lines := strings.SplitAfter(text, "\n")
@@ -143,8 +129,6 @@ func validName(s string) bool {
 	return true
 }
 
-// unquote reads a default: "double quoted" with Go escapes (\n, \", \\),
-// 'single quoted' as is, or bare.
 func unquote(s string) string {
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
 		if u, err := strconv.Unquote(s); err == nil {
@@ -157,9 +141,6 @@ func unquote(s string) string {
 	return s
 }
 
-// quoteDefault writes a default so unquote reads it back: bare when it is
-// plain, else double quoted with escapes (a line break must never end the
-// comment line).
 func quoteDefault(d string) string {
 	plain := d != "" && strings.TrimSpace(d) == d && d[0] != '\'' && d[0] != '"'
 	for _, r := range d {
@@ -182,7 +163,6 @@ func contains(xs []string, s string) bool {
 	return false
 }
 
-// Render writes the header for the fields and appends the SQL body.
 func Render(f api.Favorite) string {
 	var b strings.Builder
 	if d := strings.Join(strings.Fields(f.Description), " "); d != "" {
@@ -193,7 +173,7 @@ func Render(f api.Favorite) string {
 	}
 	for _, p := range f.Params {
 		if p.Type == "" {
-			continue // undeclared: nothing to write
+			continue
 		}
 		b.WriteString("-- param: " + p.Name + " " + p.Type)
 		if p.Default != nil {
@@ -209,9 +189,6 @@ func Render(f api.Favorite) string {
 	return b.String()
 }
 
-// CleanID normalises a Favorite name into its ID: a relative path with
-// forward slashes ending in .sql. It refuses absolute paths, "..", empty and
-// hidden segments.
 func CleanID(name string) (string, error) {
 	s := strings.TrimSpace(strings.ReplaceAll(name, `\`, "/"))
 	if s == "" || strings.HasPrefix(s, "/") {
@@ -228,7 +205,6 @@ func CleanID(name string) (string, error) {
 	return path.Clean(s), nil
 }
 
-// Dir is a favorites directory.
 type Dir string
 
 func (d Dir) file(id string) (string, error) {
@@ -243,13 +219,10 @@ func (d Dir) file(id string) (string, error) {
 	return p, nil
 }
 
-// contained refuses a path that a symlink (a linked folder, or the file
-// itself) leads out of the favorites directory. The deepest part of the path
-// that exists is resolved and must stay under the resolved root.
 func (d Dir) contained(p string) error {
 	root, err := filepath.EvalSymlinks(string(d))
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil // nothing exists yet, so nothing can link out
+		return nil
 	}
 	if err != nil {
 		return err
@@ -278,8 +251,6 @@ func (d Dir) contained(p string) error {
 	return nil
 }
 
-// List reads every Favorite, sorted by ID. A missing directory is empty.
-// Hidden directories (.git) are skipped.
 func (d Dir) List() ([]api.Favorite, error) {
 	var out []api.Favorite
 	root := string(d)
@@ -332,8 +303,6 @@ func (d Dir) read(id, p string) (api.Favorite, error) {
 	return f, nil
 }
 
-// IDOf returns the Favorite ID of a file inside the directory, or "" for a
-// file elsewhere (or not a .sql file). Links are resolved on both sides.
 func (d Dir) IDOf(file string) string {
 	if d == "" || file == "" {
 		return ""
@@ -356,9 +325,6 @@ func (d Dir) IDOf(file string) string {
 	return id
 }
 
-// shown returns the file of a Favorite as it was read (by List or Read),
-// refusing one whose ID now leads to another file: a reload of
-// favorites_dir in the meantime must not redirect a rename or a delete.
 func (d Dir) shown(f api.Favorite) (string, error) {
 	p, err := d.file(f.ID)
 	if err != nil {
@@ -370,7 +336,6 @@ func (d Dir) shown(f api.Favorite) (string, error) {
 	return p, nil
 }
 
-// Read reads one Favorite.
 func (d Dir) Read(id string) (api.Favorite, error) {
 	p, err := d.file(id)
 	if err != nil {
@@ -384,8 +349,6 @@ func (d Dir) Read(id string) (api.Favorite, error) {
 	return f, err
 }
 
-// Write saves the text as a Favorite and returns its ID. Without overwrite
-// an existing file is an ErrExists. The file is replaced atomically.
 func (d Dir) Write(id, text string, overwrite bool) (string, error) {
 	p, err := d.file(id)
 	if err != nil {
@@ -415,8 +378,6 @@ func (d Dir) Write(id, text string, overwrite bool) (string, error) {
 		return "", err
 	}
 	if !overwrite {
-		// claim the name first (O_EXCL refuses an existing file); the rename
-		// below then replaces only our own empty placeholder
 		if err := claim(p); err != nil {
 			os.Remove(tmp.Name())
 			if errors.Is(err, fs.ErrExist) {
@@ -432,9 +393,6 @@ func (d Dir) Write(id, text string, overwrite bool) (string, error) {
 	return clean, nil
 }
 
-// Rename moves a Favorite, as it was read, to a new name and returns it
-// there; the target must not exist. A Favorite whose name now leads to
-// another file is an ErrMoved.
 func (d Dir) Rename(f api.Favorite, to string) (api.Favorite, error) {
 	src, err := d.shown(f)
 	if err != nil {
@@ -468,7 +426,6 @@ func (d Dir) Rename(f api.Favorite, to string) (api.Favorite, error) {
 	return d.read(clean, dst)
 }
 
-// claim creates an empty file that must not exist yet.
 func claim(p string) error {
 	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
@@ -477,9 +434,6 @@ func claim(p string) error {
 	return f.Close()
 }
 
-// Delete removes a Favorite, as it was read (there is no trash; git is the
-// safety net). A Favorite whose name now leads to another file is an
-// ErrMoved.
 func (d Dir) Delete(f api.Favorite) error {
 	p, err := d.shown(f)
 	if err != nil {
@@ -495,7 +449,6 @@ func (d Dir) Delete(f api.Favorite) error {
 	return nil
 }
 
-// pruneDirs removes now-empty subfolders up to the root.
 func (d Dir) pruneDirs(dir string) {
 	root := filepath.Clean(string(d))
 	for dir = filepath.Clean(dir); dir != root && strings.HasPrefix(dir, root+string(filepath.Separator)); dir = filepath.Dir(dir) {

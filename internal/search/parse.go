@@ -1,7 +1,3 @@
-// Package search implements catalog search: the query grammar, tiered
-// ranking, shard-family grouping and the browse lists (spec section 8). It is
-// pure core logic over an in-memory index of projects, datasets and tables;
-// columns are consulted only for the col: filter.
 package search
 
 import (
@@ -10,20 +6,13 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// FilterKeys are the recognised filter keys. Anything else stays a free term.
 var FilterKeys = map[string]bool{"p": true, "d": true, "type": true, "col": true, "label": true, "desc": true}
 
-// TypeNames are the values of the type: filter (matched by prefix).
 var TypeNames = []string{"table", "view", "mview", "external", "snapshot", "clone"}
 
-// Parse turns a raw query into its structured form. It never fails: an
-// incomplete or invalid filter is reported through its Status so a frontend
-// can show it as a pending or red chip.
 func Parse(raw string) api.ParsedQuery {
 	q := ParseWith(raw, FilterKeys, validateCatalogFilter)
-	// A single pasted `project.dataset.table` is an exact path lookup.
 	if len(q.Terms) == 1 && len(q.Filters) == 0 {
-		// from the raw text: the path keeps its case (identity is case-sensitive)
 		if p, ok := SplitPath(strings.Trim(raw[q.Terms[0].Span.Start:q.Terms[0].Span.End], `"`)); ok {
 			q.Path = &p
 		}
@@ -31,9 +20,6 @@ func Parse(raw string) api.ParsedQuery {
 	return q
 }
 
-// ParseWith parses a query with another set of filter keys (History uses
-// status:, project:, source:, since:). validate may mark a complete filter
-// invalid; it may be nil.
 func ParseWith(raw string, keys map[string]bool, validate func(*api.QueryFilter)) api.ParsedQuery {
 	q := api.ParsedQuery{Raw: raw}
 	i := 0
@@ -56,9 +42,6 @@ func ParseWith(raw string, keys map[string]bool, validate func(*api.QueryFilter)
 	return q
 }
 
-// SplitPath splits project.dataset.table (optionally backticked). The project
-// may itself contain dots (domain-scoped ids), so the last two segments are
-// the dataset and the table.
 func SplitPath(s string) (api.ObjectPath, bool) {
 	s = strings.ReplaceAll(strings.TrimSpace(s), "`", "")
 	parts := strings.Split(s, ".")
@@ -116,7 +99,6 @@ func validateCatalogFilter(f *api.QueryFilter) {
 	}
 }
 
-// anyPrefix reports whether v is a prefix of one of names.
 func anyPrefix(names []string, v string) bool {
 	for _, k := range names {
 		if strings.HasPrefix(k, v) {

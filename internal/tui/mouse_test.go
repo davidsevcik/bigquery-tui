@@ -16,9 +16,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
 )
 
-// hitScene is one arrangement of a terminal: the body rows are the
-// terminal's less the status line, the footer and (when docked) the tutorial
-// panel, which follow the body.
 type hitScene struct {
 	name       string
 	a          arrangement
@@ -113,7 +110,6 @@ func TestPaneAtHitsExactlyTheDrawnRectangles(t *testing.T) {
 }
 
 func TestPaneAtSkipsSeparatorsInClassic(t *testing.T) {
-	// classic at 120x34: the Explorer is 42 wide, then the separator at 42
 	a := arrangeP("classic", ZoneExplorer, "", 120, 34)
 	cases := []struct {
 		x, y int
@@ -138,7 +134,6 @@ func TestPaneAtSkipsSeparatorsInClassic(t *testing.T) {
 }
 
 func TestPaneBarLabelsAreClickable(t *testing.T) {
-	// " Explorer  Schema  [Editor]  Results   ctrl+o next"
 	a := arrangeP("focus", ZoneEditor, "", 120, 34)
 	cases := []struct {
 		x, y int
@@ -165,7 +160,6 @@ func TestPaneBarLabelsAreClickable(t *testing.T) {
 			t.Errorf("%d,%d: %q, want %q", c.x, c.y, z, c.want)
 		}
 	}
-	// browse's shared slot: the bar starts at its slot's row
 	b := arrange("browse", presetTree("browse"), ZoneResults, "", []Zone{ZoneResults}, 100, 26)
 	if z, ok := barAt(b, 1, 15); !ok || z != ZoneEditor {
 		t.Fatalf("browse bar: %q %v", z, ok)
@@ -173,13 +167,11 @@ func TestPaneBarLabelsAreClickable(t *testing.T) {
 	if z, ok := barAt(b, 12, 15); !ok || z != ZoneResults {
 		t.Fatalf("browse bar: %q %v", z, ok)
 	}
-	// no bar, no labels
 	if z, ok := barAt(arrangeP("classic", ZoneEditor, "", 120, 34), 1, 0); ok {
 		t.Fatalf("classic has no pane bar: %q", z)
 	}
 }
 
-// mouseOn turns the mouse on from the palette.
 func (r *rig) mouseOn() {
 	r.t.Helper()
 	r.palette("Mouse: on/off")
@@ -199,7 +191,7 @@ func TestTheMouseIsOffByDefaultAndTheToggleIsInThePalette(t *testing.T) {
 	}
 	r.contains("mouse on · Shift+drag selects text (Option+drag in iTerm2)")
 	r.send(teaSize(80, 24))
-	r.contains("mouse on · Shift+drag selects text (Option+drag in iTerm2)") // fits the 80-column footer
+	r.contains("mouse on · Shift+drag selects text (Option+drag in iTerm2)")
 	r.press("ctrl+p", "mouse", "enter")
 	if got := r.m.View().MouseMode; got != tea.MouseModeNone {
 		t.Fatalf("mouse off: mode %v", got)
@@ -229,13 +221,13 @@ func TestPopupsLeaveTheMouseToTheTerminal(t *testing.T) {
 		if got := r.m.View().MouseMode; got != tea.MouseModeCellMotion {
 			t.Fatalf("%s closed: mode %v", name, got)
 		}
-		r.press("ctrl+w", "h", "ctrl+w", "k") // back to the Explorer
+		r.press("ctrl+w", "h", "ctrl+w", "k")
 	}
 }
 
 func TestTheMouseSettingIsRemembered(t *testing.T) {
 	r := newRig(t, 120, 36)
-	r.press("ctrl+w", "space") // query: a phase 3 key in the file
+	r.press("ctrl+w", "space")
 	r.mouseOn()
 	b, err := os.ReadFile(r.m.be.StatePath())
 	if err != nil {
@@ -257,8 +249,6 @@ func TestTheMouseSettingIsRemembered(t *testing.T) {
 	}
 }
 
-// pinned is what a click must not change: the focus, the selection, the
-// Editor's cursor and text, and the Results' cell.
 type pinned struct {
 	zone          Zone
 	sel           string
@@ -294,7 +284,6 @@ func TestAClickFocusesThePaneUnderIt(t *testing.T) {
 			t.Fatalf("the %s is not the most recently focused: %v", z, r.m.mru)
 		}
 	}
-	// the title row is the Pane's too
 	for _, z := range []Zone{ZoneEditor, ZoneSchema, ZoneResults, ZoneExplorer} {
 		p := r.m.arr().rects[z]
 		r.click(p.x+2, p.y)
@@ -302,7 +291,6 @@ func TestAClickFocusesThePaneUnderIt(t *testing.T) {
 			t.Fatalf("a click on the %s's title row focuses %s", z, r.m.zone)
 		}
 	}
-	// the toast stays until the next key
 	r.contains("mouse on · Shift+drag")
 }
 
@@ -323,8 +311,8 @@ func TestAClickOnTheFocusedPaneOrOutsideThePanesChangesNothing(t *testing.T) {
 	r.unchanged("a click in the focused Results", before)
 	sep := a.seps[0]
 	r.click(sep.x, sep.y+3)
-	r.click(5, r.m.termH-2) // the status line
-	r.click(5, r.m.termH-1) // the footer
+	r.click(5, r.m.termH-2)
+	r.click(5, r.m.termH-1)
 	r.unchanged("a click on a separator, the status line or the footer", before)
 	for _, b := range []tea.MouseButton{tea.MouseRight, tea.MouseMiddle} {
 		r.send(tea.MouseClickMsg{X: ed.x + 3, Y: ed.y + 2, Button: b})
@@ -332,7 +320,6 @@ func TestAClickOnTheFocusedPaneOrOutsideThePanesChangesNothing(t *testing.T) {
 	r.send(tea.MouseReleaseMsg{X: ed.x + 3, Y: ed.y + 2, Button: tea.MouseLeft})
 	r.send(tea.MouseMotionMsg{X: ed.x + 3, Y: ed.y + 2, Button: tea.MouseLeft})
 	r.unchanged("a right or middle click, a release or a drag", before)
-	// in the Editor, a click focuses it and never moves the cursor
 	r.click(ed.x+ed.w-2, ed.y+1)
 	if r.m.zone != ZoneEditor {
 		t.Fatalf("the Editor is not focused: %s", r.m.zone)
@@ -341,7 +328,6 @@ func TestAClickOnTheFocusedPaneOrOutsideThePanesChangesNothing(t *testing.T) {
 	r.click(ed.x+10, ed.y+1)
 	r.unchanged("a click in the focused Editor", before)
 
-	// with the mouse off, or a popup open, a click does nothing
 	r.palette("Mouse: on/off")
 	before = r.pin()
 	r.click(r.center(ZoneExplorer))
@@ -372,7 +358,7 @@ func TestAClickClosesTheCompletionAndCancelsAChord(t *testing.T) {
 	if r.m.zone != ZoneExplorer || r.m.pendingKey != "" {
 		t.Fatalf("zone %s, pending %q", r.m.zone, r.m.pendingKey)
 	}
-	r.press("l") // a plain key again, not ctrl+w l
+	r.press("l")
 	if r.m.zone != ZoneExplorer {
 		t.Fatalf("the chord survived the click: %s", r.m.zone)
 	}
@@ -386,7 +372,7 @@ func TestAClickOnTheResultsLoadsWhatTheKeysWould(t *testing.T) {
 		r.press("ctrl+r")
 		r.settle()
 		r.mouseOn()
-		r.m.grid().pages = map[int64][][]api.Cell{} // dropped while away
+		r.m.grid().pages = map[int64][][]api.Cell{}
 		focus(r)
 		if r.m.zone != ZoneResults {
 			t.Fatalf("precondition: %s", r.m.zone)
@@ -419,7 +405,6 @@ func TestAClickOnAPaneBarNameSwitchesToIt(t *testing.T) {
 				t.Fatalf("%dx%d: a click on %s in the bar focuses %s", size[0], size[1], z, r.m.zone)
 			}
 		}
-		// beside the names, the bar does nothing
 		before := r.pin()
 		r.click(0, 0)
 		r.click(size[0]-1, 0)
@@ -435,7 +420,7 @@ func TestAClickThatReachesTheEditorAdvancesTheTutorial(t *testing.T) {
 		r.press("ctrl+g", "n")
 	}
 	panes := r.m.tut.step
-	r.click(5, r.m.h-1+3) // the tutorial panel is below the body
+	r.click(5, r.m.h-1+3)
 	r.tutStep(panes)
 	r.click(r.center(ZoneEditor))
 	r.tutStep(panes + 1)
@@ -443,7 +428,7 @@ func TestAClickThatReachesTheEditorAdvancesTheTutorial(t *testing.T) {
 
 func TestTheWheelMovesTheExplorerUnderThePointer(t *testing.T) {
 	r := newRig(t, 120, 36)
-	r.press("L", "l", "j", "j", "j", "l", "g", "g") // the tree, acme-prod and sales open
+	r.press("L", "l", "j", "j", "j", "l", "g", "g")
 	r.press("ctrl+w", "l")
 	r.mouseOn()
 	x, y := r.center(ZoneExplorer)
@@ -473,9 +458,8 @@ func TestTheWheelMovesTheExplorerUnderThePointer(t *testing.T) {
 func TestTheWheelMovesTheColumnUnderThePointer(t *testing.T) {
 	r := newRig(t, 120, 36)
 	r.onOrders()
-	r.press("ctrl+w", "z") // the Explorer maximised: all three columns
+	r.press("ctrl+w", "z")
 	r.mouseOn()
-	// the datasets column is the middle one, after the projects column
 	header := strings.Split(r.screen(), "\n")[1]
 	cell := func(sub string) int {
 		i := strings.Index(header, sub)
@@ -492,7 +476,6 @@ func TestTheWheelMovesTheColumnUnderThePointer(t *testing.T) {
 	if got := r.m.sel().path; got.Dataset != "events" {
 		t.Fatalf("the tables column follows the dataset: %s", got)
 	}
-	// the wheel over the focused column moves its cursor
 	r.wheel(cell("Tables")+2, 6, tea.MouseWheelDown)
 	if r.m.mil.cur[2] != 1 || r.m.sel().path.Dataset != "events" {
 		t.Fatalf("tables cursor %d, selection %s", r.m.mil.cur[2], r.m.sel().path)
@@ -508,7 +491,7 @@ func TestTheWheelLoadsTheNextPageOfTheList(t *testing.T) {
 	p := r.fake.AddProject("acme-prod")
 	p.Datasets = append(p.Datasets, bqtest.DS("wide", "EU", many...))
 	r.press("R")
-	r.press("L", "L") // the list
+	r.press("L", "L")
 	r.press("ctrl+w", "l")
 	r.mouseOn()
 	if n, total := len(r.m.flat.results), r.m.flat.total; n != searchPage || total <= n {
@@ -565,7 +548,7 @@ func TestTheWheelScrollsTheEditorWithoutEditing(t *testing.T) {
 	e := r.m.buf().ed
 	h := r.m.editorRows()
 	text, undo, version := r.text(), len(e.undo), e.version
-	r.screen() // the view follows the cursor when drawn
+	r.screen()
 	top := e.top
 	x, y := r.center(ZoneEditor)
 	r.wheel(x, y, tea.MouseWheelUp)
@@ -579,7 +562,6 @@ func TestTheWheelScrollsTheEditorWithoutEditing(t *testing.T) {
 	if r.text() != text || len(e.undo) != undo || e.version != version {
 		t.Fatal("the wheel edited the buffer")
 	}
-	// unfocused, the cursor stays where it is while it is in view
 	r.press("ctrl+w", "h")
 	for range 30 {
 		r.wheel(x, y, tea.MouseWheelUp)
@@ -667,7 +649,7 @@ func TestTheWheelPagesThroughASample(t *testing.T) {
 func TestTheWheelIsQuietWhereItHasNothingToDo(t *testing.T) {
 	r := newRig(t, 120, 36)
 	r.mouseOn()
-	r.press("j") // clears the toast
+	r.press("j")
 	before := r.pin()
 	x, y := r.center(ZoneResults)
 	r.wheel(x, y, tea.MouseWheelDown)
@@ -680,7 +662,6 @@ func TestTheWheelIsQuietWhereItHasNothingToDo(t *testing.T) {
 	r.wheel(sep.x, sep.y+2, tea.MouseWheelDown)
 	r.wheel(3, r.m.termH-1, tea.MouseWheelDown)
 	r.unchanged("the wheel on a separator or the footer", before)
-	// off, or behind a popup
 	ex, ey := r.center(ZoneExplorer)
 	r.press("f1")
 	r.wheel(ex, ey, tea.MouseWheelDown)
@@ -702,7 +683,7 @@ func TestTheWheelKeepsVimsCursorOnACharacter(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("select %d", i))
 	}
 	r.send(tea.PasteMsg{Content: strings.Join(lines, "\n")})
-	r.press("v") // a Visual selection follows the cursor
+	r.press("v")
 	r.screen()
 	x, y := r.center(ZoneEditor)
 	for range 5 {
@@ -746,17 +727,14 @@ func TestTheHelpExplainsTheMouse(t *testing.T) {
 	}
 }
 
-// Codex review of phase 4: a view scrolled further than the Editor's new
-// height allows (it was grown or maximised) must not jump back up on a
-// wheel-down.
 func TestTheWheelNeverScrollsAgainstItsDirection(t *testing.T) {
 	lines := make([]string, 100)
 	for i := range lines {
 		lines[i] = "select " + strconv.Itoa(i)
 	}
 	e := newEditor(strings.Join(lines, "\n"))
-	e.top, e.row = 90, 99 // scrolled in a 10-row view
-	e.scrollView(3, 30)   // the view is 30 rows now
+	e.top, e.row = 90, 99
+	e.scrollView(3, 30)
 	if e.top < 90 {
 		t.Fatalf("a wheel-down moved the view up to line %d", e.top)
 	}

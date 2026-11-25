@@ -9,22 +9,18 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// IndexDataset is a dataset row for the in-memory search index.
 type IndexDataset struct {
 	ID int64
 	api.DatasetMeta
 	Status api.DatasetStatus
 }
 
-// IndexTable is a table row (without columns) for the in-memory search index.
 type IndexTable struct {
 	ID        int64
 	DatasetID int64
 	api.TableMeta
 }
 
-// IndexSnapshot is the whole catalog minus columns: small enough to hold in
-// memory (about 50k short rows at the target size) and to rank per keystroke.
 type IndexSnapshot struct {
 	Projects []string
 	Datasets []IndexDataset
@@ -32,7 +28,6 @@ type IndexSnapshot struct {
 	Units    []api.UnitState
 }
 
-// LoadIndex reads every project, dataset and table in one consistent snapshot.
 func (c *Catalog) LoadIndex(ctx context.Context) (*IndexSnapshot, error) {
 	tx, err := c.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -113,11 +108,6 @@ FROM tables t JOIN datasets d ON d.id = t.dataset_id ORDER BY t.dataset_id, t.na
 	return snap, urows.Err()
 }
 
-// EachColumn streams every column's table id, lower-case field path and
-// lower-case description, grouped by table. The search package builds its
-// in-memory column blob from this for the col: filter. (A trigram FTS index
-// was measured and rejected: it made the first apply of 1.3M columns ten times
-// slower, while an in-memory scan answers in tens of milliseconds.)
 func (c *Catalog) EachColumn(ctx context.Context, fn func(tableID int64, pathLC, descLC string)) error {
 	rows, err := c.db.QueryContext(ctx, "SELECT table_id, field_path_lc, lower(description) FROM columns ORDER BY table_id, id")
 	if err != nil {
@@ -135,7 +125,6 @@ func (c *Catalog) EachColumn(ctx context.Context, fn func(tableID int64, pathLC,
 	return rows.Err()
 }
 
-// ColumnsByTableID lists a table's field paths in display order.
 func (c *Catalog) ColumnsByTableID(ctx context.Context, tableID int64) ([]api.ColumnMeta, error) {
 	rows, err := c.db.QueryContext(ctx, `SELECT field_path, ordinal, data_type, description, partitioning, clustering_ordinal, required
 FROM columns WHERE table_id = ? ORDER BY id`, tableID)
@@ -156,7 +145,6 @@ FROM columns WHERE table_id = ? ORDER BY id`, tableID)
 	return out, rows.Err()
 }
 
-// ViewSQL returns the stored view definition of a table ("" if none).
 func (c *Catalog) ViewSQL(ctx context.Context, tableID int64) (string, error) {
 	var s string
 	err := c.db.QueryRowContext(ctx, "SELECT view_sql FROM tables WHERE id = ?", tableID).Scan(&s)
@@ -166,14 +154,11 @@ func (c *Catalog) ViewSQL(ctx context.Context, tableID int64) (string, error) {
 	return s, err
 }
 
-// Watcher detects catalog changes made by any connection, including other
-// processes, using SQLite's data_version on a pinned connection.
 type Watcher struct {
 	conn *sql.Conn
 	last int64
 }
 
-// NewWatcher pins a connection for change detection.
 func (c *Catalog) NewWatcher(ctx context.Context) (*Watcher, error) {
 	conn, err := c.db.Conn(ctx)
 	if err != nil {
@@ -187,7 +172,6 @@ func (c *Catalog) NewWatcher(ctx context.Context) (*Watcher, error) {
 	return w, nil
 }
 
-// Changed reports whether the database changed since the previous call.
 func (w *Watcher) Changed(ctx context.Context) (bool, error) {
 	var v int64
 	if err := w.conn.QueryRowContext(ctx, "PRAGMA data_version").Scan(&v); err != nil {
@@ -198,12 +182,8 @@ func (w *Watcher) Changed(ctx context.Context) (bool, error) {
 	return changed, nil
 }
 
-// Close releases the pinned connection.
 func (w *Watcher) Close() error { return w.conn.Close() }
 
-// TableByID returns the full stored metadata of a table with its columns,
-// read in one transaction so a sync committing in between cannot mix an old
-// row with new columns.
 func (c *Catalog) TableByID(ctx context.Context, id int64) (api.TableMeta, error) {
 	var t api.TableMeta
 	tx, err := c.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})

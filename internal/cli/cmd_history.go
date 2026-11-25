@@ -11,13 +11,11 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/search"
 )
 
-// PruneResult is the output of `bqt history prune`.
 type PruneResult struct {
 	Deleted int64     `json:"deleted"`
 	Before  time.Time `json:"before"`
 }
 
-// cmdHistoryPrune handles `bqt history prune`.
 func cmdHistoryPrune(ctx context.Context, o *out, g *globals, args []string) error {
 	fs := commandFlags("history prune", g)
 	older := fs.String("older-than", "", "delete entries older than an age such as 90d or 12w")
@@ -40,11 +38,10 @@ func cmdHistoryPrune(ctx context.Context, o *out, g *globals, args []string) err
 	var cut time.Time
 	switch {
 	case *all:
-		cut = now.Add(time.Hour) // anything created up to now
+		cut = now.Add(time.Hour)
 	case *older != "":
 		t, ok := search.SinceTime(*older, now)
-		if !ok || strings.Contains(*older, "-") { // an age, not a date
-
+		if !ok || strings.Contains(*older, "-") {
 			return usageErr("--older-than %q: want an age such as 90d, 12w or 36h", *older)
 		}
 		cut = t

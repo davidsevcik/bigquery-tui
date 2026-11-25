@@ -1,6 +1,5 @@
 package sqlx
 
-// keywords are highlighted as keywords and never taken for an alias.
 var keywords = map[string]bool{
 	"ALL":                  true,
 	"ALTER":                true,
@@ -130,7 +129,6 @@ var keywords = map[string]bool{
 	"WITHIN":               true,
 }
 
-// completionKeywords are offered by completion (multi-word forms included).
 var completionKeywords = []string{
 	"SELECT",
 	"FROM",
@@ -214,7 +212,6 @@ var completionKeywords = []string{
 	"RESPECT NULLS",
 }
 
-// Function is a built-in function with its signature.
 type Function struct{ Name, Signature string }
 
 var functions = []Function{

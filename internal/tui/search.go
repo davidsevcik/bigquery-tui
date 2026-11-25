@@ -9,7 +9,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// searchState backs the search overlay, the jump popup and the list style.
 type searchState struct {
 	in      input
 	parsed  api.ParsedQuery
@@ -22,15 +21,13 @@ type searchState struct {
 	cur, off int
 	typing   bool
 
-	tablesOnly bool
-	all        bool // list everything for an empty query (list style)
-	scope      *api.ObjectPath
-	expand     bool // next result set replaces a shard family: keep the cursor at the top
-	// expandShards lists shard members individually. It is set when a family
-	// is opened in the list style and cleared as soon as the filter is edited.
+	tablesOnly   bool
+	all          bool
+	scope        *api.ObjectPath
+	expand       bool
 	expandShards bool
 	wantEnd      bool
-	pending      *api.ObjectPath // select this path once results arrive
+	pending      *api.ObjectPath
 
 	seq    int
 	cancel context.CancelFunc
@@ -56,8 +53,6 @@ func (st *searchState) options(limit, offset int) api.SearchOptions {
 	return api.SearchOptions{Limit: limit, Offset: offset, TablesOnly: st.tablesOnly, AllWhenEmpty: st.all, Scope: st.scope, ExpandShards: st.expandShards}
 }
 
-// runSearch starts an asynchronous search for the state's current input,
-// cancelling the previous one. Results that arrive out of date are dropped.
 func (m *Model) runSearch(st *searchState) tea.Cmd {
 	return m.searchCmd(st, searchPage, 0, false)
 }
@@ -87,7 +82,7 @@ func (m *Model) searchCmd(st *searchState, limit, offset int, appendTo bool) tea
 func (m *Model) onSearch(msg searchMsg) {
 	st := msg.st
 	if msg.seq != st.seq {
-		return // superseded by a newer keystroke
+		return
 	}
 	if msg.err != nil {
 		if errors.Is(msg.err, context.Canceled) {
@@ -126,10 +121,7 @@ func (m *Model) onSearch(msg searchMsg) {
 	st.cur = clamp(st.cur, 0, max(0, len(st.results)-1))
 }
 
-// searchKey handles a key while a search input has the focus; half is half
-// the rows its list shows.
 func (m *Model) searchKey(st *searchState, msg tea.KeyPressMsg, name string, half int) tea.Cmd {
-	// Printable keys type; only non-text keys are looked up in the registry.
 	isText := msg.Key().Text != "" && msg.Key().Mod&^tea.ModShift == 0
 	if !isText {
 		switch keys[ZoneSearch][name] {
@@ -164,7 +156,6 @@ func (m *Model) searchKey(st *searchState, msg tea.KeyPressMsg, name string, hal
 			s := st.selection()
 			if s.kind == "" {
 				if st == m.jump && !m.jumpInsert && st.parsed.Path != nil {
-					// a pasted path in a project the catalog does not hold
 					return m.openUncached(*st.parsed.Path)
 				}
 				return nil
@@ -189,8 +180,6 @@ func (m *Model) searchKey(st *searchState, msg tea.KeyPressMsg, name string, hal
 	return nil
 }
 
-// maybeMore fetches the rest of the results when the cursor nears the end of
-// what is loaded.
 func (m *Model) maybeMore(st *searchState) tea.Cmd {
 	if st.total > len(st.results) && st.cur >= len(st.results)-20 {
 		return m.fetchAll(st)
@@ -198,7 +187,6 @@ func (m *Model) maybeMore(st *searchState) tea.Cmd {
 	return nil
 }
 
-// jumpOverlay is Jump to table (ctrl+t): a search of the catalog's tables.
 type jumpOverlay struct{}
 
 func (jumpOverlay) frame(m *Model, w, h int) ovFrame {

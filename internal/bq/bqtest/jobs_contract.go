@@ -9,7 +9,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 )
 
-// The contract queries read no tables, so they cost nothing to run for real.
 const (
 	ContractSelect = "SELECT n, CAST(n AS STRING) AS label FROM UNNEST(GENERATE_ARRAY(0, 1199)) AS n ORDER BY n"
 	ContractBroken = "SELECT\n  FROM nothing_here WHERE"
@@ -18,14 +17,11 @@ const (
 	ContractScript = "DECLARE x INT64 DEFAULT 1; SELECT x"
 )
 
-// JobsContractOptions tunes RunJobsContract.
 type JobsContractOptions struct {
-	Location string
-	// SkipCancel leaves out the cancellation case.
+	Location   string
 	SkipCancel bool
 }
 
-// ContractScripts makes a Fake answer the contract queries the way BigQuery does.
 func ContractScripts(f *Fake) {
 	block := make(chan struct{})
 	f.OnQuery = func(sql string) QueryScript {
@@ -52,8 +48,6 @@ func ContractScripts(f *Fake) {
 	}
 }
 
-// RunJobsContract checks a bq.Jobs implementation: the fake in every build,
-// the real client under the live tag.
 func RunJobsContract(t *testing.T, jobs bq.Jobs, o JobsContractOptions) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()

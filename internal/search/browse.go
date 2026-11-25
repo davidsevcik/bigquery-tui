@@ -12,8 +12,6 @@ import (
 
 var emptySnapshot store.IndexSnapshot
 
-// Projects lists the catalog's projects with their sync health. Configured
-// projects that have not been synced yet are added by the engine.
 func (s *Searcher) Projects() []api.BrowseNode {
 	x := s.Index()
 	out := make([]api.BrowseNode, 0, len(x.projects))
@@ -26,8 +24,6 @@ func (s *Searcher) Projects() []api.BrowseNode {
 	return out
 }
 
-// ProjectHealth fills the sync-health fields of a project node from the unit
-// states (used for projects without any data too).
 func (s *Searcher) ProjectHealth(project string, n *api.BrowseNode) {
 	s.projectHealth(s.Index(), project, n)
 }
@@ -39,9 +35,6 @@ func (s *Searcher) projectHealth(x *Index, project string, n *api.BrowseNode) {
 	if n.UnitStatus == "" {
 		n.UnitStatus = api.UnitOK
 	}
-	// A location that holds pending datasets but no unit state is a unit
-	// that never succeeded, and while any dataset is pending the discovery
-	// unit's success does not count (spec 7.2).
 	hasPending := false
 	for ref := range x.pending {
 		if ref.Project != project {
@@ -64,7 +57,7 @@ func (s *Searcher) projectHealth(x *Index, project string, n *api.BrowseNode) {
 		}
 		if ref.Location == "" {
 			if !hasPending {
-				discovery = u.LastSuccess // carries a sync only for an empty project
+				discovery = u.LastSuccess
 			}
 			continue
 		}
@@ -92,7 +85,6 @@ func (s *Searcher) projectHealth(x *Index, project string, n *api.BrowseNode) {
 	}
 }
 
-// Datasets lists a project's datasets.
 func (s *Searcher) Datasets(project string) []api.BrowseNode {
 	x := s.Index()
 	for pi := range x.projects {
@@ -119,8 +111,6 @@ func (s *Searcher) Datasets(project string) []api.BrowseNode {
 	return nil
 }
 
-// Tables lists a dataset's tables with each shard family collapsed into one
-// node named after the family, placed where its name sorts.
 func (s *Searcher) Tables(project, dataset string) []api.BrowseNode {
 	x := s.Index()
 	d := x.findDataset(project, dataset)
@@ -164,10 +154,6 @@ func (s *Searcher) tableNode(x *Index, ti int) api.BrowseNode {
 	return n
 }
 
-// ShardMembers lists the tables of one shard family, newest first: by date
-// for a date family, by creation time for any other. family is the family's
-// name (orders_*, events_YYYYMMDD) and typ its table type: families of two
-// types can share a name. An empty typ matches any type.
 func (s *Searcher) ShardMembers(project, dataset, family string, typ api.TableType) []api.BrowseNode {
 	x := s.Index()
 	d := x.findDataset(project, dataset)
@@ -190,7 +176,6 @@ func (s *Searcher) ShardMembers(project, dataset, family string, typ api.TableTy
 	return out
 }
 
-// Dataset returns a dataset (its project, name and location).
 func (s *Searcher) Dataset(project, dataset string) (api.DatasetMeta, bool) {
 	d := s.Index().findDataset(project, dataset)
 	if d == nil {
@@ -213,21 +198,16 @@ func (x *Index) findDataset(project, dataset string) *dsEntry {
 	return nil
 }
 
-// TableRef is what Lookup returns for a table path.
 type TableRef struct {
 	ID        int64
 	Path      api.ObjectPath
 	Location  string
 	Type      api.TableType
-	Meta      api.TableMeta // without columns and view SQL
+	Meta      api.TableMeta
 	NamesOnly bool
-	// Family is set when the path named a shard family: Path is then its
-	// newest shard.
-	Family *api.ShardFamily
+	Family    *api.ShardFamily
 }
 
-// Lookup resolves a table path. A shard family's path (its name, or its
-// wildcard prefix*) resolves to its newest shard.
 func (s *Searcher) Lookup(p api.ObjectPath) (TableRef, bool) {
 	x := s.Index()
 	ti, ok := x.byPath[p.String()]
@@ -261,7 +241,6 @@ func (s *Searcher) Lookup(p api.ObjectPath) (TableRef, bool) {
 	return ref, true
 }
 
-// Unit returns the sync state of a (project, location) unit.
 func (s *Searcher) Unit(project, location string) (api.UnitState, bool) {
 	u, ok := s.Index().units[api.UnitRef{Project: project, Location: location}]
 	return u, ok

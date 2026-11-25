@@ -81,8 +81,6 @@ func cmdConfig(ctx context.Context, o *out, g *globals, args []string) error {
 		if err := run(ctx, argv, env); err != nil {
 			return fmt.Errorf("editor %q: %w", argv[0], err)
 		}
-		// Validate what was saved (a GUI editor may return before saving; the
-		// TUI's file watcher covers that case).
 		if _, err := config.Load(g.loadOptions(env)); err != nil {
 			return err
 		}

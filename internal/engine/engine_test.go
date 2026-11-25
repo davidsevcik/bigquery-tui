@@ -23,14 +23,11 @@ type env struct {
 	cfg  *config.Config
 }
 
-// newEnv builds an engine environment over a fake with proj-a and proj-b.
-// The given projects start selected, with exec-proj as the chosen Execution
-// project; with none, nothing is selected or chosen.
 func newEnv(t *testing.T, selected ...string) *env {
 	t.Helper()
 	dir := t.TempDir()
 	e := &env{t: t, dir: dir, fake: bqtest.New(), now: time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)}
-	e.cfg = e.config(shardDates) // the tests' events_YYYYMMDD tables collapse
+	e.cfg = e.config(shardDates)
 	if len(selected) > 0 {
 		st := selection.State{Execution: "exec-proj"}
 		st.Select(e.now.Add(-time.Hour), selected...)
@@ -47,10 +44,8 @@ func newEnv(t *testing.T, selected ...string) *env {
 	return e
 }
 
-// shardDates is the shard pattern the tests' date-suffixed tables use.
 const shardDates = "shard_patterns = ['.+(\\d{8})']\n"
 
-// config parses a config for this environment's data_dir plus extra lines.
 func (e *env) config(extra string) *config.Config {
 	e.t.Helper()
 	cfg, err := config.Parse([]byte("data_dir = \""+e.dir+"\"\n"+extra), "t.toml", config.LoadOptions{Getenv: func(string) string { return "" }})
@@ -114,14 +109,12 @@ func TestSyncThenStatusAndStaleness(t *testing.T) {
 		t.Fatalf("%+v", st.Projects)
 	}
 
-	// a read-only engine over the same files sees the same
 	ro := e.open(true)
 	st2, _ := ro.Status(ctx)
 	if st2.Tables != 3 {
 		t.Fatalf("%+v", st2)
 	}
 
-	// 25 hours later everything is stale
 	e.now = e.now.Add(25 * time.Hour)
 	st3, _ := ro.Status(ctx)
 	for _, p := range st3.Projects {
@@ -145,7 +138,6 @@ func TestStatusReportsConfigChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// the user removes an ignore pattern
 	e.cfg = e.config(shardDates)
 	ro := e.open(true)
 	st, _ := ro.Status(ctx)
@@ -162,7 +154,6 @@ func TestSecondSyncIsRefusedWhileRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// a different process (second engine on the same data dir)
 	two := e.open(false)
 	if _, err := two.StartSync(ctx, api.SyncScope{}); !errors.Is(err, ErrSyncRunning) {
 		t.Fatalf("want ErrSyncRunning, got %v", err)
@@ -218,7 +209,7 @@ func TestCancelThroughHandle(t *testing.T) {
 
 func TestReadOnlyAndNoProjects(t *testing.T) {
 	e := newEnv(t, "proj-a")
-	e.open(false) // creates the catalog
+	e.open(false)
 	if _, err := e.open(true).StartSync(ctx, api.SyncScope{}); !errors.Is(err, ErrReadOnly) {
 		t.Fatalf("%v", err)
 	}

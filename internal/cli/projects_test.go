@@ -24,7 +24,6 @@ func TestProjectsListSelectDeselectAndExec(t *testing.T) {
 	s.fake.AddProject("proj-b").FriendlyName = "Project B"
 	s.writeConfig("")
 
-	// nothing selected yet: everything listed, no Execution project
 	code, out, errOut := s.run("projects")
 	if code != 0 {
 		t.Fatalf("%d %s", code, errOut)
@@ -34,7 +33,6 @@ func TestProjectsListSelectDeselectAndExec(t *testing.T) {
 		t.Fatalf("%v", data)
 	}
 
-	// select: saved, not synced, and the first selected becomes the default
 	code, out, _ = s.run("projects", "select", "proj-b", "--format", "text")
 	if code != 0 || !strings.Contains(out, "bqt sync") {
 		t.Fatalf("%d %s", code, out)
@@ -49,7 +47,6 @@ func TestProjectsListSelectDeselectAndExec(t *testing.T) {
 		t.Fatalf("%v", data)
 	}
 
-	// sync, then deselect: the cache stays
 	if code, _, errOut := s.run("sync"); code != 0 {
 		t.Fatalf("sync %d %s", code, errOut)
 	}
@@ -62,13 +59,11 @@ func TestProjectsListSelectDeselectAndExec(t *testing.T) {
 		t.Fatalf("deselected proj-a %v", a)
 	}
 
-	// the last Selected project stays
 	code, _, errOut = s.run("projects", "deselect", "proj-b")
 	if code == 0 || errBody(t, errOut).Code != "last_selected" {
 		t.Fatalf("%d %s", code, errOut)
 	}
 
-	// exec: an unlisted ID is accepted with a warning
 	code, out, errOut = s.run("projects", "exec", "billing-proj", "--format", "text")
 	if code != 0 || !strings.Contains(errOut, "billing-proj") || !strings.Contains(errOut, "not in BigQuery's list") {
 		t.Fatalf("%d %s %s", code, out, errOut)
@@ -99,7 +94,6 @@ func TestSyncOfADeselectedProject(t *testing.T) {
 	s.writeConfig("projects = [\"proj-a\", \"proj-b\"]\n")
 	s.run("sync")
 	s.run("projects", "deselect", "proj-a")
-	// plain sync covers the Selected projects only
 	s.fake.Calls = nil
 	s.run("sync")
 	for _, c := range s.fake.CallsTo("ListDatasets") {
@@ -107,11 +101,9 @@ func TestSyncOfADeselectedProject(t *testing.T) {
 			t.Fatal("a full sync touched a deselected project")
 		}
 	}
-	// --project refreshes a deselected cache
 	if code, _, errOut := s.run("sync", "--project", "proj-a"); code != 0 {
 		t.Fatalf("%d %s", code, errOut)
 	}
-	// but never starts tracking an unknown project
 	code, _, errOut := s.run("sync", "--project", "proj-z")
 	if e := errBody(t, errOut); code == 0 || e.Code != "not_selected" || !strings.Contains(e.Hint, "bqt projects select proj-z") {
 		t.Fatalf("%d %s", code, errOut)

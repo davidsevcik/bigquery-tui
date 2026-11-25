@@ -26,7 +26,7 @@ func TestCheckEveryStatementAndAccuracy(t *testing.T) {
 		c      *config.Config
 		source string
 		est    api.Estimate
-		want   string // refusal code, "" for allowed
+		want   string
 	}{
 		{"select", c, "mcp", api.Estimate{StatementType: "SELECT", Accuracy: "PRECISE", Bytes: 10}, ""},
 		{"select lower bound under", c, "mcp", api.Estimate{StatementType: "SELECT", Accuracy: "LOWER_BOUND", Bytes: 1 << 29}, ""},
@@ -67,7 +67,7 @@ func TestCheckEveryStatementAndAccuracy(t *testing.T) {
 
 func TestConfirmBytesRefusesWhatTheTUIWouldAsk(t *testing.T) {
 	c := cfg()
-	c.AgentMaxBytes = 1 << 40 // raised above confirm_bytes
+	c.AgentMaxBytes = 1 << 40
 	p := For(c, "cli")
 	big := api.Estimate{StatementType: "SELECT", Accuracy: "PRECISE", Bytes: 20 << 30}
 	if r := p.Check(c, big); r == nil || r.Code != api.RefuseNeedsConfirmation || r.Limit != AutoConfirmBytes {

@@ -6,19 +6,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// The Model's side of the Layout: which Pane has focus, the arrangement for
-// the current size, and the keys that move between Panes and rearrange them.
-
-// arr arranges the Panes for the current state. Sizes are never cached: a
-// resize, a Layout change, a focus change or the tutorial panel all change it.
 func (m *Model) arr() arrangement {
 	return arrange(m.preset, m.panes, m.zone, m.maxed, m.mru, m.w, m.bodyH())
 }
 
 func (m *Model) bodyH() int { return max(1, m.h-2) }
 
-// paneRect is the Pane's rectangle: where it is drawn, or where it would be
-// (so that paging stays sensible while it is not on screen).
 func (m *Model) paneRect(z Zone) rect {
 	a := m.arr()
 	if r, ok := a.rects[z]; ok {
@@ -30,8 +23,6 @@ func (m *Model) paneRect(z Zone) rect {
 	return lay(showPane(m.panes, z), rect{0, 0, m.w, m.bodyH()}, nil).rects[z]
 }
 
-// setZone moves the focus to a Pane. A hidden Pane is shown again, and a
-// maximised Layout stays maximised, on the new Pane (the zoom follows focus).
 func (m *Model) setZone(z Zone) {
 	if z != m.zone {
 		m.mru = append([]Zone{z}, slices.DeleteFunc(m.mru, func(o Zone) bool { return o == z })...)
@@ -47,14 +38,11 @@ func (m *Model) setZone(z Zone) {
 	m.pendingKey = ""
 }
 
-// setPanes replaces the tree and saves it.
 func (m *Model) setPanes(t layoutNode) {
 	m.panes = t
 	m.saveState()
 }
 
-// zoneStep moves the focus d Panes along the cycle, skipping hidden Panes
-// and the Panes the step-down left out.
 func (m *Model) zoneStep(d int) {
 	cycle := m.arr().cycle
 	i := slices.Index(paneOrder, m.zone)
@@ -67,8 +55,6 @@ func (m *Model) zoneStep(d int) {
 	}
 }
 
-// paneMove is ctrl+w h/j/k/l: the Pane on that side of the focused one.
-// With none there nothing happens, as in Vim.
 func (m *Model) paneMove(d direction) tea.Cmd {
 	if z, ok := neighbour(m.arr().nav, m.zone, d, m.mru); ok {
 		m.setZone(z)
@@ -76,8 +62,6 @@ func (m *Model) paneMove(d direction) tea.Cmd {
 	return m.gridEnsure()
 }
 
-// focusMRU gives the focus to the most recently focused Pane the
-// arrangement reaches, when the focused one is not among them.
 func (m *Model) focusMRU() {
 	cycle := m.arr().cycle
 	if slices.Contains(cycle, m.zone) {
@@ -91,8 +75,6 @@ func (m *Model) focusMRU() {
 	}
 }
 
-// layoutName is the status line's name: the preset, or custom once the tree
-// differs from it.
 func (m *Model) layoutName() string {
 	if isCustom(m.preset, m.panes) {
 		return "custom"
@@ -100,8 +82,6 @@ func (m *Model) layoutName() string {
 	return m.preset
 }
 
-// usePreset switches to a preset's tree (layout switch, next, Reset). A
-// custom tree is dropped, and the zoom cleared.
 func (m *Model) usePreset(name string) {
 	m.preset, m.maxed = name, ""
 	m.setPanes(presetTree(name))
@@ -109,8 +89,6 @@ func (m *Model) usePreset(name string) {
 	m.toast = "layout: " + name
 }
 
-// arrangeRefusal is why the tree commands do nothing now ("" when they
-// work).
 func (m *Model) arrangeRefusal() string {
 	if m.preset == presetFocus {
 		return "one pane at a time in the focus layout: ctrl+w space for another"
@@ -121,9 +99,6 @@ func (m *Model) arrangeRefusal() string {
 	return ""
 }
 
-// editPanes applies a tree command: refused in the focus Layout and the
-// small-terminal fallback; otherwise the zoom is cleared first, so that the
-// result is in sight.
 func (m *Model) editPanes(op func(t layoutNode) (layoutNode, string)) {
 	if why := m.arrangeRefusal(); why != "" {
 		m.toast = why
@@ -139,7 +114,6 @@ func (m *Model) editPanes(op func(t layoutNode) (layoutNode, string)) {
 	m.focusMRU()
 }
 
-// resize is ctrl+w < > - +, clamped at the current size and step-down.
 func (m *Model) resize(dir splitDir, grow bool) {
 	m.editPanes(func(t layoutNode) (layoutNode, string) {
 		a := m.arr()
@@ -153,8 +127,6 @@ func (m *Model) resize(dir splitDir, grow bool) {
 		lay := func(n layoutNode) map[Zone]rect { return rawRects(n, body, omit) }
 		shared := !a.single && len(a.barPanes) == 2
 		if shared {
-			// browse below its height: the Editor and the Results share one
-			// slot, so a change between the two would not show
 			shown := ZoneEditor
 			if _, ok := a.rects[ZoneResults]; ok {
 				shown = ZoneResults
@@ -174,7 +146,6 @@ func (m *Model) resize(dir splitDir, grow bool) {
 	})
 }
 
-// maximise is ctrl+w z: maximise the focused Pane, or restore the Layout.
 func (m *Model) maximise() {
 	if why := m.arrangeRefusal(); why != "" {
 		m.toast = why
@@ -185,15 +156,12 @@ func (m *Model) maximise() {
 		m.maxed = ""
 		m.focusDrawn()
 	case m.arr().offLayout:
-		m.focusDrawn() // shown maximised only because the Layout has no room for it
+		m.focusDrawn()
 	default:
 		m.maxed = m.zone
 	}
 }
 
-// focusDrawn gives the focus back to the most recently focused Pane the
-// Layout draws, when the focused one is shown maximised only because the
-// Layout has no room for it.
 func (m *Model) focusDrawn() {
 	a := m.arr()
 	if !a.offLayout {
@@ -207,13 +175,11 @@ func (m *Model) focusDrawn() {
 	}
 }
 
-// hide is ctrl+w c.
 func (m *Model) hide() {
 	z := m.zone
 	m.editPanes(func(t layoutNode) (layoutNode, string) { return hidePane(t, z) })
 }
 
-// paneAction handles the global Pane keys and commands.
 func (m *Model) paneAction(act string) (tea.Cmd, bool) {
 	switch act {
 	case "panenext":
@@ -268,14 +234,10 @@ func (m *Model) paneAction(act string) (tea.Cmd, bool) {
 	return m.gridEnsure(), true
 }
 
-// focusSchema sends the focus to the Schema pane explicitly (Enter on a
-// table, the palette). A Schema the step-down left out is shown maximised.
 func (m *Model) focusSchema() {
 	m.setZone(ZoneSchema)
 }
 
-// schemaAction handles a key in the Schema pane: the movement keys scroll it,
-// and p and s work on its table as in the Explorer.
 func (m *Model) schemaAction(act string) tea.Cmd {
 	if cmd, ok := m.globalAction(act); ok {
 		return cmd

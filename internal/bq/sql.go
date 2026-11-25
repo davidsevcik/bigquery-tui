@@ -5,11 +5,8 @@ import (
 	"strings"
 )
 
-// scope names the INFORMATION_SCHEMA qualifier of a query.
 type scope struct {
 	project string
-	// region is set for region-scope views ("region-eu"); dataset for
-	// dataset-scope views.
 	region  string
 	dataset string
 }
@@ -26,7 +23,6 @@ func quoteIdent(s string) string {
 	return "`" + strings.ReplaceAll(s, "`", "\\`") + "`"
 }
 
-// view returns the fully qualified view reference.
 func (s scope) view(name string) string {
 	q := s.region
 	if q == "" {
@@ -35,8 +31,6 @@ func (s scope) view(name string) string {
 	return fmt.Sprintf("%s.%s.INFORMATION_SCHEMA.%s", quoteIdent(s.project), quoteIdent(q), name)
 }
 
-// filter returns the dataset filter clause: region scope restricts to the
-// requested datasets with a query parameter, dataset scope needs none.
 func (s scope) filter(col string) string {
 	if s.region != "" {
 		return fmt.Sprintf("%s IN UNNEST(@ds)", col)
@@ -46,7 +40,7 @@ func (s scope) filter(col string) string {
 
 func (s scope) datasetsSQL() (string, bool) {
 	if s.region == "" {
-		return "", false // SCHEMATA_OPTIONS exists only at region scope
+		return "", false
 	}
 	return fmt.Sprintf(`SELECT schema_name, option_name, option_value
 FROM %s
@@ -77,19 +71,10 @@ FROM %s
 WHERE %s AND %s`, s.view("COLUMNS"), s.filter("table_schema"), where)
 }
 
-// fieldPathsSQL reads the field paths, whose order matters: a nested field's
-// ordinal is its place among the rows of its parent (the view has no
-// ordinal for nested fields). It ends with readInOrder.
 func (s scope) fieldPathsSQL(where string) string {
 	return fmt.Sprintf(`SELECT table_schema, table_name, column_name, field_path, data_type, description
 FROM %s
 WHERE %s AND %s`, s.view("COLUMN_FIELD_PATHS"), s.filter("table_schema"), where) + readInOrder
 }
 
-// readInOrder is a comment that keeps a result's rows in the order REST
-// paging returns them when it is read through the Storage Read API. The Go
-// client reads a result through one stream when the SQL has ORDER BY at its
-// root, and through parallel streams, whose rows interleave, otherwise. It
-// only looks at the text, so this comment is enough, and BigQuery sorts
-// nothing. Keep it free of parentheses: the client skips text inside them.
 const readInOrder = "\n-- read in order, as if ORDER BY: one Storage Read stream"

@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// tr parses the compact tree notation that layoutNode.String prints:
-// row[...] and col[...] splits, E S Q R for the Panes, (S) for a hidden one,
-// and :n after a child for its weight.
 func tr(t *testing.T, s string) layoutNode {
 	t.Helper()
 	p := &treeParser{s: s}
@@ -113,7 +110,7 @@ func TestMoveToTheEdge(t *testing.T) {
 		tree string
 		pane Zone
 		d    direction
-		want string // "" for unchanged
+		want string
 	}{
 		{classicStr, ZoneExplorer, dirLeft, "row[E:33 S:23 col[Q:50 R:50]:43]"},
 		{classicStr, ZoneExplorer, dirRight, "row[S:23 col[Q:50 R:50]:43 E:33]"},
@@ -131,8 +128,6 @@ func TestMoveToTheEdge(t *testing.T) {
 		{tall, ZoneResults, dirUp, "col[R:33 row[E:50 S:50]:36 Q:30]"},
 		{tall, ZoneExplorer, dirLeft, "row[E:33 col[S:30 Q:25 R:45]:67]"},
 		{tall, ZoneResults, dirDown, ""},
-		// a split left with one child collapses, and a child split with its
-		// parent's direction merges into it
 		{"row[col[E:50 row[S:50 Q:50]:50]:50 R:50]", ZoneExplorer, dirDown, "col[row[S:25 Q:25 R:50]:67 E:33]"},
 	}
 	for _, c := range cases {
@@ -161,13 +156,13 @@ func TestSwapAndRotate(t *testing.T) {
 		why  string
 	}{
 		{"x", classicStr, ZoneExplorer, "row[col[S:50 E:50]:35 col[Q:50 R:50]:65]", ""},
-		{"x", classicStr, ZoneSchema, "row[col[S:50 E:50]:35 col[Q:50 R:50]:65]", ""}, // the last swaps with the previous
+		{"x", classicStr, ZoneSchema, "row[col[S:50 E:50]:35 col[Q:50 R:50]:65]", ""},
 		{"x", "row[col[E:60 S:40]:25 Q:75]", ZoneExplorer, "row[col[S:60 E:40]:25 Q:75]", ""},
-		{"x", "row[E:33 S:23 col[Q:50 R:50]:43]", ZoneSchema, "row[E:33 col[Q:50 R:50]:23 S:43]", ""}, // a subtree sibling
-		{"x", "row[E:20 (S):30 Q:50]", ZoneExplorer, "row[Q:20 (S):30 E:50]", ""},                     // skips a hidden sibling
+		{"x", "row[E:33 S:23 col[Q:50 R:50]:43]", ZoneSchema, "row[E:33 col[Q:50 R:50]:23 S:43]", ""},
+		{"x", "row[E:20 (S):30 Q:50]", ZoneExplorer, "row[Q:20 (S):30 E:50]", ""},
 		{"x", "row[col[E:60 (S):40]:25 col[Q:50 R:50]:75]", ZoneExplorer, "", "nothing to swap with"},
 		{"r", "row[E:20 S:30 Q:50]", ZoneExplorer, "row[Q:20 E:30 S:50]", ""},
-		{"r", "row[E:20 (S):30 Q:40 R:10]", ZoneEditor, "row[R:20 (S):30 E:40 Q:10]", ""}, // hidden children keep their places
+		{"r", "row[E:20 (S):30 Q:40 R:10]", ZoneEditor, "row[R:20 (S):30 E:40 Q:10]", ""},
 		{"r", "row[col[E:60 (S):40]:25 col[Q:50 R:50]:75]", ZoneExplorer, "", "nothing to rotate"},
 	}
 	for _, c := range cases {
@@ -275,7 +270,6 @@ func TestCustomIsComputedByComparingTrees(t *testing.T) {
 	if !isCustom("classic", wider) || isCustom("classic", narrower) {
 		t.Fatalf("resize and back: %s %s", wider, narrower)
 	}
-	// weights compare by proportion
 	if isCustom("classic", tr(t, "row[col[E:1 S:1]:7 col[Q:3 R:3]:13]")) {
 		t.Fatal("proportional weights are the same tree")
 	}
@@ -300,7 +294,7 @@ func TestTreeJSON(t *testing.T) {
 		t.Fatalf("round trip: %s %v", got, ok)
 	}
 	for _, bad := range []string{
-		`{"pane":"explorer"}`, // the other Panes are missing
+		`{"pane":"explorer"}`,
 		`{"split":"row","weights":[1,1],"kids":[{"pane":"explorer"},{"pane":"explorer"},{"pane":"editor"},{"pane":"results"}]}`,
 		`{"split":"row","weights":[1,1,1,1],"kids":[{"pane":"explorer"},{"pane":"schema"},{"pane":"editor"},{"pane":"chart"}]}`,
 		`{"split":"diagonal","weights":[1,1,1,1],"kids":[{"pane":"explorer"},{"pane":"schema"},{"pane":"editor"},{"pane":"results"}]}`,
@@ -317,8 +311,6 @@ func TestTreeJSON(t *testing.T) {
 		}
 	}
 }
-
-// Codex review of phase 3.
 
 func visibleShare(n layoutNode, z Zone) (num, den int) {
 	for i, k := range n.kids {

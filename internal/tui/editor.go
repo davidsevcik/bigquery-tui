@@ -10,32 +10,23 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// editor is a modeless multi-line text editor: cursor, selection, snapshot
-// undo, horizontal scrolling and a per-token highlight hook. It knows nothing
-// about SQL; the tokens come from the core.
 type editor struct {
 	lines    [][]rune
 	row, col int
-	want     int // column the cursor wants on vertical moves
+	want     int
 
 	selOn          bool
-	selRow, selCol int // selection anchor
-	// vis, when set, is the selection (r1, c1, r2, c2; end exclusive) of the
-	// vim layer's Visual mode and overrides the anchor.
-	vis *[4]int
-	// insertCursor draws the cursor as the vim layer's Insert-mode cursor.
-	insertCursor bool
+	selRow, selCol int
+	vis            *[4]int
+	insertCursor   bool
 
-	top, left int // scroll: first visible line, first visible cell
+	top, left int
 
-	undo, redo []edSnap
-	typing     bool // the last change was plain typing (coalesced into one undo step)
-	// inGroup makes every change until endGroup one undo step (a vim command,
-	// including the whole Insert session it starts).
+	undo, redo       []edSnap
+	typing           bool
 	inGroup, grouped bool
 	version          int
 
-	// the error BigQuery pointed at (1-based line and column; 0 = none)
 	errLine, errCol int
 
 	hlVersion int
@@ -80,7 +71,6 @@ func (e *editor) text() string {
 	return b.String()
 }
 
-// setText replaces the whole text as one undoable change.
 func (e *editor) setText(text string) {
 	e.push(false)
 	e.lines = splitLines(text)
@@ -96,7 +86,6 @@ func (e *editor) changed() {
 
 func (e *editor) empty() bool { return len(e.lines) == 1 && len(e.lines[0]) == 0 }
 
-// offset returns the cursor as a UTF-8 byte offset into text().
 func (e *editor) offset() int { return e.offsetOf(e.row, e.col) }
 
 func (e *editor) offsetOf(row, col int) int {
@@ -110,7 +99,6 @@ func (e *editor) offsetOf(row, col int) int {
 	return n
 }
 
-// position converts a byte offset to a line and rune column.
 func (e *editor) position(off int) (int, int) {
 	for i, l := range e.lines {
 		n := len(string(l))
@@ -127,14 +115,11 @@ func (e *editor) position(off int) (int, int) {
 	return last, len(e.lines[last])
 }
 
-// moveTo places the cursor at a 1-based line and column (an error position).
 func (e *editor) moveTo(line, col int) {
 	e.row = clamp(line-1, 0, len(e.lines)-1)
 	e.col = clamp(col-1, 0, len(e.lines[e.row]))
 	e.want, e.selOn, e.typing = e.col, false, false
 }
-
-// --- undo
 
 func (e *editor) snap() edSnap {
 	cp := make([][]rune, len(e.lines))
@@ -144,7 +129,6 @@ func (e *editor) snap() edSnap {
 	return edSnap{cp, e.row, e.col}
 }
 
-// push records the state before a change. Consecutive typing is one step.
 func (e *editor) push(typing bool) {
 	if e.lines == nil {
 		return
@@ -197,9 +181,6 @@ func (e *editor) doRedo() bool {
 	return true
 }
 
-// --- selection
-
-// selRange returns the selection as ordered positions; ok is false without one.
 func (e *editor) selRange() (r1, c1, r2, c2 int, ok bool) {
 	if v := e.vis; v != nil {
 		return v[0], v[1], v[2], v[3], !(v[0] == v[2] && v[1] == v[3])
@@ -240,7 +221,6 @@ func (e *editor) selectAll() {
 	e.typing = false
 }
 
-// deleteRange removes the text between two positions (no undo push).
 func (e *editor) deleteRange(r1, c1, r2, c2 int) {
 	head := append([]rune(nil), e.lines[r1][:c1]...)
 	head = append(head, e.lines[r2][c2:]...)
@@ -259,9 +239,6 @@ func (e *editor) deleteSelection() bool {
 	return true
 }
 
-// --- edits
-
-// insert types text at the cursor, replacing the selection.
 func (e *editor) insert(s string) {
 	if s == "" {
 		return
@@ -301,7 +278,6 @@ func (e *editor) insertRaw(s string) {
 	e.want = e.col
 }
 
-// replaceBytes replaces the byte range [start, end) of the text (a completion).
 func (e *editor) replaceBytes(start, end int, s string) {
 	e.push(false)
 	r1, c1 := e.position(start)
@@ -339,7 +315,6 @@ func (e *editor) backspace() bool {
 		e.deleteRange(e.row-1, len(e.lines[e.row-1]), e.row, 0)
 	} else {
 		n := 1
-		// a soft tab goes in one stroke
 		if e.col%edTabWidth == 0 && e.col >= edTabWidth && strings.TrimSpace(string(e.lines[e.row][:e.col])) == "" {
 			n = edTabWidth
 		}
@@ -425,11 +400,6 @@ func (e *editor) deleteTo(r, c int) bool {
 	return true
 }
 
-// --- keys
-
-// handle applies an editing or movement key. changed reports a text change,
-// handled whether the key belonged to the editor at all. page is the number
-// of lines a page key moves.
 func (e *editor) handle(msg tea.KeyPressMsg, page int) (changed, handled bool) {
 	name := msg.String()
 	shift := strings.HasPrefix(name, "shift+")
@@ -491,7 +461,6 @@ func (e *editor) handle(msg tea.KeyPressMsg, page int) (changed, handled bool) {
 	case "pgdown":
 		return move(e.row+page, e.want, true)
 	case "home", "ctrl+a":
-		// first press: the first non-blank; second: column 0
 		ind := 0
 		for ind < len(e.lines[e.row]) && unicode.IsSpace(e.lines[e.row][ind]) {
 			ind++
@@ -550,8 +519,6 @@ func (e *editor) handle(msg tea.KeyPressMsg, page int) (changed, handled bool) {
 	return false, false
 }
 
-// --- rendering
-
 func runeCells(r rune) int {
 	if r == '\t' {
 		return edTabWidth
@@ -562,7 +529,6 @@ func runeCells(r rune) int {
 	return max(1, wid(string(r)))
 }
 
-// cursorCell returns the display column of the cursor within its line.
 func (e *editor) cursorCell() int {
 	c := 0
 	for _, r := range e.lines[e.row][:min(e.col, len(e.lines[e.row]))] {
@@ -580,7 +546,6 @@ func (e *editor) gutter() int {
 	return max(d, 2) + 2
 }
 
-// scroll keeps the cursor inside a w x h viewport.
 func (e *editor) scroll(w, h int) {
 	tw := max(1, w-e.gutter())
 	if e.row < e.top {
@@ -602,14 +567,9 @@ func (e *editor) scroll(w, h int) {
 	}
 }
 
-// scrollView scrolls an h-line view by d lines without editing. The cursor
-// stays while it is in view, else it moves to the nearest visible line at
-// the column it wants, as a plain up or down would; a selection follows it.
 func (e *editor) scrollView(d, h int) {
 	h = max(1, h)
 	top := clamp(e.top+d, 0, max(0, len(e.lines)-h))
-	// a view scrolled further than this height allows (the Editor grew) is
-	// never moved against the wheel's direction
 	if (d > 0 && top < e.top) || (d < 0 && top > e.top) {
 		top = e.top
 	}
@@ -621,7 +581,6 @@ func (e *editor) scrollView(d, h int) {
 	}
 }
 
-// highlight caches the token kind of every rune.
 func (e *editor) highlight(tokenize func(string) []api.Token) {
 	if e.hlVersion == e.version && e.hl != nil {
 		return
@@ -672,8 +631,6 @@ var tokenStyles = map[api.TokenKind]lipgloss.Style{
 	api.TokPunct:    fg("246"),
 }
 
-// view draws the editor into w x h cells. cursorXY reports where the cursor
-// landed (relative to the view), for the completion popup.
 func (e *editor) view(w, h int, focused bool, tokenize func(string) []api.Token, placeholder string) (lines []string, curX, curY int) {
 	e.scroll(w, h)
 	e.highlight(tokenize)
@@ -793,8 +750,6 @@ func (e *editor) view(w, h int, focused bool, tokenize func(string) []api.Token,
 	return out, curX, curY
 }
 
-// sameTokenRun reports whether columns a..b lie in one token (the error mark
-// covers the token BigQuery pointed at).
 func sameTokenRun(kinds []api.TokenKind, a, b int) bool {
 	if a < 0 || b >= len(kinds) || a >= len(kinds) {
 		return false

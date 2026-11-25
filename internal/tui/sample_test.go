@@ -14,8 +14,6 @@ import (
 
 const sampleTitle = "Sample · free read, no query job"
 
-// onSalesTable selects a table of acme-prod.sales by its row in the tables column
-// (customers, order_items, orders, v_orders).
 func (r *rig) onSalesTable(row int, want string) {
 	r.t.Helper()
 	r.press("l", "j", "j", "l")
@@ -42,7 +40,6 @@ func TestPLoadsAFreeSampleIntoTheResults(t *testing.T) {
 	r.contains("no runs in this session yet")
 	r.press("esc")
 
-	// the same from the Schema pane, on another table
 	r = newRig(t, 120, 30)
 	wideRefunds(r)
 	r.press("l", "j", "l", "j")
@@ -151,24 +148,20 @@ func TestBracketsSwitchBetweenTheSampleAndTheRun(t *testing.T) {
 	if r.calls("ListRows") != lists {
 		t.Fatal("switching back reuses the loaded Sample")
 	}
-	// p on the table in the Sample shows it again as it was
 	r.press("j", "j", "[", "ctrl+w", "k", "ctrl+w", "h", "p")
 	r.contains(sampleTitle, "row 3 of 45")
 	if r.calls("ListRows") != lists {
 		t.Fatal("p on the same table does not read it again")
 	}
-	// starting a Run shows the Run
 	r.press("ctrl+w", "l", "ctrl+r")
 	r.settle()
 	r.contains("Results · #2 done")
 	r.lacks(sampleTitle)
-	// so does opening a Run from the run list
 	r.press("ctrl+w", "h", "p")
 	r.contains(sampleTitle)
 	r.press("g", "r", "enter")
 	r.contains("Results · #")
 	r.lacks(sampleTitle)
-	// switching buffers does not change it
 	r.press("ctrl+w", "h", "p", "ctrl+w", "l", "ctrl+x", "n")
 	r.contains(sampleTitle)
 }
@@ -200,7 +193,7 @@ func TestTheRecordViewAndCopyReadTheFullSampleRow(t *testing.T) {
 	r.press("l", "j", "l", "j")
 	r.selected("acme-prod.finance.refunds")
 	r.press("p")
-	r.lacks("THE-END") // the grid clips long values
+	r.lacks("THE-END")
 	r.press("ctrl+w", "l", "ctrl+w", "j", "enter")
 	r.contains("Record 1 of 3 · refunds", "THE-END", `"city": "Brno"`, `"tags": [`)
 	r.press("n")
@@ -228,13 +221,12 @@ func TestASampleCannotBeExported(t *testing.T) {
 func TestPagesForAReplacedSampleAreDropped(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.onOrders()
-	first := r.m.sampleAction() // its first page is not delivered yet
+	first := r.m.sampleAction()
 	r.press("k", "k", "p")
 	r.selected("acme-prod.sales.customers")
 	r.contains(sampleTitle + " · acme-prod.sales.customers")
 	r.run(first)
 	r.contains(sampleTitle + " · acme-prod.sales.customers")
-	// a later page for a replaced grid is ignored too
 	r.press("j", "j", "p")
 	old := r.m.sample.g
 	r.press("k", "k", "p")
@@ -294,8 +286,6 @@ func TestSchemaFlagsARequiredPartitionFilter(t *testing.T) {
 	r.lacks("partition filter required")
 }
 
-// --- s
-
 func (r *rig) bufNames() []string {
 	var out []string
 	for _, b := range r.m.bufs {
@@ -322,9 +312,8 @@ func TestSOpensASelectForTheTableInANewBuffer(t *testing.T) {
 		t.Fatal("s never runs the query")
 	}
 	r.contains("new buffer customers: not run, billed when run (ctrl+d estimates)")
-	// the draft is written on the next tick
 	b := r.m.buf()
-	r.m.saveDrafts() // what the next tick does
+	r.m.saveDrafts()
 	if got, err := os.ReadFile(r.m.draftPath(b.id)); err != nil || string(got) != want {
 		t.Fatalf("draft %q %v", got, err)
 	}
@@ -378,13 +367,13 @@ func TestSWritesTheFilterTheTableNeeds(t *testing.T) {
 func TestSWaitsForTheTableDetailOrFallsBackToTrue(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.onOrders()
-	r.m.details = map[string]*detailData{} // the detail is still on its way
+	r.m.details = map[string]*detailData{}
 	r.press("s")
 	if !strings.Contains(r.text(), "WHERE created_at >=") {
 		t.Fatalf("the detail is read first:\n%s", r.text())
 	}
 	r.press("ctrl+w", "h")
-	r.send(selectDetailMsg{path: r.m.sel().path, key: r.m.sel().detailKey(), err: os.ErrNotExist}) // the read failed
+	r.send(selectDetailMsg{path: r.m.sel().path, key: r.m.sel().detailKey(), err: os.ErrNotExist})
 	if !strings.Contains(r.text(), "WHERE true") {
 		t.Fatalf("without the detail:\n%s", r.text())
 	}
@@ -407,14 +396,11 @@ func TestSStartsInNormalModeInVim(t *testing.T) {
 	}
 }
 
-// Codex review of phase 2: the message orders and states below went wrong.
-
 func TestAFamilySampleKeepsReadingTheShardItStartedWith(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.press("l", "l", "j")
 	r.selected("acme-prod.events.events_YYYYMMDD")
 	r.press("p")
-	// later pages must not follow the family to a newer shard synced meanwhile
 	if got := r.m.sample.path.String(); got != "acme-prod.events.events_20240104" {
 		t.Fatalf("the Sample reads %s, want the shard it was loaded from", got)
 	}
@@ -427,12 +413,12 @@ func TestARestoredSampleCanStillLoadItsPages(t *testing.T) {
 	r.onOrders()
 	r.press("p")
 	a := r.m.sample.g
-	page := r.m.fetchPage(a, gridPage) // A's next page is on its way
+	page := r.m.fetchPage(a, gridPage)
 	r.press("k", "k")
 	r.selected("acme-prod.sales.customers")
 	b := r.m.sampleAction()
-	r.run(page) // arrives while B is the Sample
-	r.run(b)    // B turns out to be a view: A comes back
+	r.run(page)
+	r.run(b)
 	if r.m.sample == nil || r.m.sample.g != a {
 		t.Fatal("the earlier Sample is not restored")
 	}
@@ -448,7 +434,7 @@ func TestAFailedSampleDoesNotUndoSwitchingToTheRun(t *testing.T) {
 	r.onOrders()
 	r.press("p", "k", "k")
 	b := r.m.sampleAction()
-	r.m.showRun() // a Run is started or picked before B answers
+	r.m.showRun()
 	r.run(b)
 	if r.m.sampleShown() {
 		t.Fatal("the failed Sample switched the Results back to the earlier Sample")
@@ -459,7 +445,7 @@ func TestPBringsTheResultsBackFromAMaximisedSchema(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		w, h int
-		want Zone // where the focus ends up
+		want Zone
 	}{{"classic", 120, 30, ZoneSchema}, {"stepped down", 80, 24, ZoneResults}} {
 		t.Run(c.name, func(t *testing.T) {
 			r := newRig(t, c.w, c.h)

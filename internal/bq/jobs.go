@@ -15,22 +15,15 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// QueryRequest is one query to dry-run or run.
 type QueryRequest struct {
-	SQL    string
-	Params []api.QueryParam
-	// Location is the job location; empty lets BigQuery infer it.
-	Location string
-	// MaxBytesBilled is the hard cap; 0 sets none.
+	SQL            string
+	Params         []api.QueryParam
+	Location       string
 	MaxBytesBilled int64
 	Labels         map[string]string
-	// JobID is the job's ID, chosen by the caller so a submission whose
-	// answer never arrived can still be cancelled; empty lets the client
-	// choose one.
-	JobID string
+	JobID          string
 }
 
-// DryRunResult is what a dry-run reports.
 type DryRunResult struct {
 	BytesProcessed int64
 	Accuracy       string
@@ -41,8 +34,6 @@ type DryRunResult struct {
 	Location       string
 }
 
-// JobResult is the outcome of a finished job. Err is the job's own failure
-// (a query error); the error WaitJob returns is a failure to learn the outcome.
 type JobResult struct {
 	Err            error
 	BytesProcessed int64
@@ -59,25 +50,17 @@ type JobResult struct {
 	Ended          time.Time
 }
 
-// ResultPage is a page of a query job's rows in the REST wire shape.
 type ResultPage struct {
 	Schema    []Field
 	Rows      [][]any
 	TotalRows int64
 }
 
-// Jobs runs queries as jobs in the Execution project.
 type Jobs interface {
-	// DryRun validates the query and reports its estimate without running it.
 	DryRun(ctx context.Context, req QueryRequest) (DryRunResult, error)
-	// StartQuery submits the job and returns as soon as BigQuery accepted it.
 	StartQuery(ctx context.Context, req QueryRequest) (api.JobRef, error)
-	// WaitJob blocks until the job has finished.
 	WaitJob(ctx context.Context, ref api.JobRef) (JobResult, error)
-	// CancelJob asks BigQuery to cancel; the job may still finish.
 	CancelJob(ctx context.Context, ref api.JobRef) error
-	// QueryRows reads a page of a finished query job's result (for a script,
-	// the last statement's result).
 	QueryRows(ctx context.Context, ref api.JobRef, startIndex int64, maxRows int) (ResultPage, error)
 }
 
@@ -119,7 +102,6 @@ func queryParam(p api.QueryParam) (bqapi.QueryParameter, error) {
 	return bqapi.QueryParameter{Name: p.Name, Value: v}, nil
 }
 
-// DryRun implements Jobs.
 func (c *Client) DryRun(ctx context.Context, req QueryRequest) (DryRunResult, error) {
 	q, err := c.userQuery(req, true)
 	if err != nil {
@@ -168,7 +150,6 @@ func fieldsOf(s bqapi.Schema) []Field {
 	return out
 }
 
-// jobs keeps the handles of submitted jobs so waiting needs no extra lookup.
 type jobTable struct {
 	mu sync.Mutex
 	m  map[api.JobRef]*bqapi.Job
@@ -195,7 +176,6 @@ func (t *jobTable) drop(ref api.JobRef) {
 	delete(t.m, ref)
 }
 
-// StartQuery implements Jobs.
 func (c *Client) StartQuery(ctx context.Context, req QueryRequest) (api.JobRef, error) {
 	q, err := c.userQuery(req, false)
 	if err != nil {
@@ -221,7 +201,6 @@ func (c *Client) job(ctx context.Context, ref api.JobRef) (*bqapi.Job, error) {
 	return j, nil
 }
 
-// WaitJob implements Jobs.
 func (c *Client) WaitJob(ctx context.Context, ref api.JobRef) (JobResult, error) {
 	job, err := c.job(ctx, ref)
 	if err != nil {
@@ -229,8 +208,6 @@ func (c *Client) WaitJob(ctx context.Context, ref api.JobRef) (JobResult, error)
 	}
 	st, err := job.Wait(ctx)
 	if err != nil {
-		// Wait reports a failed or cancelled job as an error of its own. Ask
-		// for the status so the caller gets the outcome with its statistics.
 		if ctx.Err() != nil {
 			return JobResult{}, Wrap("wait for job "+ref.ID, err)
 		}
@@ -263,7 +240,6 @@ func (c *Client) WaitJob(ctx context.Context, ref api.JobRef) (JobResult, error)
 	return out, nil
 }
 
-// CancelJob implements Jobs.
 func (c *Client) CancelJob(ctx context.Context, ref api.JobRef) error {
 	job, err := c.job(ctx, ref)
 	if err != nil {
@@ -272,7 +248,6 @@ func (c *Client) CancelJob(ctx context.Context, ref api.JobRef) error {
 	return Wrap("cancel job "+ref.ID, job.Cancel(ctx))
 }
 
-// QueryRows implements Jobs with REST jobs.getQueryResults.
 func (c *Client) QueryRows(ctx context.Context, ref api.JobRef, startIndex int64, maxRows int) (ResultPage, error) {
 	call := c.svc.Jobs.GetQueryResults(ref.Project, ref.ID).Context(ctx).Location(ref.Location).
 		StartIndex(uint64(startIndex)).MaxResults(int64(maxRows)).FormatOptionsUseInt64Timestamp(true)
@@ -296,12 +271,8 @@ func (c *Client) QueryRows(ctx context.Context, ref api.JobRef, startIndex int64
 
 var errPosition = regexp.MustCompile(`\[(\d+):(\d+)\]`)
 
-// authHint is shown for credentials failures other than a refused
-// impersonation, whose message names its own fix.
 const authHint = "run: gcloud auth application-default login"
 
-// QueryErrorOf turns a dry-run or job failure into plain data: the message
-// without client wrapping, the position when BigQuery gave one, and a class.
 func QueryErrorOf(err error) *api.QueryError {
 	if err == nil {
 		return nil

@@ -10,38 +10,22 @@ import (
 	"time"
 )
 
-// Event is one observed change of the config file.
 type Event struct {
-	// Config is the new valid configuration. It is nil when Err is set, in
-	// which case the last good configuration stays in force.
-	Config *Config
-	Err    error
-	// Changed lists the keys whose effective value differs from the last
-	// good configuration.
-	Changed []string
-	// RestartRequired is the subset of Changed that cannot be applied live.
+	Config          *Config
+	Err             error
+	Changed         []string
 	RestartRequired []string
 }
 
-// WatchOptions configures Watch.
 type WatchOptions struct {
-	Load LoadOptions
-	// Interval is the poll period (default 1s).
-	Interval time.Duration
-	// Stability is how long the content must stay unchanged before it is
-	// applied (default 300ms).
+	Load      LoadOptions
+	Interval  time.Duration
 	Stability time.Duration
-	// Kick triggers an immediate check (editor exited, terminal focused).
-	Kick <-chan struct{}
+	Kick      <-chan struct{}
 }
 
-// restartKeys cannot be applied to a running process.
 var restartKeys = map[string]bool{"data_dir": true}
 
-// Watch polls the config file and emits an Event whenever its content changes
-// and has been stable for the configured time. Polling (rather than fsnotify)
-// copes with editors that save by rename and with symlinked dotfiles. The
-// channel is closed when ctx ends.
 func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 	if o.Interval <= 0 {
 		o.Interval = time.Second
@@ -51,7 +35,6 @@ func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 	}
 	out := make(chan Event, 1)
 	path := ResolvePath(o.Load)
-	// Hash synchronously so a write racing with the goroutine start is seen.
 	seen, _, _ := readHashed(path)
 	go func() {
 		defer close(out)
@@ -84,8 +67,6 @@ func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 			}
 			seen = h
 			ev := Event{}
-			// Use the read that was hashed: reading the file again could
-			// catch a write that started after the stability check.
 			cfg, err := fromRead(path, raw, rerr, o.Load)
 			if err != nil {
 				ev.Err = err
@@ -109,8 +90,6 @@ func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 	return out
 }
 
-// readHashed reads the file once and hashes what it saw, including a
-// missing or unreadable file.
 func readHashed(path string) (h [sha256.Size]byte, raw []byte, err error) {
 	raw, err = readFile(path)
 	if err != nil {
@@ -122,7 +101,6 @@ func readHashed(path string) (h [sha256.Size]byte, raw []byte, err error) {
 	return sha256.Sum256(raw), raw, nil
 }
 
-// Diff returns the config keys whose effective values differ, sorted.
 func Diff(a, b *Config) []string {
 	if a == nil || b == nil {
 		return nil

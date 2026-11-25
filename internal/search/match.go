@@ -7,7 +7,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// Match tiers, best first.
 const (
 	tExact = iota
 	tPrefix
@@ -19,10 +18,6 @@ const (
 
 var tierNames = []string{"exact", "prefix", "word", "substring", "fuzzy", "description"}
 
-// A score is fieldBase + tier*10, lower is better. A hit on the table's own
-// name always beats a hit that only comes from its labels, dataset or project
-// (otherwise an exact dataset name would lift every table in it above real
-// name matches), and any of those beats a description-only hit.
 const (
 	penName    = 0
 	penLabel   = 100
@@ -65,8 +60,6 @@ func commonPrefix(a, b string) int {
 	return i
 }
 
-// wordFrom matches term as a concatenation of prefixes of consecutive words
-// starting at word j (so `oi` matches `order_items`).
 func wordFrom(name, term string, ws []api.Span, j int, acc []api.Span) ([]api.Span, bool) {
 	if term == "" {
 		return acc, true
@@ -84,8 +77,6 @@ func wordFrom(name, term string, ws []api.Span, j int, acc []api.Span) ([]api.Sp
 	return nil, false
 }
 
-// matchName returns the tier at which the lower-case term matches the
-// lower-case name, or -1, with the matched spans.
 func matchName(name, term string, fuzzy bool) (int, []api.Span) {
 	if term == "" || len(name) < len(term) {
 		return -1, nil
@@ -96,8 +87,6 @@ func matchName(name, term string, fuzzy bool) (int, []api.Span) {
 	if strings.HasPrefix(name, term) {
 		return tPrefix, []api.Span{{Start: 0, End: len(term)}}
 	}
-	// cheap reject before the more expensive tiers: every byte of the term
-	// must occur in the name
 	if !fuzzy && !strings.Contains(name, term[:1]) {
 		return -1, nil
 	}
@@ -151,7 +140,6 @@ func mergeSpans(sp []api.Span) []api.Span {
 	return out
 }
 
-// subSpans returns the first occurrence of each value in l.
 func subSpans(l string, vals []string) []api.Span {
 	var sp []api.Span
 	for _, v := range vals {

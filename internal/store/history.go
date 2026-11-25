@@ -16,10 +16,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// historyMigrations are the embedded, forward-only migrations. Index i takes
-// the database from version i to i+1. Never edit a released migration; append.
 var historyMigrations = []string{
-	// 1: initial schema
 	`
 CREATE TABLE history (
   id                    INTEGER PRIMARY KEY,
@@ -66,34 +63,25 @@ CREATE TABLE recent_objects (
   open_count  INTEGER NOT NULL DEFAULT 1
 );
 `,
-	// 2: sql_key groups identical SQL (whitespace-normalised); filled in Go
-	// for older rows (fillKeys)
 	`
 ALTER TABLE history ADD COLUMN sql_key TEXT;
 CREATE INDEX history_key ON history(sql_key);
 `,
-	// 3: the key keeps whitespace inside literals and comments; recompute it
 	`
 UPDATE history SET sql_key = NULL;
 `,
 }
 
-// HistorySchemaVersion is the newest history.db schema this binary knows.
 var HistorySchemaVersion = len(historyMigrations)
 
-// ErrHistoryTooNew is returned for a history.db written by a newer bqt.
 var ErrHistoryTooNew = errors.New("history.db was written by a newer bqt; refusing to open it")
 
-// History is the durable store of Runs and recently opened objects.
 type History struct {
-	db   *sql.DB
-	path string
-	// Notice carries a message the frontend should show once (a migration
-	// backup, or a recovered corrupt file).
+	db     *sql.DB
+	path   string
 	Notice string
 }
 
-// OpenHistory opens history.db, migrating it forward after taking a backup.
 func OpenHistory(path string) (*History, error) {
 	return openHistory(path, historyMigrations, time.Now)
 }
@@ -157,7 +145,6 @@ func tryOpenHistory(path string, migrations []string) (*History, error) {
 	case v == len(migrations):
 		return h, nil
 	}
-	// v < latest: back up, then migrate in one transaction.
 	if v > 0 {
 		if err := backupHistory(db, path, v); err != nil {
 			db.Close()
@@ -175,9 +162,6 @@ func tryOpenHistory(path string, migrations []string) (*History, error) {
 func backupName(path string, v int) string { return fmt.Sprintf("%s.bak-v%d", path, v) }
 
 func backupHistory(db *sql.DB, path string, v int) error {
-	// VACUUM INTO writes a transactionally consistent copy even while other
-	// connections hold the WAL open (a plain file copy after a checkpoint can
-	// miss committed pages).
 	dst := backupName(path, v)
 	if err := os.Remove(dst); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -188,7 +172,6 @@ func backupHistory(db *sql.DB, path string, v int) error {
 	if err := os.Chmod(dst, 0o600); err != nil {
 		return err
 	}
-	// Keep only the newest backup.
 	matches, _ := filepath.Glob(path + ".bak-v*")
 	sort.Slice(matches, func(i, j int) bool { return bakVersion(matches[i]) < bakVersion(matches[j]) })
 	for _, m := range matches {
@@ -222,19 +205,14 @@ func (h *History) migrate(from int, migrations []string) error {
 	return tx.Commit()
 }
 
-// Close closes the database.
 func (h *History) Close() error { return h.db.Close() }
 
-// DB exposes the handle for the History and Favorites features (phase 4).
 func (h *History) DB() *sql.DB { return h.db }
 
-// Path returns the file path.
 func (h *History) Path() string { return h.path }
 
-// Version returns the schema version in the file.
 func (h *History) Version() (int, error) { return userVersion(h.db) }
 
-// TouchRecent records that an object was opened.
 func (h *History) TouchRecent(ctx context.Context, path, kind string, at time.Time) error {
 	_, err := h.db.ExecContext(ctx, `INSERT INTO recent_objects(path,kind,last_opened,open_count) VALUES(?,?,?,1)
 ON CONFLICT(path) DO UPDATE SET kind=excluded.kind,last_opened=excluded.last_opened,open_count=recent_objects.open_count+1`,
@@ -242,7 +220,6 @@ ON CONFLICT(path) DO UPDATE SET kind=excluded.kind,last_opened=excluded.last_ope
 	return err
 }
 
-// Recent returns the most recently opened objects, newest first.
 func (h *History) Recent(ctx context.Context, limit int) ([]string, error) {
 	rows, err := h.db.QueryContext(ctx, "SELECT path FROM recent_objects ORDER BY last_opened DESC, path LIMIT ?", limit)
 	if err != nil {
@@ -260,8 +237,6 @@ func (h *History) Recent(ctx context.Context, limit int) ([]string, error) {
 	return out, rows.Err()
 }
 
-// InsertRun records one real Run. A job seen before (the same project,
-// location and job id) is updated, so recording is idempotent.
 func (h *History) InsertRun(ctx context.Context, r api.RunInfo) error {
 	if r.Job == nil {
 		return errors.New("history: a run without a job is not recorded")
@@ -310,7 +285,6 @@ reservation_id=excluded.reservation_id,edition=excluded.edition,destination_tabl
 	return err
 }
 
-// RunCount returns the number of recorded Runs.
 func (h *History) RunCount(ctx context.Context) (int, error) {
 	var n int
 	err := h.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM history").Scan(&n)

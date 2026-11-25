@@ -11,22 +11,18 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/sqlx"
 )
 
-// listFilter narrows one Explorer list in place: a Miller column or the tree.
-// The list style keeps its own searchState.
 type listFilter struct {
 	in     input
 	parsed api.ParsedQuery
 	typing bool
 
-	answered bool            // set and rank answer the current text
-	set      map[string]bool // openKey of every match
-	under    map[string]bool // openKey of every project and dataset that holds a match
-	rank     []string        // openKeys, best first
-	count    int             // matches the list shows (a family once, not with its members)
+	answered bool
+	set      map[string]bool
+	under    map[string]bool
+	rank     []string
+	count    int
 	err      string
-	// best moves the cursor to the best match when the next answer arrives
-	// (set while typing; a reload keeps the cursor where it is).
-	best bool
+	best     bool
 
 	seq    int
 	cancel context.CancelFunc
@@ -34,8 +30,6 @@ type listFilter struct {
 
 func (f *listFilter) active() bool { return strings.TrimSpace(f.in.value()) != "" }
 
-// passes reports whether the list shows n. Until the first answer for the
-// current text arrives the list stays as it was.
 func (f *listFilter) passes(n api.BrowseNode) bool {
 	return !f.active() || !f.answered || f.set[openKey(n)]
 }
@@ -47,7 +41,6 @@ func (f *listFilter) clear() {
 	*f = listFilter{seq: f.seq + 1}
 }
 
-// bestIn returns the index of the best-ranked match among nodes, or -1.
 func (f *listFilter) bestIn(nodes []api.BrowseNode) int {
 	at := make(map[string]int, len(nodes))
 	for i, n := range nodes {
@@ -64,16 +57,15 @@ func (f *listFilter) bestIn(nodes []api.BrowseNode) int {
 type filterMsg struct {
 	f     *listFilter
 	seq   int
-	scope string // the parent the query was scoped to (Miller columns)
+	scope string
 	resp  api.FilterResponse
 	err   error
 }
 
-// filterQuery says what a list's filter asks the core for.
 func (m *Model) filterQuery(f *listFilter) (opts api.FilterOptions, scope string) {
 	opts.SelectedOnly = true
 	if f == &m.tree.f {
-		return opts, "" // the whole tree, every kind
+		return opts, ""
 	}
 	for c := range m.mil.f {
 		if f != &m.mil.f[c] {
@@ -92,8 +84,6 @@ func (m *Model) filterQuery(f *listFilter) (opts api.FilterOptions, scope string
 			if d, ok := m.mil.at(1); ok {
 				opts.Scope = &api.ObjectPath{Project: d.Path.Project, Dataset: d.Path.Dataset}
 			}
-			// drilled into a family: the column lists its members, so every
-			// member that passes is a match of its own
 			opts.ExpandShards = m.mil.family != nil
 		}
 		if opts.Scope != nil {
@@ -102,14 +92,12 @@ func (m *Model) filterQuery(f *listFilter) (opts api.FilterOptions, scope string
 				scope += "\x00" + m.mil.family.Name
 			}
 		} else if c > 0 {
-			scope = "\x00none" // no parent: nothing to filter
+			scope = "\x00none"
 		}
 	}
 	return opts, scope
 }
 
-// refilter runs the filter for its current text, cancelling the previous run.
-// An empty filter is applied at once.
 func (m *Model) refilter(f *listFilter) tea.Cmd {
 	if f.cancel != nil {
 		f.cancel()
@@ -135,10 +123,10 @@ func (m *Model) refilter(f *listFilter) tea.Cmd {
 func (m *Model) onFilter(msg filterMsg) {
 	f := msg.f
 	if msg.seq != f.seq {
-		return // superseded by a newer keystroke
+		return
 	}
 	if _, scope := m.filterQuery(f); scope != msg.scope {
-		return // the column's parent changed while the query ran
+		return
 	}
 	if msg.err != nil {
 		if !errors.Is(msg.err, context.Canceled) {
@@ -161,7 +149,6 @@ func (m *Model) onFilter(msg filterMsg) {
 			f.under[openKey(api.BrowseNode{Kind: api.KindDataset, Path: api.ObjectPath{Project: p.Project, Dataset: p.Dataset}})] = true
 		}
 	}
-	// a family that holds a matching member opens to it, as a dataset does
 	fams := familyMatches(msg.resp.Matches)
 	for _, fm := range msg.resp.Matches {
 		if fm.Kind != api.KindTable {
@@ -175,7 +162,6 @@ func (m *Model) onFilter(msg filterMsg) {
 	m.applyFilter(f)
 }
 
-// familyMatches are the shard families among the matches.
 func familyMatches(ms []api.FilterMatch) []api.FilterMatch {
 	var out []api.FilterMatch
 	for _, fm := range ms {
@@ -186,8 +172,6 @@ func familyMatches(ms []api.FilterMatch) []api.FilterMatch {
 	return out
 }
 
-// matchedFamily is the family among fams that holds the table at p (the one
-// with the longest fixed parts when several could).
 func matchedFamily(fams []api.FilterMatch, p api.ObjectPath) (api.ObjectPath, bool) {
 	var best api.ObjectPath
 	bestLen := -1
@@ -206,14 +190,12 @@ func matchedFamily(fams []api.FilterMatch, p api.ObjectPath) (api.ObjectPath, bo
 	return best, bestLen >= 0
 }
 
-// countMatches counts what a list shows: a container that holds a match is
-// counted through that match, and a shard member through its family.
 func countMatches(ms []api.FilterMatch, under map[string]bool) int {
 	fams := familyMatches(ms)
 	n := 0
 	for _, fm := range ms {
 		if fm.Kind != api.KindShards && under[nodeKey(fm.Kind, fm.Path)] {
-			continue // a container is counted through what it holds; a family once
+			continue
 		}
 		if fm.Kind != api.KindTable {
 			n++
@@ -227,7 +209,6 @@ func countMatches(ms []api.FilterMatch, under map[string]bool) int {
 	return n
 }
 
-// applyFilter shows a filter's answer in its list.
 func (m *Model) applyFilter(f *listFilter) {
 	best := f.best && f.answered
 	f.best = false
@@ -272,7 +253,6 @@ func (m *Model) applyFilter(f *listFilter) {
 	}
 }
 
-// typingFilter is the Miller or tree filter whose input has the focus.
 func (m *Model) typingFilter() *listFilter {
 	if m.ov != ovNone || m.zone != ZoneExplorer {
 		return nil
@@ -283,7 +263,6 @@ func (m *Model) typingFilter() *listFilter {
 	return nil
 }
 
-// styleFilter is the filter `/` edits in the current Explorer style (nil in the list style).
 func (m *Model) styleFilter() *listFilter {
 	switch m.style {
 	case styleColumns:
@@ -294,7 +273,6 @@ func (m *Model) styleFilter() *listFilter {
 	return nil
 }
 
-// filterKey handles a key while a filter input has the focus.
 func (m *Model) filterKey(f *listFilter, msg tea.KeyPressMsg, name string) tea.Cmd {
 	half := max(1, m.listHeight()/2)
 	isText := msg.Key().Text != "" && msg.Key().Mod&^tea.ModShift == 0
@@ -328,15 +306,13 @@ func (m *Model) filterKey(f *listFilter, msg tea.KeyPressMsg, name string) tea.C
 	if f.in.handle(msg) {
 		f.best = true
 		if f == &m.tree.f {
-			m.tree.filterOpen = nil // a new query starts from the automatic expansion
+			m.tree.filterOpen = nil
 		}
 		return m.refilter(f)
 	}
 	return nil
 }
 
-// dropDeeperFilters keeps the Miller rule: a column's filter lives only while
-// the focus is in that column or one to its right.
 func (m *Model) dropDeeperFilters() {
 	ml := &m.mil
 	for c := ml.col + 1; c < 3; c++ {
@@ -347,8 +323,6 @@ func (m *Model) dropDeeperFilters() {
 	}
 }
 
-// filterHeader is the input line and chip row shown above a list while its
-// filter is being typed.
 func (m *Model) filterHeader(f *listFilter, w int, what string) []string {
 	b := newRB(false)
 	b.add(" filter "+what+" ▸ ", sAcc)
@@ -371,7 +345,6 @@ func plural(n int, one, many string) string {
 	return itoa(n) + " " + many
 }
 
-// filterActive reports whether the current Explorer style's list is filtered.
 func (m *Model) filterActive() bool {
 	switch m.style {
 	case styleList:
@@ -387,8 +360,6 @@ func (m *Model) filterActive() bool {
 	return m.tree.f.active()
 }
 
-// treeSelectNearest puts the cursor on the object, or on its nearest
-// ancestor the tree shows (the filter is cleared without opening rows).
 func (m *Model) treeSelectNearest(p api.ObjectPath) {
 	t := &m.tree
 	keys := []string{nodeKey(api.KindProject, api.ObjectPath{Project: p.Project})}
@@ -410,8 +381,6 @@ func (m *Model) treeSelectNearest(p api.ObjectPath) {
 	}
 }
 
-// filterOn reports whether the current Explorer style's list is filtered (or its
-// filter input is open).
 func (m *Model) filterOn() bool {
 	if m.style == styleList {
 		return m.flat.typing || m.flat.in.value() != ""

@@ -1,6 +1,3 @@
-// Command bqt is a keyboard-driven BigQuery explorer. This build contains the
-// foundation (config, local catalog, sync, diagnostics); the interactive UI
-// arrives in the next phase.
 package main
 
 import (

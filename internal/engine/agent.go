@@ -19,24 +19,13 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/search"
 )
 
-// The agent surface (spec 14): what `bqt query`, `bqt favorites run` and the
-// MCP tools call. Every query here runs under the policy profile of the
-// engine's Source (cli or mcp); nothing here asks a question.
-
-// ErrBadResultID is returned for a result ID that is not project:LOCATION.job_id.
 var ErrBadResultID = errors.New("invalid result_id (want project:LOCATION.job_id)")
 
-// AgentQuery describes one agent query.
 type AgentQuery struct {
-	SQL    string
-	Params []api.QueryParam
-	// Favorite is the Favorite the SQL came from (History).
+	SQL      string
+	Params   []api.QueryParam
 	Favorite string
-	// Limit is the number of rows returned (default policy.DefaultRows, at
-	// most policy.MaxRows).
-	Limit int
-	// MaxBytes and Timeout lower the profile's limits; higher values are
-	// ignored.
+	Limit    int
 	MaxBytes int64
 	Timeout  time.Duration
 }
@@ -48,17 +37,12 @@ func (e *Engine) agentSource() string {
 	return "cli"
 }
 
-// AgentProfile returns the policy profile agent queries run under, with the
-// given limits lowered.
 func (e *Engine) AgentProfile(maxBytes int64, timeout time.Duration) policy.Profile {
 	return policy.For(e.Config(), e.agentSource()).Lower(maxBytes, timeout)
 }
 
-// QueryFailure is a failed dry-run or job, with BigQuery's message and the
-// error position when there is one.
 type QueryFailure = runs.QueryFailure
 
-// AgentDryRun estimates a query and says whether the policy would run it.
 func (e *Engine) AgentDryRun(ctx context.Context, q AgentQuery) (api.DryRunResult, error) {
 	prof := e.AgentProfile(q.MaxBytes, q.Timeout)
 	f := e.runs.Follow()
@@ -74,11 +58,8 @@ func (e *Engine) AgentDryRun(ctx context.Context, q AgentQuery) (api.DryRunResul
 	}, nil
 }
 
-// RunAgentQuery runs a query under the policy and returns its first rows.
-// A refusal is a *policy.Error, a failed query a *QueryFailure.
 func (e *Engine) RunAgentQuery(ctx context.Context, q AgentQuery) (api.QueryResult, error) {
 	prof := e.AgentProfile(q.MaxBytes, q.Timeout)
-	// one deadline covers the Run and reading the rows returned
 	deadline := time.Now().Add(prof.Timeout)
 	f := e.runs.Follow()
 	id := f.Start(ctx, runs.Request{SQL: q.SQL, Params: q.Params, Favorite: q.Favorite, Policy: &prof}, runs.Origin{})
@@ -110,7 +91,7 @@ func (e *Engine) RunAgentQuery(ctx context.Context, q AgentQuery) (api.QueryResu
 		return res, fmt.Errorf("the query ran, but its rows could not be read: %s", info.ResultError)
 	}
 	if !info.HasResult {
-		res.ResultID = "" // nothing to page
+		res.ResultID = ""
 		return res, nil
 	}
 	rctx, cancel := context.WithDeadline(ctx, deadline)
@@ -139,7 +120,6 @@ func rowLimit(n int) int {
 	return n
 }
 
-// fillRows sets the rows, the truncation counts and the cursor of a page.
 func fillRows(res *api.QueryResult, cells [][]api.Cell, start int64) {
 	res.StartIndex = start
 	res.Rows = make([][]*string, 0, len(cells))
@@ -163,12 +143,8 @@ func fillRows(res *api.QueryResult, cells [][]api.Cell, start int64) {
 	}
 }
 
-// ResultID names a job's result for later paging: project:LOCATION.job_id,
-// the form BigQuery itself uses.
 func ResultID(ref api.JobRef) string { return ref.Project + ":" + ref.Location + "." + ref.ID }
 
-// ParseResultID reads a ResultID back. A project ID can carry a domain
-// ("example.com:proj"), so the last colon separates the project.
 func ParseResultID(id string) (api.JobRef, error) {
 	i := strings.LastIndexByte(id, ':')
 	if i <= 0 {
@@ -181,7 +157,6 @@ func ParseResultID(id string) (api.JobRef, error) {
 	return api.JobRef{Project: id[:i], Location: loc, ID: job}, nil
 }
 
-// AgentResults reads rows of an earlier query's result by its result ID.
 func (e *Engine) AgentResults(ctx context.Context, resultID string, start int64, limit int) (api.QueryResult, error) {
 	ref, err := ParseResultID(resultID)
 	if err != nil {
@@ -200,10 +175,6 @@ func (e *Engine) AgentResults(ctx context.Context, resultID string, start int64,
 	return res, nil
 }
 
-// ParsePath reads a table path: project.dataset.table, optionally in
-// backticks, or dataset.table in the Execution project. A shard family can be
-// named by its family name (orders_*, orders_*_history, events_YYYYMMDD) or
-// its wildcard prefix*: its newest shard answers.
 func (e *Engine) ParsePath(s string) (api.ObjectPath, bool) {
 	s = strings.TrimSpace(s)
 	if p, ok := search.SplitPath(s); ok {
@@ -216,7 +187,6 @@ func (e *Engine) ParsePath(s string) (api.ObjectPath, bool) {
 	return api.ObjectPath{}, false
 }
 
-// Schema returns a table's schema from the catalog.
 func (e *Engine) Schema(ctx context.Context, path string) (api.TableSchema, error) {
 	p, ok := e.ParsePath(path)
 	if !ok {
@@ -235,7 +205,6 @@ func (e *Engine) Schema(ctx context.Context, path string) (api.TableSchema, erro
 	return sc, err
 }
 
-// SchemaOf is the compact schema of a table detail.
 func SchemaOf(d api.TableDetail) api.TableSchema {
 	t := d.Table
 	s := api.TableSchema{
@@ -254,7 +223,6 @@ func SchemaOf(d api.TableDetail) api.TableSchema {
 	return s
 }
 
-// CatalogSearch is the compact catalog search of the agent surface.
 func (e *Engine) CatalogSearch(ctx context.Context, query string, limit, offset int) (api.CatalogHits, error) {
 	if e.catalog == nil {
 		return api.CatalogHits{}, ErrNoCatalog
@@ -295,8 +263,6 @@ func (e *Engine) CatalogSearch(ctx context.Context, query string, limit, offset 
 	return out, err
 }
 
-// StaleWarnings warns about each project (once, A–Z) whose catalog is older
-// than sync_ttl, saying when it is not selected (so nothing refreshes it).
 func (e *Engine) StaleWarnings(ctx context.Context, projects []string) ([]string, error) {
 	cached, err := e.cachedProjects(ctx)
 	if err != nil {
@@ -331,10 +297,8 @@ func (e *Engine) StaleWarnings(ctx context.Context, projects []string) ([]string
 	return out, nil
 }
 
-// ErrNoCatalog is returned when there is no catalog yet.
 var ErrNoCatalog = errors.New("no catalog yet: run `bqt sync`")
 
-// FavoriteList lists (or, with a query, searches) the Favorites.
 func (e *Engine) FavoriteList(query string, limit, offset int, withSQL bool) (api.FavoriteList, error) {
 	favs, err := e.ListFavorites()
 	if err != nil {
@@ -368,15 +332,12 @@ func (e *Engine) FavoriteList(query string, limit, offset int, withSQL bool) (ap
 	return out, nil
 }
 
-// ReadFavoriteIn reads a Favorite under cfg's favorites_dir without an engine.
 func ReadFavoriteIn(cfg *config.Config, id string) (api.Favorite, error) {
 	return favorites.Dir(cfg.FavoritesDir).Read(id)
 }
 
-// historySQLChars is where a History item's SQL is cut.
 const historySQLChars = 2000
 
-// HistoryList searches History (spec 11 syntax) and returns compact items.
 func (e *Engine) HistoryList(ctx context.Context, query string, limit, offset int) (api.HistoryList, error) {
 	page, err := e.SearchHistory(ctx, query, limit, offset)
 	if err != nil {
@@ -408,8 +369,6 @@ func (e *Engine) HistoryList(ctx context.Context, query string, limit, offset in
 	return out, nil
 }
 
-// Freshness is the compact catalog status of the agent surface. The agent
-// surface never syncs: the advice tells the person how to.
 func (e *Engine) Freshness(ctx context.Context) (api.CatalogFreshness, error) {
 	st, err := e.Status(ctx)
 	if err != nil {

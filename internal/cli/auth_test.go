@@ -15,8 +15,6 @@ import (
 
 const impersonatedSA = "bqt-reader@bqt-sandbox.iam.gserviceaccount.com"
 
-// deniedJSON is the IAM credentials answer when the source account lacks
-// iam.serviceAccounts.getAccessToken on the impersonated service account.
 const deniedJSON = `{
   "error": {
     "code": 403,
@@ -38,7 +36,6 @@ const deniedJSON = `{
 
 const deniedLine = "cannot impersonate " + impersonatedSA + ": your account needs roles/iam.serviceAccountTokenCreator on it (new grants can take a minute)"
 
-// missingJSON is the IAM credentials answer for a target that does not exist.
 const missingJSON = `{
   "error": {
     "code": 404,
@@ -50,8 +47,6 @@ const missingJSON = `{
 
 const missingLine = "cannot impersonate " + impersonatedSA + ": no such service account (check service_account_impersonation_url in the credentials file)"
 
-// refusals are the ways generateAccessToken refuses: status, body, and the
-// one line bqt shows.
 var refusals = []struct {
 	name   string
 	status int
@@ -62,8 +57,6 @@ var refusals = []struct {
 	{"missing", 404, missingJSON, missingLine},
 }
 
-// impersonatedADC points ADC at an impersonated_service_account file, so the
-// refused target can be named.
 func impersonatedADC(t *testing.T) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "adc.json")
@@ -76,9 +69,6 @@ func impersonatedADC(t *testing.T) {
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", path)
 }
 
-// The errors as the auth libraries build them (internal/bq drives the real
-// libraries): golang.org/x/oauth2 for `bqt doctor`, cloud.google.com/go/auth
-// under the BigQuery client's http.Client for every API call.
 func oauth2Refused(status int, body string) error {
 	return bq.Wrap("fetch access token", fmt.Errorf("oauth2/google: status code %d: %s", status, body))
 }
@@ -110,7 +100,6 @@ func TestDoctorNamesARefusedImpersonation(t *testing.T) {
 		})
 	}
 
-	// an expired login keeps the hint
 	s := newSandbox(t)
 	s.writeConfig("projects = [\"proj-a\"]\n")
 	s.authErr = bq.Wrap("fetch access token", fmt.Errorf("oauth2: cannot fetch token: invalid_grant"))
@@ -157,11 +146,9 @@ func TestClassifyRefusedImpersonation(t *testing.T) {
 			t.Fatalf("%s: %+v", rf.name, ce)
 		}
 	}
-	// an expired login keeps the hint
 	if ce := classify(bq.Wrap("list projects", fmt.Errorf("oauth2: cannot fetch token: invalid_grant"))); !strings.Contains(ce.hint, "application-default login") {
 		t.Fatalf("%+v", ce)
 	}
-	// a missing BigQuery object is not a missing service account
 	if ce := classify(bq.Wrap("get table", fmt.Errorf("googleapi: Error 404: Not found: Table p:d.t, notFound"))); ce.code == "auth" {
 		t.Fatalf("%+v", ce)
 	}

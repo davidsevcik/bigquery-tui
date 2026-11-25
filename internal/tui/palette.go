@@ -8,8 +8,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// paletteOverlay is the command palette (ctrl+p, :): the Keymap's commands,
-// narrowed as the user types.
 type paletteOverlay struct{}
 
 func (paletteOverlay) frame(m *Model, w, h int) ovFrame {

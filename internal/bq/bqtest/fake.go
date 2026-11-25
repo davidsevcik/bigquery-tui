@@ -1,5 +1,3 @@
-// Package bqtest provides an in-memory bq.Metadata with failure injection and
-// the contract suite shared by the fake and the real implementation.
 package bqtest
 
 import (
@@ -14,90 +12,55 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/bq"
 )
 
-// Dataset is a fake dataset and its contents.
 type Dataset struct {
-	Meta   api.DatasetMeta
-	Tables []api.TableMeta
-	// Denied makes region and dataset-scope queries fail with a permission
-	// error, as when the user holds no metadata access to the dataset.
-	Denied bool
-	// NamesOK lets ListTableNames and GetDataset succeed even when Denied
-	// (tables.list and datasets.get need weaker permissions than
-	// INFORMATION_SCHEMA).
+	Meta    api.DatasetMeta
+	Tables  []api.TableMeta
+	Denied  bool
 	NamesOK bool
 }
 
-// Project is a fake project.
 type Project struct {
-	// FriendlyName is what ListProjects reports.
 	FriendlyName string
-	// Unlisted leaves the project out of ListProjects (data shared at
-	// dataset level: readable, but the projects list does not return it).
-	Unlisted bool
-	Datasets []Dataset
-	// ListErr fails ListDatasets.
-	ListErr error
-	// Unreachable is returned by ListDatasets.
-	Unreachable []string
-	// Leak datasets appear in region snapshots although datasets.list does not
-	// return them (deleted-in-time-travel and temporary datasets).
-	Leak []Dataset
+	Unlisted     bool
+	Datasets     []Dataset
+	ListErr      error
+	Unreachable  []string
+	Leak         []Dataset
 }
 
-// Failure injects an error into matching calls. Empty fields are wildcards.
 type Failure struct {
-	Method   string // "ListProjects", "ListDatasets", "GetDataset", "RegionTables", "RegionColumns", "DatasetTables", "DatasetColumns", "ListTableNames", "GetTableMeta"
+	Method   string
 	Project  string
 	Location string
 	Dataset  string
 	Err      error
-	// Times limits how many calls fail; 0 means every matching call.
-	Times int
-	used  int
+	Times    int
+	used     int
 }
 
-// Call records one port call.
 type Call struct {
 	Method   string
 	Project  string
 	Location string
 	Dataset  string
 	Datasets []string
-	// Table is set for GetTableMeta; Filter for the column calls.
-	Table  string
-	Filter bq.ColumnFilter
+	Table    string
+	Filter   bq.ColumnFilter
 }
 
-// Fake implements bq.Metadata, bq.Tables and bq.Jobs.
 type Fake struct {
-	mu       sync.Mutex
-	Projects map[string]*Project
-	// Listed are extra projects ListProjects returns that hold no data.
-	Listed   []api.ListedProject
-	Failures []*Failure
-	Calls    []Call
-	// Delay is slept (respecting ctx) at the start of every call.
-	Delay time.Duration
-	// OnCall runs at the start of every call, outside the lock.
-	OnCall func(Call)
-	// TableData holds live table info and rows by "project.dataset.table" for
-	// the bq.Tables port. Tables without an entry report a schema derived
-	// from their top-level columns and no rows.
-	TableData map[string]TableData
-	// OnQuery scripts the bq.Jobs port per SQL text; nil answers every query
-	// with a three-row SELECT.
-	OnQuery func(sql string) QueryScript
-	// PageLimit caps the rows one QueryRows call returns, the way BigQuery
-	// cuts a response of wide rows short. 0 means no cap.
-	PageLimit int
-	// ListRowsLimit caps the rows one ListRows call returns, the same way.
-	// 0 means no cap.
+	mu            sync.Mutex
+	Projects      map[string]*Project
+	Listed        []api.ListedProject
+	Failures      []*Failure
+	Calls         []Call
+	Delay         time.Duration
+	OnCall        func(Call)
+	TableData     map[string]TableData
+	OnQuery       func(sql string) QueryScript
+	PageLimit     int
 	ListRowsLimit int
-	// MissColumns names "project.dataset.table" tables whose columns a
-	// filtered column call leaves out although bqt kept them, as when
-	// BigQuery's regex matching differs from Go's. A re-read by name (the
-	// filter's Only) still returns them.
-	MissColumns map[string]bool
+	MissColumns   map[string]bool
 
 	columnReads []string
 
@@ -106,16 +69,13 @@ type Fake struct {
 	jobSeq  int
 }
 
-// TableData is the live side of a fake table.
 type TableData struct {
 	Info bq.TableInfo
 	Rows [][]any
 }
 
-// New returns an empty fake.
 func New() *Fake { return &Fake{Projects: map[string]*Project{}} }
 
-// AddProject adds (or returns) a project.
 func (f *Fake) AddProject(name string) *Project {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -127,7 +87,6 @@ func (f *Fake) AddProject(name string) *Project {
 	return p
 }
 
-// methods are the port calls the fake records (Call.Method).
 var methods = map[string]bool{
 	"ListProjects": true, "ListDatasets": true, "GetDataset": true, "ListTableNames": true,
 	"RegionTables": true, "RegionColumns": true, "DatasetTables": true, "DatasetColumns": true,
@@ -135,8 +94,6 @@ var methods = map[string]bool{
 	"DryRun": true, "StartQuery": true, "WaitJob": true, "QueryRows": true, "CancelJob": true,
 }
 
-// Fail registers a failure. An unknown method panics: a failure that can
-// match no call would let a test pass without testing anything.
 func (f *Fake) Fail(fl Failure) {
 	if fl.Method != "" && !methods[fl.Method] {
 		panic("bqtest: Fail on unknown method " + fl.Method)
@@ -146,7 +103,6 @@ func (f *Fake) Fail(fl Failure) {
 	f.Failures = append(f.Failures, &fl)
 }
 
-// CallsTo returns recorded calls for a method.
 func (f *Fake) CallsTo(method string) []Call {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -212,18 +168,14 @@ func (f *Fake) project(name string) (*Project, error) {
 	return p, nil
 }
 
-// PermissionError is a ready-made injected permission failure.
 func PermissionError(what string) error {
 	return &bq.Error{Kind: bq.KindPermission, Err: fmt.Errorf("access denied: %s", what)}
 }
 
-// TransientError is a ready-made injected transient failure.
 func TransientError(what string) error {
 	return &bq.Error{Kind: bq.KindTransient, Err: fmt.Errorf("backend error: %s", what)}
 }
 
-// ListProjects implements bq.Metadata: every project not Unlisted, plus
-// Listed, sorted by ID.
 func (f *Fake) ListProjects(ctx context.Context) ([]api.ListedProject, error) {
 	if err := f.begin(ctx, Call{Method: "ListProjects"}); err != nil {
 		return nil, err
@@ -240,7 +192,6 @@ func (f *Fake) ListProjects(ctx context.Context) ([]api.ListedProject, error) {
 	return out, nil
 }
 
-// ListDatasets implements bq.Metadata.
 func (f *Fake) ListDatasets(ctx context.Context, project string) (bq.DatasetList, error) {
 	if err := f.begin(ctx, Call{Method: "ListDatasets", Project: project}); err != nil {
 		return bq.DatasetList{}, err
@@ -256,7 +207,6 @@ func (f *Fake) ListDatasets(ctx context.Context, project string) (bq.DatasetList
 	for _, d := range p.Datasets {
 		m := d.Meta
 		m.Project = project
-		// datasets.list does not return descriptions
 		m.Description = ""
 		out.Datasets = append(out.Datasets, m)
 	}
@@ -265,7 +215,6 @@ func (f *Fake) ListDatasets(ctx context.Context, project string) (bq.DatasetList
 	return out, nil
 }
 
-// GetDataset implements bq.Metadata.
 func (f *Fake) GetDataset(ctx context.Context, project, dataset string) (api.DatasetMeta, error) {
 	if err := f.begin(ctx, Call{Method: "GetDataset", Project: project, Dataset: dataset}); err != nil {
 		return api.DatasetMeta{}, err
@@ -288,7 +237,6 @@ func (f *Fake) GetDataset(ctx context.Context, project, dataset string) (api.Dat
 	return api.DatasetMeta{}, &bq.Error{Kind: bq.KindNotFound, Op: "fake", Err: fmt.Errorf("dataset %s.%s not found", project, dataset)}
 }
 
-// ListTableNames implements bq.Metadata.
 func (f *Fake) ListTableNames(ctx context.Context, project, dataset string) ([]api.TableMeta, error) {
 	if err := f.begin(ctx, Call{Method: "ListTableNames", Project: project, Dataset: dataset}); err != nil {
 		return nil, err
@@ -313,7 +261,6 @@ func (f *Fake) ListTableNames(ctx context.Context, project, dataset string) ([]a
 	return nil, &bq.Error{Kind: bq.KindNotFound, Op: "fake", Err: fmt.Errorf("dataset %s.%s not found", project, dataset)}
 }
 
-// Table builds a fake table with simple top-level STRING columns.
 func Table(name string, cols ...string) api.TableMeta {
 	t := api.TableMeta{Name: name, Type: api.TypeTable, CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)}
 	for i, c := range cols {
@@ -322,12 +269,10 @@ func Table(name string, cols ...string) api.TableMeta {
 	return t
 }
 
-// DS builds a fake dataset.
 func DS(name, location string, tables ...api.TableMeta) Dataset {
 	return Dataset{Meta: api.DatasetMeta{Name: name, Location: location, Description: "dataset " + name}, Tables: tables}
 }
 
-// GetTable implements bq.Tables.
 func (f *Fake) GetTable(ctx context.Context, ref bq.TableRef) (bq.TableInfo, error) {
 	if err := f.begin(ctx, Call{Method: "GetTable", Project: ref.Project, Dataset: ref.Dataset}); err != nil {
 		return bq.TableInfo{}, err
@@ -366,7 +311,6 @@ func (f *Fake) GetTable(ctx context.Context, ref bq.TableRef) (bq.TableInfo, err
 	return bq.TableInfo{}, &bq.Error{Kind: bq.KindNotFound, Op: "fake", Err: fmt.Errorf("table %s not found", ref)}
 }
 
-// ListRows implements bq.Tables.
 func (f *Fake) ListRows(ctx context.Context, ref bq.TableRef, startIndex int64, maxRows int) (bq.RawPage, error) {
 	if err := f.begin(ctx, Call{Method: "ListRows", Project: ref.Project, Dataset: ref.Dataset}); err != nil {
 		return bq.RawPage{}, err

@@ -9,28 +9,19 @@ import (
 	"time"
 )
 
-// walRetryEvery and walRetryFor pace the background retries of a WAL
-// truncation that a reader blocked.
 var (
 	walRetryEvery = 2 * time.Second
 	walRetryFor   = 10 * time.Minute
 )
 
-// walCheckpoint is the attempt the retry loop makes (a test replaces it).
 var walCheckpoint = truncateWAL
 
-// truncateWAL runs one wal_checkpoint(TRUNCATE) without waiting on locks:
-// done is false when a reader or a writer was in the way (SQLite then
-// reports busy=1, or SQLITE_BUSY for the write lock).
 func truncateWAL(ctx context.Context, db *sql.DB) (done bool, err error) {
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return false, err
 	}
 	defer conn.Close()
-	// The connection goes back to the pool, so the DSN's wait is restored
-	// whatever happens below, even if setting it to 0 failed half way (a
-	// cancel); a connection that cannot be restored is dropped.
 	defer func() {
 		if _, rerr := conn.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("PRAGMA busy_timeout = %d", busyTimeoutMs)); rerr != nil {
 			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
@@ -49,9 +40,6 @@ func truncateWAL(ctx context.Context, db *sql.DB) (done bool, err error) {
 	return busy == 0, nil
 }
 
-// walTrimmer runs at most one background retry loop per catalog. A request
-// that arrives while the loop runs is kept (pending), so the loop does not
-// end on a success that came before it.
 type walTrimmer struct {
 	mu      sync.Mutex
 	running bool
@@ -61,9 +49,6 @@ type walTrimmer struct {
 	wg      sync.WaitGroup
 }
 
-// retry starts the loop with ctx's values but not its cancellation: the unit
-// that asked has finished. The loop ends on success, after walRetryFor, or
-// when stop cancels it, even while it waits for a pooled connection.
 func (t *walTrimmer) retry(ctx context.Context, db *sql.DB) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -87,7 +72,7 @@ func (t *walTrimmer) retry(ctx context.Context, db *sql.DB) {
 			select {
 			case <-wctx.Done():
 				t.finish()
-				return // the journal size limit cuts the WAL at a later write
+				return
 			case <-tick.C:
 			}
 			t.mu.Lock()
@@ -101,8 +86,6 @@ func (t *walTrimmer) retry(ctx context.Context, db *sql.DB) {
 	}()
 }
 
-// finishUnlessPending ends the loop unless a new request came in during the
-// last attempt; it reports whether the loop ended.
 func (t *walTrimmer) finishUnlessPending() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -119,7 +102,6 @@ func (t *walTrimmer) finish() {
 	t.mu.Unlock()
 }
 
-// stop ends the retry loop, before the database closes under it.
 func (t *walTrimmer) stop() {
 	t.mu.Lock()
 	t.stopped = true

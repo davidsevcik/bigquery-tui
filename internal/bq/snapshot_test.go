@@ -72,7 +72,6 @@ func TestTableMetaOfMatchesTheViews(t *testing.T) {
 	if c := got["addr"]; c.DataType != "STRUCT<city STRING, tags ARRAY<STRING>>" || !c.Required {
 		t.Fatalf("addr %+v", c)
 	}
-	// the views carry no mode for nested fields
 	if c := got["addr.city"]; c.Required || c.Description != "town" || c.Ordinal != 1 {
 		t.Fatalf("addr.city %+v", c)
 	}

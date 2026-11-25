@@ -7,20 +7,15 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
-// SyntheticSpec describes a generated catalog for scale tests and benchmarks.
 type SyntheticSpec struct {
 	Project          string
 	Location         string
 	Datasets         int
 	TablesPerDataset int
 	ColumnsPerTable  int
-	// NestedPerTable adds this many STRUCT sub-fields to every table.
-	NestedPerTable int
+	NestedPerTable   int
 }
 
-// Synthetic generates a deterministic snapshot. The default scale used by the
-// spec's budgets is 50k tables with 1.25M field paths: 500 datasets x 100
-// tables x (20 columns + 5 nested fields).
 func Synthetic(s SyntheticSpec) *api.Snapshot {
 	snap := &api.Snapshot{}
 	created := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)

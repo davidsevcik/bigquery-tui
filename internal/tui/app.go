@@ -51,25 +51,16 @@ const (
 
 const searchPage = 300
 
-// Options configures the model.
 type Options struct {
-	// NoBackground disables watchers, the startup sync and timers (tests).
 	NoBackground bool
-	// StableOutput hides measured timings so screens are reproducible (tests).
 	StableOutput bool
-	// JobHeld reports that a test holds a job running on purpose (tests, with
-	// NoBackground): the TUI stops waiting for that Run instead of timing out.
-	JobHeld func(jobID string) bool
-	// Getenv resolves $VISUAL/$EDITOR (default os.Getenv).
-	Getenv func(string) string
-	Now    func() time.Time
-	// Location is where times are shown (default the local zone).
-	Location *time.Location
-	// File is a .sql file to open as the first buffer (bqt path/to/query.sql).
-	File string
+	JobHeld      func(jobID string) bool
+	Getenv       func(string) string
+	Now          func() time.Time
+	Location     *time.Location
+	File         string
 }
 
-// Model is the root Bubble Tea model.
 type Model struct {
 	be     Backend
 	o      Options
@@ -77,20 +68,20 @@ type Model struct {
 	cancel context.CancelFunc
 
 	w, h  int
-	termH int // the terminal's rows; h leaves out the tutorial panel
+	termH int
 
-	style     explorerStyle       // how the Explorer draws the catalog
-	preset    string              // the Layout's source preset (classic, query, browse, tall, focus)
-	panes     layoutNode          // the Layout's tree: the preset's, or the user's edit of it (custom)
-	maxed     Zone                // the maximised Pane ("" for none); session only
-	mru       []Zone              // the Panes, most recently focused first
-	mouse     bool                // mouse reporting: click to focus, the wheel scrolls (remembered)
-	pd        *projDialog         // the Projects dialog while open
-	listed    []api.ListedProject // BigQuery's projects list, once fetched
-	selSeen   string              // the selection last applied (see tick)
-	autoProjs bool                // nothing selected at start: open the dialog
+	style     explorerStyle
+	preset    string
+	panes     layoutNode
+	maxed     Zone
+	mru       []Zone
+	mouse     bool
+	pd        *projDialog
+	listed    []api.ListedProject
+	selSeen   string
+	autoProjs bool
 
-	hoItems []handoffItem // the hand-off popup's entries
+	hoItems []handoffItem
 
 	mil  miller
 	tree tree
@@ -105,62 +96,60 @@ type Model struct {
 
 	details map[string]*detailData
 	lastSel string
-	detOff  int // schema pane scroll
+	detOff  int
 	rec     *recordData
 	statSeq int
 
-	sample     *sample // the Sample slot (one per session)
-	showSample bool    // the Results show the Sample, not the buffer's Run
+	sample     *sample
+	showSample bool
 	sampleSeq  int
 
 	tut      *tutorial
-	firstRun bool // no UI state file yet
+	firstRun bool
 
-	pk          *picker  // Favorites and History; kept while closed, so the search survives
-	pendingLoad *loadReq // a pick waiting for the "replace the buffer?" answer
+	pk          *picker
+	pendingLoad *loadReq
 
 	pendingKey string
 	toast      string
 
-	// query side: buffers, Runs and their result grids
 	zone       Zone
 	bufs       []*buffer
 	cur        int
 	bufSeq     int
 	orphans    []orphan
 	comp       completion
-	runs       *runs.Follower // the Runs as this model last applied them
+	runs       *runs.Follower
 	grids      map[int64]*grid
 	prompt     promptState
 	confirm    confirmState
-	confirmQ   []confirmState // questions waiting for the open popup to close
-	draftErr   string         // the last draft write failed with this (retried every tick)
+	confirmQ   []confirmState
+	draftErr   string
 	ovSel      int
 	exp        Export
 	expEv      api.ExportEvent
-	jumpInsert bool // jump-to-table was opened from the editor: enter inserts the name
-	edX, edY   int  // where the editor drew its cursor (for the completion popup)
+	jumpInsert bool
+	edX, edY   int
 
 	syncRun    SyncRun
 	syncing    bool
 	syncDone   int
 	syncTotal  int
 	syncLog    []string
-	syncWarns  []string // the warnings of the last finished sync (sync problems list)
+	syncWarns  []string
 	syncNeeded bool
 	syncReason string
-	syncScope  []string        // the projects the running sync covers (nil: the Selected ones)
-	syncTable  *api.ObjectPath // set while gs syncs one table
-	syncLater  []string        // projects to sync once the running sync ends
-	forceLater []string        // projects to sync once it ends, however fresh (s in the Projects dialog)
-	forceAll   bool            // every Selected project too, however fresh (S)
-	openAfter  *api.ObjectPath // a pasted path to open once its project's sync ends
+	syncScope  []string
+	syncTable  *api.ObjectPath
+	syncLater  []string
+	forceLater []string
+	forceAll   bool
+	openAfter  *api.ObjectPath
 	status     *api.CatalogStatus
 	cfgErr     string
 	kick       chan struct{}
 }
 
-// New builds the model.
 func New(be Backend, o Options) *Model {
 	if o.Getenv == nil {
 		o.Getenv = os.Getenv
@@ -179,7 +168,7 @@ func New(be Backend, o Options) *Model {
 	m.zone, m.mru = ZoneExplorer, slices.Clone(paneOrder)
 	m.runs, m.grids = be.FollowRuns(), map[int64]*grid{}
 	m.loadState()
-	m.focusMRU() // a saved Layout may hide the Explorer
+	m.focusMRU()
 	m.reloadBrowse()
 	m.selSeen = selectionKey(be)
 	m.autoProjs = len(be.Selection().Selected) == 0
@@ -199,32 +188,23 @@ func New(be Backend, o Options) *Model {
 	}
 	if m.firstRun && m.toast == "" && !o.NoBackground && !m.autoProjs {
 		m.toast = "new to bqt? ctrl+g starts a short tutorial of the navigation"
-		m.saveState() // the hint shows once
+		m.saveState()
 	}
 	return m
 }
 
-// Close stops background work and releases the drafts.
 func (m *Model) Close() {
 	m.releaseBuffers()
 	m.cancel()
 }
 
-// uiState is state/tui.json. Older bqt instances share the file and read
-// "layout" as the Explorer style (miller, tree, flat), so it is read but never
-// written, and the new keys are separate.
 type uiState struct {
-	ExplorerStyle string `json:"explorer_style"`
-	// PaneLayout is an object so that a custom tree can join the preset later;
-	// it is decoded on its own, so a bad value does not lose the style.
-	PaneLayout json.RawMessage `json:"pane_layout,omitempty"`
-	Layout     string          `json:"layout,omitempty"` // legacy: the Explorer style
-	// Mouse is the palette's "Mouse: on/off"; missing (older files) is off.
-	Mouse lenientBool `json:"mouse,omitempty"`
+	ExplorerStyle string          `json:"explorer_style"`
+	PaneLayout    json.RawMessage `json:"pane_layout,omitempty"`
+	Layout        string          `json:"layout,omitempty"`
+	Mouse         lenientBool     `json:"mouse,omitempty"`
 }
 
-// lenientBool reads a value that is not a boolean as false, so that it does
-// not lose the rest of the state file.
 type lenientBool bool
 
 func (b *lenientBool) UnmarshalJSON(data []byte) error {
@@ -233,14 +213,11 @@ func (b *lenientBool) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// paneLayoutState is "pane_layout": the source preset, and the tree when it
-// differs from the preset's. The maximised Pane is never saved.
 type paneLayoutState struct {
 	Preset string    `json:"preset"`
 	Tree   *treeJSON `json:"tree,omitempty"`
 }
 
-// legacyStyles maps the old "layout" values to Explorer styles.
 var legacyStyles = map[string]explorerStyle{"miller": styleColumns, "tree": styleTree, "flat": styleList}
 
 func parseStyle(s string) (explorerStyle, bool) {
@@ -272,13 +249,9 @@ func (m *Model) loadState() {
 	m.mouse = bool(st.Mouse)
 }
 
-// loadPaneLayout reads "pane_layout": an unknown preset (from a newer bqt)
-// is classic, and a tree that is not valid, or hides every Pane, is its
-// preset's.
 func (m *Model) loadPaneLayout(raw json.RawMessage) {
 	var pl paneLayoutState
 	if json.Unmarshal(raw, &pl) != nil {
-		// a tree a newer bqt wrote in another shape still leaves the preset
 		var only struct {
 			Preset string `json:"preset"`
 		}
@@ -298,9 +271,6 @@ func (m *Model) loadPaneLayout(raw json.RawMessage) {
 	}
 }
 
-// saveState writes the chosen Explorer style, the Layout (its preset, and
-// its tree when custom) and the mouse setting; the step-down and the
-// maximised Pane are never saved.
 func (m *Model) saveState() {
 	p := m.be.StatePath()
 	if os.MkdirAll(filepath.Dir(p), 0o700) != nil {
@@ -314,8 +284,6 @@ func (m *Model) saveState() {
 	b, _ := json.Marshal(uiState{ExplorerStyle: styleNames[m.style], PaneLayout: pl, Mouse: lenientBool(m.mouse)})
 	_ = os.WriteFile(p, b, 0o600)
 }
-
-// --- messages
 
 type (
 	detailMsg struct {
@@ -365,11 +333,9 @@ type (
 	editorDoneMsg struct{ err error }
 )
 
-// Init starts the background work.
 func (m *Model) Init() tea.Cmd {
 	var open tea.Cmd
 	if m.autoProjs {
-		// nothing selected yet: the Projects dialog comes first
 		m.autoProjs = false
 		open = m.openProjects()
 		m.pd.auto = m.firstRun
@@ -386,7 +352,6 @@ func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
-// learnPricing asks BigQuery, with a free dry-run, how jobs are billed.
 func (m *Model) learnPricing() tea.Cmd {
 	return func() tea.Msg {
 		_ = m.be.LearnPricing(m.ctx)
@@ -440,7 +405,7 @@ func (m *Model) startSync(scope api.SyncScope, auto bool) tea.Cmd {
 		m.toast = "a sync is already running (gd shows progress)"
 		return nil
 	}
-	m.syncScope = scope.Projects // nil: every Selected project (or the stale ones)
+	m.syncScope = scope.Projects
 	m.syncTable = scope.Table
 	if scope.Table != nil {
 		m.syncScope = []string{scope.Table.Project}
@@ -468,14 +433,13 @@ func waitSync(run SyncRun) tea.Cmd {
 	}
 }
 
-// onSyncDone reports a finished sync and refreshes what it changed.
 func (m *Model) onSyncDone(msg syncDoneMsg) tea.Cmd {
 	m.syncing, m.syncRun = false, nil
 	table := m.syncTable
 	m.syncTable = nil
 	switch {
 	case table != nil && msg.err == nil && !msg.res.Cancelled:
-		m.details, m.lastSel = map[string]*detailData{}, "" // the Schema pane reads the new schema
+		m.details, m.lastSel = map[string]*detailData{}, ""
 		m.toast = "synced the schema of " + table.String()
 		if msg.res.UnitsFailed > 0 && len(msg.res.Units) > 0 {
 			m.toast = "could not sync " + table.String() + ": " + msg.res.Units[0].Error
@@ -490,12 +454,9 @@ func (m *Model) onSyncDone(msg syncDoneMsg) tea.Cmd {
 	}
 	m.reloadBrowse()
 	m.refreshProjects()
-	// The config may have changed while the sync held the lock (the
-	// reconcile was skipped then), so apply it now. It is a no-op otherwise.
 	return tea.Batch(m.reconcileCmd(false), m.rerunSearches(), m.afterSelect(), m.afterSync())
 }
 
-// Update handles one message.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	mod, cmd := m.update(msg)
 	m.mil.col = max(m.mil.col, m.milFirst())
@@ -509,7 +470,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.w, m.termH = msg.Width, msg.Height
 		m.fitHeight()
-		return m, m.gridEnsure() // a Results pane that grew shows more rows
+		return m, m.gridEnsure()
 	case tea.FocusMsg:
 		select {
 		case m.kick <- struct{}{}:
@@ -530,7 +491,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.refilter(f)
 		}
 		if m.zone == ZoneEditor && m.ov == ovNone {
-			m.buf().ed.insert(msg.Content) // verbatim: a tab inside a string literal matters
+			m.buf().ed.insert(msg.Content)
 			return m, m.afterEdit(false)
 		}
 	case runMsg:
@@ -544,7 +505,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case exportMsg:
 		return m, m.onExport(msg)
 	case pricingMsg:
-		// the status line reads the pricing model live: redraw
 	case tickMsg:
 		m.saveDrafts()
 		return m, tea.Batch(tick(), m.selectionChanged())
@@ -615,10 +575,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.onSyncEvent(msg.ev)
 		switch msg.ev.Kind {
 		case api.EventUnitDone, api.EventUnitFailed:
-			m.refreshProjects() // the dialog's rows follow the sync
+			m.refreshProjects()
 			fallthrough
 		case api.EventDiscovered:
-			// a pending dataset's "syncing" flag follows its unit
 			m.reloadBrowse()
 			return m, tea.Batch(waitSync(m.syncRun), m.rerunSearches())
 		}
@@ -698,7 +657,7 @@ func (m *Model) onConfig(ev config.Event) tea.Cmd {
 	}
 	m.cfgErr = ""
 	relearn := m.be.Config().Location != ev.Config.Location
-	m.be.SetConfig(ev.Config) // forgets the pricing model when it may differ
+	m.be.SetConfig(ev.Config)
 	if len(ev.RestartRequired) > 0 {
 		m.toast = "config: " + strings.Join(ev.RestartRequired, ", ") + " changed: restart bqt to apply"
 	} else if len(ev.Changed) > 0 {
@@ -715,8 +674,6 @@ func (m *Model) onConfig(ev config.Event) tea.Cmd {
 	}
 	return m.statusCmd()
 }
-
-// --- keys
 
 func keyName(msg tea.KeyPressMsg) string {
 	k := msg.Key()
@@ -740,7 +697,7 @@ func (m *Model) key(msg tea.KeyPressMsg) tea.Cmd {
 	name := keyName(msg)
 	m.toast = ""
 	if m.tutorialKey(name) {
-		return m.gridEnsure() // the panel takes or gives back rows
+		return m.gridEnsure()
 	}
 
 	if o := m.overlay(); o != nil {
@@ -874,7 +831,7 @@ func (m *Model) explorerAction(act string) tea.Cmd {
 	case "back":
 		return m.back()
 	case "filter":
-		m.setZone(ZoneExplorer) // the palette runs it from any zone
+		m.setZone(ZoneExplorer)
 		if m.style == styleList {
 			m.flat.typing = true
 			return nil
@@ -951,7 +908,6 @@ func (m *Model) openConfig() tea.Cmd {
 	return tea.ExecProcess(exec.Command(argv[0], argv[1:]...), func(err error) tea.Msg { return editorDoneMsg{err} })
 }
 
-// scrollDetail scrolls the Schema pane.
 func (m *Model) scrollDetail(d int) tea.Cmd {
 	m.detOff = clamp(m.detOff+d, 0, 1<<30)
 	return nil
@@ -964,7 +920,6 @@ func (m *Model) moreIfFlat() tea.Cmd {
 	return nil
 }
 
-// back implements "esc backs out exactly one level".
 func (m *Model) back() tea.Cmd {
 	switch {
 	case m.style == styleList && m.flat.in.value() != "":
@@ -981,8 +936,6 @@ func (m *Model) back() tea.Cmd {
 	}
 	return nil
 }
-
-// --- detail data
 
 type detailData struct {
 	det      *api.TableDetail
@@ -1003,7 +956,6 @@ func (m *Model) detail(key string) *detailData {
 	return d
 }
 
-// afterSelect loads what the Schema pane needs when the selection changed.
 func (m *Model) afterSelect() tea.Cmd {
 	s := m.sel()
 	key := s.detailKey()
@@ -1054,13 +1006,10 @@ func pathFromKey(key string) (api.ObjectPath, bool) {
 	return api.ObjectPath{Project: parts[0], Dataset: parts[1], Table: parts[2]}, true
 }
 
-// View renders the screen.
 func (m *Model) View() tea.View {
 	v := tea.NewView(strings.Join(m.render(), "\n"))
 	v.AltScreen = true
 	v.ReportFocus = true
-	// Popups leave the mouse to the terminal: its own selection and wheel
-	// work there. Bubble Tea switches the terminal's mode between frames.
 	if m.mouse && m.ov == ovNone {
 		v.MouseMode = tea.MouseModeCellMotion
 	}

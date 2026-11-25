@@ -38,7 +38,6 @@ func TestRegionTablesFiltersToRequestedAndLocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The fake leaks unrequested datasets the way region views do; callers must filter.
 	names := map[string]bool{}
 	for _, d := range s.Datasets {
 		names[d.Name] = true

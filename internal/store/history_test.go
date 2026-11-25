@@ -70,7 +70,6 @@ func TestHistoryMigrationBacksUp(t *testing.T) {
 	if _, err := os.Stat(path + ".bak-v1"); err != nil {
 		t.Fatalf("backup missing: %v", err)
 	}
-	// the backup is a complete, consistent database from before the migration
 	bak, err := openDB(path+".bak-v1", true)
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +82,6 @@ func TestHistoryMigrationBacksUp(t *testing.T) {
 		t.Fatal("the backup must hold the pre-migration schema")
 	}
 	bak.Close()
-	// A further migration keeps only the newest backup.
 	h.Close()
 	v3 := append(append([]string{}, v2...), "ALTER TABLE a ADD COLUMN z INTEGER DEFAULT 9;")
 	h, err = openHistory(path, v3, time.Now)
