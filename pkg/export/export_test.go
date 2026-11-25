@@ -126,3 +126,9 @@ func TestFormatOfAndTSV(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+func TestAnExportAsksAboveAMillionRows(t *testing.T) {
+	if AskAboveRows != 1_000_000 {
+		t.Fatalf("spec 10.4 asks above 1M rows, not %d", AskAboveRows)
+	}
+}

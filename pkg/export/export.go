@@ -27,6 +27,11 @@ const (
 	NDJSON Format = "ndjson"
 )
 
+// AskAboveRows is the row count above which a frontend asks before it starts
+// an export: a result that large takes long to page through and to write
+// (spec 10.4).
+const AskAboveRows = 1_000_000
+
 // Formats lists the formats in the order a frontend should offer them.
 var Formats = []Format{CSV, JSON, NDJSON}
 

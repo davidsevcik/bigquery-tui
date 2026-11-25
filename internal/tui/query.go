@@ -89,9 +89,6 @@ type (
 
 var inferParamFn = sqlx.InferParam
 
-// exportAskRows is the row count above which an export asks first.
-const exportAskRows = 1_000_000
-
 // --- editor zone
 
 func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
@@ -661,7 +658,7 @@ func (m *Model) promptSubmit() tea.Cmd {
 		if path == "" {
 			return nil
 		}
-		if g.total > exportAskRows && !p.armed {
+		if g.total > export.AskAboveRows && !p.armed {
 			p.armed = true
 			p.note = sWarn.Render(fmt.Sprintf("%s rows: press enter again to export them all", format.Count(g.total)))
 			return nil
