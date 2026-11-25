@@ -10,6 +10,7 @@ import (
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/format"
+	catsync "github.com/davidsevcik/bigquery-tui/pkg/sync"
 )
 
 // agoPhrase is how long ago t was, as a phrase: "just now" under a minute,
@@ -183,64 +184,12 @@ func (m *Model) statusLine(w int) string {
 	return b.line(w)
 }
 
-func (m *Model) problemCount() int {
-	n := len(m.syncWarnings())
-	if m.status == nil {
-		return n
-	}
-	for _, p := range m.status.Projects {
-		if !p.Selected {
-			continue // deselected: not refreshed, so its problems are not shown
-		}
-		pending := m.notSynced(p.Project)
-		for _, u := range p.Units {
-			if unitProblem(u) {
-				n++
-				delete(pending, u.Location) // listed under the unit
-			}
-		}
-		n += len(pending)
-	}
-	return n
+// syncProblems are the sync problems to show (sync.FindProblems).
+func (m *Model) syncProblems() catsync.Problems {
+	return catsync.FindProblems(m.status, m.be.Datasets, m.syncWarns)
 }
 
-func unitProblem(u api.UnitState) bool {
-	return u.Status != api.UnitOK || u.NamesOnly > 0 || u.Inaccessible > 0
-}
-
-// notSynced groups a project's pending datasets that no sync is reading
-// ("not synced") by location.
-func (m *Model) notSynced(project string) map[string][]string {
-	out := map[string][]string{}
-	for _, d := range m.be.Datasets(project) {
-		if d.Status == api.DatasetPending && !d.Syncing {
-			out[d.Location] = append(out[d.Location], d.Name)
-		}
-	}
-	return out
-}
-
-// syncWarnings are the last sync's warnings that no unit shows already (an
-// incomplete dataset listing is both a warning and its project's unit error).
-func (m *Model) syncWarnings() []string {
-	shown := map[string]bool{}
-	if m.status != nil {
-		for _, p := range m.status.Projects {
-			for _, u := range p.Units {
-				if u.Error != "" {
-					shown[p.Project+": "+u.Error] = true
-				}
-			}
-		}
-	}
-	var out []string
-	for _, w := range m.syncWarns {
-		if !shown[w] {
-			out = append(out, w)
-		}
-	}
-	return out
-}
+func (m *Model) problemCount() int { return m.syncProblems().Count() }
 
 // nameSample lists up to five names, then how many more.
 func nameSample(names []string) string {
@@ -985,51 +934,37 @@ func (m *Model) syncLines() []string {
 
 func (m *Model) problemLines(w int) []string {
 	var out []string
-	if m.status != nil {
-		for _, p := range m.status.Projects {
-			if !p.Selected {
-				continue
+	pr := m.syncProblems()
+	for _, p := range pr.List {
+		names := p.NotSynced
+		if u := p.Unit; u != nil {
+			loc := u.Location
+			if loc == "" {
+				loc = "listing datasets"
 			}
-			pending := m.notSynced(p.Project)
-			for _, u := range p.Units {
-				if !unitProblem(u) {
-					continue
-				}
-				loc := u.Location
-				if loc == "" {
-					loc = "listing datasets"
-				}
-				st := sWarn
-				if u.Status == api.UnitInaccessible {
-					st = sErr
-				}
-				out = append(out, " "+st.Render("⚠ ")+sBold.Render(p.Project)+sDim.Render(" / "+loc+"  "+string(u.Status)+" · last success "+ago(m.o.Now(), u.LastSuccess)))
-				for _, l := range wrap(u.Error, w-4) {
-					out = append(out, "    "+st.Render(l))
-				}
-				if names := pending[u.Location]; len(names) > 0 {
-					delete(pending, u.Location)
-					for _, l := range wrap(plural(len(names), "dataset", "datasets")+" not synced, so without tables: "+nameSample(names), w-4) {
-						out = append(out, "    "+sWarn.Render(l))
-					}
-				}
-				out = append(out, "")
+			st := sWarn
+			if u.Status == api.UnitInaccessible {
+				st = sErr
 			}
-			locs := make([]string, 0, len(pending))
-			for l := range pending {
-				locs = append(locs, l)
+			out = append(out, " "+st.Render("⚠ ")+sBold.Render(p.Project)+sDim.Render(" / "+loc+"  "+string(u.Status)+" · last success "+ago(m.o.Now(), u.LastSuccess)))
+			for _, l := range wrap(u.Error, w-4) {
+				out = append(out, "    "+st.Render(l))
 			}
-			for _, loc := range sortStrings(locs) {
-				names := pending[loc]
-				out = append(out, " "+sWarn.Render("⚠ ")+sBold.Render(p.Project)+sDim.Render(" / "+loc+"  not synced"))
+			if len(names) > 0 {
 				for _, l := range wrap(plural(len(names), "dataset", "datasets")+" not synced, so without tables: "+nameSample(names), w-4) {
 					out = append(out, "    "+sWarn.Render(l))
 				}
-				out = append(out, "    "+sDim.Render("the sync stopped before it reached this unit"), "")
 			}
+			out = append(out, "")
+			continue
 		}
+		out = append(out, " "+sWarn.Render("⚠ ")+sBold.Render(p.Project)+sDim.Render(" / "+p.Location+"  not synced"))
+		for _, l := range wrap(plural(len(names), "dataset", "datasets")+" not synced, so without tables: "+nameSample(names), w-4) {
+			out = append(out, "    "+sWarn.Render(l))
+		}
+		out = append(out, "    "+sDim.Render("the sync stopped before it reached this unit"), "")
 	}
-	for _, wn := range m.syncWarnings() {
+	for _, wn := range pr.Warnings {
 		out = append(out, " "+sWarn.Render("⚠ ")+sBold.Render("warning")+sDim.Render("  from the last sync"))
 		for _, l := range wrap(wn, w-4) {
 			out = append(out, "    "+sWarn.Render(l))
