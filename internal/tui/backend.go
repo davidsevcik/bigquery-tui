@@ -78,8 +78,8 @@ type Backend interface {
 	// confirms and cancels them for this frontend.
 	FollowRuns() *runs.Follower
 	RunRows(ctx context.Context, id int64, startIndex int64, n int, o format.Options) (api.PreviewPage, error)
-	// RunSample renders a Run's first rows for a hand-off.
-	RunSample(ctx context.Context, id int64, f handoff.SampleFormat) (string, error)
+	// Handoff renders a hand-off item (handoff.Items).
+	Handoff(ctx context.Context, it handoff.Item) (string, error)
 	LearnPricing(ctx context.Context) error
 	StartExport(ctx context.Context, runID int64, path string, f export.Format) (Export, error)
 	DefaultExportPath(f export.Format) string

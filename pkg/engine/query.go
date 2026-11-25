@@ -262,6 +262,34 @@ func (e *Engine) StartExport(ctx context.Context, runID int64, path string, f ex
 	return h, nil
 }
 
+// Handoff renders a hand-off item (handoff.Items) as the text its file
+// holds: a schema from the table's detail, the first rows from the Run's
+// result, and the error and the summary from the Run as the item holds it.
+func (e *Engine) Handoff(ctx context.Context, it handoff.Item) (string, error) {
+	switch it.Kind {
+	case handoff.KindSchemaMarkdown, handoff.KindSchemaJSON:
+		d, err := e.TableDetail(ctx, it.Table)
+		if err != nil {
+			return "", err
+		}
+		if it.Kind == handoff.KindSchemaJSON {
+			return handoff.SchemaJSON(SchemaOf(d)), nil
+		}
+		return handoff.SchemaMarkdown(SchemaOf(d)), nil
+	case handoff.KindQueryError:
+		r := it.Run
+		if r.Error == nil {
+			return "", errors.New("the run has no error")
+		}
+		return handoff.QueryError(r.SQL, *r.Error, r.ExecutionProject, r.Location), nil
+	case handoff.KindRowsMarkdown, handoff.KindRowsTSV, handoff.KindRowsNDJSON:
+		return e.RunSample(ctx, it.Run.ID, it.RowsFormat())
+	case handoff.KindRun:
+		return handoff.Run(it.Run), nil
+	}
+	return "", fmt.Errorf("unknown hand-off %q", it.Kind)
+}
+
 // RunSample renders the first handoff.SampleRows rows of a Run's result for
 // a hand-off. NDJSON is written from the raw values (as an export would), so
 // strings keep their line breaks and tabs; markdown and TSV come from the
