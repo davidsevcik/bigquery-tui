@@ -122,6 +122,11 @@ type SearchOptions struct {
 	TablesOnly bool `json:"tables_only,omitempty"`
 	// Scope restricts results to a project or dataset (flat layout).
 	Scope *ObjectPath `json:"scope,omitempty"`
+	// Projects restricts results to these projects, their datasets and
+	// their tables; empty means every project. It narrows the other options
+	// (Scope, SelectedOnly) and never widens them. Like SelectedOnly, it
+	// does not apply to a pasted path, which is an exact lookup.
+	Projects []string `json:"projects,omitempty"`
 	// AllWhenEmpty lists the whole (scoped) catalog for an empty query
 	// instead of the recently opened tables.
 	AllWhenEmpty bool `json:"all_when_empty,omitempty"`
@@ -143,6 +148,10 @@ type SearchOptions struct {
 type FilterOptions struct {
 	// Scope restricts matches to a project or dataset.
 	Scope *ObjectPath `json:"scope,omitempty"`
+	// Projects restricts matches to these projects, their datasets and
+	// their tables (a pasted path too); empty means every project. It
+	// narrows Scope and SelectedOnly and never widens them.
+	Projects []string `json:"projects,omitempty"`
 	// Kinds lists the object kinds to return; empty returns every kind.
 	// Shard members come back as tables, their family as KindShards.
 	Kinds []ResultKind `json:"kinds,omitempty"`

@@ -114,6 +114,14 @@ func TestSearchLatencySmoke(t *testing.T) {
 	if p95 > 2*150*time.Millisecond { // two filter queries per round: tree and column
 		t.Fatalf("filter p95 %s exceeds the 300 ms guard (worst %s on %q)", p95, worst, slowest)
 	}
+	// limited to a set of projects, every table is checked against the set
+	_, p95, worst, slowest = measureFn(t, benchQueries, 3, func(q string) error {
+		_, err := s.Search(ctx, q, api.SearchOptions{Limit: 50, Projects: []string{"acme-prod", "acme-other"}})
+		return err
+	})
+	if p95 > 150*time.Millisecond {
+		t.Fatalf("p95 limited to projects %s exceeds the 150 ms guard (worst %s on %q)", p95, worst, slowest)
+	}
 }
 
 // TestSearchLatencyReport prints the numbers behind the 30 ms budget.
@@ -127,6 +135,11 @@ func TestSearchLatencyReport(t *testing.T) {
 	t.Logf("index of 50,000 tables built in %s", time.Since(st).Round(time.Millisecond))
 	p50, p95, worst, slowest := measure(t, s, benchQueries, 5)
 	t.Logf("name/filter queries: p50 %s, p95 %s, worst %s on %q", p50.Round(100*time.Microsecond), p95.Round(100*time.Microsecond), worst.Round(100*time.Microsecond), slowest)
+	p50, p95, worst, slowest = measureFn(t, benchQueries, 5, func(q string) error {
+		_, err := s.Search(ctx, q, api.SearchOptions{Limit: 50, Projects: []string{"acme-prod", "acme-other"}})
+		return err
+	})
+	t.Logf("name/filter queries limited to projects: p50 %s, p95 %s, worst %s on %q", p50.Round(100*time.Microsecond), p95.Round(100*time.Microsecond), worst.Round(100*time.Microsecond), slowest)
 	for _, o := range filterScopes {
 		p50, p95, worst, slowest = measureFn(t, benchQueries, 5, func(q string) error { _, err := s.Filter(ctx, q, o); return err })
 		t.Logf("explorer filter (scope %v): p50 %s, p95 %s, worst %s on %q", o.Scope, p50.Round(100*time.Microsecond), p95.Round(100*time.Microsecond), worst.Round(100*time.Microsecond), slowest)

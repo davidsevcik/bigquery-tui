@@ -253,11 +253,18 @@ func (x *Index) tableHit(i, maxScore, sum int) hit {
 // scoper decides which tables and projects a search may return.
 type scoper struct {
 	scope  *api.ObjectPath
+	only   map[string]bool // nil: every project
 	hidden map[string]bool
 }
 
 func newScoper(o api.SearchOptions) scoper {
 	sc := scoper{scope: o.Scope}
+	if len(o.Projects) > 0 {
+		sc.only = make(map[string]bool, len(o.Projects))
+		for _, p := range o.Projects {
+			sc.only[p] = true
+		}
+	}
 	for _, p := range o.Hidden {
 		if sc.hidden == nil {
 			sc.hidden = map[string]bool{}
@@ -268,7 +275,7 @@ func newScoper(o api.SearchOptions) scoper {
 }
 
 func (sc scoper) project(name string) bool {
-	if sc.hidden[name] {
+	if sc.hidden[name] || sc.only != nil && !sc.only[name] {
 		return false
 	}
 	return sc.scope == nil || sc.scope.Project == "" || sc.scope.Project == name

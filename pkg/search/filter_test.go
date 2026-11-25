@@ -82,6 +82,18 @@ func TestFilterPastedPathAndHiddenProjects(t *testing.T) {
 	eq(t, filtered(t, s, "", api.FilterOptions{Kinds: kinds(api.KindProject), Hidden: []string{"acme-prod"}}), "project:acme-staging")
 }
 
+func TestFilterProjectsLimitEveryKind(t *testing.T) {
+	s := standard().searcher()
+	staging := api.FilterOptions{Projects: []string{"acme-staging"}}
+	eq(t, filtered(t, s, "", staging), "project:acme-staging", "dataset:acme-staging.sales", "table:acme-staging.sales.orders")
+	eq(t, filtered(t, s, "orders", staging), "table:acme-staging.sales.orders")
+	// the Explorer's filter narrows what is listed: a pasted path outside the
+	// projects is not, as in a hidden project
+	eq(t, filtered(t, s, "acme-prod.sales.orders", staging))
+	eq(t, filtered(t, s, "orders", api.FilterOptions{Projects: []string{"acme-staging"}, Scope: &api.ObjectPath{Project: "acme-prod"}}))
+	eq(t, filtered(t, s, "", api.FilterOptions{Kinds: kinds(api.KindProject)}), "project:acme-prod", "project:acme-staging")
+}
+
 func TestFilterDescAndLabelDescribeTheObjectItself(t *testing.T) {
 	f := standard()
 	f.dataset("acme-prod", "empty_marts", "EU", "Marts to come")

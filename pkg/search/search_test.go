@@ -334,6 +334,34 @@ func TestHiddenProjects(t *testing.T) {
 	}
 }
 
+// Projects limits every kind of result, the recently opened tables and the
+// total to a set of projects; empty is no limit. It only narrows: a Scope or a
+// hidden project outside it stays out.
+func TestProjectsLimitResultsAndTotal(t *testing.T) {
+	s := standard().searcher()
+	s.Recent = func(context.Context, int) ([]string, error) {
+		return []string{"acme-prod.events.clicks", "acme-staging.sales.orders"}, nil
+	}
+	staging := []string{"acme-staging", "not-cached"}
+	eq(t, names(t, s, "sales", api.SearchOptions{Projects: staging}), "acme-staging.sales", "acme-staging.sales.orders")
+	eq(t, names(t, s, "acme", api.SearchOptions{Projects: staging}), "acme-staging", "acme-staging.sales.orders")
+	eq(t, names(t, s, "", api.SearchOptions{Projects: staging}), "acme-staging.sales.orders")
+	eq(t, names(t, s, "", api.SearchOptions{Projects: staging, AllWhenEmpty: true}), "acme-staging.sales.orders")
+	r, _ := s.Search(ctx, "orders", api.SearchOptions{TablesOnly: true, Projects: []string{"acme-prod"}, Limit: 2})
+	if r.Total != 6 || len(r.Results) != 2 {
+		t.Fatalf("the total counts the projects' results only: %d %+v", r.Total, r.Results)
+	}
+	if r, _ := s.Search(ctx, "orders", api.SearchOptions{TablesOnly: true}); r.Total != 7 {
+		t.Fatalf("no projects is no limit: %d", r.Total)
+	}
+	eq(t, names(t, s, "orders", api.SearchOptions{Projects: staging, Scope: &api.ObjectPath{Project: "acme-prod"}}))
+	eq(t, names(t, s, "orders", api.SearchOptions{Projects: staging, Hidden: []string{"acme-staging"}}))
+	eq(t, names(t, s, "orders p:prod", api.SearchOptions{Projects: staging}))
+	if r, _ := s.Search(ctx, "acme-prod.sales.orders", api.SearchOptions{Projects: staging}); len(r.Results) != 1 {
+		t.Fatal("a pasted path is an exact lookup outside the projects too")
+	}
+}
+
 // Prefer moves every kind of result in the preferred projects ahead of the
 // rest, keeps each group's ranked order, and applies before paging.
 func TestPreferProjects(t *testing.T) {
