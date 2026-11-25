@@ -102,3 +102,31 @@ func TestFakeJobsContract(t *testing.T) {
 	ContractScripts(f)
 	RunJobsContract(t, f, JobsContractOptions{})
 }
+
+// In tells the Execution project a query ran in apart: its job belongs to
+// that project and the recorded calls name it.
+func TestInRunsJobsInAnExecutionProject(t *testing.T) {
+	f := New()
+	ContractScripts(f)
+	RunJobsContract(t, f.In("billing"), JobsContractOptions{})
+
+	ctx := context.Background()
+	if _, err := f.DryRun(ctx, bq.QueryRequest{SQL: "select 1"}); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := f.In("billing").StartQuery(ctx, bq.QueryRequest{SQL: "select 1"})
+	if err != nil || ref.Project != "billing" {
+		t.Fatalf("%+v %v", ref, err)
+	}
+	res, err := f.WaitJob(ctx, ref)
+	if err != nil || res.Destination != "billing._anon."+ref.ID {
+		t.Fatalf("%+v %v", res, err)
+	}
+	calls := f.QueryCalls()
+	if last := calls[len(calls)-2:]; last[0].Exec != "fake-exec" || last[1].Exec != "billing" {
+		t.Fatalf("%+v", last)
+	}
+	if w := f.CallsTo("WaitJob"); w[len(w)-1].Project != "billing" {
+		t.Fatalf("the job's calls name its project: %+v", w)
+	}
+}
