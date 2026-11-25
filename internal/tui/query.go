@@ -13,13 +13,13 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/config"
-	"github.com/davidsevcik/bigquery-tui/internal/export"
-	"github.com/davidsevcik/bigquery-tui/internal/favorites"
-	"github.com/davidsevcik/bigquery-tui/internal/format"
-	"github.com/davidsevcik/bigquery-tui/internal/runs"
-	"github.com/davidsevcik/bigquery-tui/internal/sqlx"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/config"
+	"github.com/davidsevcik/bigquery-tui/pkg/export"
+	"github.com/davidsevcik/bigquery-tui/pkg/favorites"
+	"github.com/davidsevcik/bigquery-tui/pkg/format"
+	"github.com/davidsevcik/bigquery-tui/pkg/runs"
+	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
 // completion is the state of the completion popup.

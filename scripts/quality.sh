@@ -50,7 +50,7 @@ if [[ -s coverage.out ]]; then
 fi
 
 section "complexity (top 10 functions by cyclomatic complexity, tests excluded)"
-go run "$GOCYCLO" -top 10 -avg -ignore '_test\.go$' cmd internal
+go run "$GOCYCLO" -top 10 -avg -ignore '_test\.go$' cmd internal pkg
 
 section "dead code (unreachable from main packages and tests)"
 dead=$(go run "$DEADCODE" -test ./... 2>&1)

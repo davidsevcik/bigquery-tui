@@ -6,8 +6,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
 )
 
 // cmdProjects lists the projects (BigQuery's list, the Selected ones, the

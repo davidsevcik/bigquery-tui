@@ -14,10 +14,10 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
-	"github.com/davidsevcik/bigquery-tui/internal/favorites"
-	"github.com/davidsevcik/bigquery-tui/internal/policy"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/favorites"
+	"github.com/davidsevcik/bigquery-tui/pkg/policy"
 )
 
 // Defaults of the list tools.

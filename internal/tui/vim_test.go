@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 )
 
 // vimDo feeds keys to the vim layer over a bare editor, the way the model

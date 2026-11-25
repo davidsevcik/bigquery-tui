@@ -13,10 +13,10 @@ import (
 
 	bqv2 "google.golang.org/api/bigquery/v2"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq"
-	"github.com/davidsevcik/bigquery-tui/internal/config"
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq"
+	"github.com/davidsevcik/bigquery-tui/pkg/config"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
 )
 
 type meta struct {

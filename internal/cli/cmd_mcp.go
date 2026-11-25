@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
 	"github.com/davidsevcik/bigquery-tui/internal/mcp"
-	"github.com/davidsevcik/bigquery-tui/internal/version"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/version"
 )
 
 // cmdMCP serves the MCP tools over stdio (spec 14.2), or prints the client

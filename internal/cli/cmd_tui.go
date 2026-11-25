@@ -6,10 +6,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
-	"github.com/davidsevcik/bigquery-tui/internal/logging"
-	"github.com/davidsevcik/bigquery-tui/internal/store"
 	"github.com/davidsevcik/bigquery-tui/internal/tui"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/logging"
+	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
 // cmdTUI starts the interactive explorer. Logs go to the log file only: the

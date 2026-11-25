@@ -9,11 +9,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/config"
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
-	"github.com/davidsevcik/bigquery-tui/internal/format"
-	"github.com/davidsevcik/bigquery-tui/internal/search"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/config"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/format"
+	"github.com/davidsevcik/bigquery-tui/pkg/search"
 )
 
 // The Projects dialog (ctrl+x p) chooses the Selected projects (what is

@@ -89,7 +89,7 @@ func Load(dir string) (*Model, []string, error) {
 		p := &Package{
 			Path:       lp.ImportPath,
 			Short:      s,
-			Label:      strings.TrimPrefix(s, "internal/"),
+			Label:      label(s),
 			Name:       lp.Name,
 			Group:      classify(s, lp),
 			Files:      len(lp.GoFiles),
@@ -223,4 +223,15 @@ func goCmd(dir string, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("go %s: %w\n%s", strings.Join(args, " "), err, stderr.String())
 	}
 	return out, nil
+}
+
+// label is a package's path inside the module without the leading pkg/ or
+// internal/, the part a reader recognises it by.
+func label(short string) string {
+	for _, prefix := range []string{"pkg/", "internal/"} {
+		if s, ok := strings.CutPrefix(short, prefix); ok {
+			return s
+		}
+	}
+	return short
 }

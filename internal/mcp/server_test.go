@@ -9,11 +9,11 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq"
-	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
-	"github.com/davidsevcik/bigquery-tui/internal/config"
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/config"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
 )
 
 var ctx = context.Background()

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 )
 
 // shownFavorites counts the Favorites the picker's list draws: rows that

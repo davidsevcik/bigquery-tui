@@ -10,10 +10,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq"
-	"github.com/davidsevcik/bigquery-tui/internal/format"
-	"github.com/davidsevcik/bigquery-tui/internal/sqlx"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq"
+	"github.com/davidsevcik/bigquery-tui/pkg/format"
+	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
 // The Sample is a table's rows read for free through tabledata.list
