@@ -1,6 +1,6 @@
 # Research 02: Query execution with the Go BigQuery client
 
-Researched 2026-10-12. Go client read at `cloud.google.com/go/bigquery` v1.85.0 (`bigquery/pkg/version.go` on `main`). Nothing was run against any GCP project; all findings come from docs and client source.
+Researched 2026-10-12. Go client read at `cloud.google.com/go/bigquery` v1.85.0 (`bigquery/internal/version.go` on `main`). Nothing was run against any GCP project; all findings come from docs and client source.
 
 Legend: **[doc]** stated in official docs, **[src]** read in client source, **[inferred]** my deduction from source or docs, not directly stated, so confirm in a prototype.
 
