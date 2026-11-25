@@ -334,6 +334,21 @@ func TestHiddenProjects(t *testing.T) {
 	}
 }
 
+// Prefer moves every kind of result in the preferred projects ahead of the
+// rest, keeps each group's ranked order, and applies before paging.
+func TestPreferProjects(t *testing.T) {
+	s := standard().searcher()
+	prefer := api.SearchOptions{Prefer: []string{"acme-staging"}}
+	eq(t, names(t, s, "sales", prefer),
+		"acme-staging.sales", "acme-staging.sales.orders",
+		"acme-prod.sales", "acme-prod.sales.orders", "acme-prod.sales.refunds", "acme-prod.sales.reorders",
+		"acme-prod.sales.v_orders", "acme-prod.sales.customers", "acme-prod.sales.order_items")
+	eq(t, names(t, s, "acme", prefer)[:4],
+		"acme-staging", "acme-staging.sales.orders", "acme-prod", "acme-prod.events.clicks")
+	eq(t, names(t, s, "orders", api.SearchOptions{Prefer: prefer.Prefer, Limit: 2}),
+		"acme-staging.sales.orders", "acme-prod.sales.orders")
+}
+
 func TestSpansAndFreshness(t *testing.T) {
 	s := standard().searcher()
 	r, _ := s.Search(ctx, "items d:sal p:prod", api.SearchOptions{TablesOnly: true})

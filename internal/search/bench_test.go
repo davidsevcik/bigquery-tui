@@ -13,8 +13,8 @@ import (
 )
 
 // synthetic builds the spec's target catalog: 50k tables, 1.3M field paths.
-func synthetic(datasets int) (*Searcher, int) {
-	snap := bqtest.Synthetic(bqtest.SyntheticSpec{Project: "acme-prod", Location: "EU", Datasets: datasets, TablesPerDataset: 100, ColumnsPerTable: 20, NestedPerTable: 5})
+func synthetic() (*Searcher, int) {
+	snap := bqtest.Synthetic(bqtest.SyntheticSpec{Project: "acme-prod", Location: "EU", Datasets: 500, TablesPerDataset: 100, ColumnsPerTable: 20, NestedPerTable: 5})
 	idx := &store.IndexSnapshot{Projects: []string{"acme-prod"}}
 	dsID := map[string]int64{}
 	for i, d := range snap.Datasets {
@@ -105,7 +105,7 @@ func TestSearchLatencySmoke(t *testing.T) {
 	if raceEnabled {
 		t.Skip("wall-clock guard is meaningless under the race detector")
 	}
-	s, _ := synthetic(500)
+	s, _ := synthetic()
 	_, p95, worst, slowest := measure(t, s, benchQueries, 3)
 	if p95 > 150*time.Millisecond {
 		t.Fatalf("p95 %s exceeds the 150 ms guard (worst %s on %q)", p95, worst, slowest)
@@ -123,7 +123,7 @@ func TestSearchLatencyReport(t *testing.T) {
 		t.Skip("set BQT_SCALE=1")
 	}
 	st := time.Now()
-	s, ncols := synthetic(500)
+	s, ncols := synthetic()
 	t.Logf("index of 50,000 tables built in %s", time.Since(st).Round(time.Millisecond))
 	p50, p95, worst, slowest := measure(t, s, benchQueries, 5)
 	t.Logf("name/filter queries: p50 %s, p95 %s, worst %s on %q", p50.Round(100*time.Microsecond), p95.Round(100*time.Microsecond), worst.Round(100*time.Microsecond), slowest)
@@ -150,10 +150,20 @@ func TestSearchLatencyReport(t *testing.T) {
 }
 
 func BenchmarkSearchPrefixAll(b *testing.B) {
-	s, _ := synthetic(500)
+	s, _ := synthetic()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if _, err := s.Search(ctx, "table", api.SearchOptions{Limit: 50}); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkFilterPrefixAll(b *testing.B) {
+	s, _ := synthetic()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := s.Filter(ctx, "table", api.FilterOptions{}); err != nil {
 			b.Fatal(err)
 		}
 	}
