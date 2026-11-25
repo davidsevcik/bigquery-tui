@@ -202,32 +202,13 @@ func (m *Model) acceptCompletion() tea.Cmd {
 	}
 	c := m.comp.cands[m.comp.sel]
 	ed := m.buf().ed
-	text := ed.text()
-	ins := c.Insert
-	after := ""
-	if c.End < len(text) {
-		after = text[c.End:]
-	}
-	again := false
-	switch c.Kind {
-	case api.CandProject, api.CandDataset:
-		// continue with the next path segment
-		if !strings.HasPrefix(after, ".") {
-			ins += "."
-		}
-		again = true
-	case api.CandTable:
-		// close a backtick path the user opened
-		if strings.Count(text[:c.Start], "`")%2 == 1 && !strings.HasPrefix(after, "`") && !strings.HasPrefix(ins, "`") {
-			ins += "`"
-		}
-	}
-	ed.replaceBytes(c.Start, c.End, ins)
-	if again && strings.HasPrefix(after, ".") {
+	a := sqlx.Accept(ed.text(), c)
+	ed.replaceBytes(c.Start, c.End, a.Insert)
+	if a.StepOver {
 		ed.col++ // step over the dot that was already there
 	}
 	m.comp.open = false
-	if again {
+	if a.Again {
 		m.updateCompletion(false)
 	}
 	if m.o.NoBackground {
