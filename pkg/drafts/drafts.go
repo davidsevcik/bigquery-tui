@@ -67,12 +67,12 @@ func (s *Store) Hold(id string) (*Draft, error) {
 	if st, err := os.Stat(s.Path(id)); err == nil && st.Size() > 0 {
 		empty = false
 	}
-	return &Draft{s: s, id: id, lock: l, empty: empty, execution: s.recordedExecution(id)}, nil
+	return &Draft{s: s, id: id, lock: l, empty: empty, executionProject: s.recordedExecutionProject(id)}, nil
 }
 
 const recordEnd = "\n"
 
-func (s *Store) recordedExecution(id string) string {
+func (s *Store) recordedExecutionProject(id string) string {
 	data, err := os.ReadFile(s.lockPath(id))
 	if err != nil {
 		return ""
@@ -103,11 +103,11 @@ func (s *Store) Restore(id string) (*Draft, string, error) {
 }
 
 type Orphan struct {
-	ID        string
-	ModTime   time.Time
-	First     string
-	Lines     int
-	Execution string
+	ID               string
+	ModTime          time.Time
+	First            string
+	Lines            int
+	ExecutionProject string
 }
 
 func (s *Store) Orphans(now time.Time, open []string) []Orphan {
@@ -142,12 +142,13 @@ func (s *Store) Orphans(now time.Time, open []string) []Orphan {
 
 func (s *Store) dropLoneLock(id string) {
 	// ADR-0011
-	if _, err := os.Stat(s.Path(id)); !os.IsNotExist(err) {
+	l, err := store.TryLock(s.lockPath(id))
+	if err != nil {
 		return
 	}
-	if l, err := store.TryLock(s.lockPath(id)); err == nil {
+	defer l.Unlock()
+	if _, err := os.Stat(s.Path(id)); os.IsNotExist(err) {
 		os.Remove(s.lockPath(id))
-		l.Unlock()
 	}
 }
 
@@ -171,20 +172,20 @@ func (s *Store) orphan(e os.DirEntry, id string, now time.Time) (Orphan, bool) {
 			break
 		}
 	}
-	return Orphan{ID: id, ModTime: info.ModTime(), First: first, Lines: strings.Count(string(data), "\n") + 1, Execution: s.recordedExecution(id)}, true
+	return Orphan{ID: id, ModTime: info.ModTime(), First: first, Lines: strings.Count(string(data), "\n") + 1, ExecutionProject: s.recordedExecutionProject(id)}, true
 }
 
 type Draft struct {
-	s         *Store
-	id        string
-	lock      *store.Lock
-	empty     bool
-	execution string
+	s                *Store
+	id               string
+	lock             *store.Lock
+	empty            bool
+	executionProject string
 }
 
-func (d *Draft) Execution() string { return d.execution }
+func (d *Draft) ExecutionProject() string { return d.executionProject }
 
-func (d *Draft) SetExecution(project string) error {
+func (d *Draft) SetExecutionProject(project string) error {
 	project = strings.TrimSpace(project)
 	record := ""
 	if project != "" {
@@ -194,10 +195,10 @@ func (d *Draft) SetExecution(project string) error {
 		record = project + recordEnd
 	}
 	if err := os.WriteFile(d.s.lockPath(d.id), []byte(record), 0o600); err != nil {
-		d.execution = d.s.recordedExecution(d.id)
+		d.executionProject = d.s.recordedExecutionProject(d.id)
 		return err
 	}
-	d.execution = project
+	d.executionProject = project
 	return nil
 }
 
