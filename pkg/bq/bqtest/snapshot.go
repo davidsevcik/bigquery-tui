@@ -10,17 +10,12 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/bq"
 )
 
-// ColumnReads lists every "project.dataset.table" whose columns a column call
-// returned, in call order (a table read twice is listed twice).
 func (f *Fake) ColumnReads() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.columnReads...)
 }
 
-// regionDatasets returns the datasets a region request covers: the
-// requested ones in the location, plus any leaked ones. A denied dataset
-// fails the whole request, as a region view does.
 func (f *Fake) regionDatasets(req bq.RegionRequest) ([]Dataset, error) {
 	p, err := f.project(req.Project)
 	if err != nil {
@@ -74,14 +69,12 @@ func (f *Fake) dataset(project, dataset string) (Dataset, error) {
 	return Dataset{}, &bq.Error{Kind: bq.KindNotFound, Op: "fake", Err: fmt.Errorf("dataset %s.%s not found", project, dataset)}
 }
 
-// withoutColumns is a table as phase 1 reports it.
 func withoutColumns(dataset string, t api.TableMeta) api.TableMeta {
 	t.Dataset, t.Columns, t.Shard = dataset, nil, nil
 	t.SharedSchema, t.OwnSchema = false, false
 	return t
 }
 
-// RegionTables implements bq.Metadata.
 func (f *Fake) RegionTables(ctx context.Context, req bq.RegionRequest) (*api.Snapshot, error) {
 	if err := f.begin(ctx, Call{Method: "RegionTables", Project: req.Project, Location: req.Location, Datasets: append([]string(nil), req.Datasets...)}); err != nil {
 		return nil, err
@@ -102,8 +95,6 @@ func (f *Fake) RegionTables(ctx context.Context, req bq.RegionRequest) (*api.Sna
 	return snap, nil
 }
 
-// RegionColumns implements bq.Metadata, filtering with Go's regexp the way
-// BigQuery's REGEXP_CONTAINS does.
 func (f *Fake) RegionColumns(ctx context.Context, req bq.RegionRequest, flt bq.ColumnFilter) ([]bq.TableColumns, error) {
 	if err := f.begin(ctx, Call{Method: "RegionColumns", Project: req.Project, Location: req.Location, Datasets: append([]string(nil), req.Datasets...), Filter: flt}); err != nil {
 		return nil, err
@@ -115,7 +106,6 @@ func (f *Fake) RegionColumns(ctx context.Context, req bq.RegionRequest, flt bq.C
 	return f.columns(req.Project, ds, flt)
 }
 
-// DatasetTables implements bq.Metadata.
 func (f *Fake) DatasetTables(ctx context.Context, req bq.DatasetRequest) (*api.Snapshot, error) {
 	if err := f.begin(ctx, Call{Method: "DatasetTables", Project: req.Project, Location: req.Location, Dataset: req.Dataset}); err != nil {
 		return nil, err
@@ -124,8 +114,7 @@ func (f *Fake) DatasetTables(ctx context.Context, req bq.DatasetRequest) (*api.S
 	if err != nil {
 		return nil, err
 	}
-	// SCHEMATA_OPTIONS has no dataset scope: no description, friendly name
-	// or labels.
+	// ADR-0005
 	m := api.DatasetMeta{Project: req.Project, Name: d.Meta.Name, Location: d.Meta.Location}
 	snap := &api.Snapshot{Datasets: []api.DatasetMeta{m}}
 	for _, t := range d.Tables {
@@ -134,7 +123,6 @@ func (f *Fake) DatasetTables(ctx context.Context, req bq.DatasetRequest) (*api.S
 	return snap, nil
 }
 
-// DatasetColumns implements bq.Metadata.
 func (f *Fake) DatasetColumns(ctx context.Context, req bq.DatasetRequest, flt bq.ColumnFilter) ([]bq.TableColumns, error) {
 	if err := f.begin(ctx, Call{Method: "DatasetColumns", Project: req.Project, Location: req.Location, Dataset: req.Dataset, Filter: flt}); err != nil {
 		return nil, err
@@ -181,7 +169,7 @@ func (f *Fake) columns(project string, ds []Dataset, flt bq.ColumnFilter) ([]bq.
 				continue
 			}
 			if len(t.Columns) == 0 {
-				continue // the views have no rows for a table without columns
+				continue
 			}
 			f.columnReads = append(f.columnReads, full)
 			out = append(out, bq.TableColumns{Dataset: d.Meta.Name, Table: t.Name, Columns: append([]api.ColumnMeta(nil), t.Columns...)})
@@ -190,7 +178,6 @@ func (f *Fake) columns(project string, ds []Dataset, flt bq.ColumnFilter) ([]bq.
 	return out, nil
 }
 
-// GetTableMeta implements bq.Metadata.
 func (f *Fake) GetTableMeta(ctx context.Context, project, dataset, table string) (api.TableMeta, error) {
 	if err := f.begin(ctx, Call{Method: "GetTableMeta", Project: project, Dataset: dataset, Table: table}); err != nil {
 		return api.TableMeta{}, err

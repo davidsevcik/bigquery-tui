@@ -57,8 +57,6 @@ func TestLayerGraphPutsImportersAbove(t *testing.T) {
 }
 
 func TestLayerGraphReducesCrossings(t *testing.T) {
-	// Sorted by name the rows are x1 x2 over a b, so the edges cross until a
-	// sweep swaps one row.
 	nodes := []string{"x1", "x2", "a", "b"}
 	edges := []Edge{{"x1", "b"}, {"x2", "a"}}
 	_, layers := layerGraph(nodes, edges)
@@ -125,7 +123,6 @@ func TestExtractAPI(t *testing.T) {
 			t.Errorf("unexported %s leaked into the API", hidden)
 		}
 	}
-	// 3 types + NewClient + Fetch + Mode's const group + Version + MaxItems.
 	if n := api.count(); n != 8 {
 		t.Errorf("count = %d, want 8", n)
 	}

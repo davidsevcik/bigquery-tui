@@ -17,22 +17,14 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
-// The Sample is a table's rows read for free through tabledata.list
-// (Engine.Preview) and shown in the Results pane. It is not a Run: it has no
-// job, no Run ID, no History entry and no place in the run list. There is one
-// Sample slot per session, not per buffer, because it is about a table.
-
-// sample is the Sample slot.
 type sample struct {
-	key  string         // the selection's detail key
-	path api.ObjectPath // the selection's path (a shard family reads its newest shard)
-	name string         // project.dataset.table as shown (the newest shard for a family)
-	g    *grid          // nil until the first page arrives
+	key  string
+	path api.ObjectPath
+	name string
+	g    *grid
 	err  string
 	seq  int
 
-	// what the Results showed before: restored when the table turns out to
-	// need a query (the catalog was out of date)
 	prev     *sample
 	prevShow bool
 }
@@ -43,23 +35,13 @@ type sampleMsg struct {
 	err  error
 }
 
-// sampleShown reports whether the Results pane shows the Sample.
 func (m *Model) sampleShown() bool { return m.showSample && m.sample != nil }
 
-// showRun switches the Results back to the buffer's Run (a Run was started
-// or picked).
 func (m *Model) showRun() { m.showSample = false }
 
-// revealPane makes sure a Pane that just got content is on screen. A hidden
-// Pane is shown again, and another Pane maximised over it is restored (the
-// zoom stays when z itself is maximised). Where it is still not drawn (the
-// focus Layout, chosen or the small-terminal step-down, or a Pane the Layout
-// has no room for) it takes the focus; elsewhere the focus stays.
 func (m *Model) revealPane(z Zone) {
 	m.uncover(z)
 	if a := m.arr(); z != m.zone && a.bar != nil && slices.Contains(a.barPanes, z) && !a.single && a.zoom == "" && !a.offLayout {
-		// browse's shared slot draws the one of its Panes focused last: z
-		// becomes that one, and the focus stays
 		m.mru = append([]Zone{m.mru[0], z}, slices.DeleteFunc(slices.Clone(m.mru[1:]), func(o Zone) bool { return o == z })...)
 	}
 	if _, ok := m.arr().rects[z]; !ok {
@@ -67,8 +49,6 @@ func (m *Model) revealPane(z Zone) {
 	}
 }
 
-// uncover shows a hidden Pane and clears a zoom on another Pane, without
-// moving the focus.
 func (m *Model) uncover(z Zone) {
 	if m.panes.hiddenPane(z) {
 		m.setPanes(showPane(m.panes, z))
@@ -84,7 +64,6 @@ const (
 	mviewNoSample    = "materialized views have no free sample; press s for a SELECT (billed)"
 )
 
-// sampleAction is p in the Explorer and the Schema pane.
 func (m *Model) sampleAction() tea.Cmd {
 	s := m.sel()
 	key := s.detailKey()
@@ -114,11 +93,9 @@ func (m *Model) sampleAction() tea.Cmd {
 	m.sampleSeq++
 	sm := &sample{key: key, path: s.path, name: s.path.String(), seq: m.sampleSeq, prev: m.sample, prevShow: m.showSample}
 	if sm.prev != nil {
-		sm.prev.prev = nil // keep one step back, not a chain
+		sm.prev.prev = nil
 	}
 	if s.kind == api.KindShards && s.node.Shard != nil {
-		// read the newest shard as it is now, page after page, even when a
-		// sync adds a newer one meanwhile
 		sm.path.Table = s.node.Shard.Newest
 		sm.name = sm.path.String()
 	}
@@ -134,19 +111,16 @@ func (m *Model) sampleAction() tea.Cmd {
 func (m *Model) onSample(msg sampleMsg) tea.Cmd {
 	sm := m.sample
 	if sm == nil || sm.seq != msg.seq {
-		return nil // a replaced Sample
+		return nil
 	}
 	switch {
 	case errors.Is(msg.err, bq.ErrNeedsQuery):
-		// the catalog said table, BigQuery says view or external table: back
-		// to what the Results showed (a Sample still loading then never
-		// finishes, so it goes too)
 		m.toast = viewNoSample
 		prev := sm.prev
+		// ADR-0011
 		if prev != nil && prev.g == nil && prev.err == "" {
 			prev = nil
 		}
-		// switching to a Run meanwhile is not undone
 		m.sample, m.showSample = prev, m.showSample && prev != nil && sm.prevShow
 		if m.sampleShown() {
 			return m.gridEnsure()
@@ -170,7 +144,6 @@ func (m *Model) onSample(msg sampleMsg) tea.Cmd {
 	return nil
 }
 
-// sampleTitle is the Results title while the Sample is shown.
 func (m *Model) sampleTitle() string {
 	t := " Sample · free read, no query job · " + m.sample.name
 	if g := m.sample.g; g != nil {
@@ -179,7 +152,6 @@ func (m *Model) sampleTitle() string {
 	return t
 }
 
-// switchSource is [ and ] in the Results: the Sample or the buffer's Run.
 func (m *Model) switchSource() tea.Cmd {
 	if m.sample == nil {
 		m.toast = "no Sample: p on a table loads one"
@@ -189,8 +161,6 @@ func (m *Model) switchSource() tea.Cmd {
 	return m.gridEnsure()
 }
 
-// --- s: a SELECT for the table in a new buffer
-
 type selectDetailMsg struct {
 	path api.ObjectPath
 	key  string
@@ -198,9 +168,6 @@ type selectDetailMsg struct {
 	err  error
 }
 
-// syncTableAction is gs in the Explorer and the Schema pane: it syncs the
-// selected table's own row and schema (a shard family: its newest shard)
-// under the sync lock, as r does for a project.
 func (m *Model) syncTableAction() tea.Cmd {
 	s := m.sel()
 	if s.detailKey() == "" {
@@ -211,8 +178,6 @@ func (m *Model) syncTableAction() tea.Cmd {
 	return m.startSync(api.SyncScope{Table: &p}, false)
 }
 
-// selectAction is s in the Explorer and the Schema pane. It never runs the
-// query.
 func (m *Model) selectAction() tea.Cmd {
 	s := m.sel()
 	key := s.detailKey()
@@ -240,20 +205,17 @@ func (m *Model) onSelectDetail(msg selectDetailMsg) {
 		det := msg.det
 		m.detail(msg.key).det = &det
 	}
-	m.openSelect(msg.path, msg.det) // without the detail: WHERE true
+	m.openSelect(msg.path, msg.det)
 }
 
-// openSelect opens the SELECT for the table at path in a new buffer named
-// after it, with the cursor on the WHERE condition. det may be empty (the
-// detail could not be read).
 func (m *Model) openSelect(path api.ObjectPath, det api.TableDetail) {
-	det.Path = path // a shard family keeps its family path
+	det.Path = path
 	if det.Shard == nil {
 		det.Shard = det.Table.Shard
 	}
 	text, at := sqlx.SelectStar(det)
 	b := m.addBuffer(text, "")
-	b.draftVersion = -1 // write the draft on the next tick
+	b.draftVersion = -1
 	b.name = m.bufferName(selectName(path))
 	row, col := lineCol(text, at)
 	b.ed.moveTo(row+1, col+1)
@@ -266,17 +228,13 @@ func (m *Model) openSelect(path api.ObjectPath, det api.TableDetail) {
 	m.toast = fmt.Sprintf("new buffer %s: not run, billed when run (%s)", b.name, how)
 }
 
-// selectName is what a SELECT buffer is called: the table, or for a shard
-// family its name with the varying part as * (events_*, orders_*_history).
 func selectName(p api.ObjectPath) string {
 	return strings.Replace(p.Table, "YYYYMMDD", "*", 1)
 }
 
-// bufferName is name, or name 2, name 3…: the lowest number no other open
-// buffer has.
 func (m *Model) bufferName(name string) string {
 	taken := map[string]bool{}
-	for _, b := range m.bufs[:len(m.bufs)-1] { // the new buffer is last
+	for _, b := range m.bufs[:len(m.bufs)-1] {
 		taken[b.title()] = true
 	}
 	if !taken[name] {
@@ -289,7 +247,6 @@ func (m *Model) bufferName(name string) string {
 	}
 }
 
-// lineCol turns a byte offset into a row and a column in runes, from 0.
 func lineCol(text string, at int) (int, int) {
 	before := text[:at]
 	return strings.Count(before, "\n"), utf8.RuneCountInString(before[strings.LastIndex(before, "\n")+1:])

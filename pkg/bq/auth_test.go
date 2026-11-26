@@ -19,8 +19,6 @@ import (
 
 const deniedSA = "bqt-reader@bqt-sandbox.iam.gserviceaccount.com"
 
-// deniedBody is what iamcredentials generateAccessToken answers when the
-// source account lacks iam.serviceAccounts.getAccessToken on the target.
 const deniedBody = `{
   "error": {
     "code": 403,
@@ -40,11 +38,8 @@ const deniedBody = `{
 }
 `
 
-// missingSA is a typo: no such service account.
 const missingSA = "bqt-nobody@bqt-sandbox.iam.gserviceaccount.com"
 
-// missingBody is what iamcredentials generateAccessToken answers for a
-// target service account that does not exist.
 const missingBody = `{
   "error": {
     "code": 404,
@@ -54,13 +49,12 @@ const missingBody = `{
 }
 `
 
-// refusal is one way generateAccessToken refuses to impersonate sa.
 type refusal struct {
 	name   string
 	sa     string
 	status int
 	body   string
-	msg    string // the one line bqt shows
+	msg    string
 }
 
 var refusals = []refusal{
@@ -68,9 +62,6 @@ var refusals = []refusal{
 	{"missing", missingSA, http.StatusNotFound, missingBody, missingMsg},
 }
 
-// impersonationRefused serves a source token endpoint and an IAM credentials
-// endpoint that refuses to impersonate as rf says, and points ADC at an
-// impersonated_service_account file using them. It returns the server URL.
 func impersonationRefused(t *testing.T, rf refusal) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -92,9 +83,6 @@ func impersonationRefused(t *testing.T, rf refusal) string {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	// A service account source, because both auth libraries honour its
-	// token_uri (cloud.google.com/go/auth ignores it for authorized_user and
-	// would call Google).
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)

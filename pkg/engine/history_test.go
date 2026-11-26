@@ -16,8 +16,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/runs"
 )
 
-// A GUI runs the engine in-process like the TUI, under its own Source: its
-// Runs are History entries of source gui, and its jobs say so in their labels.
 func TestGUIRunsAreTheirOwnHistorySource(t *testing.T) {
 	e, tui := synced(t, "proj-a")
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(3) }
@@ -85,7 +83,6 @@ func TestHistorySearchPromoteAndReopen(t *testing.T) {
 	}
 	latest := page.Groups[0].Latest
 
-	// promote: the parameters are declared with the values they ran with
 	e.cfg.FavoritesDir = filepath.Join(e.dir, "favs")
 	id, err := eng.PromoteHistory(ctx, latest.ID, "sales/orders by day", "Orders since a date", []string{"sales"}, false)
 	if err != nil || id != "sales/orders by day.sql" {
@@ -121,7 +118,6 @@ func TestHistorySearchPromoteAndReopen(t *testing.T) {
 		t.Fatalf("the promoted Favorite runs with the values it ran with: %+v %v", ps, err)
 	}
 
-	// reopen the result of a History entry
 	id3, err := eng.ReopenResult(ctx, latest.ID, "b1")
 	if err != nil {
 		t.Fatal(err)
@@ -171,8 +167,6 @@ func TestRunCarriesItsFavorite(t *testing.T) {
 	}
 }
 
-// Codex review 4, finding 9, and the stacked-header defect: promoting a
-// Run from a Favorite's buffer replaces its header; NULL stays NULL.
 func TestPromoteKeepsOneHeaderAndNull(t *testing.T) {
 	e, eng := synced(t, "proj-a")
 	e.cfg.FavoritesDir = filepath.Join(e.dir, "favs")

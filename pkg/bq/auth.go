@@ -7,17 +7,13 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
-// AuthInfo describes the Application Default Credentials without exposing
-// any secret.
 type AuthInfo struct {
-	Type         string `json:"type"`                    // authorized_user, service_account, ...
-	ClientEmail  string `json:"client_email,omitempty"`  // service accounts only
-	QuotaProject string `json:"quota_project,omitempty"` // as stored in the ADC file
+	Type         string `json:"type"`
+	ClientEmail  string `json:"client_email,omitempty"`
+	QuotaProject string `json:"quota_project,omitempty"`
 	ProjectID    string `json:"project_id,omitempty"`
 }
 
-// CheckAuth finds the default credentials and fetches a token, reporting
-// whether they work. It never returns or logs the token.
 func CheckAuth(ctx context.Context) (AuthInfo, error) {
 	creds, err := google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/bigquery")
 	if err != nil {

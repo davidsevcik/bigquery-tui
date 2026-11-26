@@ -6,50 +6,31 @@ import (
 	"strings"
 )
 
-// The Layout's tree operations: the presets, and the ctrl+w window commands
-// as pure functions. Each takes a tree and the focused Pane and returns the
-// new tree, or the tree unchanged with the reason for the toast. Every result
-// is normalised, so equal layouts are equal trees (see isCustom).
-
-// presetDef is a named Layout. Its step-down rules apply to the edits of it
-// too (a custom Layout steps down as its source preset does).
 type presetDef struct {
-	name string
-	tree layoutNode
-	// the Schema is left out below this many columns (0: only when the
-	// Panes do not fit)
+	name        string
+	tree        layoutNode
 	schemaBelow int
-	// below this many body rows the Editor and Results share one slot (0:
-	// never)
-	shareBelow int
+	shareBelow  int
 }
 
-// presets in the ctrl+w space order.
 var presets = []presetDef{
 	{presetClassic, classicTree, 100, 0},
 	{presetQuery, queryTree, 0, 0},
-	// below 30 terminal rows: the body leaves out the status and footer lines
 	{presetBrowse, browseTree, 100, 28},
 	{presetTall, tallTree, 0, 0},
 	{presetFocus, classicTree, 0, 0},
 }
 
-// queryTree is a narrow Explorer beside the Editor over the Results; the
-// Schema keeps its slot under the Explorer, hidden.
 var queryTree = split(splitRow, []int{25, 75},
 	split(splitCol, []int{60, 40}, leaf(ZoneExplorer), hiddenLeaf(ZoneSchema)),
 	split(splitCol, []int{50, 50}, leaf(ZoneEditor), leaf(ZoneResults)),
 )
 
-// browseTree is the Explorer beside the Schema on top, the Editor and the
-// Results below.
 var browseTree = split(splitCol, []int{60, 15, 25},
 	split(splitRow, []int{55, 45}, leaf(ZoneExplorer), leaf(ZoneSchema)),
 	leaf(ZoneEditor), leaf(ZoneResults),
 )
 
-// tallTree is one column: the Explorer beside the Schema, then the Editor,
-// then the Results.
 var tallTree = split(splitCol, []int{30, 25, 45},
 	split(splitRow, []int{50, 50}, leaf(ZoneExplorer), leaf(ZoneSchema)),
 	leaf(ZoneEditor), leaf(ZoneResults),
@@ -70,10 +51,8 @@ func presetOf(name string) presetDef {
 	return presets[0]
 }
 
-// presetTree is a copy of the preset's tree.
 func presetTree(name string) layoutNode { return presetOf(name).tree.clone() }
 
-// nextPreset is the preset after name in the ctrl+w space order.
 func nextPreset(name string) string {
 	for i, p := range presets {
 		if p.name == name {
@@ -83,11 +62,8 @@ func nextPreset(name string) string {
 	return presetClassic
 }
 
-// isCustom reports whether the tree differs from its source preset's tree.
 func isCustom(preset string, t layoutNode) bool { return !sameTree(presetOf(preset).tree, t) }
 
-// sameTree compares structure, order, hidden flags and weights; weights
-// compare by proportion.
 func sameTree(a, b layoutNode) bool {
 	if a.isLeaf() || b.isLeaf() {
 		return a.pane == b.pane && a.hidden == b.hidden
@@ -129,9 +105,6 @@ func sum(ws []int) int {
 
 var paneLetter = map[Zone]string{ZoneExplorer: "E", ZoneSchema: "S", ZoneEditor: "Q", ZoneResults: "R"}
 
-// String is the compact form used in tests and messages: row[...] and
-// col[...], E S Q R for the Panes, (S) when hidden, and each child's weight as
-// a percentage of its split.
 func (n layoutNode) String() string {
 	if n.isLeaf() {
 		if n.hidden {
@@ -152,17 +125,13 @@ func (n layoutNode) String() string {
 	return sb.String()
 }
 
-// normalise replaces a split left with one child by that child, and merges a
-// child split with its parent's direction into the parent, its weights
-// scaled to the share it had. Weights are kept small (divided by their
-// common divisor).
 func normalise(n layoutNode) layoutNode {
 	if n.isLeaf() {
 		return n
 	}
 	var kids []layoutNode
 	var weights []int
-	own := slices.Clone(n.weights) // the weights of the children still to come
+	own := slices.Clone(n.weights)
 	for i, k := range n.kids {
 		k = normalise(k)
 		if k.isLeaf() || k.dir != n.dir {
@@ -170,8 +139,6 @@ func normalise(n layoutNode) layoutNode {
 			weights = append(weights, own[i])
 			continue
 		}
-		// k's children take k's share: scale everything else to keep exact
-		// proportions
 		ks := sum(k.weights)
 		for j := range weights {
 			weights[j] *= ks
@@ -197,10 +164,6 @@ func normalise(n layoutNode) layoutNode {
 	return layoutNode{dir: n.dir, weights: boundWeights(weights), kids: kids}
 }
 
-// maxWeightSum bounds a split's weights: repeated edits multiply them, and a
-// saved tree with weights above the loader's limit would be dropped. Above
-// it the weights are scaled down to sum to about 1000, keeping every child
-// at least 1 (a share finer than 0.1% makes no difference on a terminal).
 const maxWeightSum = 10000
 
 func boundWeights(ws []int) []int {
@@ -222,8 +185,6 @@ func gcd(a, b int) int {
 	return a
 }
 
-// path is the way from the root to a Pane: the index of the child taken at
-// each split.
 func (n layoutNode) path(z Zone) ([]int, bool) {
 	if n.isLeaf() {
 		return nil, n.pane == z
@@ -236,7 +197,6 @@ func (n layoutNode) path(z Zone) ([]int, bool) {
 	return nil, false
 }
 
-// at is the node at the path.
 func (n *layoutNode) at(p []int) *layoutNode {
 	for _, i := range p {
 		n = &n.kids[i]
@@ -244,7 +204,6 @@ func (n *layoutNode) at(p []int) *layoutNode {
 	return n
 }
 
-// visible reports whether some Pane under n is not hidden.
 func (n layoutNode) visible() bool {
 	if n.isLeaf() {
 		return !n.hidden
@@ -252,7 +211,6 @@ func (n layoutNode) visible() bool {
 	return slices.ContainsFunc(n.kids, layoutNode.visible)
 }
 
-// visiblePanes lists the Panes not hidden, in the cycle order.
 func (n layoutNode) visiblePanes() []Zone {
 	var out []Zone
 	for _, z := range paneOrder {
@@ -268,7 +226,6 @@ func (n layoutNode) hiddenPane(z Zone) bool {
 	return ok && n.at(p).hidden
 }
 
-// remove takes the Pane's leaf out of the tree and normalises it.
 func (n layoutNode) remove(z Zone) layoutNode {
 	t := n.clone()
 	p, ok := t.path(z)
@@ -282,8 +239,6 @@ func (n layoutNode) remove(z Zone) layoutNode {
 	return normalise(t)
 }
 
-// moveToEdge is ctrl+w H J K L: the Pane goes to the far left, bottom, top
-// or right, spanning the whole height or width (Vim's CTRL-W H).
 func moveToEdge(t layoutNode, z Zone, d direction) (layoutNode, string) {
 	dir, first := splitRow, d == dirLeft
 	if d == dirUp || d == dirDown {
@@ -304,8 +259,6 @@ func moveToEdge(t layoutNode, z Zone, d direction) (layoutNode, string) {
 	rest := t.remove(z)
 	var out layoutNode
 	if !rest.isLeaf() && rest.dir == dir {
-		// a third of the split: half the sum of the others that take room
-		// (hidden ones keep their slot but no space)
 		ws := slices.Clone(rest.weights)
 		s := 0
 		for i, k := range rest.kids {
@@ -330,8 +283,6 @@ func moveToEdge(t layoutNode, z Zone, d direction) (layoutNode, string) {
 	return normalise(out), ""
 }
 
-// visibleSibling is the next visible child of parent after i, or the
-// previous one when there is none after it.
 func visibleSibling(parent *layoutNode, i int) (int, bool) {
 	for j := i + 1; j < len(parent.kids); j++ {
 		if parent.kids[j].visible() {
@@ -346,9 +297,6 @@ func visibleSibling(parent *layoutNode, i int) (int, bool) {
 	return 0, false
 }
 
-// swapPane is ctrl+w x: the Pane trades places with the next visible
-// sibling in its split (the previous one when it is the last). The slots keep
-// their sizes.
 func swapPane(t layoutNode, z Zone) (layoutNode, string) {
 	out := t.clone()
 	p, ok := out.path(z)
@@ -364,9 +312,6 @@ func swapPane(t layoutNode, z Zone) (layoutNode, string) {
 	return normalise(out), ""
 }
 
-// rotatePanes is ctrl+w r: the visible children of the Pane's split move one
-// place on, the last becoming the first. Hidden children and the slot sizes
-// stay where they are.
 func rotatePanes(t layoutNode, z Zone) (layoutNode, string) {
 	out := t.clone()
 	p, ok := out.path(z)
@@ -390,7 +335,6 @@ func rotatePanes(t layoutNode, z Zone) (layoutNode, string) {
 	return normalise(out), ""
 }
 
-// equalise is ctrl+w =: every split gives its children equal shares.
 func equalise(t layoutNode) layoutNode {
 	out := t.clone()
 	var eq func(n *layoutNode)
@@ -404,8 +348,6 @@ func equalise(t layoutNode) layoutNode {
 	return out
 }
 
-// hidePane is ctrl+w c: the Pane keeps its slot, which takes no space. The
-// last visible Pane cannot be hidden.
 func hidePane(t layoutNode, z Zone) (layoutNode, string) {
 	vis := t.visiblePanes()
 	if !slices.Contains(vis, z) {
@@ -420,7 +362,6 @@ func hidePane(t layoutNode, z Zone) (layoutNode, string) {
 	return out, ""
 }
 
-// showPane clears the Pane's hidden flag: it comes back in its slot.
 func showPane(t layoutNode, z Zone) layoutNode {
 	out := t.clone()
 	if p, ok := out.path(z); ok {
@@ -429,18 +370,11 @@ func showPane(t layoutNode, z Zone) layoutNode {
 	return out
 }
 
-// resizePane is ctrl+w < > - +: the Pane's share of the nearest split along
-// dir (row for the width, col for the height) grows or shrinks by 5% of the
-// split (at least one cell), traded with its next visible sibling (the
-// previous one when it is the last). lay gives the rectangles at the current
-// size, by weight; the step is clamped so that no Pane on the shrinking side
-// goes below its minimum and no child below 10% of the split.
 func resizePane(t layoutNode, z Zone, dir splitDir, grow bool, lay func(layoutNode) map[Zone]rect) (layoutNode, string) {
 	p, ok := t.path(z)
 	if !ok {
 		return t, ""
 	}
-	// the nearest split along dir in which the Pane's child has a visible sibling
 	d := len(p) - 1
 	var i, j int
 	for ; d >= 0; d-- {
@@ -461,7 +395,6 @@ func resizePane(t layoutNode, z Zone, dir splitDir, grow bool, lay func(layoutNo
 	}
 	out := t.clone()
 	sp := out.at(p[:d])
-	// enough resolution for a 5% step
 	if s := sum(sp.weights); s < 1000 {
 		f := (1000 + s - 1) / s
 		for k := range sp.weights {
@@ -509,7 +442,7 @@ func resizePane(t layoutNode, z Zone, dir splitDir, grow bool, lay func(layoutNo
 			continue
 		}
 		if extent(c.kids[shrinker], rs) >= shrunkFrom {
-			break // no longer a visible change
+			break
 		}
 		return normalise(cand), ""
 	}
@@ -526,8 +459,6 @@ func firstVisible(n layoutNode) string {
 	return ""
 }
 
-// belowMin names the first Pane under n that is drawn smaller than its
-// minimum along dir.
 func belowMin(n layoutNode, rs map[Zone]rect, dir splitDir) string {
 	for _, z := range n.visiblePanes() {
 		r, ok := rs[z]
@@ -541,10 +472,6 @@ func belowMin(n layoutNode, rs map[Zone]rect, dir splitDir) string {
 	return ""
 }
 
-// --- the tree in state/tui.json
-
-// treeJSON is a node of the saved tree: a Pane, or a split with its children
-// and their weights. hidden is left out when false.
 type treeJSON struct {
 	Pane    string      `json:"pane,omitempty"`
 	Hidden  bool        `json:"hidden,omitempty"`
@@ -566,8 +493,6 @@ func treeToJSON(n layoutNode) *treeJSON {
 	return j
 }
 
-// treeFromJSON checks and reads a saved tree: each of the four Panes exactly
-// once, positive weights, one per child, and at least one Pane visible.
 func treeFromJSON(j *treeJSON) (layoutNode, bool) {
 	seen := map[Zone]bool{}
 	var read func(j *treeJSON) (layoutNode, bool)

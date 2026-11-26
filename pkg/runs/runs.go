@@ -24,57 +24,34 @@ import (
 )
 
 const (
-	// OnDemandUSDPerTiB is the on-demand list price used for the estimate.
 	OnDemandUSDPerTiB = 6.25
-	// AutoConfirmBytes is the confirm_bytes default for on-demand Runs.
-	AutoConfirmBytes = policy.AutoConfirmBytes
-	// PageRows is the size of a result page; PageCache is how many are kept.
-	PageRows  = 500
-	PageCache = 10
-	// PagedRuns is how many Runs keep their pages in memory.
-	PagedRuns = 12
+	AutoConfirmBytes  = policy.AutoConfirmBytes
+	PageRows          = 500
+	PageCache         = 10
+	PagedRuns         = 12
 )
 
-// Options configures a Manager.
 type Options struct {
-	// Jobs returns the BigQuery jobs client whose jobs run in exec (built
-	// lazily). A Run uses the client of the project it started in.
-	Jobs   func(ctx context.Context, exec string) (bq.Jobs, error)
-	Config func() *config.Config
-	// Execution returns the Execution project jobs run in now.
-	Execution func() string
-	Now       func() time.Time
-	// Source (tui, gui, cli or mcp) is recorded on History entries and, unless
-	// it is the TUI, as the bqt_source job label.
-	Source api.Source
-	// Record stores a finished real Run (History). It may be nil.
-	Record func(api.RunInfo)
-	Log    *slog.Logger
-	// RetryDelay is the base delay between retries of a cancel request or a
-	// status poll (default 1s; tests shorten it).
-	RetryDelay time.Duration
-	// SubmitTimeout bounds a job submission outside the agent timeout
-	// (default 2 minutes).
+	Jobs          func(ctx context.Context, exec string) (bq.Jobs, error)
+	Config        func() *config.Config
+	Execution     func() string
+	Now           func() time.Time
+	Source        api.Source
+	Record        func(api.RunInfo)
+	Log           *slog.Logger
+	RetryDelay    time.Duration
 	SubmitTimeout time.Duration
 }
 
-// Request starts a Run.
 type Request struct {
-	SQL    string
-	Params []api.QueryParam
-	// Tag is opaque: a frontend uses it to tie the Run to a buffer.
-	Tag string
-	// DryRunOnly stops after the estimate.
+	SQL        string
+	Params     []api.QueryParam
+	Tag        string
 	DryRunOnly bool
-	// Favorite is the ID of the Favorite the SQL came from (History).
-	Favorite string
-	// Policy puts the Run under the agent safety profile (spec 14.3): it is
-	// refused after the dry-run instead of asking for confirmation, and it
-	// times out. nil (the TUI) asks instead.
-	Policy *policy.Profile
+	Favorite   string
+	Policy     *policy.Profile
 }
 
-// Manager owns the Runs of one process.
 type Manager struct {
 	o Options
 
@@ -85,13 +62,10 @@ type Manager struct {
 	waiting []chan struct{}
 	pricing api.PricingModel
 	events  chan api.RunEvent
-	// busy counts job submissions and cancel requests in flight, so Close can
-	// wait for them before the process exits.
-	busy   int
-	closed bool
+	busy    int
+	closed  bool
 }
 
-// New returns a Manager.
 func New(o Options) *Manager {
 	if o.Now == nil {
 		o.Now = time.Now
@@ -114,8 +88,6 @@ func New(o Options) *Manager {
 	return &Manager{o: o, events: make(chan api.RunEvent, 256)}
 }
 
-// Events streams every Run's state changes. When the reader falls behind,
-// the oldest events are dropped, so the newest state always arrives.
 func (m *Manager) Events() <-chan api.RunEvent { return m.events }
 
 func (m *Manager) publish(info api.RunInfo) {
@@ -133,20 +105,15 @@ func (m *Manager) publish(info api.RunInfo) {
 	}
 }
 
-// Pricing reports what the dry-runs so far revealed about billing.
 func (m *Manager) Pricing() api.PricingModel {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.pricing
 }
 
-// learn records the pricing model a dry-run in exec revealed. A query that
-// scans nothing and names no reservation (SELECT 1) says nothing either way:
-// BigQuery reports no reservation for it even on a reservation-backed project.
-// A dry-run of a project that is no longer the Execution project teaches
-// nothing (the model is per project).
 func (m *Manager) learn(exec string, dr bq.DryRunResult, force bool) {
-	if exec != m.o.Execution() { // outside m.mu: it reads the selection state
+	// ADR-0009
+	if exec != m.o.Execution() {
 		return
 	}
 	m.mu.Lock()
@@ -157,20 +124,15 @@ func (m *Manager) learn(exec string, dr bq.DryRunResult, force bool) {
 	m.pricing = api.PricingModel{Known: true, Capacity: dr.ReservationID != "", ReservationID: dr.ReservationID, Edition: dr.Edition}
 }
 
-// ForgetPricing drops the learned model (the Execution project changed).
 func (m *Manager) ForgetPricing() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.pricing = api.PricingModel{}
 }
 
-// pricingProbe is a free query that still needs slots, so its dry-run names
-// the reservation when there is one (a bare SELECT 1 does not).
+// ADR-0009
 const pricingProbe = "SELECT x FROM UNNEST(GENERATE_ARRAY(1, 2)) AS x ORDER BY x"
 
-// LearnPricing runs a free dry-run in the configured location so the first
-// Run is presented correctly. Without a location it does nothing:
-// the model depends on where the job runs.
 func (m *Manager) LearnPricing(ctx context.Context) error {
 	cfg := m.o.Config()
 	if cfg.Location == "" {
@@ -197,7 +159,6 @@ func (m *Manager) labels() map[string]string {
 	return l
 }
 
-// List returns every Run of this process, newest first.
 func (m *Manager) List() []api.RunInfo {
 	m.mu.Lock()
 	runs := append([]*Run(nil), m.runs...)
@@ -210,7 +171,6 @@ func (m *Manager) List() []api.RunInfo {
 	return out
 }
 
-// Get returns a Run by ID.
 func (m *Manager) Get(id int64) *Run {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -222,7 +182,6 @@ func (m *Manager) Get(id int64) *Run {
 	return nil
 }
 
-// Active counts the Runs that have not finished.
 func (m *Manager) Active() int {
 	n := 0
 	for _, r := range m.List() {
@@ -233,7 +192,6 @@ func (m *Manager) Active() int {
 	return n
 }
 
-// CancelAll cancels every unfinished Run.
 func (m *Manager) CancelAll() {
 	m.mu.Lock()
 	runs := append([]*Run(nil), m.runs...)
@@ -243,18 +201,11 @@ func (m *Manager) CancelAll() {
 	}
 }
 
-// Close cancels everything and stops accepting Runs.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	m.closed = true
 	m.mu.Unlock()
 	m.CancelAll()
-	// A cancel that never reaches BigQuery leaves the job running (and
-	// billing) after bqt has gone: give the requests a moment to be sent.
-	// The same goes for a job being submitted right now: wait for its ID and
-	// for the cancel that follows.
-	// Every Run is cancelled now; wait for them to end too, so their History
-	// entries are written before the caller closes the store.
 	deadline := time.Now().Add(15 * time.Second)
 	m.mu.Lock()
 	all := append([]*Run(nil), m.runs...)
@@ -286,9 +237,6 @@ func (m *Manager) busyAdd(d int) {
 	m.mu.Unlock()
 }
 
-// cancelJob asks BigQuery to cancel a job, in the background, retrying
-// transient failures. onFail runs if the request could not be delivered.
-//
 //nolint:contextcheck // the cancel must outlive the caller, whose context is usually what was just cancelled
 func (m *Manager) cancelJob(jobs bq.Jobs, ref api.JobRef, onFail func(error)) {
 	m.busyAdd(1)
@@ -315,8 +263,6 @@ func (m *Manager) cancelJob(jobs bq.Jobs, ref api.JobRef, onFail func(error)) {
 	}()
 }
 
-// trimPages drops the cached result pages of all but the newest
-// PagedRuns Runs. Their rows stay readable: a page is fetched again on demand.
 func (m *Manager) trimPages() {
 	m.mu.Lock()
 	runs := append([]*Run(nil), m.runs...)
@@ -334,7 +280,6 @@ func (m *Manager) trimPages() {
 	}
 }
 
-// acquire waits for a free slot (max_concurrent_queries, read live).
 func (m *Manager) acquire(ctx context.Context) bool {
 	for {
 		m.mu.Lock()
@@ -376,7 +321,6 @@ func (m *Manager) release() {
 	}
 }
 
-// Start begins a Run and returns at once; follow it through Events or Wait.
 func (m *Manager) Start(ctx context.Context, req Request) *Run {
 	cfg := m.o.Config()
 	rctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
@@ -389,7 +333,8 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 			rctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), p.Timeout)
 		}
 	}
-	exec := m.o.Execution() // outside m.mu: it reads the selection state
+	// ADR-0009
+	exec := m.o.Execution()
 	m.mu.Lock()
 	m.seq++
 	r := &Run{
@@ -414,12 +359,11 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 	return r
 }
 
-// Run is one execution of a SQL snapshot.
 type Run struct {
 	m       *Manager
 	id      int64
-	exec    string          // the Execution project when the Run started
-	policy  *policy.Profile // nil outside the agent entry points
+	exec    string
+	policy  *policy.Profile
 	ctx     context.Context
 	stop    context.CancelFunc
 	confirm chan struct{}
@@ -427,10 +371,10 @@ type Run struct {
 
 	mu        sync.Mutex
 	info      api.RunInfo
-	first     api.RunInfo // the state it started in (version 1)
+	first     api.RunInfo
 	version   int64
-	changed   chan struct{} // closed and replaced on every change
-	final     bool          // the end state is published (and recorded)
+	changed   chan struct{}
+	final     bool
 	confirmed bool
 	jobs      bq.Jobs
 	schema    []bq.Field
@@ -438,36 +382,27 @@ type Run struct {
 	pageUse   []int64
 }
 
-// ID returns the Run's ID.
 func (r *Run) ID() int64 { return r.id }
 
-// Info returns a snapshot.
 func (r *Run) Info() api.RunInfo {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.info
 }
 
-// Wait blocks until the Run has finished.
 func (r *Run) Wait() api.RunInfo {
 	<-r.done
 	return r.Info()
 }
 
-// Done is closed when the Run has finished.
 func (r *Run) Done() <-chan struct{} { return r.done }
 
-// bump marks a change; the caller holds r.mu.
 func (r *Run) bump() {
 	r.version++
 	close(r.changed)
 	r.changed = make(chan struct{})
 }
 
-// Await blocks until the Run has changed since version after (0 returns the
-// current state at once), and returns the snapshot with its version. It also
-// returns when ctx ends. Calling it in a loop follows the Run without missing
-// its final state.
 func (r *Run) Await(ctx context.Context, after int64) (api.RunInfo, int64) {
 	for {
 		r.mu.Lock()
@@ -493,8 +428,6 @@ func (r *Run) set(fn func(*api.RunInfo)) {
 	r.m.publish(info)
 }
 
-// finish publishes the end state. The History entry is written first, so
-// whoever sees a finished Run can rely on the entry being there.
 func (r *Run) finish(fn func(*api.RunInfo)) {
 	now := r.m.o.Now()
 	r.mu.Lock()
@@ -503,6 +436,7 @@ func (r *Run) finish(fn func(*api.RunInfo)) {
 	info.Ended = &now
 	info.Confirmation = nil
 	r.mu.Unlock()
+	// ADR-0009
 	if info.Job != nil && r.m.o.Record != nil {
 		r.m.o.Record(info)
 	}
@@ -517,7 +451,6 @@ func (r *Run) finish(fn func(*api.RunInfo)) {
 	close(r.done)
 }
 
-// Confirm lets a Run in the needs_confirmation state proceed.
 func (r *Run) Confirm() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -527,8 +460,6 @@ func (r *Run) Confirm() {
 	}
 }
 
-// Cancel stops the Run. A job that is already running is asked to cancel and
-// the Run stays "cancel requested" until BigQuery confirms.
 func (r *Run) Cancel() {
 	r.mu.Lock()
 	state, job, jobs := r.info.State, r.info.Job, r.jobs
@@ -549,7 +480,6 @@ func (r *Run) Cancel() {
 		}
 		r.m.publish(info)
 		r.m.cancelJob(jobs, *job, func(error) {
-			// the request never arrived: let the user (or Close) ask again
 			r.mu.Lock()
 			if r.final {
 				r.mu.Unlock()
@@ -568,8 +498,6 @@ func (r *Run) Cancel() {
 	r.stop()
 }
 
-// markCancelled sets the end state of a Run that stopped before finishing:
-// cancelled, or failed with a timeout when the agent profile's timeout ran out.
 func (r *Run) markCancelled(i *api.RunInfo) {
 	if r.policy != nil && errors.Is(r.ctx.Err(), context.DeadlineExceeded) {
 		i.State, i.Error = api.RunFailed, &api.QueryError{
@@ -636,8 +564,6 @@ func (r *Run) run(cfg *config.Config) {
 
 	conf := confirmation(cfg, est)
 	if r.policy != nil {
-		// The policy has decided instead: it refuses what the TUI would ask
-		// about, except a write the config allows from the CLI.
 		conf = nil
 	}
 	if conf != nil {
@@ -657,19 +583,12 @@ func (r *Run) run(cfg *config.Config) {
 	defer m.release()
 
 	if dr.Location != "" && req.Location == "" {
-		// run where the dry-run resolved the query, so results are read there
 		req.Location = dr.Location
 	}
 	if r.ctx.Err() != nil {
 		r.finish(r.markCancelled)
 		return
 	}
-	// Submitting is not cancelled with the Run: a cancel that arrives
-	// meanwhile is honoured right after, with the job in hand. It is bounded,
-	// though (the client retries transient errors until its context ends):
-	// by the agent timeout, or submitTimeout. The job ID is chosen here, so a
-	// submission that ran out of time can still be cancelled by ID.
-	// (Close waits for submissions in flight, so quitting cannot strand one.)
 	req.JobID = newJobID()
 	m.busyAdd(1)
 	dl, runDeadline := r.ctx.Deadline()
@@ -681,13 +600,10 @@ func (r *Run) run(cfg *config.Config) {
 	expired := errors.Is(sctx.Err(), context.DeadlineExceeded)
 	scancel()
 	if expired && runDeadline {
-		// The Run's own deadline passed: its context ends with it, but on
-		// its own timer. Wait for it, so the Run ends as a timeout.
 		<-r.ctx.Done()
 	}
 	if err != nil {
 		if expired {
-			// the job may exist without our knowing: stop it by its ID
 			m.cancelJob(jobs, api.JobRef{Project: r.exec, Location: req.Location, ID: req.JobID}, nil)
 		}
 		m.busyAdd(-1)
@@ -715,7 +631,6 @@ func (r *Run) run(cfg *config.Config) {
 	})
 	m.busyAdd(-1)
 
-	// The job outlives a cancelled context: ask BigQuery to stop it.
 	var res bq.JobResult
 	for attempt := 0; ; attempt++ {
 		res, err = jobs.WaitJob(r.ctx, ref)
@@ -723,15 +638,12 @@ func (r *Run) run(cfg *config.Config) {
 			break
 		}
 		if r.ctx.Err() == nil && bq.Retryable(err) && attempt < 3 {
-			// the status could not be read; the job itself is still running
 			select {
 			case <-time.After(m.o.RetryDelay * time.Duration(attempt+1)):
 				continue
 			case <-r.ctx.Done():
 			}
 		}
-		// The outcome is unknown, so the job may still be running: stop it
-		// rather than leave it billing with nobody watching.
 		m.cancelJob(jobs, ref, nil)
 		if r.ctx.Err() == nil {
 			qe := bq.QueryErrorOf(err)
@@ -758,19 +670,17 @@ func (r *Run) run(cfg *config.Config) {
 		r.finish(func(i *api.RunInfo) {
 			i.State, i.Error, i.Stats, i.CancelRequested = state, qe, stats, false
 			if state == api.RunCancelled {
-				r.markCancelled(i) // a timeout cancels the job too
+				r.markCancelled(i)
 			}
 		})
 		return
 	}
 
-	// The first page tells whether the statement produced rows at all.
 	page, perr := fullPage(r.ctx, jobs, ref, 0, 0)
 	r.finish(func(i *api.RunInfo) {
 		i.State, i.Stats, i.CancelRequested = api.RunDone, stats, false
 		switch {
 		case perr != nil && r.policy != nil && r.ctx.Err() != nil:
-			// the agent timeout ran out while reading the rows
 			r.markCancelled(i)
 		case perr != nil:
 			i.ResultError = bq.QueryErrorOf(perr).Message
@@ -783,7 +693,6 @@ func (r *Run) run(cfg *config.Config) {
 	})
 }
 
-// confirmation decides whether the Run must wait for the user.
 func confirmation(cfg *config.Config, est *api.Estimate) *api.Confirmation {
 	c := &api.Confirmation{Bytes: est.Bytes, StatementType: est.StatementType}
 	if est.StatementType != "SELECT" {
@@ -800,7 +709,6 @@ func confirmation(cfg *config.Config, est *api.Estimate) *api.Confirmation {
 	return c
 }
 
-// newJobID returns a fresh job ID (BigQuery allows letters, digits, _ and -).
 func newJobID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {

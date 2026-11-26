@@ -7,18 +7,6 @@ import (
 	"unicode/utf8"
 )
 
-// INFORMATION_SCHEMA *_OPTIONS views return option values as GoogleSQL
-// literal text, for example:
-//
-//	description      "Raw \"events\" table"
-//	labels           [STRUCT("team", "data"), STRUCT("env", "prod")]
-//	expiration_timestamp  TIMESTAMP "2026-11-01 10:00:00+00"
-//
-// These helpers decode them.
-
-// parseStringLiteral decodes one quoted string literal at the start of s
-// (single, double or triple quoted, with backslash escapes) and returns the
-// value and the unconsumed rest.
 func parseStringLiteral(s string) (val, rest string, ok bool) {
 	s = strings.TrimLeft(s, " \t\r\n")
 	raw := false
@@ -95,12 +83,10 @@ func unescape(s string) (string, int) {
 			}
 		}
 	}
-	// \\ \" \' \` and unknown escapes: the character itself
 	_, size := utf8.DecodeRuneInString(s)
 	return s[:size], size
 }
 
-// parseStringOption decodes a string-valued option such as description.
 func parseStringOption(v string) string {
 	if s, _, ok := parseStringLiteral(v); ok {
 		return s
@@ -108,7 +94,6 @@ func parseStringOption(v string) string {
 	return strings.TrimSpace(v)
 }
 
-// parseLabelsOption decodes `[STRUCT("k", "v"), ...]`.
 func parseLabelsOption(v string) map[string]string {
 	out := map[string]string{}
 	rest := v
@@ -151,7 +136,6 @@ var timestampLayouts = []string{
 	"2006-01-02 15:04:05",
 }
 
-// parseTimestampOption decodes `TIMESTAMP "2026-11-01 10:00:00+00"`.
 func parseTimestampOption(v string) (time.Time, bool) {
 	v = strings.TrimSpace(v)
 	if strings.HasPrefix(strings.ToUpper(v), "TIMESTAMP") {
@@ -169,8 +153,6 @@ func parseTimestampOption(v string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// parseBoolOption reads a BOOL option value (`true`, `TRUE`, `false`).
-// Anything but true reads false: "unknown = false".
 func parseBoolOption(v string) bool {
 	return strings.EqualFold(strings.TrimSpace(v), "true")
 }

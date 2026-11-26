@@ -11,15 +11,9 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
-// ImpersonationError is a refused service account impersonation: the IAM
-// credentials API would not mint a token for the service account an
-// impersonated_service_account ADC file names, because the source account
-// lacks iam.serviceAccounts.getAccessToken on it (or a new grant has not
-// propagated yet), or because no such service account exists. Logging in
-// again does not fix it.
 type ImpersonationError struct {
-	ServiceAccount string // the target; empty when not known
-	NotFound       bool   // the target does not exist (a typo in the file)
+	ServiceAccount string
+	NotFound       bool
 	Err            error
 }
 
@@ -36,21 +30,15 @@ func (e *ImpersonationError) Error() string {
 
 func (e *ImpersonationError) Unwrap() error { return e.Err }
 
-// ImpersonationDenied reports whether err is a refused impersonation. Its
-// message names the fix, so the ADC login hint does not apply.
 func ImpersonationDenied(err error) bool {
 	var ie *ImpersonationError
 	return errors.As(err, &ie) || refusedImpersonation(err)
 }
 
-// refusedImpersonation matches the raw failure. golang.org/x/oauth2 and
-// cloud.google.com/go/auth both turn the IAM credentials answer into a plain
-// error, "status code 403: <JSON body>" (or 404), with no type to match.
 func refusedImpersonation(err error) bool {
 	return deniedImpersonation(err) || missingImpersonationTarget(err)
 }
 
-// deniedImpersonation: the source account lacks the permission.
 func deniedImpersonation(err error) bool {
 	if err == nil {
 		return false
@@ -59,8 +47,6 @@ func deniedImpersonation(err error) bool {
 	return strings.Contains(msg, "status code 403: ") && strings.Contains(msg, "iam.serviceAccounts.getAccessToken")
 }
 
-// missingImpersonationTarget: no service account has the target email
-// ("Not found; Gaia id not found for email …").
 func missingImpersonationTarget(err error) bool {
 	if err == nil {
 		return false
@@ -69,9 +55,6 @@ func missingImpersonationTarget(err error) bool {
 	return strings.Contains(msg, "status code 404: ") && strings.Contains(msg, "Gaia id not found")
 }
 
-// asImpersonation returns err as an *ImpersonationError when it is a refused
-// impersonation, naming the target from the ADC file adc returns; nil
-// otherwise.
 func asImpersonation(err error, adc func() []byte) *ImpersonationError {
 	var ie *ImpersonationError
 	if errors.As(err, &ie) {
@@ -85,9 +68,6 @@ func asImpersonation(err error, adc func() []byte) *ImpersonationError {
 
 var impersonationURL = regexp.MustCompile(`/serviceAccounts/([^/:]+):generateAccessToken`)
 
-// impersonationTarget returns the service account an ADC file impersonates,
-// from its service_account_impersonation_url; "" when there is none. Nothing
-// else is read from the file.
 func impersonationTarget(adc []byte) string {
 	var f struct {
 		URL string `json:"service_account_impersonation_url"`
@@ -106,8 +86,7 @@ func impersonationTarget(adc []byte) string {
 	return sa
 }
 
-// defaultADC returns the ADC file's JSON, or nil. It runs only after a
-// refused impersonation, so the file exists and no metadata server is probed.
+// ADR-0005
 func defaultADC() []byte {
 	creds, err := google.FindDefaultCredentials(context.Background())
 	if err != nil {

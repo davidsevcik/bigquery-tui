@@ -13,8 +13,6 @@ const (
 	idC = "0123456789abcdef0000000c"
 )
 
-// withOrders adds a non-date family orders_* (newest by creation time:
-// orders_<idB>), a suffixed family orders_*_history, and a plain table.
 func withOrders() *fixture {
 	f := standard()
 	f.dataset("acme-prod", "shop", "EU", "")
@@ -56,7 +54,7 @@ func TestPatternFamiliesBrowse(t *testing.T) {
 	for _, n := range s.ShardMembers("acme-prod", "shop", "orders_*", "") {
 		members = append(members, n.Name)
 	}
-	eq(t, members, "orders_"+idB, "orders_"+idC, "orders_"+idA) // newest created first
+	eq(t, members, "orders_"+idB, "orders_"+idC, "orders_"+idA)
 	for _, p := range []string{"orders_*", "orders_*_history"} {
 		ref, ok := s.Lookup(api.ObjectPath{Project: "acme-prod", Dataset: "shop", Table: p})
 		if !ok || ref.Family == nil || ref.Family.Name != p {
@@ -67,12 +65,10 @@ func TestPatternFamiliesBrowse(t *testing.T) {
 	if ref.Path.Table != "orders_"+idB {
 		t.Fatalf("the family resolves to its newest shard: %+v", ref.Path)
 	}
-	// a member is itself, with its family attached
 	ref, ok := s.Lookup(api.ObjectPath{Project: "acme-prod", Dataset: "shop", Table: "orders_" + idA})
 	if !ok || ref.Family != nil || ref.Meta.Shard == nil || ref.Meta.Shard.Name != "orders_*" {
 		t.Fatalf("%+v", ref)
 	}
-	// the date family answers its wildcard too (the CLI and MCP name)
 	if ref, ok := s.Lookup(api.ObjectPath{Project: "acme-prod", Dataset: "events", Table: "events_*"}); !ok || ref.Path.Table != "events_20240103" {
 		t.Fatalf("%+v", ref)
 	}
@@ -84,7 +80,6 @@ func TestAPrefixTermFindsTheFamilyAndAnIDFragmentTheMember(t *testing.T) {
 	eq(t, names(t, s, "orders", scope), "acme-prod.shop.orders_*", "acme-prod.shop.orders_*_history")
 	eq(t, names(t, s, "history", scope), "acme-prod.shop.orders_*_history")
 	eq(t, names(t, s, "0000000c", scope), "acme-prod.shop.orders_"+idC)
-	// a term that reaches past the prefix into the id finds the members
 	eq(t, names(t, s, "orders_"+idA, scope), "acme-prod.shop.orders_"+idA, "acme-prod.shop.orders_"+idA+"_history")
 
 	r, _ := s.Search(ctx, "history", scope)
@@ -92,11 +87,9 @@ func TestAPrefixTermFindsTheFamilyAndAnIDFragmentTheMember(t *testing.T) {
 	if fam.Kind != api.KindShards || fam.Shard == nil || fam.Shard.Newest != "orders_"+idA+"_history" {
 		t.Fatalf("%+v", fam)
 	}
-	// the span on the suffix moves onto the family name
 	if sp := fam.Spans["name"]; len(sp) != 1 || fam.Name[sp[0].Start:sp[0].End] != "history" {
 		t.Fatalf("%+v on %q", sp, fam.Name)
 	}
-	// a pasted family path is an exact hit on the family
 	r, _ = s.Search(ctx, "acme-prod.shop.orders_*", api.SearchOptions{})
 	if len(r.Results) != 1 || r.Results[0].Kind != api.KindShards || r.Results[0].Path.Table != "orders_*" {
 		t.Fatalf("%+v", r.Results)
@@ -105,7 +98,6 @@ func TestAPrefixTermFindsTheFamilyAndAnIDFragmentTheMember(t *testing.T) {
 
 func TestColSearchFindsAFamilyOnce(t *testing.T) {
 	f := withOrders()
-	// a member synced on its own (gs) has columns of its own
 	for i := range f.snap.Tables {
 		if f.snap.Tables[i].Name == "orders_"+idC {
 			f.snap.Tables[i].OwnSchema, f.snap.Tables[i].SharedSchema = true, false
@@ -127,7 +119,6 @@ func TestFilterRevealsOnlyTheMembersThatMatch(t *testing.T) {
 	opts := api.FilterOptions{Scope: shop, Kinds: kinds(api.KindTable, api.KindShards)}
 	eq(t, filtered(t, s, "orders", opts), "shard_family:acme-prod.shop.orders_*", "shard_family:acme-prod.shop.orders_*_history")
 	eq(t, filtered(t, s, "0000000c", opts), "shard_family:acme-prod.shop.orders_*", "table:acme-prod.shop.orders_"+idC)
-	// a list of the family's members asks for every passing member
 	opts.ExpandShards = true
 	got := filtered(t, s, "orders", opts)
 	if len(got) != 7 {
@@ -135,8 +126,6 @@ func TestFilterRevealsOnlyTheMembersThatMatch(t *testing.T) {
 	}
 }
 
-// A term in the varying part finds the member even when lower-casing the name
-// changes its byte length (the Kelvin sign U+212A lowers to an ASCII k).
 func TestMemberHitWithACaseChangingPrefix(t *testing.T) {
 	f := standard()
 	f.dataset("acme-prod", "k", "EU", "")
@@ -150,8 +139,6 @@ func TestMemberHitWithACaseChangingPrefix(t *testing.T) {
 	}
 }
 
-// A family's filter match carries the family, whose parts say which tables
-// are its members.
 func TestFilterFamilyMatchesCarryTheirFamily(t *testing.T) {
 	s := withOrders().searcher()
 	r, err := s.Filter(ctx, "orders", api.FilterOptions{})

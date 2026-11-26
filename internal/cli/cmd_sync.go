@@ -19,12 +19,10 @@ type stringList []string
 func (s *stringList) String() string     { return strings.Join(*s, ",") }
 func (s *stringList) Set(v string) error { *s = append(*s, v); return nil }
 
-// load reads the config and builds the logger for a command.
 func load(env Env, g *globals) (*config.Config, error) {
 	return config.Load(g.loadOptions(env))
 }
 
-// The returned function closes the log file. A failed close at exit has nobody to tell, so it is dropped.
 func newLogger(env Env, g *globals, cfg *config.Config, command string) (func(), *engineLog, error) {
 	level := g.logLevel
 	if level == "" {
@@ -169,8 +167,6 @@ func printSyncSummary(w io.Writer, r api.SyncResult) {
 	}
 }
 
-// allImpersonationFailures reports whether every failed unit failed on a
-// refused impersonation, whose message (bq.ImpersonationError) names the fix.
 func allImpersonationFailures(r api.SyncResult) bool {
 	for _, u := range r.Units {
 		if (u.Status == api.UnitInaccessible || u.Status == api.UnitDegraded) && !strings.HasPrefix(u.Error, "auth: cannot impersonate ") {
@@ -180,7 +176,6 @@ func allImpersonationFailures(r api.SyncResult) bool {
 	return true
 }
 
-// allAuthFailures reports whether every failed unit failed on credentials.
 func allAuthFailures(r api.SyncResult) bool {
 	n := 0
 	for _, u := range r.Units {

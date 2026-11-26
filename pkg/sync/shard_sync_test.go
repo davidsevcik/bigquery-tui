@@ -16,7 +16,6 @@ const (
 	cfgDateHex = "shard_patterns = ['.+(\\d{8})', '.+_([0-9a-f]{24})(?:_history)?']\n"
 )
 
-// hexID makes a 24-hex-digit object id from a short seed.
 func hexID(seed string) string { return strings.Repeat("0", 24-len(seed)) + seed }
 
 func createdOn(day int, t api.TableMeta) api.TableMeta {
@@ -87,8 +86,6 @@ func TestSyncDatePatternAndANonDateSuffix(t *testing.T) {
 	if got := h.columns("ev", "events_20240101"); len(got) != 0 || !ts["events_20240101"].SharedSchema {
 		t.Fatalf("an older shard uses the family's schema: %v %+v", got, ts["events_20240101"])
 	}
-	// 12345678 is not a date: the family is a non-date one, newest by
-	// creation time (equal here, so by name)
 	codes := ts["codes_12345678"].Shard
 	if codes == nil || codes.Date || codes.Name != "codes_*" || codes.First != "" || codes.Newest != "codes_20240101" {
 		t.Fatalf("non-date family: %+v", codes)
@@ -101,10 +98,10 @@ func TestSyncHexFamiliesReadColumnsOnlyForTheNewestShard(t *testing.T) {
 		createdOn(1, bqtest.Table("orders_"+hexID("a1"), "id")),
 		createdOn(3, bqtest.Table("orders_"+hexID("a2"), "id", "total")),
 		createdOn(2, bqtest.Table("orders_"+hexID("a3"), "id")),
-		createdOn(9, bqtest.Table("orders_"+hexID("dead"), "id")), // ignored: not a member
+		createdOn(9, bqtest.Table("orders_"+hexID("dead"), "id")),
 		createdOn(1, bqtest.Table("orders_"+hexID("a1")+"_history", "id", "at")),
 		createdOn(2, bqtest.Table("orders_"+hexID("a2")+"_history", "id", "at")),
-		createdOn(1, bqtest.Table("reviews_"+hexID("b1"), "r")), // a single match
+		createdOn(1, bqtest.Table("reviews_"+hexID("b1"), "r")),
 		bqtest.Table("customers", "id"),
 	)}
 	h.run(api.SyncScope{})
@@ -136,7 +133,6 @@ func TestSyncHexFamiliesReadColumnsOnlyForTheNewestShard(t *testing.T) {
 			t.Errorf("%s: shared schema = %v", name, shared)
 		}
 	}
-	// the column queries left the other members out on BigQuery's side
 	reads := h.fake.ColumnReads()
 	for _, name := range []string{"orders_" + hexID("a1"), "orders_" + hexID("a3"), "orders_" + hexID("a1") + "_history"} {
 		if slices.Contains(reads, "p.shop."+name) {
@@ -148,8 +144,6 @@ func TestSyncHexFamiliesReadColumnsOnlyForTheNewestShard(t *testing.T) {
 	}
 }
 
-// A hex id that ends in 8 digits matches the date pattern too; with no
-// sibling under it, it falls through to the hex pattern.
 func TestSyncFallThroughToTheNextPattern(t *testing.T) {
 	h := newHarness(t, "projects = [\"p\"]\n"+cfgDateHex)
 	h.fake.AddProject("p").Datasets = []bqtest.Dataset{bqtest.DS("shop", "EU",
@@ -163,9 +157,6 @@ func TestSyncFallThroughToTheNextPattern(t *testing.T) {
 	}
 }
 
-// When BigQuery leaves out a table bqt kept (its regex dialect read a
-// pattern differently), the table is read again by name and a warning says
-// why.
 func TestSyncSafetyNetRereadsMissingColumns(t *testing.T) {
 	h := newHarness(t, "projects = [\"p\"]\n"+cfgHex)
 	h.fake.AddProject("p").Datasets = []bqtest.Dataset{bqtest.DS("shop", "EU",
@@ -242,7 +233,6 @@ func TestSyncTableKeepsAMembersOwnSchema(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 
-	// gs on the member: tables.get, no job
 	res := h.run(api.SyncScope{Table: &member})
 	if res.UnitsOK != 1 || res.UnitsTotal != 1 || len(h.fake.CallsTo("GetTableMeta")) != 1 {
 		t.Fatalf("%+v", res)
@@ -255,7 +245,6 @@ func TestSyncTableKeepsAMembersOwnSchema(t *testing.T) {
 		t.Fatalf("%+v", tb)
 	}
 
-	// a later unit sync keeps reading it
 	h.now = h.now.Add(time.Hour)
 	before := len(h.fake.ColumnReads())
 	h.run(api.SyncScope{})
@@ -266,8 +255,6 @@ func TestSyncTableKeepsAMembersOwnSchema(t *testing.T) {
 		t.Fatalf("the own schema survives a unit sync: %v", got)
 	}
 
-	// gs on the family (which syncs its newest shard) and on a plain table
-	// only refresh them
 	newest := api.ObjectPath{Project: "p", Dataset: "shop", Table: "orders_" + hexID("a2")}
 	h.run(api.SyncScope{Table: &newest, Family: true})
 	plain := api.ObjectPath{Project: "p", Dataset: "shop", Table: "customers"}
@@ -277,24 +264,20 @@ func TestSyncTableKeepsAMembersOwnSchema(t *testing.T) {
 			t.Fatalf("%s is not marked", name)
 		}
 	}
-	// gs on the family keeps a mark its newest shard has
 	h.run(api.SyncScope{Table: &member, Family: true})
 	if !h.tables("shop")[member.Table].OwnSchema {
 		t.Fatal("gs on the family dropped a mark")
 	}
 
-	// a table the catalog does not hold is an error
 	nope := api.ObjectPath{Project: "p", Dataset: "shop", Table: "nope"}
 	if _, err := h.syncer().Run(ctx, api.SyncScope{Table: &nope}, nil); err == nil {
 		t.Fatal("an unknown table is an error")
 	}
-	// a table BigQuery no longer has fails the one unit
 	h.fake.Projects["p"].Datasets[0].Tables = h.fake.Projects["p"].Datasets[0].Tables[1:]
 	if res := h.run(api.SyncScope{Table: &member}); res.UnitsFailed != 1 {
 		t.Fatalf("%+v", res)
 	}
 
-	// changing shard_patterns: sync needed, and the mark goes
 	h.cfg = cfgFrom(t, cfgDateHex)
 	r, err := ReconcileConfig(ctx, h.cat, h.cfg)
 	if err != nil || !r.SyncNeeded || r.Reason != ReasonShardPatterns {
@@ -331,14 +314,10 @@ func TestSyncTableRespectsTheLockScopeAndEvents(t *testing.T) {
 	}
 }
 
-// A catalog from a bqt with the built-in date rule holds date families and
-// no pattern hash: with no patterns configured, bqt says once that a sync is
-// needed and names the pattern that restores the old behaviour.
 func TestUpgradeFromTheBuiltInDateRule(t *testing.T) {
 	h := newHarness(t, "projects = [\"p\"]\n"+cfgDate)
 	h.fake.AddProject("p").Datasets = []bqtest.Dataset{bqtest.DS("ev", "EU", bqtest.Table("events_20240101", "c"), bqtest.Table("events_20240102", "c"))}
 	h.run(api.SyncScope{})
-	// what an older bqt left behind
 	for _, q := range []string{`UPDATE tables SET shard_name = ''`, `DELETE FROM meta WHERE key = 'shard_patterns_hash'`} {
 		if _, err := h.cat.DB().Exec(q); err != nil {
 			t.Fatal(err)
@@ -353,7 +332,6 @@ func TestUpgradeFromTheBuiltInDateRule(t *testing.T) {
 	if err != nil || !r.SyncNeeded || r.Reason != ReasonDateRuleGone {
 		t.Fatalf("%+v %v", r, err)
 	}
-	// once: the hash is recorded, and the flag stays until a sync
 	if r, _ = ReconcileConfig(ctx, h.cat, h.cfg); r.Changed || !r.SyncNeeded {
 		t.Fatalf("%+v", r)
 	}
@@ -365,7 +343,6 @@ func TestUpgradeFromTheBuiltInDateRule(t *testing.T) {
 		t.Fatal("without patterns the date tables are plain")
 	}
 
-	// with patterns configured an upgrade just needs the sync
 	h2 := newHarness(t, "projects = [\"p\"]\n"+cfgDate)
 	h2.fake = h.fake
 	h2.run(api.SyncScope{})
@@ -376,7 +353,6 @@ func TestUpgradeFromTheBuiltInDateRule(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 
-	// a catalog without families and without patterns needs nothing
 	h3 := newHarness(t, `projects = ["p"]`)
 	h3.fake = h.fake
 	h3.run(api.SyncScope{})
@@ -388,8 +364,6 @@ func TestUpgradeFromTheBuiltInDateRule(t *testing.T) {
 	}
 }
 
-// gs on the newest shard itself marks it too: once a newer shard comes, it
-// keeps its own columns (spec 8.3, user story 26).
 func TestSyncTableOnTheNewestShardOutlastsANewerShard(t *testing.T) {
 	h := newHarness(t, "projects = [\"p\"]\n"+cfgHex)
 	ds := bqtest.DS("shop", "EU",
@@ -415,8 +389,6 @@ func TestSyncTableOnTheNewestShardOutlastsANewerShard(t *testing.T) {
 	}
 }
 
-// A names-only refresh (no INFORMATION_SCHEMA access, tables.list allowed)
-// keeps the gs marks, so the member is read again once access is back.
 func TestSyncTableMarksOutlastANamesOnlyRefresh(t *testing.T) {
 	h := newHarness(t, "projects = [\"p\"]\n"+cfgHex)
 	h.fake.AddProject("p").Datasets = []bqtest.Dataset{bqtest.DS("shop", "EU",
@@ -446,9 +418,6 @@ func TestSyncTableMarksOutlastANamesOnlyRefresh(t *testing.T) {
 	}
 }
 
-// Tightening ignore so that it excludes a family's newest shard prunes that
-// table locally; the other members have no schema to show until a sync
-// recomputes the family, so the catalog says a sync is needed.
 func TestIgnoringTheNewestShardNeedsASync(t *testing.T) {
 	h := newHarness(t, "projects = [\"p\"]\n"+cfgHex)
 	h.fake.AddProject("p").Datasets = []bqtest.Dataset{bqtest.DS("shop", "EU",

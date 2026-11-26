@@ -17,32 +17,19 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/config"
 )
 
-// Row and cell caps of the agent surface.
 const (
-	// DefaultRows is how many rows a query returns unless asked otherwise.
 	DefaultRows = 100
-	// MaxRows is the most rows one call returns; the rest is paged.
-	MaxRows = 1000
-	// CellChars is where a cell's text is cut.
-	CellChars = 200
+	MaxRows     = 1000
+	CellChars   = 200
 )
 
-// Profile is the set of limits one agent query runs under.
 type Profile struct {
-	// Source is the entry point: cli or mcp.
-	Source api.Source `json:"source"`
-	// MaxBytes is the most bytes the dry-run may estimate (agent_max_bytes,
-	// or lower).
-	MaxBytes int64 `json:"max_bytes"`
-	// Timeout bounds the whole query, dry-run included (agent_timeout, or
-	// shorter).
-	Timeout time.Duration `json:"timeout"`
-	// AllowWrites lets statements other than SELECT run: only from the CLI,
-	// and only with cli_allow_writes = true.
-	AllowWrites bool `json:"allow_writes"`
+	Source      api.Source    `json:"source"`
+	MaxBytes    int64         `json:"max_bytes"`
+	Timeout     time.Duration `json:"timeout"`
+	AllowWrites bool          `json:"allow_writes"`
 }
 
-// For returns the profile of an entry point (cli or mcp) under cfg.
 func For(cfg *config.Config, source api.Source) Profile {
 	p := Profile{
 		Source: source, MaxBytes: cfg.AgentMaxBytes, Timeout: cfg.AgentTimeout,
@@ -57,9 +44,6 @@ func For(cfg *config.Config, source api.Source) Profile {
 	return p
 }
 
-// Lower returns the profile with its limits lowered to maxBytes and timeout
-// where those are positive and lower. A higher value is ignored: raising a
-// limit takes the config file.
 func (p Profile) Lower(maxBytes int64, timeout time.Duration) Profile {
 	if maxBytes > 0 && maxBytes < p.MaxBytes {
 		p.MaxBytes = maxBytes
@@ -70,12 +54,8 @@ func (p Profile) Lower(maxBytes int64, timeout time.Duration) Profile {
 	return p
 }
 
-// AutoConfirmBytes is what confirm_bytes = auto means for an on-demand Run.
 const AutoConfirmBytes int64 = 10 << 30
 
-// ConfirmThreshold is the confirm_bytes threshold for a Run whose dry-run
-// did (capacity) or did not show a reservation; 0 means none. The TUI asks
-// above it; the agent entry points refuse.
 func ConfirmThreshold(cfg *config.Config, capacity bool) int64 {
 	switch cfg.ConfirmBytes.Mode {
 	case config.ByteLimitValue:
@@ -88,13 +68,6 @@ func ConfirmThreshold(cfg *config.Config, capacity bool) int64 {
 	return 0
 }
 
-// Check returns why the profile refuses a query with this dry-run estimate,
-// or nil when it may run. It fails closed: an empty or unknown statement
-// type and an UNKNOWN estimate are refused. A LOWER_BOUND estimate is checked
-// against its lower bound; a missing accuracy is refused like UNKNOWN; the job's MaximumBytesBilled (max_bytes_billed,
-// set on every job) is the server-side backstop. The agent limit is not set
-// as the job's cap: BigQuery bills at least 10 MiB per table referenced, so a
-// cap that low would refuse queries whose estimate is tiny.
 func (p Profile) Check(cfg *config.Config, est api.Estimate) *api.Refusal {
 	st := est.StatementType
 	switch {
@@ -139,8 +112,6 @@ func (p Profile) where() string {
 	return "the command line"
 }
 
-// Error is a refusal as a Go error, so frontends can map it to an exit code
-// or a tool error.
 type Error struct{ Refusal api.Refusal }
 
 func (e *Error) Error() string { return "refused: " + e.Refusal.Message }

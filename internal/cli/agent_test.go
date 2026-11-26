@@ -16,10 +16,8 @@ import (
 
 var update = flag.Bool("update", false, "rewrite the golden files")
 
-// golden compares a command's JSON output with testdata/<name>.json.
 func golden(t *testing.T, name, got string) {
 	t.Helper()
-	// job IDs are random (bqt_<hex>): pin them
 	got = regexp.MustCompile(`bqt_[0-9a-f]{32}`).ReplaceAllString(got, "bqt_JOBID")
 	var v any
 	if err := json.Unmarshal([]byte(got), &v); err != nil {
@@ -58,7 +56,6 @@ func syncedSandbox(t *testing.T) *sandbox {
 func TestQueryJSONContractAndPaging(t *testing.T) {
 	s := syncedSandbox(t)
 	s.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(60) }
-	// flags after the SQL, a parameter with a forced type
 	code, out, errOut := s.run("query", "select n, label from t where d > @d", "--limit", "3", "--param", "d=DATE:2024-01-31")
 	if code != 0 {
 		t.Fatalf("%d %s", code, errOut)
@@ -82,7 +79,6 @@ func TestQueryJSONContractAndPaging(t *testing.T) {
 	if rows := page.Data.(map[string]any)["rows"].([]any); len(rows) != 2 || page.Truncated {
 		t.Fatalf("%+v", page)
 	}
-	// text on a terminal
 	s.tty = true
 	code, out, _ = s.run("query", "--limit", "2", "select n, label from t")
 	if code != 0 || !strings.Contains(out, "label") || !strings.Contains(out, "row 1") || !strings.Contains(out, "bqt results ") {
@@ -145,7 +141,6 @@ func TestQueryRefusalsAndExitCodes(t *testing.T) {
 	if e := errBody(t, errOut); code != api.ExitUsage || !strings.Contains(e.Message, "@x") {
 		t.Fatalf("%d %+v", code, e)
 	}
-	// the config opens writes for the CLI, and only there
 	s.writeConfig("projects = [\"proj-a\"]\ncli_allow_writes = true\n")
 	code, out, errOut = s.run("query", "insert into t values (1)")
 	if code != 0 {
@@ -265,8 +260,6 @@ func TestFormatFlagReadsLikeTheParser(t *testing.T) {
 	}
 }
 
-// Issue 82: a dataset BigQuery lists but whose unit has not synced is in the
-// catalog, marked pending, so an agent does not take it for an empty one.
 func TestSearchMarksAPendingDataset(t *testing.T) {
 	s := newSandbox(t)
 	s.writeConfig("projects = [\"proj-a\"]\n")

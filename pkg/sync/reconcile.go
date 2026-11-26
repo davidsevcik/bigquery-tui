@@ -9,31 +9,20 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
-// Meta keys written by sync and reconcile.
 const (
 	MetaConfigHash = "config_hash"
 	MetaFilter     = "config_filter"
 	MetaSyncNeeded = "sync_needed"
 	MetaSyncReason = "sync_reason"
-	// MetaShardHash is the hash of the shard patterns the catalog's families
-	// were computed with. A catalog without it was built by an older bqt,
-	// whose built-in rule collapsed date-suffixed tables.
-	MetaShardHash = "shard_patterns_hash"
+	MetaShardHash  = "shard_patterns_hash"
 )
 
-// Reasons for "sync needed" that the shard patterns give.
 const (
 	ReasonShardPatterns = "shard patterns changed"
-	// ReasonStaleFamilies: a family's newest shard is gone from the catalog
-	// (a tightened ignore list pruned it, or an older bqt wrote the catalog),
-	// so its members have no schema to show until a sync.
 	ReasonStaleFamilies = "shard families out of date"
-	// ReasonDateRuleGone is the one-time notice after upgrading from the
-	// built-in date rule: it names the pattern that restores it.
-	ReasonDateRuleGone = `date-suffixed tables no longer collapse by themselves: add shard_patterns = ['.+(\d{8})'] to the config to keep events_YYYYMMDD families`
+	ReasonDateRuleGone  = `date-suffixed tables no longer collapse by themselves: add shard_patterns = ['.+(\d{8})'] to the config to keep events_YYYYMMDD families`
 )
 
-// Reconciliation is the outcome of ReconcileConfig.
 type Reconciliation struct {
 	Changed    bool
 	Pruned     store.PruneStats
@@ -41,14 +30,6 @@ type Reconciliation struct {
 	Reason     string
 }
 
-// ReconcileConfig brings a catalog in line with the effective ignore filter
-// and shard patterns without any BigQuery call. If the filter hash changed,
-// everything the new filter excludes is pruned locally. A sync is flagged as
-// needed when the ignore list was loosened (anything other than appending
-// ignore rules), since the catalog may then be incomplete, and when the shard
-// patterns changed, since the families were computed with the old ones (the
-// own-schema marks of gs go with them). Selection never prunes: a deselected
-// project keeps its cache. The caller must hold the sync lock.
 func ReconcileConfig(ctx context.Context, cat *store.Catalog, cfg *config.Config) (Reconciliation, error) {
 	var r Reconciliation
 	cur := cfg.Filter()
@@ -75,7 +56,6 @@ func ReconcileConfig(ctx context.Context, cat *store.Catalog, cfg *config.Config
 
 	switch {
 	case !hadHash:
-		// First use of this catalog: nothing to prune, a sync is needed.
 		r.Changed = true
 		r.SyncNeeded, r.Reason = true, "catalog is empty"
 	case old != hash:
@@ -95,8 +75,7 @@ func ReconcileConfig(ctx context.Context, cat *store.Catalog, cfg *config.Config
 		}
 		fallthrough
 	default:
-		// pure tightening, or only the shard patterns changed: keep any
-		// earlier "sync needed" flag.
+		// ADR-0006
 		needed, reason, err := syncNeeded(ctx, cat)
 		if err != nil {
 			return r, err
@@ -141,16 +120,12 @@ func ReconcileConfig(ctx context.Context, cat *store.Catalog, cfg *config.Config
 	return r, nil
 }
 
-// shardDiff is how the shard patterns differ from the ones the catalog's
-// families were computed with.
 type shardDiff struct {
-	changed    bool   // the stored hash must be updated
-	reason     string // set when a sync is needed
-	clearMarks bool   // the families are gone, and with them the gs marks
+	changed    bool
+	reason     string
+	clearMarks bool
 }
 
-// shardChange compares the shard patterns with the catalog's. hadCatalog is
-// false for a catalog no sync has used yet.
 func shardChange(ctx context.Context, cat *store.Catalog, cfg *config.Config, hadCatalog bool) (shardDiff, error) {
 	var d shardDiff
 	cur := cfg.Shards().Hash()
@@ -163,9 +138,8 @@ func shardChange(ctx context.Context, cat *store.Catalog, cfg *config.Config, ha
 	case had:
 		return shardDiff{changed: true, reason: ReasonShardPatterns, clearMarks: true}, nil
 	case !hadCatalog:
-		return shardDiff{changed: true}, nil // the empty catalog needs its sync anyway
+		return shardDiff{changed: true}, nil
 	}
-	// Built by a bqt that had the date rule built in.
 	d.changed = true
 	if !cfg.Shards().Empty() {
 		d.reason = ReasonShardPatterns
@@ -198,9 +172,6 @@ func setSyncNeeded(ctx context.Context, cat *store.Catalog, needed bool, reason 
 	return cat.SetMeta(ctx, MetaSyncReason, reason)
 }
 
-// PendingConfigChange tells a read-only caller whether the catalog was built
-// for a different filter or different shard patterns than cfg's, and why a
-// sync is (or is not) needed.
 func PendingConfigChange(ctx context.Context, cat *store.Catalog, cfg *config.Config) (bool, string, error) {
 	old, ok, err := cat.Meta(ctx, MetaConfigHash)
 	if err != nil {
@@ -232,10 +203,6 @@ func PendingConfigChange(ctx context.Context, cat *store.Catalog, cfg *config.Co
 	return false, "", nil
 }
 
-// sameIgnore reports whether the catalog was built with cur's ignore
-// patterns. Catalogs from before the Projects dialog also stored the old
-// `projects` list in the filter, so their hash differs although nothing that
-// still matters changed.
 func sameIgnore(ctx context.Context, cat *store.Catalog, cur config.Filter) bool {
 	raw, ok, err := cat.Meta(ctx, MetaFilter)
 	if err != nil || !ok {

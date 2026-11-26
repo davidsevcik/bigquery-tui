@@ -26,7 +26,7 @@ func TestDirIsPerFrontend(t *testing.T) {
 }
 
 func TestADraftIsHeldByOneInstance(t *testing.T) {
-	s := In(filepath.Join(t.TempDir(), "tui")) // created on the first Hold
+	s := In(filepath.Join(t.TempDir(), "tui"))
 	d, err := s.Hold("a1")
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +63,6 @@ func TestSaveWritesTheDraftAndEmptyTextRemovesIt(t *testing.T) {
 	if exists(t, s.Path(d.id)) {
 		t.Fatal("an empty buffer has no draft")
 	}
-	// a write that fails leaves the draft as it was and reports the error
 	if err := d.Save("select 2"); err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +178,7 @@ func TestRestorePassesOtherLockErrorsThrough(t *testing.T) {
 	if err := os.WriteFile(s.Path("x"), []byte("select 'x'"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(s.lockPath("x"), 0o700); err != nil { // the lock file cannot be opened
+	if err := os.Mkdir(s.lockPath("x"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := s.Restore("x"); err == nil || errors.Is(err, ErrHeld) {
@@ -187,9 +186,6 @@ func TestRestorePassesOtherLockErrorsThrough(t *testing.T) {
 	}
 }
 
-// A draft can record the Execution project it was written under. The record
-// lives in the lock file, so the draft file keeps the text alone and the
-// record goes wherever the lock goes.
 func TestADraftRecordsItsExecutionProject(t *testing.T) {
 	s := In(t.TempDir())
 	now := time.Now()
@@ -220,7 +216,6 @@ func TestADraftRecordsItsExecutionProject(t *testing.T) {
 	if err != nil || text != "select 1" || r.Execution() != "win-proj" {
 		t.Fatalf("%q %q %v", text, r.Execution(), err)
 	}
-	// the restoring instance records its own project
 	if err := r.SetExecution("other-proj"); err != nil {
 		t.Fatal(err)
 	}
@@ -238,8 +233,6 @@ func TestADraftRecordsItsExecutionProject(t *testing.T) {
 	}
 }
 
-// Every draft written without a record (the TUI's, older ones) reads back
-// as unknown, and so does a record that is not a project ID.
 func TestADraftWithoutARecordHasAnUnknownExecutionProject(t *testing.T) {
 	s := In(t.TempDir())
 	if err := os.WriteFile(s.Path("old"), []byte("select 'old'"), 0o600); err != nil {
@@ -263,8 +256,6 @@ func TestADraftWithoutARecordHasAnUnknownExecutionProject(t *testing.T) {
 	d.Release()
 }
 
-// The record is cleaned up with the lock: an empty draft on release, a
-// discarded draft, an expired draft and a lock left without a draft.
 func TestTheExecutionRecordGoesWithTheLock(t *testing.T) {
 	s := In(t.TempDir())
 	now := time.Now()
@@ -283,7 +274,7 @@ func TestTheExecutionRecordGoesWithTheLock(t *testing.T) {
 	if err := os.Chtimes(s.Path("stale"), at, at); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(s.lockPath("lone"), []byte("p"), 0o600); err != nil { // a crash before any text
+	if err := os.WriteFile(s.lockPath("lone"), []byte("p"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if o := s.Orphans(now, nil); len(o) != 0 {

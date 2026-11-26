@@ -36,9 +36,6 @@ func TestScopeFilters(t *testing.T) {
 	}
 }
 
-// The Go client reads a result through one Storage Read stream, in order,
-// when ORDER BY appears in the SQL outside parentheses. The field paths need
-// that; the other views do not and keep parallel streams.
 func TestFieldPathsAreReadInOrder(t *testing.T) {
 	rootHasOrderBy := func(sql string) bool {
 		depth, root := 0, ""

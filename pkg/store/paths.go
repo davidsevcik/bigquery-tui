@@ -1,5 +1,5 @@
 // Package store owns bqt's local files: the disposable catalog.db, the durable
-// history.db and the advisory lockfile (ticket 06, spec section 5 and 6).
+// history.db and the advisory lockfile (spec sections 5 and 6).
 package store
 
 import (
@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 )
 
-// Paths are the files inside data_dir.
 type Paths struct {
 	Dir     string
 	Catalog string
@@ -19,7 +18,6 @@ type Paths struct {
 	State   string
 }
 
-// PathsFor derives every path from data_dir.
 func PathsFor(dataDir string) Paths {
 	return Paths{
 		Dir:     dataDir,
@@ -32,7 +30,6 @@ func PathsFor(dataDir string) Paths {
 	}
 }
 
-// Ensure creates the data directory (private to the user).
 func (p Paths) Ensure() error {
 	if err := os.MkdirAll(p.Dir, 0o700); err != nil {
 		return fmt.Errorf("create data dir: %w", err)

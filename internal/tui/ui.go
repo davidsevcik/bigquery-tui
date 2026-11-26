@@ -1,8 +1,5 @@
 package tui
 
-// Rendering helpers: styles, fixed-width rows, windows, popups and the
-// single-line input. Everything here is terminal-only.
-
 import (
 	"image/color"
 	"strings"
@@ -91,7 +88,6 @@ func pad(s string, w int) string {
 	return s
 }
 
-// fit truncates (with an ellipsis) and pads to exactly w cells.
 func fit(s string, w int) string {
 	if w <= 0 {
 		return ""
@@ -126,14 +122,10 @@ func wrap(s string, w int) []string {
 
 func clamp(v, lo, hi int) int { return max(lo, min(v, hi)) }
 
-// rb builds one row from a left and a right segment sharing an optional
-// selection background.
 type rb struct {
 	l, r strings.Builder
-	// o is an optional part of the right segment, shown after r only when
-	// the whole left segment still fits.
-	o  strings.Builder
-	bg color.Color
+	o    strings.Builder
+	bg   color.Color
 }
 
 func newRB(selected bool) *rb {
@@ -166,14 +158,12 @@ func (b *rb) addR(text string, st lipgloss.Style) *rb {
 	return b
 }
 
-// addOpt adds text to the right segment if the row has room for it.
 func (b *rb) addOpt(text string, st lipgloss.Style) {
 	if text != "" {
 		b.o.WriteString(b.style(st).Render(text))
 	}
 }
 
-// spans writes text with the byte spans highlighted.
 func (b *rb) spans(text string, sp []api.Span, base lipgloss.Style) *rb {
 	pos := 0
 	for _, s := range sp {
@@ -210,7 +200,6 @@ func (b *rb) line(w int) string {
 	return ls + b.style(sBase).Render(strings.Repeat(" ", gap)) + rs
 }
 
-// window keeps cur visible in a list of n rows drawn in h rows; returns [start,end).
 func window(cur int, off *int, n, h int) (int, int) {
 	if h <= 0 || n == 0 {
 		return 0, 0
@@ -259,7 +248,6 @@ func title(text string, w int, focused bool) string {
 	return st.Render(pad(text, w))
 }
 
-// drawOver draws box onto base at (x,y).
 func drawOver(base []string, box []string, x, y, W int) []string {
 	out := append([]string(nil), base...)
 	for i, bl := range box {
@@ -273,7 +261,6 @@ func drawOver(base []string, box []string, x, y, W int) []string {
 	return out
 }
 
-// popup wraps content lines in a box with a title.
 func popup(ttl string, lines []string, w int) []string {
 	inner := w - 2
 	bs := fg("75")
@@ -284,7 +271,6 @@ func popup(ttl string, lines []string, w int) []string {
 	return append(out, bs.Render("╰"+strings.Repeat("─", inner)+"╯"))
 }
 
-// input is a single-line editor whose text is coloured by the query parser.
 type input struct {
 	r   []rune
 	pos int
@@ -298,7 +284,6 @@ func (in *input) insert(s string) {
 	in.pos += len(rs)
 }
 
-// handle applies an editing key and reports whether the text changed.
 func (in *input) handle(k tea.KeyPressMsg) bool {
 	switch k.String() {
 	case "backspace":
@@ -350,8 +335,6 @@ func (in *input) handle(k tea.KeyPressMsg) bool {
 	return false
 }
 
-// render draws the input, colouring filter keys, values, negation and
-// invalid values from the parsed query.
 func (in *input) render(q api.ParsedQuery, cursor bool, placeholder string) string {
 	raw := in.value()
 	if raw == "" {
@@ -408,16 +391,12 @@ func (in *input) render(q api.ParsedQuery, cursor bool, placeholder string) stri
 	return sb.String()
 }
 
-// chips shows what the parser understood.
 func chips(q api.ParsedQuery, w int, scope string) string {
 	return chipsWith(q, w, scope, `p: d: type: col: label: desc:  -neg  a,b=OR  "quoted"  proj.ds.table`)
 }
 
-// historyHint lists the History search filters; the status: and source:
-// values come from search, which validates them.
 var historyHint = "status:" + strings.Join(search.HistoryStates, "|") + "  project:  source:" + strings.Join(search.HistorySources, "|") + "  since:7d|2026-10-01  -neg  a,b=OR"
 
-// chipsWith shows the parsed query, or hint when it is empty.
 func chipsWith(q api.ParsedQuery, w int, scope, hint string) string {
 	var parts []string
 	if scope != "" {

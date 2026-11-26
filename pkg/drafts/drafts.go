@@ -23,20 +23,14 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
-// maxAge is how long a draft no instance holds is kept. Older ones are
-// deleted when the drafts are listed.
 const maxAge = 30 * 24 * time.Hour
 
-// ErrHeld means another instance of the same frontend holds the draft.
 var ErrHeld = errors.New("the draft is held by another instance")
 
-// Dir is the drafts directory of one frontend under root (store.Paths.Drafts):
-// root/tui for the TUI, root/gui for a GUI.
 func Dir(root string, frontend api.Source) string {
 	return filepath.Join(root, string(frontend))
 }
 
-// NewID returns a fresh draft ID.
 func NewID() string {
 	var b [6]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -45,27 +39,16 @@ func NewID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// Store is one frontend's drafts directory. A draft is the file <id>.sql,
-// and its lock the sibling <id>.lock. The lock file also holds the
-// Execution project the draft was written under (Draft.SetExecution), so
-// the record lives and goes with the lock and the .sql file stays the
-// buffer's text alone.
 type Store struct {
 	dir string
 }
 
-// In returns the drafts in dir (see Dir). The directory is created when a
-// draft is first held.
 func In(dir string) *Store { return &Store{dir: dir} }
 
-// Path is the draft file of id.
 func (s *Store) Path(id string) string { return filepath.Join(s.dir, id+".sql") }
 
 func (s *Store) lockPath(id string) string { return filepath.Join(s.dir, id+".lock") }
 
-// Hold takes the lock of draft id for this instance. ErrHeld means another
-// instance holds it; any other error means the directory or the lock file
-// could not be made.
 func (s *Store) Hold(id string) (*Draft, error) {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return nil, err
@@ -84,8 +67,6 @@ func (s *Store) Hold(id string) (*Draft, error) {
 	return &Draft{s: s, id: id, lock: l, empty: empty, exec: s.execution(id)}, nil
 }
 
-// execution reads the Execution project recorded in draft id's lock file:
-// "" when there is none (a draft written without one) or it is unreadable.
 func (s *Store) execution(id string) string {
 	data, err := os.ReadFile(s.lockPath(id))
 	if err != nil {
@@ -98,16 +79,11 @@ func (s *Store) execution(id string) string {
 	return p
 }
 
-// read returns the text of draft id.
 func (s *Store) read(id string) (string, error) {
 	data, err := os.ReadFile(s.Path(id))
 	return string(data), err
 }
 
-// Restore reads a draft no instance holds and takes it over: its text and
-// the held draft, whose Execution is the project it was written under.
-// ErrHeld means another instance holds it; any other error
-// is the read's or Hold's.
 func (s *Store) Restore(id string) (*Draft, string, error) {
 	text, err := s.read(id)
 	if err != nil {
@@ -120,21 +96,14 @@ func (s *Store) Restore(id string) (*Draft, string, error) {
 	return d, text, nil
 }
 
-// Orphan is a draft no running instance holds.
 type Orphan struct {
-	ID      string
-	ModTime time.Time
-	First   string // the first line that is not blank, trimmed
-	Lines   int
-	// Execution is the Execution project the draft was written under, ""
-	// when none was recorded (Draft.SetExecution).
+	ID        string
+	ModTime   time.Time
+	First     string
+	Lines     int
 	Execution string
 }
 
-// Orphans lists the drafts no instance holds, newest first. open are the IDs
-// of this instance's buffers, which are never listed. On the way it deletes
-// the drafts that are blank or older than maxAge at now, and the lock files
-// left over from empty buffers.
 func (s *Store) Orphans(now time.Time, open []string) []Orphan {
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
@@ -165,9 +134,8 @@ func (s *Store) Orphans(now time.Time, open []string) []Orphan {
 	return out
 }
 
-// dropLoneLock removes a lock file without a draft (left over from an empty
-// buffer) unless an instance holds it.
 func (s *Store) dropLoneLock(id string) {
+	// ADR-0011
 	if _, err := os.Stat(s.Path(id)); !os.IsNotExist(err) {
 		return
 	}
@@ -177,12 +145,10 @@ func (s *Store) dropLoneLock(id string) {
 	}
 }
 
-// orphan reads draft id unless an instance holds it, deleting it when it is
-// blank, unreadable or too old.
 func (s *Store) orphan(e os.DirEntry, id string, now time.Time) (Orphan, bool) {
 	l, err := store.TryLock(s.lockPath(id))
 	if err != nil {
-		return Orphan{}, false // another instance is editing it
+		return Orphan{}, false
 	}
 	defer l.Unlock()
 	info, ierr := e.Info()
@@ -202,31 +168,21 @@ func (s *Store) orphan(e os.DirEntry, id string, now time.Time) (Orphan, bool) {
 	return Orphan{ID: id, ModTime: info.ModTime(), First: first, Lines: strings.Count(string(data), "\n") + 1, Execution: s.execution(id)}, true
 }
 
-// Draft is a draft this instance holds.
 type Draft struct {
 	s     *Store
 	id    string
 	lock  *store.Lock
-	empty bool   // the text last saved (or found on disk) is empty
-	exec  string // the Execution project recorded with the draft
+	empty bool
+	exec  string
 }
 
-// Execution is the Execution project recorded with the draft: the one it
-// was restored with, or the last SetExecution. "" means none is recorded.
 func (d *Draft) Execution() string { return d.exec }
 
-// SetExecution records the Execution project the draft is written under,
-// so whoever restores it can tell where its SQL was meant to run; ""
-// removes the record. It goes wherever the lock file goes: an empty draft
-// keeps no record once released. On an error the record on disk is
-// unchanged.
 func (d *Draft) SetExecution(project string) error {
 	project = strings.TrimSpace(project)
 	if project == d.exec {
 		return nil
 	}
-	// Written in place, not renamed over: a new file would not be the one
-	// this instance holds the lock on.
 	if err := os.WriteFile(d.s.lockPath(d.id), []byte(project), 0o600); err != nil {
 		return err
 	}
@@ -234,9 +190,6 @@ func (d *Draft) SetExecution(project string) error {
 	return nil
 }
 
-// Save writes text as the draft, atomically. Empty text has no draft: the
-// file is removed. On an error the draft on disk is unchanged and Save
-// should be tried again later.
 func (d *Draft) Save(text string) error {
 	d.empty = text == ""
 	p := d.s.Path(d.id)
@@ -257,8 +210,6 @@ func (d *Draft) Save(text string) error {
 	return err
 }
 
-// Release gives up the draft and keeps it on disk, so that the next instance
-// offers it for restore (on quit). The lock file of an empty draft goes too.
 func (d *Draft) Release() {
 	d.lock.Unlock()
 	if d.empty {
@@ -266,8 +217,6 @@ func (d *Draft) Release() {
 	}
 }
 
-// Discard gives up the draft and deletes it with its lock file: the buffer
-// was closed, or its text now lives in a file.
 func (d *Draft) Discard() {
 	d.lock.Unlock()
 	os.Remove(d.s.lockPath(d.id))

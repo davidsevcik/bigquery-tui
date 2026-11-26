@@ -7,17 +7,12 @@ import (
 	"syscall"
 )
 
-// ErrLocked means another process holds the lock.
 var ErrLocked = errors.New("already running")
 
-// Lock is an advisory, process-wide lock backed by flock(2). It is released
-// when Unlock is called or the process exits.
 type Lock struct {
 	f *os.File
 }
 
-// TryLock takes the lock at path without blocking. It returns ErrLocked when
-// another holder has it.
 func TryLock(path string) (*Lock, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -33,7 +28,6 @@ func TryLock(path string) (*Lock, error) {
 	return &Lock{f: f}, nil
 }
 
-// Unlock releases the lock.
 func (l *Lock) Unlock() error {
 	if l == nil || l.f == nil {
 		return nil
@@ -46,8 +40,6 @@ func (l *Lock) Unlock() error {
 	return err
 }
 
-// lockBlocking takes an exclusive advisory lock, waiting for it, and returns
-// the function that releases it.
 func lockBlocking(path string) (func(), error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -58,7 +50,7 @@ func lockBlocking(path string) (func(), error) {
 		return nil, fmt.Errorf("flock: %w", err)
 	}
 	return func() {
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) // best effort: closing f releases it too
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		f.Close()
 	}, nil
 }

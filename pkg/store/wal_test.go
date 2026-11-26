@@ -13,10 +13,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 )
 
-// A sync unit is written in one transaction, so the WAL grows to the size of
-// the largest unit. After that transaction is checkpointed, the next write
-// shrinks the file back to the journal size limit instead of keeping it at
-// its peak (#91: a 12.8 GB WAL beside a 12.9 GB catalog).
 func TestWALShrinksAfterALargeTransaction(t *testing.T) {
 	old := walSizeLimit
 	walSizeLimit = 1 << 20
@@ -40,7 +36,7 @@ func TestWALShrinksAfterALargeTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := range 4000 { // about 16 MB in one transaction
+	for i := range 4000 {
 		if _, err := tx.Exec("INSERT INTO meta(key,value) VALUES(?,?)", fmt.Sprintf("k%05d", i), big); err != nil {
 			t.Fatal(err)
 		}
@@ -59,8 +55,6 @@ func TestWALShrinksAfterALargeTransaction(t *testing.T) {
 	}
 }
 
-// ApplyUnit leaves no large WAL behind on its own, without waiting for the
-// next write: the TUI keeps the catalog open between syncs.
 func TestApplyUnitTruncatesTheWAL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "catalog.db")
 	c, err := OpenCatalog(path)
@@ -80,9 +74,6 @@ func TestApplyUnitTruncatesTheWAL(t *testing.T) {
 	}
 }
 
-// A reader still in the WAL does not hold up the unit, which returns at once
-// instead of waiting busy_timeout; the WAL is truncated in the background
-// once the reader is gone, with no further write.
 func TestApplyUnitTrimsTheWALAfterAReaderLeaves(t *testing.T) {
 	oldEvery := walRetryEvery
 	walRetryEvery = 20 * time.Millisecond
@@ -96,7 +87,6 @@ func TestApplyUnitTrimsTheWALAfterAReaderLeaves(t *testing.T) {
 	if err := c.SetMeta(ctx, "seed", "1"); err != nil {
 		t.Fatal(err)
 	}
-	// another process reading, as the TUI's index load would
 	other, err := OpenCatalogReadOnly(path)
 	if err != nil {
 		t.Fatal(err)
@@ -110,9 +100,6 @@ func TestApplyUnitTrimsTheWALAfterAReaderLeaves(t *testing.T) {
 	if err := rtx.QueryRowContext(ctx, "SELECT value FROM meta WHERE key = 'seed'").Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	// a small unit, so the time measured is the checkpoint's: ApplyUnit
-	// does not hold the write lock for busy_timeout (5 s) while the reader
-	// is there
 	small := ApplyRequest{Unit: unit("p", "US"), State: okState(t0), Datasets: []DatasetApply{{Meta: api.DatasetMeta{Project: "p", Name: "us", Location: "US"}, Tables: []api.TableMeta{table("us", "t", "c")}}}}
 	start := time.Now()
 	if _, err := c.ApplyUnit(ctx, small); err != nil {
@@ -148,7 +135,6 @@ func walBytes(t *testing.T, path string) int64 {
 	return fi.Size()
 }
 
-// bigUnit is one unit of 500 tables of 20 columns: about a MB of WAL.
 func bigUnit() ApplyRequest {
 	var tables []api.TableMeta
 	for i := range 500 {
@@ -161,8 +147,6 @@ func bigUnit() ApplyRequest {
 	return ApplyRequest{Unit: unit("p", "EU"), State: okState(t0), Datasets: []DatasetApply{{Meta: api.DatasetMeta{Project: "p", Name: "ds", Location: "EU"}, Tables: tables}}}
 }
 
-// Close does not hang on a retry that waits for a pooled connection: every
-// connection is taken, and Close still returns.
 func TestCloseStopsARetryWaitingForAConnection(t *testing.T) {
 	oldEvery := walRetryEvery
 	walRetryEvery = 10 * time.Millisecond
@@ -172,7 +156,7 @@ func TestCloseStopsARetryWaitingForAConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	var held []*sql.Conn
-	for range 4 { // SetMaxOpenConns(4)
+	for range 4 {
 		conn, err := c.db.Conn(ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -180,11 +164,9 @@ func TestCloseStopsARetryWaitingForAConnection(t *testing.T) {
 		held = append(held, conn)
 	}
 	c.trim.retry(ctx, c.db)
-	time.Sleep(50 * time.Millisecond) // the loop is now waiting for a connection
+	time.Sleep(50 * time.Millisecond)
 	closed := make(chan error, 1)
 	go func() { closed <- c.Close() }()
-	// Close waits for the loop first, then for the connections: release them
-	// only once the loop is gone
 	deadline := time.After(2 * time.Second)
 	for {
 		c.trim.mu.Lock()
@@ -207,8 +189,6 @@ func TestCloseStopsARetryWaitingForAConnection(t *testing.T) {
 	}
 }
 
-// A request that comes in while a retry is under way is not lost when that
-// retry succeeds: the loop runs again.
 func TestRetryKeepsARequestMadeDuringAnAttempt(t *testing.T) {
 	oldEvery, oldCheckpoint := walRetryEvery, walCheckpoint
 	walRetryEvery = time.Millisecond
@@ -223,8 +203,8 @@ func TestRetryKeepsARequestMadeDuringAnAttempt(t *testing.T) {
 	defer tr.stop()
 	tr.retry(ctx, nil)
 	first := <-attempts
-	tr.retry(ctx, nil) // a unit blocked again while the first attempt runs
-	first <- true      // and that attempt succeeds
+	tr.retry(ctx, nil)
+	first <- true
 	select {
 	case second := <-attempts:
 		second <- true
@@ -233,15 +213,13 @@ func TestRetryKeepsARequestMadeDuringAnAttempt(t *testing.T) {
 	}
 }
 
-// The connection a truncation used goes back to the pool with the DSN's
-// busy_timeout, not the 0 the checkpoint ran with.
 func TestTruncationRestoresBusyTimeout(t *testing.T) {
 	c, err := OpenCatalog(filepath.Join(t.TempDir(), "catalog.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	c.db.SetMaxOpenConns(1) // the next query reuses the same connection
+	c.db.SetMaxOpenConns(1)
 	if _, err := truncateWAL(ctx, c.db); err != nil {
 		t.Fatal(err)
 	}

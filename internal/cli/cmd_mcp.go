@@ -13,9 +13,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/version"
 )
 
-// cmdMCP serves the MCP tools over stdio (spec 14.2), or prints the client
-// configuration snippets. stdout belongs to the protocol: logs go to the log
-// file and stderr only.
 func cmdMCP(ctx context.Context, o *out, g *globals, args []string) error {
 	var printConfig bool
 	fs := commandFlags("mcp", g)
@@ -41,8 +38,7 @@ func cmdMCP(ctx context.Context, o *out, g *globals, args []string) error {
 		return err
 	}
 	defer closeLog()
-	// The Execution project is read once, here: the server may open its
-	// engine again (when the first catalog appears) and must keep it.
+	// ADR-0010
 	exec, err := engine.ResolveExecution(cfg)
 	if err != nil {
 		return err
@@ -61,7 +57,6 @@ func cmdMCP(ctx context.Context, o *out, g *globals, args []string) error {
 	return nil
 }
 
-// mcpSnippets renders ready-to-paste client configuration.
 func mcpSnippets(exe, configPath string) string {
 	args := []string{"mcp"}
 	if configPath != "" {

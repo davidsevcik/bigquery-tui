@@ -8,16 +8,14 @@ import (
 	"time"
 )
 
-// ByteLimitMode distinguishes the three states of a byte-threshold setting.
 type ByteLimitMode int
 
 const (
-	ByteLimitValue ByteLimitMode = iota // use Bytes
-	ByteLimitAuto                       // decided at run time (confirm_bytes only)
-	ByteLimitOff                        // disabled
+	ByteLimitValue ByteLimitMode = iota
+	ByteLimitAuto
+	ByteLimitOff
 )
 
-// ByteLimit is a byte threshold that can be automatic or off.
 type ByteLimit struct {
 	Mode  ByteLimitMode
 	Bytes int64
@@ -33,7 +31,6 @@ func (b ByteLimit) String() string {
 	return FormatBytes(b.Bytes)
 }
 
-// ParseBytes parses "10GiB", "1.5 TB", "1024" or 1024 into bytes.
 func ParseBytes(v any) (int64, error) {
 	switch x := v.(type) {
 	case int64:
@@ -85,7 +82,6 @@ func parseByteString(s string) (int64, error) {
 	return int64(n), nil
 }
 
-// FormatBytes renders a byte count with binary units.
 func FormatBytes(n int64) string {
 	const unit = 1024
 	if n < unit {
@@ -104,7 +100,6 @@ func FormatBytes(n int64) string {
 	return fmt.Sprintf("%.1f%s", v, suffix)
 }
 
-// ParseDuration is time.ParseDuration plus a "d" (day) suffix.
 func ParseDuration(s string) (time.Duration, error) {
 	s = strings.TrimSpace(s)
 	if strings.HasSuffix(s, "d") {

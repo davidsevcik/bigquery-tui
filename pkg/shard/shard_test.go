@@ -41,7 +41,7 @@ func byName(ts []api.TableMeta) map[string]*api.ShardFamily {
 func TestCompile(t *testing.T) {
 	cases := []struct {
 		src  string
-		want string // "" valid, else part of the reason
+		want string
 	}{
 		{datePattern, ""},
 		{hexPattern, ""},
@@ -49,7 +49,7 @@ func TestCompile(t *testing.T) {
 		{`orders_\d+`, "found 0"},
 		{`(a)_(b)`, "found 2"},
 		{`orders_(\d+`, "not a valid RE2"},
-		{`a(?=b)(c)`, "not a valid RE2"}, // lookahead is not RE2
+		{`a(?=b)(c)`, "not a valid RE2"},
 	}
 	for _, c := range cases {
 		_, errs := Compile([]string{c.src})
@@ -95,11 +95,10 @@ func TestShardAssign(t *testing.T) {
 	})
 
 	t.Run("date families", func(t *testing.T) {
-		ts := mk("a_20240101", "a_20240102", "a_20241301" /* bad month */, "b20240101", "b20240105", "20240101", "20240102", "c_2024010", "d_20240101_x")
+		ts := mk("a_20240101", "a_20240102", "a_20241301", "b20240101", "b20240105", "20240101", "20240102", "c_2024010", "d_20240101_x")
 		Assign(ts, mustCompile(t, datePattern))
 		got := byName(ts)
 		for _, n := range []string{"a_20240101", "a_20240102"} {
-			// a_20241301 joins a_ too: the family is then not a date family
 			if f := got[n]; f == nil || f.Prefix != "a_" || f.Count != 3 || f.Date || f.Name != "a_*" {
 				t.Errorf("%s: %+v", n, f)
 			}
@@ -107,8 +106,6 @@ func TestShardAssign(t *testing.T) {
 		if f := got["b20240101"]; f == nil || !f.Date || f.Name != "bYYYYMMDD" || f.First != "20240101" || f.Last != "20240105" || f.Newest != "b20240105" || f.Count != 2 {
 			t.Errorf("b: %+v", f)
 		}
-		// .+ needs one character before the date: 20240101 and 20240102 do
-		// not match, and nothing matches the 7-digit or the suffixed names
 		for _, n := range []string{"20240101", "20240102", "c_2024010", "d_20240101_x"} {
 			if got[n] != nil {
 				t.Errorf("%s must stay a plain table: %+v", n, got[n])
@@ -141,21 +138,16 @@ func TestShardAssign(t *testing.T) {
 		if f == nil || f.Name != "orders_*" || f.Count != 3 || f.Date || f.Newest != "orders_bbbbbbbbbbbbbbbbbbbbbbbb" || !f.NewestCreated.Equal(at(3)) {
 			t.Fatalf("orders_*: %+v", f)
 		}
-		// the text after the group names another family; ties on creation
-		// time are broken by name
 		h := got["orders_aaaaaaaaaaaaaaaaaaaaaaaa_history"]
 		if h == nil || h.Name != "orders_*_history" || h.Suffix != "_history" || h.Count != 2 || h.Newest != "orders_dddddddddddddddddddddddd_history" {
 			t.Fatalf("orders_*_history: %+v", h)
 		}
-		// another type, or another dataset, is not in the family
 		if got["orders_eeeeeeeeeeeeeeeeeeeeeeee_history"] != nil || got["orders_ffffffffffffffffffffffff"] != nil {
 			t.Fatal("a single match of its type or dataset stays a plain table")
 		}
 	})
 
 	t.Run("a table with no sibling falls through to the next pattern", func(t *testing.T) {
-		// the hex id ends in 8 digits, so the date pattern matches it too,
-		// but under it the table has no sibling
 		ts := mk("orders_0123456789abcdef01234567", "orders_aaaaaaaaaaaaaaaaaaaaaaaa", "events_20240101", "events_20240102")
 		Assign(ts, mustCompile(t, datePattern, hexPattern))
 		got := byName(ts)
@@ -170,8 +162,6 @@ func TestShardAssign(t *testing.T) {
 	t.Run("pattern order decides", func(t *testing.T) {
 		ts := mk("t_20240101", "t_20240102")
 		Assign(ts, mustCompile(t, `(t)_\d+`, datePattern))
-		// (t)_\d+ groups by the text after "t", which differs: no family,
-		// so the date pattern gets them
 		if f := ts[0].Shard; f == nil || !f.Date {
 			t.Fatalf("%+v", f)
 		}

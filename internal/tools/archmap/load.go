@@ -14,7 +14,6 @@ import (
 	"strings"
 )
 
-// excludedPrefix hides developer tools (this generator) from the map.
 const excludedPrefix = "internal/tools/"
 
 type listPackage struct {
@@ -29,9 +28,6 @@ type listPackage struct {
 	Module       *struct{ Path string }
 }
 
-// Load reads the module that contains dir and builds the full model:
-// packages, imports, public API and graph layout. Problems that do not stop
-// the map (a file that does not parse) come back as warnings.
 func Load(dir string) (*Model, []string, error) {
 	modPath, root, err := moduleOf(dir)
 	if err != nil {
@@ -163,9 +159,6 @@ func Load(dir string) (*Model, []string, error) {
 	return m, warnings, nil
 }
 
-// classify puts a package in one of the groups of spec section 3. The path
-// decides, as in internal/archtest (ADR 0003): a package with only tests is a
-// test, pkg/ is the core, and the rest (cmd/ and internal/) are frontends.
 func classify(short string, lp *listPackage) string {
 	switch {
 	case len(lp.GoFiles) == 0 && len(lp.TestGoFiles)+len(lp.XTestGoFiles) > 0:
@@ -220,8 +213,6 @@ func goCmd(dir string, args ...string) ([]byte, error) {
 	return out, nil
 }
 
-// label is a package's path inside the module without the leading pkg/ or
-// internal/, the part a reader recognises it by.
 func label(short string) string {
 	for _, prefix := range []string{"pkg/", "internal/"} {
 		if s, ok := strings.CutPrefix(short, prefix); ok {

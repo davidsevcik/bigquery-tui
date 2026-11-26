@@ -7,37 +7,25 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
-// SaveRequest saves a text (an editor buffer) as a Favorite with a fresh
-// header: the description and tags given, the -- param: lines it already
-// has, and its body as it is.
 type SaveRequest struct {
 	Text        string
-	Name        string // the Favorite's name: a path under the directory
+	Name        string
 	Description string
 	Tags        []string
-	// Own is the ID the text is already saved as ("" for none): saving
-	// under that name again replaces it without asking.
-	Own string
-	// Overwrite replaces another Favorite of that name.
-	Overwrite bool
+	Own         string
+	Overwrite   bool
 }
 
-// Saved is a Favorite just written, and the edit that gives the text the
-// same header.
 type Saved struct {
 	Favorite api.Favorite
 	Header   HeaderEdit
 }
 
-// HeaderEdit replaces the header of a text: its first Old bytes become New.
-// The body after them is unchanged.
 type HeaderEdit struct {
 	Old int
 	New string
 }
 
-// Save writes the text with its new header. Another existing Favorite of
-// that name is an ErrExists unless Overwrite is set.
 func (d Dir) Save(r SaveRequest) (Saved, error) {
 	f := Parse(r.Text)
 	f.Description, f.Tags = strings.TrimSpace(r.Description), r.Tags
@@ -58,17 +46,11 @@ func (d Dir) Save(r SaveRequest) (Saved, error) {
 	}
 	newHead := len(out) - len(f.SQL)
 	if f.SQL != "" && !strings.HasSuffix(f.SQL, "\n") {
-		newHead-- // Render ended the body with a newline the text does not have
+		newHead--
 	}
 	return Saved{Favorite: saved, Header: HeaderEdit{Old: len(r.Text) - len(f.SQL), New: out[:newHead]}}, nil
 }
 
-// FromHistory is the file text of a History entry promoted to a Favorite.
-// It starts from the header the SQL may already carry (a Run from a
-// Favorite's buffer), so the new one replaces it instead of stacking on it;
-// a description or tags given replace the old ones; and every other
-// parameter the SQL uses is declared with the type and value it ran with as
-// its default (NULL as null).
 func FromHistory(sql string, params []api.QueryParam, description string, tags []string) string {
 	f := Parse(sql)
 	f.Text, f.Problems = "", nil

@@ -13,20 +13,13 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/handoff"
 )
 
-// Hand-off (spec 14.4): text for an agent about the selected table or the
-// focused Run, copied to the clipboard (OSC 52) or written to a file. The
-// core renders the text; this file only picks what and where.
-
-// handoffItem is a hand-off on offer (handoff.Item), with its palette
-// action and how to render it.
 type handoffItem struct {
-	id    string // the palette action
+	id    string
 	label string
-	path  string // default file (handoff.Item.DefaultPath)
+	path  string
 	make  func(ctx context.Context) (string, error)
 }
 
-// handoffActions are the palette actions of the hand-off kinds.
 var handoffActions = map[handoff.Kind]string{
 	handoff.KindSchemaMarkdown: "hoschemamd", handoff.KindSchemaJSON: "hoschemajson", handoff.KindQueryError: "hoerror",
 	handoff.KindRowsMarkdown: "hosamplemd", handoff.KindRowsTSV: "hosampletsv", handoff.KindRowsNDJSON: "hosamplendjson",
@@ -38,8 +31,6 @@ type handoffMsg struct {
 	err               error
 }
 
-// focusedRun is the Run a hand-off is about: the one shown in the Results
-// when they have the focus, else the buffer's latest Run.
 func (m *Model) focusedRun() (api.RunInfo, bool) {
 	if len(m.bufs) == 0 {
 		return api.RunInfo{}, false
@@ -56,8 +47,6 @@ func (m *Model) focusedRun() (api.RunInfo, bool) {
 	return api.RunInfo{}, false
 }
 
-// handoffItems lists what can be handed off now, in menu order
-// (handoff.Items).
 func (m *Model) handoffItems() []handoffItem {
 	var sit handoff.Situation
 	if s := m.sel(); s.kind == api.KindTable || s.kind == api.KindShards {
@@ -81,7 +70,6 @@ func (m *Model) openHandoff() {
 	m.ov, m.ovSel, m.ovOff = ovHandoff, 0, 0
 }
 
-// handoffDirect runs a palette command such as "Hand-off: copy run".
 func (m *Model) handoffDirect(id string) tea.Cmd {
 	for _, it := range m.handoffItems() {
 		if it.id == id {
@@ -116,8 +104,6 @@ func (m *Model) handoffCopy(it handoffItem) tea.Cmd {
 	}
 }
 
-// handoffWrite renders the item and writes it. Without overwrite the file
-// is created exclusively: one that appeared meanwhile is not replaced.
 func (m *Model) handoffWrite(it handoffItem, path string, overwrite bool) tea.Cmd {
 	ctx := m.ctx
 	return func() tea.Msg {
@@ -129,8 +115,6 @@ func (m *Model) handoffWrite(it handoffItem, path string, overwrite bool) tea.Cm
 	}
 }
 
-// writeHandoff writes the text (handoff.Write): without overwrite, a file
-// that appeared meanwhile is not replaced.
 func writeHandoff(path, text string, overwrite bool) error {
 	err := handoff.Write(path, text, overwrite)
 	if errors.Is(err, os.ErrExist) {
@@ -152,7 +136,6 @@ func (m *Model) onHandoff(msg handoffMsg) tea.Cmd {
 	return nil
 }
 
-// handoffPopup lists what can be handed off to an agent (ctrl+x y).
 type handoffPopup struct{}
 
 func (handoffPopup) width(w int) int { return clamp(w-8, 30, 84) }
@@ -164,8 +147,6 @@ func (handoffPopup) page(m *Model, inner, _ int) scrollPage {
 	return scrollPage{title: "Hand-off to an agent", rows: rows, cur: sel + top, sel: &m.ovSel, items: n}
 }
 
-// handoffLines are the popup's rows, the cursor on entry sel, and the row
-// of the first entry.
 func (m *Model) handoffLines(w, sel int) (rows []string, top int) {
 	var out []string
 	z := ZoneOverlay
@@ -205,7 +186,6 @@ func (handoffPopup) act(m *Model, act string) (tea.Cmd, bool) {
 
 func (handoffPopup) hints(*Model) string { return footerHints(ZoneOverlay) }
 
-// handoffSubmit writes the prompt's file (asking once before overwriting).
 func (m *Model) handoffSubmit(p *promptState) tea.Cmd {
 	path := expandHome(strings.TrimSpace(p.fields[0].value()))
 	if path == "" {
