@@ -53,9 +53,6 @@ type Engine struct {
 	notice  string
 	sel     *selection.Store
 
-	execMu   gosync.Mutex
-	lastExec string
-
 	cfgMu  gosync.RWMutex
 	search *search.Searcher
 	runs   *runs.Manager
@@ -93,7 +90,6 @@ func Open(ctx context.Context, o Options) (*Engine, error) {
 	e.search = search.New(nil)
 	e.search.Now, e.search.TTL, e.search.Recent = o.Now, o.Config.SyncTTL, e.recent
 	e.runs = runs.New(runs.Options{Jobs: e.jobs, Config: e.Config, Execution: e.execProject, Now: o.Now, Source: o.Source, Record: e.recordRun, Log: o.Log})
-	e.lastExec = e.execProject()
 	if o.ReadOnly {
 		cat, err := store.OpenCatalogReadOnly(e.paths.Catalog)
 		if err != nil && !errors.Is(err, store.ErrNoCatalog) {
@@ -223,7 +219,6 @@ func (e *Engine) execClient(ctx context.Context) (Client, error) {
 	if exec == "" {
 		return nil, ErrNoExecution
 	}
-	e.noticeExecution()
 	return e.clientFor(ctx, exec)
 }
 

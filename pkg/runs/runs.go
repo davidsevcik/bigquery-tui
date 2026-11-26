@@ -50,6 +50,7 @@ type Request struct {
 	DryRunOnly bool
 	Favorite   string
 	Policy     *policy.Profile
+	Execution  string
 }
 
 type Manager struct {
@@ -60,7 +61,7 @@ type Manager struct {
 	runs    []*Run
 	running int
 	waiting []chan struct{}
-	pricing api.PricingModel
+	pricing map[string]api.PricingModel
 	events  chan api.RunEvent
 	busy    int
 	closed  bool
@@ -105,40 +106,62 @@ func (m *Manager) publish(info api.RunInfo) {
 	}
 }
 
-func (m *Manager) Pricing() api.PricingModel {
+func (m *Manager) orShared(exec string) string {
+	if exec == "" {
+		return m.o.Execution()
+	}
+	return exec
+}
+
+func checkExecution(exec string) error {
+	if exec == "" {
+		return nil
+	}
+	return config.CheckProjectID(exec)
+}
+
+func (m *Manager) Pricing() api.PricingModel { return m.pricingIn("") }
+
+func (m *Manager) pricingIn(exec string) api.PricingModel {
+	// ADR-0009
+	exec = m.orShared(exec)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.pricing
+	return m.pricing[exec]
 }
 
 func (m *Manager) learn(exec string, dr bq.DryRunResult, force bool) {
-	// ADR-0009
-	if exec != m.o.Execution() {
-		return
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if dr.ReservationID == "" && dr.BytesProcessed == 0 && !force {
 		return
 	}
-	m.pricing = api.PricingModel{Known: true, Capacity: dr.ReservationID != "", ReservationID: dr.ReservationID, Edition: dr.Edition}
+	if m.pricing == nil {
+		m.pricing = map[string]api.PricingModel{}
+	}
+	m.pricing[exec] = api.PricingModel{Known: true, Capacity: dr.ReservationID != "", ReservationID: dr.ReservationID, Edition: dr.Edition}
 }
 
 func (m *Manager) ForgetPricing() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.pricing = api.PricingModel{}
+	m.pricing = nil
 }
 
 // ADR-0009
 const pricingProbe = "SELECT x FROM UNNEST(GENERATE_ARRAY(1, 2)) AS x ORDER BY x"
 
-func (m *Manager) LearnPricing(ctx context.Context) error {
+func (m *Manager) LearnPricing(ctx context.Context) error { return m.LearnPricingIn(ctx, "") }
+
+func (m *Manager) LearnPricingIn(ctx context.Context, exec string) error {
+	if err := checkExecution(exec); err != nil {
+		return err
+	}
 	cfg := m.o.Config()
 	if cfg.Location == "" {
 		return nil
 	}
-	exec := m.o.Execution()
+	exec = m.orShared(exec)
 	jobs, err := m.o.Jobs(ctx, exec)
 	if err != nil {
 		return err
@@ -334,7 +357,7 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 		}
 	}
 	// ADR-0009
-	exec := m.o.Execution()
+	exec := m.orShared(req.Execution)
 	m.mu.Lock()
 	m.seq++
 	r := &Run{
@@ -352,6 +375,10 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 	m.mu.Unlock()
 	if closed {
 		r.finish(r.markCancelled)
+		return r
+	}
+	if err := checkExecution(req.Execution); err != nil {
+		r.fail(err)
 		return r
 	}
 	m.publish(r.Info())

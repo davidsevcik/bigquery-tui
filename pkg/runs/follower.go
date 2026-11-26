@@ -145,6 +145,8 @@ func (f *Follower) List() []api.RunInfo { return f.m.List() }
 
 func (f *Follower) Pricing() api.PricingModel { return f.m.Pricing() }
 
+func (f *Follower) PricingIn(exec string) api.PricingModel { return f.m.pricingIn(exec) }
+
 func (f *Follower) Confirm(id int64) {
 	if r := f.m.Get(id); r != nil {
 		r.Confirm()

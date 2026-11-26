@@ -42,6 +42,12 @@ type Candidate struct {
 	End    int           `json:"end"`
 }
 
+type CompleteOptions struct {
+	Forced    bool     `json:"forced,omitempty"`
+	Projects  []string `json:"projects,omitempty"`
+	Execution string   `json:"execution,omitempty"`
+}
+
 type QueryParam struct {
 	Name  string `json:"name"`
 	Type  string `json:"type"`

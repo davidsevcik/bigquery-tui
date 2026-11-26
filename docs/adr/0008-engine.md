@@ -18,11 +18,11 @@ Package `engine` is the facade every frontend (TUI, CLI, MCP server) uses: it wi
 
 ### BigQuery clients and the Execution project
 
-- **`engine.Engine`** (`lastExec`): records the Execution project last seen, because pricing is learned per project. `noticeExecution` forgets the learned pricing model when it changes.
 - **`engine.(*Engine).lister`**: the metadata client for listing projects needs no Execution project and never uses one. The credentials' own quota project applies, so an unusable Execution project cannot hide the list the user needs to pick another from.
+- **`engine.(*Engine).LearnPricingIn`**: `""` is the shared Execution project; the rest is `runs.(*Manager).LearnPricingIn`.
 - **`engine.(*Engine).jobs`**: returns the query client of the Run's own Execution project. A Run keeps the project it started in, even if the Execution project changes meanwhile.
 - **`engine.(*Engine).clientFor`**: keeps one shared client per Execution project, built on first use. Clients of earlier Execution projects stay open, because Runs that started in them still use them.
-- **`engine.(*Engine).SetConfig`**: run-related and sync-related keys apply only to operations started afterwards. A changed Execution project takes effect on the next BigQuery call, since each project has its own client. `data_dir` cannot change at run time; callers report it as restart-required.
+- **`engine.(*Engine).SetConfig`**: run-related and sync-related keys apply only to operations started afterwards. A changed Execution project takes effect on the next BigQuery call, since each project has its own client, and forgets no pricing model; a changed `location` forgets them all (`runs.(*Manager).ForgetPricing`). `data_dir` cannot change at run time; callers report it as restart-required.
 
 ### The agent surface
 
@@ -71,8 +71,9 @@ Package `engine` is the facade every frontend (TUI, CLI, MCP server) uses: it wi
 
 ### Completion
 
-- **`engine.completionCatalog.Projects`**: offers the Selected projects that hold data. Completion follows the Explorer: deselected projects are not offered.
-- **`engine.completionCatalog.offered`**: offers the names inside a Selected project or the Execution project, the latter even when deselected, because unqualified `dataset.table` names resolve there. The columns of a table the query names are offered from any cached project, since the user wrote that table.
+- **`engine.(*Engine).CompleteWith`**: is `Complete` for one request's `api.CompleteOptions`: limited to a set of projects and resolving unqualified names in that request's Execution project. `Complete` is `CompleteWith` with no limit.
+- **`engine.completionCatalog.Projects`**, **`engine.completionCatalog.listed`**: offers the Selected projects that hold data, within the request's set when it names one. Completion follows the Explorer: deselected projects are not offered.
+- **`engine.completionCatalog.offered`**: offers the names inside a listed project or the request's Execution project, the latter even when deselected or outside the set, because unqualified `dataset.table` names resolve there. The columns of a table the query names are offered from any cached project, since the user wrote that table.
 - **`engine.completionCatalog.Columns`**: completion runs on the frontend's input path, so a table's columns are read from the catalog once, with the read bounded at 250 ms, and then served from memory. The cache is dropped whenever the index reloads.
 
 ### Export and hand-off

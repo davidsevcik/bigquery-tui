@@ -15,6 +15,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/format"
 	"github.com/davidsevcik/bigquery-tui/pkg/handoff"
 	"github.com/davidsevcik/bigquery-tui/pkg/runs"
+	"github.com/davidsevcik/bigquery-tui/pkg/selection"
 	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
@@ -36,6 +37,10 @@ func (e *Engine) RunRows(ctx context.Context, id int64, startIndex int64, n int,
 
 func (e *Engine) LearnPricing(ctx context.Context) error { return e.runs.LearnPricing(ctx) }
 
+func (e *Engine) LearnPricingIn(ctx context.Context, project string) error {
+	return e.runs.LearnPricingIn(ctx, project)
+}
+
 func (e *Engine) recordRun(info api.RunInfo) {
 	h, err := e.History()
 	if err != nil {
@@ -52,18 +57,34 @@ func (e *Engine) recordRun(info api.RunInfo) {
 func (e *Engine) Tokenize(text string) []api.Token { return sqlx.Tokenize(text) }
 
 func (e *Engine) Complete(text string, cursor int, forced bool) []api.Candidate {
-	return sqlx.Complete(text, cursor, completionCatalog{e}, sqlx.Options{Forced: forced})
+	return e.CompleteWith(text, cursor, api.CompleteOptions{Forced: forced})
 }
 
-type completionCatalog struct{ e *Engine }
+func (e *Engine) CompleteWith(text string, cursor int, o api.CompleteOptions) []api.Candidate {
+	c := completionCatalog{e: e, exec: o.Execution, only: api.NewProjectSet(o.Projects)}
+	if c.exec == "" {
+		c.exec = e.execProject()
+	}
+	return sqlx.Complete(text, cursor, c, sqlx.Options{Forced: o.Forced})
+}
 
-func (c completionCatalog) DefaultProject() string { return c.e.execProject() }
+type completionCatalog struct {
+	e    *Engine
+	exec string
+	only api.ProjectSet
+}
+
+func (c completionCatalog) DefaultProject() string { return c.exec }
+
+func (c completionCatalog) listed(sel selection.State, project string) bool {
+	return sel.Has(project) && c.only.Has(project)
+}
 
 func (c completionCatalog) Projects() []string {
 	sel := c.e.Selection()
 	var out []string
 	for _, n := range c.e.search.Projects() {
-		if sel.Has(n.Name) {
+		if c.listed(sel, n.Name) {
 			out = append(out, n.Name)
 		}
 	}
@@ -71,7 +92,7 @@ func (c completionCatalog) Projects() []string {
 }
 
 func (c completionCatalog) offered(project string) bool {
-	return c.e.Selection().Has(project) || project == c.e.execProject()
+	return project == c.exec || c.listed(c.e.Selection(), project)
 }
 
 func (c completionCatalog) Datasets(project string) []string {

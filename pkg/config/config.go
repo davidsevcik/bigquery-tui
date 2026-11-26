@@ -416,6 +416,13 @@ var projectRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:\-]*$`)
 
 func ValidProjectID(s string) bool { return projectRe.MatchString(s) }
 
+func CheckProjectID(s string) error {
+	if !ValidProjectID(s) {
+		return fmt.Errorf("%q is not a valid project ID", s)
+	}
+	return nil
+}
+
 func (b *builder) build(c *Config, v map[string]layered, errs *Errors) {
 	fail := func(key, src, msg string) {
 		e := &Error{Key: key, Msg: msg}
@@ -441,8 +448,8 @@ func (b *builder) build(c *Config, v map[string]layered, errs *Errors) {
 
 	if s, ok := str("execution_project"); ok {
 		src := v["execution_project"].src
-		if !ValidProjectID(s) {
-			fail("execution_project", src, fmt.Sprintf("%q is not a valid project ID", s))
+		if err := CheckProjectID(s); err != nil {
+			fail("execution_project", src, err.Error())
 		}
 		c.ExecutionOverride, c.ExecutionOverrideFrom = s, "env"
 		if strings.HasPrefix(src, "flag") {

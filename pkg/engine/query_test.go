@@ -1,11 +1,14 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
@@ -111,6 +114,151 @@ func TestCompleteUsesTheCatalog(t *testing.T) {
 	}
 	if got := labels("select e.| from `proj-a.sales.events_*` e"); got != "u" {
 		t.Fatalf("a wildcard table has its newest shard's columns: %s", got)
+	}
+}
+
+func TestCompleteWithLimitsProjectsAndTakesAnExecutionProject(t *testing.T) {
+	_, eng := synced(t, "proj-a", "proj-b")
+	labels := func(sql string, o api.CompleteOptions) string {
+		var out []string
+		for _, c := range eng.CompleteWith(sql, len(sql), o) {
+			out = append(out, c.Label)
+		}
+		return strings.Join(out, ",")
+	}
+	onlyA := api.CompleteOptions{Projects: []string{"proj-a", "not-cached"}}
+	if got := labels("select * from `proj", onlyA); got != "proj-a" {
+		t.Fatalf("projects: %s", got)
+	}
+	if got := labels("select * from `proj", api.CompleteOptions{}); got != "proj-a,proj-b" {
+		t.Fatalf("no limit: %s", got)
+	}
+	if got := labels("select * from `proj-b.", onlyA); got != "" {
+		t.Fatalf("datasets outside the projects: %s", got)
+	}
+	if got := labels("select * from `proj-b.core.", onlyA); got != "" {
+		t.Fatalf("tables outside the projects: %s", got)
+	}
+	if got := labels("select * from core.", onlyA); got != "" {
+		t.Fatalf("an unqualified dataset resolves only in the listed and the Execution projects: %s", got)
+	}
+	if got := labels("select x.c from `proj-b.core.t` x where x.", onlyA); got != "c" {
+		t.Fatalf("columns of a table named in full: %s", got)
+	}
+	inB := api.CompleteOptions{Projects: onlyA.Projects, Execution: "proj-b"}
+	if got := labels("select * from core.", inB); got != "t" {
+		t.Fatalf("unqualified names resolve in the given Execution project: %s", got)
+	}
+	if got := labels("select * from `proj-b.", inB); got != "core" {
+		t.Fatalf("the Execution project named in full offers its datasets: %s", got)
+	}
+	if got := labels("select * from `proj", inB); got != "proj-a" {
+		t.Fatalf("the Execution project is not offered as a project name: %s", got)
+	}
+	if got := labels("select * from ", api.CompleteOptions{Projects: onlyA.Projects, Execution: "proj-b", Forced: true}); !strings.Contains(got, "core") || strings.Contains(got, "proj-b") {
+		t.Fatalf("the Execution project's datasets, not the project itself: %s", got)
+	}
+	if got := labels("select * from `proj-b.", api.CompleteOptions{}); got != "core" {
+		t.Fatalf("%s", got)
+	}
+}
+
+func TestARunRunsInTheExecutionProjectItIsGiven(t *testing.T) {
+	e := newEnv(t, "proj-a")
+	var mu sync.Mutex
+	var asked []string
+	eng, err := Open(ctx, Options{
+		Config: e.cfg, Now: func() time.Time { return e.now },
+		Client: func(_ context.Context, exec string) (Client, error) {
+			mu.Lock()
+			asked = append(asked, exec)
+			mu.Unlock()
+			return e.fake.In(exec), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
+	for _, exec := range []string{"window-proj", "", "window-proj"} {
+		info := eng.StartRun(ctx, runs.Request{SQL: "select 1", Execution: exec}).Wait()
+		want := exec
+		if want == "" {
+			want = "exec-proj"
+		}
+		if info.State != api.RunDone || info.ExecutionProject != want || info.Job.Project != want {
+			t.Fatalf("%q: %+v", exec, info)
+		}
+	}
+	h, _ := eng.History()
+	rows, err := h.DB().Query("SELECT execution_project, project FROM history ORDER BY rowid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var exec, project string
+		if err := rows.Scan(&exec, &project); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, exec+"/"+project)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "window-proj/window-proj,exec-proj/exec-proj,window-proj/window-proj" {
+		t.Fatalf("History: %q", got)
+	}
+	if info := eng.StartRun(ctx, runs.Request{SQL: "select 1", Execution: "Bad Project"}).Wait(); info.State != api.RunFailed || info.Error == nil || !strings.Contains(info.Error.Message, "not a valid project ID") {
+		t.Fatalf("%+v", info)
+	}
+	e.cfg.Location = "EU"
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.QueryScript{ReservationID: "res"} }
+	if err := eng.LearnPricingIn(ctx, "window-proj"); err != nil {
+		t.Fatal(err)
+	}
+	if f := eng.FollowRuns(); !f.PricingIn("window-proj").Capacity || f.Pricing().Capacity {
+		t.Fatalf("%+v %+v", f.PricingIn("window-proj"), f.Pricing())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(asked, ",") != "window-proj,exec-proj" {
+		t.Fatalf("clients built for %q", asked)
+	}
+}
+
+func TestOnlyALocationChangeForgetsThePricingModels(t *testing.T) {
+	e := newEnv(t, "proj-a", "proj-b")
+	e.cfg.Location = "EU"
+	eng, err := Open(ctx, Options{
+		Config: e.cfg, Now: func() time.Time { return e.now },
+		Client: func(_ context.Context, exec string) (Client, error) { return e.fake.In(exec), nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.QueryScript{ReservationID: "res"} }
+	if err := eng.LearnPricingIn(ctx, "window-proj"); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.LearnPricing(ctx); err != nil {
+		t.Fatal(err)
+	}
+	f := eng.FollowRuns()
+	if err := eng.ChooseExecution("proj-b"); err != nil {
+		t.Fatal(err)
+	}
+	if !f.PricingIn("window-proj").Capacity || !f.PricingIn("exec-proj").Capacity || f.Pricing().Known {
+		t.Fatalf("a change of the shared Execution project forgot a model: %+v %+v %+v", f.PricingIn("window-proj"), f.PricingIn("exec-proj"), f.Pricing())
+	}
+	cfg := *e.cfg
+	cfg.Location = "US"
+	eng.SetConfig(&cfg)
+	if f.PricingIn("window-proj").Known || f.PricingIn("exec-proj").Known {
+		t.Fatalf("a change of location kept a model: %+v %+v", f.PricingIn("window-proj"), f.PricingIn("exec-proj"))
 	}
 }
 

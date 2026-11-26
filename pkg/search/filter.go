@@ -48,7 +48,7 @@ type filterRun struct {
 func newFilterRun(x *Index, c *compiled, o api.FilterOptions, path *api.ObjectPath) *filterRun {
 	f := &filterRun{
 		x: x, c: c, o: o,
-		sc:           newScoper(api.SearchOptions{Scope: o.Scope, Hidden: o.Hidden}),
+		sc:           newScoper(api.SearchOptions{Scope: o.Scope, Projects: o.Projects, Hidden: o.Hidden}),
 		tableFilters: !onlyScopeFilters(c.filters),
 		dsFilters:    len(c.filters) > 0 && !onlyKey(c.filters, "p"),
 		pasted:       -1,

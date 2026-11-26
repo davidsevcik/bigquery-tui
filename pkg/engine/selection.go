@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"sort"
 	"time"
@@ -44,8 +43,8 @@ func (e *Engine) selected() []string { return e.Selection().IDs() }
 
 func validIDs(ids []string) error {
 	for _, id := range ids {
-		if !config.ValidProjectID(id) {
-			return fmt.Errorf("%q is not a valid project ID", id)
+		if err := config.CheckProjectID(id); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -53,9 +52,6 @@ func validIDs(ids []string) error {
 
 func (e *Engine) updateSelection(fn func(*selection.State) error) error {
 	_, err := e.sel.Update(fn)
-	if err == nil {
-		e.noticeExecution()
-	}
 	return err
 }
 
@@ -132,17 +128,6 @@ func resolveExecution(cfg *config.Config, s selection.State) (string, api.Execut
 func (e *Engine) execProject() string {
 	p, _ := e.ExecutionProject()
 	return p
-}
-
-func (e *Engine) noticeExecution() {
-	p := e.execProject()
-	e.execMu.Lock()
-	changed := e.lastExec != p
-	e.lastExec = p
-	e.execMu.Unlock()
-	if changed {
-		e.runs.ForgetPricing()
-	}
 }
 
 func (e *Engine) checkScope(ctx context.Context, scope api.SyncScope, selected []string) error {

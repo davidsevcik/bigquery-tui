@@ -29,9 +29,29 @@ type QueryScript struct {
 }
 
 type QueryCall struct {
-	Req bq.QueryRequest
-	Dry bool
+	Req  bq.QueryRequest
+	Dry  bool
+	Exec string
 }
+
+const fakeExec = "fake-exec"
+
+type ExecClient struct {
+	*Fake
+	Project string
+}
+
+func (f *Fake) In(project string) ExecClient { return ExecClient{Fake: f, Project: project} }
+
+func (c ExecClient) DryRun(ctx context.Context, req bq.QueryRequest) (bq.DryRunResult, error) {
+	return c.dryRun(ctx, req, c.Project)
+}
+
+func (c ExecClient) StartQuery(ctx context.Context, req bq.QueryRequest) (api.JobRef, error) {
+	return c.startQuery(ctx, req, c.Project)
+}
+
+func (ExecClient) Close() error { return nil }
 
 type fakeJob struct {
 	script    QueryScript
@@ -40,10 +60,14 @@ type fakeJob struct {
 	held      bool
 }
 
-func (f *Fake) Held(jobID string) bool {
+type jobKey struct{ project, id string }
+
+func keyOf(ref api.JobRef) jobKey { return jobKey{project: ref.Project, id: ref.ID} }
+
+func (f *Fake) Held(ref api.JobRef) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	j := f.jobs[jobID]
+	j := f.jobs[keyOf(ref)]
 	return j != nil && j.held
 }
 
@@ -85,11 +109,15 @@ func (f *Fake) QueryCalls() []QueryCall {
 }
 
 func (f *Fake) DryRun(ctx context.Context, req bq.QueryRequest) (bq.DryRunResult, error) {
-	if err := f.begin(ctx, Call{Method: "DryRun", Location: req.Location}); err != nil {
+	return f.dryRun(ctx, req, fakeExec)
+}
+
+func (f *Fake) dryRun(ctx context.Context, req bq.QueryRequest, exec string) (bq.DryRunResult, error) {
+	if err := f.begin(ctx, Call{Method: "DryRun", Project: exec, Location: req.Location}); err != nil {
 		return bq.DryRunResult{}, err
 	}
 	f.mu.Lock()
-	f.queries = append(f.queries, QueryCall{req, true})
+	f.queries = append(f.queries, QueryCall{req, true, exec})
 	f.mu.Unlock()
 	s := f.script(req.SQL)
 	if s.DryRunErr != nil {
@@ -106,7 +134,11 @@ func (f *Fake) DryRun(ctx context.Context, req bq.QueryRequest) (bq.DryRunResult
 }
 
 func (f *Fake) StartQuery(ctx context.Context, req bq.QueryRequest) (api.JobRef, error) {
-	if err := f.begin(ctx, Call{Method: "StartQuery", Location: req.Location}); err != nil {
+	return f.startQuery(ctx, req, fakeExec)
+}
+
+func (f *Fake) startQuery(ctx context.Context, req bq.QueryRequest, exec string) (api.JobRef, error) {
+	if err := f.begin(ctx, Call{Method: "StartQuery", Project: exec, Location: req.Location}); err != nil {
 		return api.JobRef{}, err
 	}
 	s := f.script(req.SQL)
@@ -115,39 +147,39 @@ func (f *Fake) StartQuery(ctx context.Context, req bq.QueryRequest) (api.JobRef,
 		case <-s.SubmitBlock:
 		case <-ctx.Done():
 			f.mu.Lock()
-			f.queries = append(f.queries, QueryCall{req, false})
+			f.queries = append(f.queries, QueryCall{req, false, exec})
 			f.mu.Unlock()
 			return api.JobRef{}, bq.Wrap("fake", ctx.Err())
 		}
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.queries = append(f.queries, QueryCall{req, false})
+	f.queries = append(f.queries, QueryCall{req, false, exec})
 	if req.MaxBytesBilled > 0 && s.Bytes > req.MaxBytesBilled {
 		return api.JobRef{}, &bq.Error{Kind: bq.KindOverLimit, Err: message(fmt.Sprintf("Query exceeded limit for bytes billed: %d. %d or higher required.", req.MaxBytesBilled, s.Bytes))}
 	}
 	if f.jobs == nil {
-		f.jobs = map[string]*fakeJob{}
+		f.jobs = map[jobKey]*fakeJob{}
 	}
 	f.jobSeq++
 	loc := req.Location
 	if loc == "" {
 		loc = "EU"
 	}
-	ref := api.JobRef{Project: "fake-exec", Location: loc, ID: fmt.Sprintf("job_%d", f.jobSeq)}
+	ref := api.JobRef{Project: exec, Location: loc, ID: fmt.Sprintf("job_%d", f.jobSeq)}
 	if req.JobID != "" {
 		ref.ID = req.JobID
 	}
-	f.jobs[ref.ID] = &fakeJob{script: s, cancelled: make(chan struct{}), created: time.Unix(1700000000+int64(f.jobSeq), 0).UTC()}
+	f.jobs[keyOf(ref)] = &fakeJob{script: s, cancelled: make(chan struct{}), created: time.Unix(1700000000+int64(f.jobSeq), 0).UTC()}
 	return ref, nil
 }
 
 func (f *Fake) fakeJob(ref api.JobRef) (*fakeJob, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	j := f.jobs[ref.ID]
+	j := f.jobs[keyOf(ref)]
 	if j == nil {
-		return nil, &bq.Error{Kind: bq.KindNotFound, Err: message("Not found: Job " + ref.ID)}
+		return nil, &bq.Error{Kind: bq.KindNotFound, Err: message("Not found: Job " + ref.Project + ":" + ref.ID)}
 	}
 	return j, nil
 }
@@ -157,7 +189,7 @@ func (f *Fake) WaitJob(ctx context.Context, ref api.JobRef) (bq.JobResult, error
 	if err != nil {
 		return bq.JobResult{}, err
 	}
-	if err := f.begin(ctx, Call{Method: "WaitJob", Location: ref.Location}); err != nil {
+	if err := f.begin(ctx, Call{Method: "WaitJob", Project: ref.Project, Location: ref.Location}); err != nil {
 		return bq.JobResult{}, err
 	}
 	s := j.script
@@ -187,12 +219,12 @@ func (f *Fake) WaitJob(ctx context.Context, ref api.JobRef) (bq.JobResult, error
 		return res, nil //nolint:nilerr // the poll worked; the job's own failure travels in res.Err
 	}
 	res.BytesProcessed, res.BytesBilled, res.SlotMs, res.CacheHit, res.AffectedRows = s.Bytes, s.Bytes, s.SlotMs, s.CacheHit, s.AffectedRows
-	res.Destination = "fake-exec._anon." + ref.ID
+	res.Destination = ref.Project + "._anon." + ref.ID
 	return res, nil
 }
 
 func (f *Fake) CancelJob(ctx context.Context, ref api.JobRef) error {
-	if err := f.begin(ctx, Call{Method: "CancelJob", Location: ref.Location}); err != nil {
+	if err := f.begin(ctx, Call{Method: "CancelJob", Project: ref.Project, Location: ref.Location}); err != nil {
 		return err
 	}
 	j, err := f.fakeJob(ref)
@@ -217,7 +249,7 @@ func (f *Fake) QueryRows(ctx context.Context, ref api.JobRef, startIndex int64, 
 	if err != nil {
 		return bq.ResultPage{}, err
 	}
-	if err := f.begin(ctx, Call{Method: "QueryRows", Location: ref.Location}); err != nil {
+	if err := f.begin(ctx, Call{Method: "QueryRows", Project: ref.Project, Location: ref.Location}); err != nil {
 		return bq.ResultPage{}, err
 	}
 	rows := j.script.Rows

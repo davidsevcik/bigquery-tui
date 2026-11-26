@@ -57,6 +57,8 @@ Package `search` is catalog search: the query grammar, tiered ranking, Shard fam
 
 ### Explorer filter
 
+- **`api.SearchOptions`** (`Projects`), **`api.FilterOptions`** (`Projects`): limit results to a set of projects, their datasets and their tables; empty means every project. The set only narrows `Scope` and `SelectedOnly`, never widens them: a Scope or a hidden project outside it stays out. Search does not apply it to a pasted path, which stays an exact lookup, as with `SelectedOnly`; the Explorer filter applies it to a pasted path too, as it treats a hidden project.
+- **`api.ProjectSet`**: the set a `Projects` option names (`SearchOptions`, `FilterOptions`, `CompleteOptions`). `Has` treats an empty set as every project; search, the Explorer filter and completion all test it through `Has`, so they agree on what empty means.
 - **`search.(*Searcher).Filter`**: returns every object that passes the Explorer's in-place filter, best match first, or by path when the query has no free term. Unlike Search, free terms match only an object's own name, so a term that names a dataset does not keep the tables inside it. Table filters (`type:`, `col:`, `label:`, `desc:`) keep a table that passes them and any project or dataset that holds one; `p:` and `d:` only narrow by path.
 - **`search.filterRun`** (stages): one Filter call's state, whose stages run in order: `passTables` fills `pass` and `own`, `addContainers` and `addTables` read them and append to `out`, and `matches` sorts `out` into the response.
 - **`search.filterRun`** (`tableFilters`, `dsFilters`): `tableFilters` is set when the query has filters beyond `p:` and `d:`; a container is then kept only when it holds a passing table or passes the filters itself. `dsFilters` is set when there are filters beyond `p:`; a project is then kept only when it holds a kept dataset.
@@ -69,6 +71,8 @@ Package `search` is catalog search: the query grammar, tiered ranking, Shard fam
 
 ### SQL completion
 
+- **`api.CompleteOptions`**: `Projects` limits the projects completion offers, with their datasets and tables, to some of the Selected projects, but not what the text names in full: the columns of a `project.dataset.table` are offered wherever the table is. `Execution` is where an unqualified `dataset.table` resolves; its datasets and tables are offered whether or not `Projects` names it. Empty means the shared Execution project.
+- **`sqlx.(*completer).path`** (one segment): a name before a dot is looked up among `DefaultProject` as well as `Projects`, so `` `proj-b. `` offers the Execution project's datasets even when that project is not listed. It is not added to the project-name suggestions.
 - **`sqlx.Complete`**: works on the token stream, not a parser, so it never fails on a half-typed query. The cursor is a byte offset. No candidates means the popup stays closed.
 - **`sqlx.Catalog`**: the slice of the metadata index completion needs. Every lookup is scoped to one project, one dataset or one table, so completion stays fast on every keystroke; the interface deliberately offers no catalog-wide scan.
 - **`sqlx.Catalog`** (`DefaultProject`): the project an unqualified `dataset.table` resolves to: the Execution project, as BigQuery resolves it for the job.

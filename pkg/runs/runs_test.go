@@ -39,7 +39,7 @@ func newRig(t *testing.T) *rig {
 			r.mu.Lock()
 			r.asked = append(r.asked, exec)
 			r.mu.Unlock()
-			return r.fake, nil
+			return r.fake.In(exec), nil
 		},
 		Config:    func() *config.Config { return r.cfg },
 		Execution: func() string { r.mu.Lock(); defer r.mu.Unlock(); return r.exec },
@@ -48,6 +48,18 @@ func newRig(t *testing.T) *rig {
 	})
 	t.Cleanup(r.m.Close)
 	return r
+}
+
+func (r *rig) clientsAsked() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.asked...)
+}
+
+func (r *rig) forgetClientsAsked() {
+	r.mu.Lock()
+	r.asked = nil
+	r.mu.Unlock()
 }
 
 func (r *rig) recorded() []api.RunInfo {
@@ -617,6 +629,35 @@ func TestReopenShowsAnEarlierResult(t *testing.T) {
 	}
 }
 
+func TestReopenReadsThroughTheEntrysExecutionProject(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(700) }
+	first := r.m.Start(ctx, Request{SQL: "select n", Execution: "window-proj"}).Wait()
+	r.setExec("")
+	r.forgetClientsAsked()
+	e := api.HistoryEntry{ID: 3, Job: *first.Job, SQL: "select n", State: api.RunDone, Source: "tui", ExecutionProject: "window-proj"}
+	run, err := r.m.Reopen(ctx, e, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run.Rows(ctx, 600, 3, format.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if info := run.Info(); info.ExecutionProject != "window-proj" || info.Job.Project != "window-proj" {
+		t.Fatalf("%+v", info)
+	}
+	asked := strings.Join(r.clientsAsked(), ",")
+	if asked != "window-proj" {
+		t.Fatalf("the reopened Run read through clients of %q", asked)
+	}
+	for _, c := range r.fake.CallsTo("QueryRows") {
+		if c.Project != "window-proj" {
+			t.Fatalf("%+v", c)
+		}
+	}
+}
+
 func TestARunUsesTheProjectItStartedIn(t *testing.T) {
 	r := newRig(t)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(3) }
@@ -626,35 +667,146 @@ func TestARunUsesTheProjectItStartedIn(t *testing.T) {
 	if info.State != api.RunDone || info.ExecutionProject != "exec" {
 		t.Fatalf("%+v", info)
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, p := range r.asked {
+	for _, p := range r.clientsAsked() {
 		if p != "exec" {
 			t.Fatalf("the Run asked for a client of %q", p)
 		}
 	}
 }
 
-func TestPricingFromAnOldProjectIsDropped(t *testing.T) {
+func TestAModelIsLearnedForTheProjectTheDryRunRanIn(t *testing.T) {
 	r := newRig(t)
 	r.cfg.Location = "EU"
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.QueryScript{ReservationID: "res"} }
 	r.fake.OnCall = func(c bqtest.Call) {
 		if c.Method == "DryRun" {
 			r.setExec("on-demand-proj")
-			r.m.ForgetPricing()
 		}
 	}
 	if err := r.m.LearnPricing(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if p := r.m.Pricing(); p.Known {
-		t.Fatalf("the old project's model was kept: %+v", p)
+	if p := r.m.Pricing(); p.Known || !r.m.pricingIn("exec").Capacity {
+		t.Fatalf("the probe's model went to the project that became shared during it: %+v %+v", p, r.m.pricingIn("exec"))
 	}
-	r.setExec("exec")
-	run := r.m.Start(context.Background(), Request{SQL: "select"})
-	run.Wait()
+	r.setExec("run-proj")
+	r.m.Start(context.Background(), Request{SQL: "select"}).Wait()
+	if p := r.m.Pricing(); p.Known || !r.m.pricingIn("run-proj").Capacity {
+		t.Fatalf("the Run's model went to the project that became shared during it: %+v %+v", p, r.m.pricingIn("run-proj"))
+	}
+}
+
+func TestARunRunsInTheExecutionProjectItIsGiven(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	r.fake.OnQuery = func(sql string) bqtest.QueryScript {
+		s := bqtest.Numbers(700)
+		if sql == "select in window" {
+			s.ReservationID = "admin:EU.res"
+		}
+		return s
+	}
+	run := r.m.Start(ctx, Request{SQL: "select in window", Execution: "window-proj"})
+	info := run.Wait()
+	if info.State != api.RunDone || info.ExecutionProject != "window-proj" || info.Job == nil || info.Job.Project != "window-proj" {
+		t.Fatalf("%+v %+v", info, info.Job)
+	}
+	if _, err := run.Rows(ctx, 600, 10, format.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range r.fake.QueryCalls() {
+		if c.Exec != "window-proj" {
+			t.Fatalf("a query call ran in %q", c.Exec)
+		}
+	}
+	for _, m := range []string{"WaitJob", "QueryRows"} {
+		if cs := r.fake.CallsTo(m); len(cs) == 0 || cs[len(cs)-1].Project != "window-proj" {
+			t.Fatalf("%s: %+v", m, cs)
+		}
+	}
+	if rec := r.recorded(); len(rec) != 1 || rec[0].ExecutionProject != "window-proj" {
+		t.Fatalf("History: %+v", rec)
+	}
 	if p := r.m.Pricing(); p.Known {
-		t.Fatalf("a Run of the old project taught the model: %+v", p)
+		t.Fatalf("the shared project learned another's model: %+v", p)
+	}
+	if p := r.m.pricingIn("window-proj"); !p.Capacity || p.ReservationID != "admin:EU.res" {
+		t.Fatalf("%+v", p)
+	}
+
+	info = r.m.Start(ctx, Request{SQL: "select"}).Wait()
+	if info.ExecutionProject != "exec" || info.Job.Project != "exec" {
+		t.Fatalf("%+v", info)
+	}
+	if p := r.m.Pricing(); !p.Known || p.Capacity {
+		t.Fatalf("%+v", p)
+	}
+	if p := r.m.pricingIn("window-proj"); !p.Capacity {
+		t.Fatalf("one project's model does not replace another's: %+v", p)
+	}
+	asked := strings.Join(r.clientsAsked(), ",")
+	if got := asked; got != "window-proj,exec" {
+		t.Fatalf("clients asked for %s", got)
+	}
+
+	r.cfg.MaxConcurrentQueries = 1
+	block := make(chan struct{})
+	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.Block = block; return s }
+	held := r.m.Start(ctx, Request{SQL: "a", Execution: "window-proj"})
+	until(t, held, api.RunRunning)
+	queued := r.m.Start(ctx, Request{SQL: "b"})
+	until(t, queued, api.RunQueued)
+	close(block)
+	if i := queued.Wait(); i.State != api.RunDone {
+		t.Fatalf("%+v", i)
+	}
+
+	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.Block = make(chan struct{}); return s }
+	cancelled := r.m.Start(ctx, Request{SQL: "c", Execution: "window-proj"})
+	until(t, cancelled, api.RunRunning)
+	cancelled.Cancel()
+	if i := cancelled.Wait(); i.State != api.RunCancelled {
+		t.Fatalf("%+v", i)
+	}
+	if cs := r.fake.CallsTo("CancelJob"); len(cs) != 1 || cs[0].Project != "window-proj" {
+		t.Fatalf("%+v", cs)
+	}
+}
+
+func TestAnInvalidExecutionProjectBuildsNoClient(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	r.cfg.Location = "EU"
+	info := r.m.Start(ctx, Request{SQL: "select 1", Execution: "Not a project!"}).Wait()
+	if info.State != api.RunFailed || info.Error == nil || info.Error.Message != `"Not a project!" is not a valid project ID` || info.Job != nil {
+		t.Fatalf("%+v %+v", info, info.Error)
+	}
+	if err := r.m.LearnPricingIn(ctx, "Not a project!"); err == nil || err.Error() != `"Not a project!" is not a valid project ID` {
+		t.Fatalf("%v", err)
+	}
+	if asked, records := r.clientsAsked(), r.recorded(); len(asked) != 0 || len(r.fake.QueryCalls()) != 0 || len(records) != 0 {
+		t.Fatalf("clients %q, calls %+v, History %+v", asked, r.fake.QueryCalls(), records)
+	}
+}
+
+func TestLearnPricingInAnExecutionProject(t *testing.T) {
+	r := newRig(t)
+	r.cfg.Location = "EU"
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.QueryScript{ReservationID: "res"} }
+	if err := r.m.LearnPricingIn(context.Background(), "window-proj"); err != nil {
+		t.Fatal(err)
+	}
+	if c := r.fake.QueryCalls(); len(c) != 1 || !c[0].Dry || c[0].Exec != "window-proj" {
+		t.Fatalf("%+v", c)
+	}
+	if !r.m.pricingIn("window-proj").Capacity || r.m.Pricing().Known {
+		t.Fatalf("%+v %+v", r.m.pricingIn("window-proj"), r.m.Pricing())
+	}
+	if err := r.m.LearnPricingIn(context.Background(), ""); err != nil || !r.m.pricingIn("exec").Capacity {
+		t.Fatalf("\"\" is the shared project: %v %+v", err, r.m.pricingIn("exec"))
+	}
+	r.m.ForgetPricing()
+	if r.m.pricingIn("window-proj").Known || r.m.Pricing().Known {
+		t.Fatal("ForgetPricing keeps a model")
 	}
 }
