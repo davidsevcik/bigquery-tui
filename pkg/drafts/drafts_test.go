@@ -394,3 +394,15 @@ func TestRestoringAMissingDraftLeavesNoLock(t *testing.T) {
 		t.Fatalf("a failed restore releases the lock: %v", err)
 	}
 }
+
+func TestRestoreTakesTheLockBeforeReadingTheText(t *testing.T) {
+	s := In(t.TempDir())
+	held, err := s.Hold("x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Release()
+	if _, _, err := s.Restore("x"); !errors.Is(err, ErrHeld) {
+		t.Fatalf("a held draft is refused before its text is read: %v", err)
+	}
+}
