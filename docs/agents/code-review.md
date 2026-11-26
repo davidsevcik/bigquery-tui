@@ -18,19 +18,19 @@ The reviewer leaves auto-merge off while another open pull request is based on t
 
 ## Answering a review (pull request authors)
 
-Answer a review as soon as it lands, without waiting to be asked: fix what it reports and push. Stop and ask the user only when a finding needs their decision:
+Answer a review as soon as it lands, without waiting to be asked, by following the steps below. Stop and ask the user only when a finding needs their decision:
 
-- The fixes differ in what users see or what the product does: scope, behaviour, wording, defaults.
-- The fix could cost money, delete or migrate user data, or change credentials, CI, the ruleset or the reviewer.
+- The fix, or the choice between possible fixes, changes what users see or what the product does: scope, behaviour, wording, defaults.
+- The fix could cost money, delete or migrate user data, or change credentials, CI, the `master` ruleset, `.github/CODEOWNERS` or how reviews are requested.
 - You disagree, and the reviewer kept the finding after your reply.
 - The fix needs access you don't have, such as a GCP project or a secret.
 
-For those, reply in the thread with the question and the options, leave it open, and tell the user. Fix everything else in the same pass.
+For those, reply in the thread with the question and the options, and tell the user. Leave that thread open, even a **Nit**: on an approved pull request, resolving it would merge the pull request before the user answers.
 
 1. Read every inline comment and the review body: `gh pr view <n> --comments`, and the threads through `gh api graphql` (`pullRequest.reviewThreads`).
 2. Fix each comment you agree with, and push the fixes as new commits. Don't amend or force-push.
 3. Reply in each thread with the commit that fixed it, or with the reason you didn't change the code. Keep the reason concrete: the guard the reviewer missed, or the spec line that allows the behaviour.
-4. Resolve **Nit** threads yourself once you've replied. Leave **Blocking** threads open: the reviewer resolves them when it agrees, and reopens one that anyone else resolves.
+4. Resolve **Nit** threads yourself once you've replied, except one waiting on the user's decision. Leave **Blocking** threads open: the reviewer resolves them when it agrees, and reopens one that anyone else resolves.
 5. Request the review again: `gh pr edit <n> --add-reviewer bot-overseer`, then nudge the reviewer as above. Without this request nothing re-reviews the pull request.
 
 Never approve, dismiss a review, merge, or turn auto-merge on or off yourself.
