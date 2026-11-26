@@ -742,7 +742,11 @@ func (c *completer) path(segs []string, withCTEs bool) []ranked {
 			}
 		}
 	case 1:
-		if p, ok := eqFold(c.cat.Projects(), segs[0]); ok {
+		projects := c.cat.Projects()
+		if def := c.cat.DefaultProject(); def != "" {
+			projects = append([]string{def}, projects...)
+		}
+		if p, ok := eqFold(projects, segs[0]); ok {
 			for _, d := range c.cat.Datasets(p) {
 				c.add(&out, 1, api.Candidate{Label: d, Kind: api.CandDataset, Detail: p})
 			}

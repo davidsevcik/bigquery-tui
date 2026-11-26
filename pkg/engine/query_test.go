@@ -149,6 +149,12 @@ func TestCompleteWithLimitsProjectsAndTakesAnExecutionProject(t *testing.T) {
 	if got := labels("select * from core.", inB); got != "t" {
 		t.Fatalf("unqualified names resolve in the given Execution project: %s", got)
 	}
+	if got := labels("select * from `proj-b.", inB); got != "core" {
+		t.Fatalf("the Execution project named in full offers its datasets: %s", got)
+	}
+	if got := labels("select * from `proj", inB); got != "proj-a" {
+		t.Fatalf("the Execution project is not offered as a project name: %s", got)
+	}
 	if got := labels("select * from ", api.CompleteOptions{Projects: onlyA.Projects, Execution: "proj-b", Forced: true}); !strings.Contains(got, "core") || strings.Contains(got, "proj-b") {
 		t.Fatalf("the Execution project's datasets, not the project itself: %s", got)
 	}

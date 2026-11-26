@@ -61,15 +61,9 @@ func (e *Engine) Complete(text string, cursor int, forced bool) []api.Candidate 
 }
 
 func (e *Engine) CompleteWith(text string, cursor int, o api.CompleteOptions) []api.Candidate {
-	c := completionCatalog{e: e, exec: o.Execution}
+	c := completionCatalog{e: e, exec: o.Execution, only: api.NewProjectSet(o.Projects)}
 	if c.exec == "" {
 		c.exec = e.execProject()
-	}
-	if len(o.Projects) > 0 {
-		c.only = make(map[string]bool, len(o.Projects))
-		for _, p := range o.Projects {
-			c.only[p] = true
-		}
 	}
 	return sqlx.Complete(text, cursor, c, sqlx.Options{Forced: o.Forced})
 }
@@ -77,13 +71,13 @@ func (e *Engine) CompleteWith(text string, cursor int, o api.CompleteOptions) []
 type completionCatalog struct {
 	e    *Engine
 	exec string
-	only map[string]bool
+	only api.ProjectSet
 }
 
 func (c completionCatalog) DefaultProject() string { return c.exec }
 
 func (c completionCatalog) listed(sel selection.State, project string) bool {
-	return sel.Has(project) && (c.only == nil || c.only[project])
+	return sel.Has(project) && c.only.Has(project)
 }
 
 func (c completionCatalog) Projects() []string {

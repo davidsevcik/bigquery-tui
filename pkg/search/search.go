@@ -233,18 +233,12 @@ func (x *Index) tableHit(i, maxScore, sum int) hit {
 
 type scoper struct {
 	scope  *api.ObjectPath
-	only   map[string]bool
+	only   api.ProjectSet
 	hidden map[string]bool
 }
 
 func newScoper(o api.SearchOptions) scoper {
-	sc := scoper{scope: o.Scope}
-	if len(o.Projects) > 0 {
-		sc.only = make(map[string]bool, len(o.Projects))
-		for _, p := range o.Projects {
-			sc.only[p] = true
-		}
-	}
+	sc := scoper{scope: o.Scope, only: api.NewProjectSet(o.Projects)}
 	for _, p := range o.Hidden {
 		if sc.hidden == nil {
 			sc.hidden = map[string]bool{}
@@ -255,7 +249,7 @@ func newScoper(o api.SearchOptions) scoper {
 }
 
 func (sc scoper) project(name string) bool {
-	if sc.hidden[name] || sc.only != nil && !sc.only[name] {
+	if sc.hidden[name] || !sc.only.Has(name) {
 		return false
 	}
 	return sc.scope == nil || sc.scope.Project == "" || sc.scope.Project == name

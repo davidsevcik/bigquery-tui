@@ -106,6 +106,24 @@ type SearchOptions struct {
 	Prefer         []string    `json:"-"`
 }
 
+type ProjectSet map[string]struct{}
+
+func NewProjectSet(projects []string) ProjectSet {
+	s := make(ProjectSet, len(projects))
+	for _, p := range projects {
+		s[p] = struct{}{}
+	}
+	return s
+}
+
+func (s ProjectSet) Has(project string) bool {
+	if len(s) == 0 {
+		return true
+	}
+	_, ok := s[project]
+	return ok
+}
+
 type FilterOptions struct {
 	Scope        *ObjectPath  `json:"scope,omitempty"`
 	Projects     []string     `json:"projects,omitempty"`
