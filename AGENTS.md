@@ -12,6 +12,10 @@ Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `
 
 Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+### Code review
+
+Pull requests are reviewed by `bot-overseer`. Before you answer a review, read `docs/agents/code-review.md`.
+
 ### Code comments
 
 Go code carries no comments beyond package docs (ADR 0004, enforced by `internal/archtest`): put intent in names and tests, decisions in `docs/adr/`, shortcuts in issues. A `// ADR-NNNN` line marks a decision that is easy to break: read that ADR's entry for the symbol before changing the code there. To clear comments from a branch, the user runs `/delete-comment`.

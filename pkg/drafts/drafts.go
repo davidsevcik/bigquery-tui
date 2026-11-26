@@ -20,12 +20,15 @@ import (
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/config"
 	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
 const maxAge = 30 * 24 * time.Hour
 
 var ErrHeld = errors.New("the draft is held by another instance")
+
+var ErrNotAProjectID = errors.New("not a project ID")
 
 func Dir(root string, frontend api.Source) string {
 	return filepath.Join(root, string(frontend))
@@ -64,7 +67,35 @@ func (s *Store) Hold(id string) (*Draft, error) {
 	if st, err := os.Stat(s.Path(id)); err == nil && st.Size() > 0 {
 		empty = false
 	}
-	return &Draft{s: s, id: id, lock: l, empty: empty}, nil
+	return &Draft{s: s, id: id, lock: l, empty: empty, executionProject: heldExecutionProject(l)}, nil
+}
+
+const recordEnd = "\n"
+
+func heldExecutionProject(l *store.Lock) string {
+	record, err := l.Read()
+	if err != nil {
+		return ""
+	}
+	return executionProjectIn(record)
+}
+
+func recordOf(project string) ([]byte, error) {
+	if project == "" {
+		return nil, nil
+	}
+	if !config.ValidProjectID(project) {
+		return nil, fmt.Errorf("%w: %q", ErrNotAProjectID, project)
+	}
+	return []byte(project + recordEnd), nil
+}
+
+func executionProjectIn(record []byte) string {
+	project, complete := strings.CutSuffix(string(record), recordEnd)
+	if !complete || !config.ValidProjectID(project) {
+		return ""
+	}
+	return project
 }
 
 func (s *Store) read(id string) (string, error) {
@@ -73,22 +104,24 @@ func (s *Store) read(id string) (string, error) {
 }
 
 func (s *Store) Restore(id string) (*Draft, string, error) {
-	text, err := s.read(id)
+	d, err := s.Hold(id)
 	if err != nil {
 		return nil, "", err
 	}
-	d, err := s.Hold(id)
+	text, err := s.read(id)
 	if err != nil {
+		d.Release()
 		return nil, "", err
 	}
 	return d, text, nil
 }
 
 type Orphan struct {
-	ID      string
-	ModTime time.Time
-	First   string
-	Lines   int
+	ID               string
+	ModTime          time.Time
+	First            string
+	Lines            int
+	ExecutionProject string
 }
 
 func (s *Store) Orphans(now time.Time, open []string) []Orphan {
@@ -123,12 +156,13 @@ func (s *Store) Orphans(now time.Time, open []string) []Orphan {
 
 func (s *Store) dropLoneLock(id string) {
 	// ADR-0011
-	if _, err := os.Stat(s.Path(id)); !os.IsNotExist(err) {
+	l, err := store.TryLock(s.lockPath(id))
+	if err != nil {
 		return
 	}
-	if l, err := store.TryLock(s.lockPath(id)); err == nil {
+	defer l.Unlock()
+	if _, err := os.Stat(s.Path(id)); os.IsNotExist(err) {
 		os.Remove(s.lockPath(id))
-		l.Unlock()
 	}
 }
 
@@ -152,14 +186,31 @@ func (s *Store) orphan(e os.DirEntry, id string, now time.Time) (Orphan, bool) {
 			break
 		}
 	}
-	return Orphan{ID: id, ModTime: info.ModTime(), First: first, Lines: strings.Count(string(data), "\n") + 1}, true
+	return Orphan{ID: id, ModTime: info.ModTime(), First: first, Lines: strings.Count(string(data), "\n") + 1, ExecutionProject: heldExecutionProject(l)}, true
 }
 
 type Draft struct {
-	s     *Store
-	id    string
-	lock  *store.Lock
-	empty bool
+	s                *Store
+	id               string
+	lock             *store.Lock
+	empty            bool
+	executionProject string
+}
+
+func (d *Draft) ExecutionProject() string { return d.executionProject }
+
+func (d *Draft) SetExecutionProject(project string) error {
+	project = strings.TrimSpace(project)
+	record, err := recordOf(project)
+	if err != nil {
+		return err
+	}
+	if err := d.lock.Rewrite(record); err != nil {
+		d.executionProject = heldExecutionProject(d.lock)
+		return err
+	}
+	d.executionProject = project
+	return nil
 }
 
 func (d *Draft) Save(text string) error {
