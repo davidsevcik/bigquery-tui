@@ -264,7 +264,7 @@ func TestADraftWithoutARecordHasAnUnknownExecutionProject(t *testing.T) {
 	d.Release()
 }
 
-func TestTheExecutionRecordGoesWithTheLock(t *testing.T) {
+func TestTheExecutionProjectRecordGoesWithTheLock(t *testing.T) {
 	s := In(t.TempDir())
 	now := time.Now()
 	recorded := func(id, text string) *Draft {

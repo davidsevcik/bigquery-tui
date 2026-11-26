@@ -80,6 +80,16 @@ func heldExecutionProject(l *store.Lock) string {
 	return executionProjectIn(record)
 }
 
+func recordOf(project string) ([]byte, error) {
+	if project == "" {
+		return nil, nil
+	}
+	if !config.ValidProjectID(project) {
+		return nil, fmt.Errorf("%w: %q", ErrNotAProjectID, project)
+	}
+	return []byte(project + recordEnd), nil
+}
+
 func executionProjectIn(record []byte) string {
 	project, complete := strings.CutSuffix(string(record), recordEnd)
 	if !complete || !config.ValidProjectID(project) {
@@ -191,14 +201,11 @@ func (d *Draft) ExecutionProject() string { return d.executionProject }
 
 func (d *Draft) SetExecutionProject(project string) error {
 	project = strings.TrimSpace(project)
-	record := ""
-	if project != "" {
-		if !config.ValidProjectID(project) {
-			return fmt.Errorf("%w: %q", ErrNotAProjectID, project)
-		}
-		record = project + recordEnd
+	record, err := recordOf(project)
+	if err != nil {
+		return err
 	}
-	if err := d.lock.Rewrite([]byte(record)); err != nil {
+	if err := d.lock.Rewrite(record); err != nil {
 		d.executionProject = heldExecutionProject(d.lock)
 		return err
 	}
