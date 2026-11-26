@@ -188,6 +188,7 @@ func New(be Backend, o Options) *Model {
 	}
 	if m.firstRun && m.toast == "" && !o.NoBackground && !m.autoProjs {
 		m.toast = "new to bqt? ctrl+g starts a short tutorial of the navigation"
+		// ADR-0010
 		m.saveState()
 	}
 	return m
@@ -656,6 +657,7 @@ func (m *Model) onConfig(ev config.Event) tea.Cmd {
 		return nil
 	}
 	m.cfgErr = ""
+	// ADR-0010
 	relearn := m.be.Config().Location != ev.Config.Location
 	m.be.SetConfig(ev.Config)
 	if len(ev.RestartRequired) > 0 {

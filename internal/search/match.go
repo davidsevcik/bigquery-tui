@@ -19,6 +19,7 @@ const (
 var tierNames = []string{"exact", "prefix", "word", "substring", "fuzzy", "description"}
 
 const (
+	// ADR-0006
 	penName    = 0
 	penLabel   = 100
 	penDataset = 200

@@ -56,6 +56,7 @@ func (s *Syncer) readColumns(ctx context.Context, project string, applies []stor
 				continue
 			}
 			t := &applies[w.a].Tables[w.t]
+			// ADR-0005
 			if len(t.Columns) == 0 && len(tc.Columns) > 0 {
 				n++
 			}

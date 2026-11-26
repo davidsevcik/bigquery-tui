@@ -1,3 +1,8 @@
+// Package archtest enforces the architecture rules from spec section 3: the
+// core imports no UI libraries and no frontend packages, and the shared api
+// types depend on nothing else in the module.
+//
+// It also holds Go code to its comment budget (ADR 0003).
 package archtest
 
 import (

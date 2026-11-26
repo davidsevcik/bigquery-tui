@@ -1,3 +1,6 @@
+// Package engine is the facade every frontend uses. It wires the config, the
+// store, the BigQuery ports and the sync engine, and exposes long operations
+// as a handle plus a stream of plain-data events.
 package engine
 
 import (
@@ -224,6 +227,7 @@ func (e *Engine) execClient(ctx context.Context) (Client, error) {
 	return e.clientFor(ctx, exec)
 }
 
+// ADR-0007
 func (e *Engine) clientFor(ctx context.Context, exec string) (Client, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -524,6 +528,7 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 		if rerr := e.ReloadIndex(context.WithoutCancel(ctx)); rerr != nil {
 			e.o.Log.Warn("reload search index after sync", "err", rerr)
 		}
+		// ADR-0007
 		e.endTrack(track)
 		lock.Unlock()
 		h.finish(res, err)

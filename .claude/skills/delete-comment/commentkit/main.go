@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,6 +26,8 @@ var directivePrefixes = []string{
 	"// Output:",
 	"// Unordered output:",
 }
+
+var adrPointer = regexp.MustCompile(`^// ADR-\d{4}$`)
 
 type group struct {
 	ID      string `json:"id"`
@@ -65,6 +68,9 @@ func die(err error) {
 }
 
 func isDirective(text string) bool {
+	if adrPointer.MatchString(text) {
+		return true
+	}
 	for _, p := range directivePrefixes {
 		if strings.HasPrefix(text, p) {
 			return true
@@ -106,6 +112,9 @@ func groups(file string) []group {
 	lines := strings.Split(string(src), "\n")
 	var out []group
 	for _, g := range f.Comments {
+		if g == f.Doc {
+			continue
+		}
 		var text []string
 		for _, c := range g.List {
 			if !isDirective(c.Text) {

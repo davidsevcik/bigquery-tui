@@ -75,6 +75,7 @@ func ReconcileConfig(ctx context.Context, cat *store.Catalog, cfg *config.Config
 		}
 		fallthrough
 	default:
+		// ADR-0005
 		needed, reason, err := syncNeeded(ctx, cat)
 		if err != nil {
 			return r, err

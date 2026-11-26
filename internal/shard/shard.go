@@ -1,3 +1,7 @@
+// Package shard turns the configured shard patterns into shard families
+// (spec section 8.3): tables of one dataset and type whose names differ only
+// in the part a pattern's capturing group marks. There is no built-in rule:
+// with no patterns, nothing collapses.
 package shard
 
 import (

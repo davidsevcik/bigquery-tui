@@ -1,3 +1,6 @@
+// Package bq defines the BigQuery ports the core depends on and the real
+// implementation behind them. Everything above this package talks to the
+// interfaces, so tests substitute fakes.
 package bq
 
 import (

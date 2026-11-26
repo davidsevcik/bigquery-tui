@@ -108,6 +108,7 @@ FROM tables t JOIN datasets d ON d.id = t.dataset_id ORDER BY t.dataset_id, t.na
 	return snap, urows.Err()
 }
 
+// ADR-0005
 func (c *Catalog) EachColumn(ctx context.Context, fn func(tableID int64, pathLC, descLC string)) error {
 	rows, err := c.db.QueryContext(ctx, "SELECT table_id, field_path_lc, lower(description) FROM columns ORDER BY table_id, id")
 	if err != nil {
@@ -186,6 +187,7 @@ func (w *Watcher) Close() error { return w.conn.Close() }
 
 func (c *Catalog) TableByID(ctx context.Context, id int64) (api.TableMeta, error) {
 	var t api.TableMeta
+	// ADR-0005
 	tx, err := c.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return t, err

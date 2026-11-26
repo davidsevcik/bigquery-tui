@@ -1,3 +1,4 @@
+// Package version reports the build version of bqt.
 package version
 
 import "runtime/debug"

@@ -116,6 +116,7 @@ func (m *Model) onSample(msg sampleMsg) tea.Cmd {
 	case errors.Is(msg.err, bq.ErrNeedsQuery):
 		m.toast = viewNoSample
 		prev := sm.prev
+		// ADR-0010
 		if prev != nil && prev.g == nil && prev.err == "" {
 			prev = nil
 		}

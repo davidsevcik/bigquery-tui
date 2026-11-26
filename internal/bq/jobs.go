@@ -211,6 +211,7 @@ func (c *Client) WaitJob(ctx context.Context, ref api.JobRef) (JobResult, error)
 		if ctx.Err() != nil {
 			return JobResult{}, Wrap("wait for job "+ref.ID, err)
 		}
+		// ADR-0004
 		var serr error
 		if st, serr = job.Status(ctx); serr != nil || !st.Done() {
 			return JobResult{}, Wrap("wait for job "+ref.ID, err)

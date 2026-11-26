@@ -1,3 +1,7 @@
+// Package mcp is bqt's MCP server (spec 14.2): eight tools over stdio, each a
+// thin wrapper over an engine call and its api type. Every query runs under
+// the agent policy (spec 14.3) inside the engine; tool annotations are hints
+// for the client, never the enforcement.
 package mcp
 
 import (
@@ -82,6 +86,7 @@ func (s *Server) engine(ctx context.Context) *engine.Engine {
 			fresh.Close()
 			return s.eng
 		}
+		// ADR-0009
 		s.old = append(s.old, s.eng)
 		s.eng = fresh
 		s.watch(fresh)

@@ -1,3 +1,6 @@
+// Package cli is bqt's non-interactive command-line frontend. Every command
+// writes one JSON document (the core type, serialized) to stdout when stdout
+// is not a terminal, and human text otherwise (spec section 14.1).
 package cli
 
 import (

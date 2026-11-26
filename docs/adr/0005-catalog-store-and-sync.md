@@ -14,7 +14,7 @@ The `store` package owns the two SQLite files in the data directory: `catalog.db
 - **`selection`**: the Selected projects and the chosen Execution project are the working set that used to live in the config file. They are one small JSON file in the data directory's state folder, shared by every frontend (TUI, CLI, MCP) and every process.
 - **`selection.Project.SelectedAt`**: it decides the default Execution project, which is the earliest-selected project (`State.Earliest`).
 - **`selection.Store`**: reads are cached until the file changes, so a change written by another process shows up on the next read.
-- **`selection.stamp`**: a version of the file is identified by its file identity (`os.SameFile`) as well as mtime and size. Every save renames a new file into place, so the identity changes even when two saves land within one mtime tick.
+- **`selection.stamp`**, **`selection.stamp.same`**: a version of the file is identified by its file identity (`os.SameFile`) as well as mtime and size. Every save renames a new file into place, so the identity changes even when two saves land within one mtime tick.
 - **`selection.(*Store).Update`**: it rereads the file, applies `fn` and writes the result atomically. There is no cross-process lock, so the last write wins between processes. Nothing is written when `fn` fails.
 
 ### Shard patterns and families

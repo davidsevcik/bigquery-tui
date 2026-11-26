@@ -163,6 +163,7 @@ func (s *Searcher) ShardMembers(project, dataset, family string, typ api.TableTy
 	var idx []int
 	var fam api.ShardFamily
 	for _, ti := range d.tables {
+		// ADR-0006
 		if t := &x.tables[ti]; t.shard != nil && t.shard.Name == family && (typ == "" || t.typ == typ) {
 			idx = append(idx, ti)
 			fam = *t.shard

@@ -114,6 +114,7 @@ func (f *Fake) DatasetTables(ctx context.Context, req bq.DatasetRequest) (*api.S
 	if err != nil {
 		return nil, err
 	}
+	// ADR-0004
 	m := api.DatasetMeta{Project: req.Project, Name: d.Meta.Name, Location: d.Meta.Location}
 	snap := &api.Snapshot{Datasets: []api.DatasetMeta{m}}
 	for _, t := range d.Tables {

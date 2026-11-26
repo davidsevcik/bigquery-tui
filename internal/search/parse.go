@@ -1,3 +1,7 @@
+// Package search implements catalog search: the query grammar, tiered
+// ranking, shard-family grouping and the browse lists (spec section 8). It is
+// pure core logic over an in-memory index of projects, datasets and tables;
+// columns are consulted only for the col: filter.
 package search
 
 import (

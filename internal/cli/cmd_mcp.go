@@ -37,6 +37,7 @@ func cmdMCP(ctx context.Context, o *out, g *globals, args []string) error {
 		return err
 	}
 	defer closeLog()
+	// ADR-0009
 	exec, err := engine.ResolveExecution(cfg)
 	if err != nil {
 		return err

@@ -16,6 +16,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/api"
 )
 
+// ADR-0005
 var historyMigrations = []string{
 	`
 CREATE TABLE history (

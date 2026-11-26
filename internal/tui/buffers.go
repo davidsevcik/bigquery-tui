@@ -194,6 +194,7 @@ func (m *Model) scanOrphans() {
 		id, isSQL := strings.CutSuffix(name, ".sql")
 		if !isSQL {
 			if lid, ok := strings.CutSuffix(name, ".lock"); ok && !mine[lid] {
+				// ADR-0010
 				if _, err := os.Stat(m.draftPath(lid)); os.IsNotExist(err) {
 					if l, err := store.TryLock(filepath.Join(dir, name)); err == nil {
 						os.Remove(filepath.Join(dir, name))

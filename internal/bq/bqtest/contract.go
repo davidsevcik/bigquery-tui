@@ -132,6 +132,7 @@ func withColumns(t *testing.T, s *api.Snapshot, cols []bq.TableColumns) *api.Sna
 	}
 	for _, tc := range cols {
 		i, ok := at[tc.Dataset+"."+tc.Table]
+		// ADR-0004
 		if !ok {
 			continue
 		}

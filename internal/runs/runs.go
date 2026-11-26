@@ -1,3 +1,8 @@
+// Package runs executes queries. A Run snapshots its SQL and parameters, does
+// a dry-run first, asks for confirmation through its state (never through a
+// prompt), waits for a free slot, runs the job with the byte cap set, and then
+// serves the result page by page. Every frontend goes through here, so the
+// cap, the labels and the History entry come from one code path.
 package runs
 
 import (
@@ -107,6 +112,7 @@ func (m *Manager) Pricing() api.PricingModel {
 }
 
 func (m *Manager) learn(exec string, dr bq.DryRunResult, force bool) {
+	// ADR-0008
 	if exec != m.o.Execution() {
 		return
 	}
@@ -124,6 +130,7 @@ func (m *Manager) ForgetPricing() {
 	m.pricing = api.PricingModel{}
 }
 
+// ADR-0008
 const pricingProbe = "SELECT x FROM UNNEST(GENERATE_ARRAY(1, 2)) AS x ORDER BY x"
 
 func (m *Manager) LearnPricing(ctx context.Context) error {
@@ -326,6 +333,7 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 			rctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), p.Timeout)
 		}
 	}
+	// ADR-0008
 	exec := m.o.Execution()
 	m.mu.Lock()
 	m.seq++
@@ -428,6 +436,7 @@ func (r *Run) finish(fn func(*api.RunInfo)) {
 	info.Ended = &now
 	info.Confirmation = nil
 	r.mu.Unlock()
+	// ADR-0008
 	if info.Job != nil && r.m.o.Record != nil {
 		r.m.o.Record(info)
 	}

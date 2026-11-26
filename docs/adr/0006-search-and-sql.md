@@ -72,7 +72,7 @@ Package `search` is catalog search: the query grammar, tiered ranking, Shard fam
 - **`sqlx.Complete`**: works on the token stream, not a parser, so it never fails on a half-typed query. The cursor is a byte offset. No candidates means the popup stays closed.
 - **`sqlx.Catalog`**: the slice of the metadata index completion needs. Every lookup is scoped to one project, one dataset or one table, so completion stays fast on every keystroke; the interface deliberately offers no catalog-wide scan.
 - **`sqlx.Catalog`** (`DefaultProject`): the project an unqualified `dataset.table` resolves to: the Execution project, as BigQuery resolves it for the job.
-- **`sqlx.TableName`**: `Members` is set on a Shard family's wildcard (`Name` is `prefix*`). The members' names are read only once the typed text reaches past `Prefix` into the varying part, so a large family does not flood the popup.
+- **`sqlx.TableName`**, **`sqlx.(*completer).path`**: `Members` is set on a Shard family's wildcard (`Name` is `prefix*`). The members' names are read only once the typed text reaches past `Prefix` into the varying part, so a large family does not flood the popup.
 - **`sqlx.fromOfFunction`**: FROM also appears inside calls such as `EXTRACT(x FROM y)`, `TRIM` and `SUBSTRING`; such a FROM is not a query's FROM clause.
 - **`sqlx.(*scope).parseRef`**: the word under the cursor after a table reference is not its alias, because the user is still typing it and it must stay completable.
 - **`sqlx.(*completer).finish`**: returns no candidates when the only one left is exactly the typed text, because typing a whole candidate is not a reason to keep the popup open.

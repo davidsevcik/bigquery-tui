@@ -1,3 +1,5 @@
+// Package bqtest provides an in-memory bq.Metadata with failure injection and
+// the contract suite shared by the fake and the real implementation.
 package bqtest
 
 import (
@@ -207,6 +209,7 @@ func (f *Fake) ListDatasets(ctx context.Context, project string) (bq.DatasetList
 	for _, d := range p.Datasets {
 		m := d.Meta
 		m.Project = project
+		// ADR-0004
 		m.Description = ""
 		out.Datasets = append(out.Datasets, m)
 	}

@@ -300,6 +300,7 @@ func likeEscape(s string) string {
 }
 
 func termSpans(text string, terms []api.QueryTerm) []api.Span {
+	// ADR-0005
 	lower := asciiLower(text)
 	var out []api.Span
 	for _, t := range terms {

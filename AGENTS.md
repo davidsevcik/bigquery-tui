@@ -14,4 +14,4 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 
 ### Code comments
 
-Go code carries no comments (ADR 0003, enforced by `internal/archtest`): put intent in names and tests, decisions in `docs/adr/`, shortcuts in issues. To clear comments from a branch, the user runs `/delete-comment`.
+Go code carries no comments beyond package docs (ADR 0003, enforced by `internal/archtest`): put intent in names and tests, decisions in `docs/adr/`, shortcuts in issues. A `// ADR-NNNN` line marks a decision that is easy to break: read that ADR's entry for the symbol before changing the code there. To clear comments from a branch, the user runs `/delete-comment`.

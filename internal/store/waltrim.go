@@ -22,6 +22,7 @@ func truncateWAL(ctx context.Context, db *sql.DB) (done bool, err error) {
 		return false, err
 	}
 	defer conn.Close()
+	// ADR-0005
 	defer func() {
 		if _, rerr := conn.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("PRAGMA busy_timeout = %d", busyTimeoutMs)); rerr != nil {
 			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
@@ -32,6 +33,7 @@ func truncateWAL(ctx context.Context, db *sql.DB) (done bool, err error) {
 	}
 	var busy, logPages, moved int
 	if err := conn.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &logPages, &moved); err != nil {
+		// ADR-0005
 		if isBusy(err) {
 			return false, nil
 		}
@@ -60,6 +62,7 @@ func (t *walTrimmer) retry(ctx context.Context, db *sql.DB) {
 		return
 	}
 	t.running = true
+	// ADR-0005
 	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), walRetryFor)
 	t.cancel = cancel
 	t.wg.Add(1)

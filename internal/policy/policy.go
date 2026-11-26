@@ -1,3 +1,12 @@
+// Package policy is the safety model of the agent entry points (spec 14.3):
+// `bqt query`, `bqt favorites run` and `bqt mcp`. bqt cannot tell an agent
+// from a person at the command line, so every non-TUI query goes through the
+// same profile: SELECT only (unless the config allows CLI writes), a byte
+// limit checked on the dry-run, a timeout, and caps on rows and cell size.
+//
+// The profile is a pure function of the config and the dry-run, so every
+// frontend (and a future GUI's agent mode) gets the same answer. Flags and
+// tool arguments can only lower a limit; raising one takes the config file.
 package policy
 
 import (

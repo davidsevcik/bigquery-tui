@@ -1,3 +1,5 @@
+// Command bqt is a keyboard-driven BigQuery explorer: the terminal UI, a
+// scriptable CLI and an MCP server for agents, in one binary.
 package main
 
 import (

@@ -4,7 +4,7 @@ The brief for whoever classifies a ledger: the main agent, or a subagent handed 
 
 ## Input
 
-A ledger file from `commentkit list`: one JSON object per comment group, `{"id","file","line","end","own_line","text"}`. `id` is `file:line`. `own_line` is false for a trailing comment after code. Directives (`//go:build`, `//nolint:x // reason`) are never in the ledger; a group with an embedded `//nolint` lists only its prose, and strip keeps the directive.
+A ledger file from `commentkit list`: one JSON object per comment group, `{"id","file","line","end","own_line","text"}`. `id` is `file:line`. `own_line` is false for a trailing comment after code. Package docs, `// ADR-NNNN` pointers and directives (`//go:build`, `//nolint:x // reason`) are allowed and never in the ledger; a group with an embedded `//nolint` lists only its prose, and strip keeps the directive.
 
 ## Output
 

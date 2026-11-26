@@ -1,3 +1,6 @@
+// Package format turns BigQuery wire values into display cells. It is core
+// logic shared by every frontend: frontends only lay the cells out. Output
+// never contains control characters or ANSI sequences.
 package format
 
 import (

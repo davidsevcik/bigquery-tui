@@ -1,3 +1,8 @@
+// Package tui is bqt's terminal frontend. It only lays out what the core
+// returns: every piece of product behaviour (search, ranking, sync, formatting)
+// comes from the engine through the Backend interface, or, where no state is
+// involved (a Favorite's header, matching Favorites, binding parameters),
+// from the core package that owns the rule.
 package tui
 
 import (

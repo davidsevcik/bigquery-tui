@@ -1,3 +1,6 @@
+// Package logging builds bqt's structured logger: JSON lines in a rotating
+// file in data_dir/logs, never on the terminal for interactive commands
+// (spec section 13).
 package logging
 
 import (
@@ -28,6 +31,7 @@ func fileWritable(dir string) bool {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return false
 	}
+	// ADR-0011
 	_ = os.Chmod(dir, 0o700)
 	f, err := os.OpenFile(filepath.Join(dir, FileName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {

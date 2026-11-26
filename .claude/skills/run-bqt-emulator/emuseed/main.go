@@ -1,3 +1,7 @@
+// emuseed syncs bqt's catalog from a BigQuery emulator whose INFORMATION_SCHEMA
+// is too thin for bqt's views: the dataset snapshot is built from tables.get.
+// Manual testing only: setup.sh builds and runs it with BQT_CONFIG and
+// BQT_BIGQUERY_ENDPOINT set.
 package main
 
 import (
@@ -73,6 +77,7 @@ func (m meta) snapshot(ctx context.Context, req bq.DatasetRequest) (*api.Snapsho
 func (m meta) ListDatasets(ctx context.Context, project string) (bq.DatasetList, error) {
 	l, err := m.Client.ListDatasets(ctx, project)
 	for i := range l.Datasets {
+		// ADR-0011
 		if l.Datasets[i].Location == "" {
 			l.Datasets[i].Location = "US"
 		}

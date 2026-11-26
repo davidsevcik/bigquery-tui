@@ -710,6 +710,7 @@ func (c *completer) path(segs []string, withCTEs bool) []ranked {
 		typed := strings.ToLower(c.partial)
 		for _, t := range c.cat.Tables(project, dataset) {
 			table(project, dataset, t.Name, string(t.Type))
+			// ADR-0006
 			if t.Members == nil || len(typed) <= len(t.Prefix) || !strings.HasPrefix(typed, strings.ToLower(t.Prefix)) {
 				continue
 			}

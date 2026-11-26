@@ -5,12 +5,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,9 +34,6 @@ var allowedCommentPrefixes = []string{
 }
 
 func TestCommentBudget(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not on PATH")
-	}
 	counts := commentCounts(t)
 	budget := readCommentBudget(t)
 
@@ -59,7 +58,7 @@ func TestCommentBudget(t *testing.T) {
 		total += have
 		switch {
 		case have > allowed:
-			t.Errorf("%s: %d comment lines, budget %d. Code comments are banned: put the intent in names and tests, "+
+			t.Errorf("%s: %d comment lines, budget %d. Code comments are banned beyond package docs and // ADR-NNNN pointers: put the intent in names and tests, "+
 				"a lasting decision in docs/adr, and a known shortcut in an issue (see .claude/skills/delete-comment)",
 				p, have, allowed)
 			if allowed > 0 {
@@ -89,13 +88,32 @@ func TestCommentBudget(t *testing.T) {
 		"`go test ./internal/archtest -run TestCommentBudget -update-comments`:\n%s", strings.Join(stale, "\n"))
 }
 
-func commentCounts(t *testing.T) map[string]int {
+type scannedFile struct {
+	path     string
+	pkg      string
+	lines    int
+	pkgDoc   bool
+	pointers []adrPointer
+}
+
+type adrPointer struct {
+	adr    string
+	symbol string
+	line   int
+}
+
+var adrPointerText = regexp.MustCompile(`^// ADR-(\d{4})$`)
+
+func scanRepo(t *testing.T) []scannedFile {
 	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
 	out, err := exec.Command("git", "-C", "../..", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.go").Output()
 	if err != nil {
 		t.Fatalf("git ls-files: %v", err)
 	}
-	counts := map[string]int{}
+	var files []scannedFile
 	for _, rel := range strings.Split(string(out), "\x00") {
 		if rel == "" || isTestdata(rel) {
 			continue
@@ -107,8 +125,17 @@ func commentCounts(t *testing.T) map[string]int {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if n := commentLines(t, rel, src); n > 0 {
-			counts[rel] = n
+		files = append(files, scanFile(t, rel, src))
+	}
+	return files
+}
+
+func commentCounts(t *testing.T) map[string]int {
+	t.Helper()
+	counts := map[string]int{}
+	for _, f := range scanRepo(t) {
+		if f.lines > 0 {
+			counts[f.path] = f.lines
 		}
 	}
 	return counts
@@ -123,23 +150,126 @@ func isTestdata(rel string) bool {
 	return false
 }
 
-func commentLines(t *testing.T, name string, src []byte) int {
+func scanFile(t *testing.T, name string, src []byte) scannedFile {
 	t.Helper()
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, name, src, parser.ParseComments|parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatalf("parse %s: %v", name, err)
 	}
-	n := 0
+	out := scannedFile{path: name, pkg: filepath.ToSlash(filepath.Dir(name)) + " " + f.Name.Name}
 	for _, g := range f.Comments {
+		if g == f.Doc {
+			out.pkgDoc = true
+			continue
+		}
 		for _, c := range g.List {
 			if allowedComment(c.Text) {
 				continue
 			}
-			n += fset.Position(c.End()).Line - fset.Position(c.Pos()).Line + 1
+			if m := adrPointerText.FindStringSubmatch(c.Text); m != nil {
+				out.pointers = append(out.pointers, adrPointer{adr: m[1], symbol: enclosingSymbol(f, c.Pos()), line: fset.Position(c.Pos()).Line})
+				continue
+			}
+			out.lines += fset.Position(c.End()).Line - fset.Position(c.Pos()).Line + 1
 		}
 	}
-	return n
+	return out
+}
+
+func enclosingSymbol(f *ast.File, pos token.Pos) string {
+	for _, decl := range f.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if within(pos, d.Doc, d.Pos(), d.End()) {
+				return d.Name.Name
+			}
+		case *ast.GenDecl:
+			if !within(pos, d.Doc, d.Pos(), d.End()) {
+				continue
+			}
+			for _, spec := range d.Specs {
+				if name := specName(spec, pos, len(d.Specs) == 1); name != "" {
+					return name
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func specName(spec ast.Spec, pos token.Pos, only bool) string {
+	switch s := spec.(type) {
+	case *ast.TypeSpec:
+		if only || within(pos, s.Doc, s.Pos(), s.End()) {
+			return s.Name.Name
+		}
+	case *ast.ValueSpec:
+		if only || within(pos, s.Doc, s.Pos(), s.End()) {
+			return s.Names[0].Name
+		}
+	}
+	return ""
+}
+
+func within(pos token.Pos, doc *ast.CommentGroup, from, to token.Pos) bool {
+	if doc != nil {
+		from = doc.Pos()
+	}
+	return pos >= from && pos <= to
+}
+
+func TestOnePackageDocPerPackage(t *testing.T) {
+	docs := map[string][]string{}
+	for _, f := range scanRepo(t) {
+		if f.pkgDoc {
+			docs[f.pkg] = append(docs[f.pkg], f.path)
+		}
+	}
+	for pkg, files := range docs {
+		if len(files) > 1 {
+			sort.Strings(files)
+			t.Errorf("package %s has a package doc in %d files, want one: %s", pkg, len(files), strings.Join(files, ", "))
+		}
+	}
+}
+
+func TestADRPointersNameTheirSymbol(t *testing.T) {
+	adrs := map[string]string{}
+	for _, f := range scanRepo(t) {
+		for _, p := range f.pointers {
+			where := fmt.Sprintf("%s:%d: ADR-%s", f.path, p.line, p.adr)
+			if p.symbol == "" {
+				t.Errorf("%s: a pointer must sit on or inside the declaration it is about", where)
+				continue
+			}
+			text, ok := adrs[p.adr]
+			if !ok {
+				text = readADR(t, p.adr)
+				adrs[p.adr] = text
+			}
+			if text == "" {
+				t.Errorf("%s: no docs/adr/%s-*.md", where, p.adr)
+				continue
+			}
+			if !regexp.MustCompile(`\b` + regexp.QuoteMeta(p.symbol) + `\b`).MatchString(text) {
+				t.Errorf("%s: the ADR does not mention %s", where, p.symbol)
+			}
+		}
+	}
+}
+
+func readADR(t *testing.T, number string) string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join("../../docs/adr", number+"-*.md"))
+	if err != nil || len(matches) == 0 {
+		return ""
+	}
+	b, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func allowedComment(text string) bool {

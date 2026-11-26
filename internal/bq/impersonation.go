@@ -86,6 +86,7 @@ func impersonationTarget(adc []byte) string {
 	return sa
 }
 
+// ADR-0004
 func defaultADC() []byte {
 	creds, err := google.FindDefaultCredentials(context.Background())
 	if err != nil {

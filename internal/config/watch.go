@@ -35,6 +35,7 @@ func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 	}
 	out := make(chan Event, 1)
 	path := ResolvePath(o.Load)
+	// ADR-0011
 	seen, _, _ := readHashed(path)
 	go func() {
 		defer close(out)

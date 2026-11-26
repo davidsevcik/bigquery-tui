@@ -20,6 +20,7 @@ func (c *Client) RegionTables(ctx context.Context, req RegionRequest) (*api.Snap
 	if err != nil {
 		return nil, Wrap(fmt.Sprintf("region tables %s/%s", req.Project, req.Location), err)
 	}
+	// ADR-0004
 	byName := map[string]api.DatasetMeta{}
 	for _, d := range snap.Datasets {
 		byName[d.Name] = d
@@ -192,6 +193,7 @@ func (c *Client) columns(ctx context.Context, sc scope, location string, params 
 		if r[5] != nil {
 			cr.clustering = int(num(r[5]))
 		}
+		// ADR-0004
 		cr.required = str(r[6]) == "NO" && !strings.HasPrefix(str(r[7]), "ARRAY<")
 		cols = append(cols, cr)
 	})

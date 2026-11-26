@@ -1,3 +1,8 @@
+// Package favorites reads and writes Favorites: plain .sql files under
+// favorites_dir whose leading "-- key: value" comment lines carry a
+// description, tags and typed parameters (spec section 11). The header is
+// SQL comments, so a Favorite still runs anywhere as it is. There is no
+// index: a directory walk is fast enough below a few thousand files.
 package favorites
 
 import (
@@ -378,6 +383,7 @@ func (d Dir) Write(id, text string, overwrite bool) (string, error) {
 		return "", err
 	}
 	if !overwrite {
+		// ADR-0011
 		if err := claim(p); err != nil {
 			os.Remove(tmp.Name())
 			if errors.Is(err, fs.ErrExist) {

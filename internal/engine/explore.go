@@ -297,6 +297,7 @@ func (e *Engine) WatchCatalog(ctx context.Context, interval time.Duration) <-cha
 					continue
 				}
 				w = nw
+				// ADR-0007
 				if err := e.ReloadIndex(ctx); err == nil {
 					select {
 					case out <- struct{}{}:

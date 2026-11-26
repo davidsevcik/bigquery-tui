@@ -1,3 +1,5 @@
+// Package config loads, validates and describes bqt's single TOML
+// configuration file (spec section 4).
 package config
 
 import (

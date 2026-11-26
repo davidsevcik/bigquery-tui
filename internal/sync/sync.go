@@ -1,3 +1,10 @@
+// Package sync keeps the local catalog in line with BigQuery (spec section 7).
+//
+// The unit of work is a (project, location) pair. Each unit is fetched with
+// region-qualified INFORMATION_SCHEMA views and applied to the catalog in one
+// transaction. When the region views are not accessible the unit degrades
+// through a ladder: per-dataset views, then table names only, then "keep the
+// old data and mark the dataset inaccessible".
 package sync
 
 import (
@@ -594,6 +601,7 @@ func (s *Syncer) fallbackDataset(ctx context.Context, job unitJob, d api.Dataset
 		return store.DatasetApply{}, false
 	}
 	switch bq.KindOf(err) {
+	// ADR-0005
 	case bq.KindNotFound:
 		return store.DatasetApply{}, false
 	case bq.KindPermission:

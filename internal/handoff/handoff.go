@@ -1,3 +1,7 @@
+// Package handoff renders the plain-text formats the TUI hands to an agent
+// (spec 14.4): a table's schema, a failed query with its error, a sample of a
+// result, a Run's summary. The text has no ANSI; a frontend only decides
+// where it goes (the clipboard, a file).
 package handoff
 
 import (

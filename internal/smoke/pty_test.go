@@ -1,3 +1,6 @@
+// Package smoke starts the real binary in a pseudo-terminal: the one test
+// that exercises terminal setup, the alternate screen, key input and a clean
+// exit together.
 package smoke
 
 import (

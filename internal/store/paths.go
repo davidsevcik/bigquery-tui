@@ -1,3 +1,5 @@
+// Package store owns bqt's local files: the disposable catalog.db, the durable
+// history.db and the advisory lockfile (spec sections 5 and 6).
 package store
 
 import (

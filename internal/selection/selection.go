@@ -1,3 +1,7 @@
+// Package selection keeps the user's Selected projects and their chosen
+// Execution project (ADR 0001). It is one small JSON file in the data
+// directory's state folder, shared by every frontend (TUI, CLI, MCP) and
+// every process.
 package selection
 
 import (
@@ -101,6 +105,7 @@ type stamp struct {
 }
 
 func (a stamp) same(b stamp) bool {
+	// ADR-0005
 	return a.fi != nil && b.fi != nil && os.SameFile(a.fi, b.fi) &&
 		a.fi.ModTime().Equal(b.fi.ModTime()) && a.fi.Size() == b.fi.Size()
 }
@@ -143,6 +148,7 @@ func (st *Store) loadLocked() (State, error) {
 func (st *Store) Update(fn func(*State) error) (State, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	// ADR-0005
 	st.ok = false
 	s, err := st.loadLocked()
 	if err != nil {

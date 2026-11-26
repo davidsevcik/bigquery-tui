@@ -7,7 +7,7 @@ argument-hint: "[path ...]  (default: every file that still has comments)"
 
 # Delete comments
 
-Code comments are banned in this repo. `internal/archtest/comments_test.go` holds every Go file to its budget in `internal/archtest/testdata/comment_budget.txt` (`<lines> <path>`), a ratchet that only goes down. This skill pays the budget down: every comment in scope gets a verdict, and its content is deleted, moved into an ADR or filed as an issue.
+Code comments are banned in this repo ([ADR 0003](../../../docs/adr/0003-code-carries-no-comments.md)), except one package doc per package, bare `// ADR-NNNN` pointers and tool directives; `commentkit` never lists those. `internal/archtest/comments_test.go` holds every Go file to its budget in `internal/archtest/testdata/comment_budget.txt` (`<lines> <path>`), a ratchet that only goes down. This skill pays the budget down: every comment in scope gets a verdict, and its content is deleted, moved into an ADR or filed as an issue.
 
 Scratch files go in `.scratch/delete-comment/` (gitignored). `commentkit` is `go run ./.claude/skills/delete-comment/commentkit`.
 
@@ -27,7 +27,9 @@ Done when every ledger id has exactly one verdict (check with a one-line `python
 
 Group the `decision` verdicts by area (package or subsystem). Each area gets one ADR in `docs/adr/` in the existing format (`# N. Title`, Date, Status, Context, Decision, Consequences), with one bullet per decision naming its symbol. If an ADR for that area exists, add the bullets to it rather than writing a second one. Where a decision contradicts an existing ADR, say so in the PR.
 
-Done when every `decision` verdict's content is in an ADR.
+Then mark the traps. A decision's site gets a pointer, a line that is exactly `// ADR-NNNN` directly above the declaration or statement, only when a plausible "fix" there would break the decision **and** no existing test fails when it does. Find and read the test before deciding; where one guards the decision, the test is the guard. Several decisions in one function share one pointer. Expect pointers at a minority of sites.
+
+Done when every `decision` verdict's content is in an ADR, each decision has a pointer or a named guarding test (or is judged no trap), and `go test ./internal/archtest -run ADRPointer` passes.
 
 ## 4. File the excuses
 

@@ -417,6 +417,7 @@ func upsertDataset(ctx context.Context, tx *sql.Tx, projectID int64, m api.Datas
 			m.Description, m.FriendlyName, labels, string(status), id)
 		return id, false, err
 	}
+	// ADR-0005
 	if _, err = tx.ExecContext(ctx, "DELETE FROM datasets WHERE project_id=? AND name=?", projectID, m.Name); err != nil {
 		return 0, false, err
 	}
@@ -534,6 +535,7 @@ func applyTables(ctx context.Context, tx *sql.Tx, datasetID int64, tables []api.
 
 func insertColumns(ctx context.Context, ins *sql.Stmt, tableID int64, cols []api.ColumnMeta) error {
 	ordered := append([]api.ColumnMeta(nil), cols...)
+	// ADR-0005
 	sortByDepth(ordered)
 	ids := make(map[string]int64, len(ordered))
 	for _, c := range ordered {

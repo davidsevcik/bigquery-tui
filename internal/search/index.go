@@ -119,6 +119,7 @@ func BuildIndex(snap *store.IndexSnapshot) *Index {
 }
 
 func (x *Index) setFamily(path string, idx int, own bool) {
+	// ADR-0006
 	rank := 0
 	if own {
 		rank += 2

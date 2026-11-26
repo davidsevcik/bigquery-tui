@@ -208,6 +208,7 @@ func (s *Searcher) compile(ctx context.Context, q api.ParsedQuery) (*Index, *com
 		if err != nil {
 			return x, c, err
 		}
+		// ADR-0006
 		x = ix
 		for _, f := range c.filters {
 			if f.Key != "col" {
@@ -599,6 +600,7 @@ func (x *Index) collapseShards(hits []hit, c *compiled) []hit {
 	drop := map[int]bool{}
 	for _, k := range order {
 		members := groups[k]
+		// ADR-0006
 		rep := members[0]
 		best := hits[rep]
 		for _, m := range members {
@@ -684,6 +686,7 @@ func termSpans(lname string, terms []string, fuzzy bool) []api.Span {
 }
 
 func setSpans(m map[string][]api.Span, key, original, lower string, sp []api.Span) {
+	// ADR-0006
 	if len(sp) > 0 && len(original) == len(lower) {
 		m[key] = sp
 	}
@@ -707,6 +710,7 @@ func (s *Searcher) materialize(ctx context.Context, x *Index, c *compiled, h hit
 		setSpans(r.Spans, "name", d.name, d.lname, mergeSpans(append(termSpans(d.lname, terms, false), subSpans(d.lname, c.filterValues("d"))...)))
 		setSpans(r.Spans, "project", p.name, p.lname, subSpans(p.lname, c.filterValues("p")))
 		setSpans(r.Spans, "description", d.desc, d.ldesc, subSpans(d.ldesc, terms))
+		// ADR-0006
 		if len(terms) > 0 {
 			r.MatchedField, r.Tier = "name", tierName(h.max)
 			if h.max >= descScore {

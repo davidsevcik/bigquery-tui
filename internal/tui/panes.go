@@ -104,6 +104,7 @@ func (m *Model) editPanes(op func(t layoutNode) (layoutNode, string)) {
 		m.toast = why
 		return
 	}
+	// ADR-0010
 	m.maxed = ""
 	t, why := op(m.panes)
 	if why != "" {

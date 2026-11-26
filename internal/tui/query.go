@@ -874,6 +874,7 @@ func (m *Model) requestCancel(id int64) {
 	}
 }
 
+// ADR-0010
 func mayBeBilled(r api.RunInfo) bool { return r.Estimate == nil || !r.Estimate.Capacity }
 
 func (m *Model) externalEditor() tea.Cmd {
@@ -999,6 +1000,7 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 		return m.findNext(-1)
 	case "copy":
 		if cells := g.cells(g.row); cells != nil && g.col < len(cells) {
+			// ADR-0010
 			col := g.col
 			return m.copyRow(g, func(cols []api.PreviewColumn, full []api.Cell) (string, string) {
 				if col >= len(full) || full[col].Null {

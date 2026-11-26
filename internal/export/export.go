@@ -1,3 +1,6 @@
+// Package export writes a query result to a file format. It streams: rows
+// are pulled page by page and written as they arrive, so the size of a
+// result is bounded by the disk, not by memory.
 package export
 
 import (

@@ -1,3 +1,7 @@
+// Package sqlx is bqt's SQL language intelligence: a BigQuery tokenizer and a
+// completion engine built on the token stream. Both are pure functions that
+// never fail on broken input, because a half-typed query is the editor's
+// normal state. Offsets are UTF-8 byte offsets.
 package sqlx
 
 import (
@@ -150,6 +154,7 @@ func scanString(text string, i int, raw bool) int {
 	}
 	j := i + 1
 	for j < n && text[j] != '\n' {
+		// ADR-0006
 		if text[j] == '\\' && j+1 < n && text[j+1] != '\n' {
 			j += 2
 			continue

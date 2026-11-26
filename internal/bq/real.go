@@ -117,6 +117,7 @@ func (c *Client) ListProjects(ctx context.Context) ([]api.ListedProject, error) 
 func (c *Client) ListDatasets(ctx context.Context, project string) (DatasetList, error) {
 	var out DatasetList
 	seenUnreachable := map[string]bool{}
+	// ADR-0004
 	err := c.svc.Datasets.List(project).MaxResults(1000).Context(ctx).Pages(ctx, func(r *bqv2.DatasetList) error {
 		for _, d := range r.Datasets {
 			if d.DatasetReference == nil {

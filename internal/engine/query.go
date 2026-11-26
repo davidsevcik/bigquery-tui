@@ -109,6 +109,7 @@ func (c completionCatalog) Tables(project, dataset string) []sqlx.TableName {
 }
 
 func (c completionCatalog) Columns(project, dataset, table string) []api.ColumnMeta {
+	// ADR-0007
 	key := project + "\x00" + dataset + "\x00" + table
 	c.e.colMu.Lock()
 	cols, ok := c.e.colCache[key]

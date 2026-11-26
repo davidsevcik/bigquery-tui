@@ -1,3 +1,7 @@
+// Package api holds the plain data types shared by the core and every
+// frontend. Everything here serializes to JSON, contains no rendered strings,
+// and imports nothing UI-related. Offsets, where they appear, are UTF-8 byte
+// offsets.
 package api
 
 import (

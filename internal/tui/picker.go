@@ -305,6 +305,7 @@ func (m *Model) finishLoad(req loadReq, replace bool) tea.Cmd {
 		nb = m.buf()
 	} else {
 		nb = m.addBuffer(req.text, "", "")
+		// ADR-0010
 		nb.draftVersion = -1
 	}
 	for k, v := range req.params {
