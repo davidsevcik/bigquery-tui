@@ -9,6 +9,8 @@ import (
 
 var ErrLocked = errors.New("already running")
 
+var ErrUnlocked = errors.New("the lock is released")
+
 type Lock struct {
 	f *os.File
 }
@@ -26,6 +28,17 @@ func TryLock(path string) (*Lock, error) {
 		return nil, fmt.Errorf("flock: %w", err)
 	}
 	return &Lock{f: f}, nil
+}
+
+func (l *Lock) Rewrite(content []byte) error {
+	if l == nil || l.f == nil {
+		return ErrUnlocked
+	}
+	if err := l.f.Truncate(0); err != nil {
+		return err
+	}
+	_, err := l.f.WriteAt(content, 0)
+	return err
 }
 
 func (l *Lock) Unlock() error {

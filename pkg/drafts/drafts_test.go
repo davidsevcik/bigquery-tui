@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
 func wantOneOrphanUnder(t *testing.T, s *Store, now time.Time, project string) {
@@ -230,7 +231,10 @@ func TestADraftRecordsItsExecutionProject(t *testing.T) {
 	}
 	r.Release()
 	wantOneOrphanUnder(t, s, now, "other-proj")
-	r, _, _ = s.Restore("x")
+	r, _, err = s.Restore("x")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := r.SetExecutionProject(""); err != nil || r.ExecutionProject() != "" {
 		t.Fatalf("%v %q", err, r.ExecutionProject())
 	}
@@ -281,7 +285,10 @@ func TestTheExecutionRecordGoesWithTheLock(t *testing.T) {
 	if o := s.Orphans(now, nil); len(o) != 0 {
 		t.Fatalf("%+v", o)
 	}
-	entries, _ := os.ReadDir(s.dir)
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, e := range entries {
 		t.Errorf("left behind: %s", e.Name())
 	}
@@ -350,9 +357,6 @@ func TestSetExecutionProjectRewritesADamagedRecord(t *testing.T) {
 }
 
 func TestAFailedRecordReportsWhatIsOnDisk(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root can write a read-only file")
-	}
 	s := In(t.TempDir())
 	d, err := s.Hold("x")
 	if err != nil {
@@ -368,23 +372,17 @@ func TestAFailedRecordReportsWhatIsOnDisk(t *testing.T) {
 	if err := os.WriteFile(s.lockPath("x"), []byte("proj-"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(s.lockPath("x"), 0o400); err != nil {
+	if err := d.lock.Unlock(); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.SetExecutionProject("proj-b"); err == nil {
-		t.Fatal("writing a read-only record should fail")
+	if err := d.SetExecutionProject("proj-b"); !errors.Is(err, store.ErrUnlocked) {
+		t.Fatalf("writing without the lock should fail: %v", err)
 	}
 	if d.ExecutionProject() != "" {
 		t.Fatalf("after a failed write the draft reports the damaged record on disk as unknown, got %q", d.ExecutionProject())
 	}
-	if got, _ := s.read("x"); got != "select 1" {
-		t.Fatalf("a failed record leaves the text alone: %q", got)
-	}
-	if err := os.Chmod(s.lockPath("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.SetExecutionProject("proj-b"); err != nil || s.recordedExecutionProject("x") != "proj-b" {
-		t.Fatalf("a retry writes the record: %v, on disk %q", err, s.recordedExecutionProject("x"))
+	if got, err := s.read("x"); err != nil || got != "select 1" {
+		t.Fatalf("a failed record leaves the text alone: %q %v", got, err)
 	}
 }
 

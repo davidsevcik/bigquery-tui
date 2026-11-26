@@ -194,7 +194,7 @@ func (d *Draft) SetExecutionProject(project string) error {
 		}
 		record = project + recordEnd
 	}
-	if err := os.WriteFile(d.s.lockPath(d.id), []byte(record), 0o600); err != nil {
+	if err := d.lock.Rewrite([]byte(record)); err != nil {
 		d.executionProject = d.s.recordedExecutionProject(d.id)
 		return err
 	}
