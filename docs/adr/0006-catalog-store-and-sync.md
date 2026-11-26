@@ -57,6 +57,10 @@ The `store` package owns the two SQLite files in the data directory: `catalog.db
 - **`store.(*walTrimmer).retry`**: the loop starts with the caller's context values but not its cancellation (`context.WithoutCancel`), because the unit that asked has finished. It ends on success, after `walRetryFor` (10 minutes, trying every 2 s), or when `stop` cancels it, even while it waits for a pooled connection. Giving up without truncating is safe: the journal size limit cuts the WAL at a later write.
 - **`store.(*walTrimmer).stop`**: it ends the retry loop before the database closes under it, so `(*Catalog).Close` calls it first.
 
+### Lock files
+
+- **`store.(*Lock).Rewrite`**, **`store.(*Lock).Read`**: write and read the lock file through the descriptor the lock holds, so the content is the locked file's even when its path has been removed or replaced since; a released lock refuses (`ErrUnlocked`).
+
 ### Reading the catalog
 
 - **`store.IndexSnapshot`**: the whole catalog minus columns. That is small enough to hold in memory (about 50k short rows at the target size) and to rank on every keystroke.
