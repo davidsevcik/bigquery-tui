@@ -20,12 +20,15 @@ import (
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/config"
 	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
 const maxAge = 30 * 24 * time.Hour
 
 var ErrHeld = errors.New("the draft is held by another instance")
+
+var ErrNotAProjectID = errors.New("not a project ID")
 
 func Dir(root string, frontend api.Source) string {
 	return filepath.Join(root, string(frontend))
@@ -64,19 +67,21 @@ func (s *Store) Hold(id string) (*Draft, error) {
 	if st, err := os.Stat(s.Path(id)); err == nil && st.Size() > 0 {
 		empty = false
 	}
-	return &Draft{s: s, id: id, lock: l, empty: empty, exec: s.execution(id)}, nil
+	return &Draft{s: s, id: id, lock: l, empty: empty, execution: s.recordedExecution(id)}, nil
 }
 
-func (s *Store) execution(id string) string {
+const recordEnd = "\n"
+
+func (s *Store) recordedExecution(id string) string {
 	data, err := os.ReadFile(s.lockPath(id))
 	if err != nil {
 		return ""
 	}
-	p := strings.TrimSpace(string(data))
-	if strings.ContainsFunc(p, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+	project, complete := strings.CutSuffix(string(data), recordEnd)
+	if !complete || !config.ValidProjectID(project) {
 		return ""
 	}
-	return p
+	return project
 }
 
 func (s *Store) read(id string) (string, error) {
@@ -165,28 +170,33 @@ func (s *Store) orphan(e os.DirEntry, id string, now time.Time) (Orphan, bool) {
 			break
 		}
 	}
-	return Orphan{ID: id, ModTime: info.ModTime(), First: first, Lines: strings.Count(string(data), "\n") + 1, Execution: s.execution(id)}, true
+	return Orphan{ID: id, ModTime: info.ModTime(), First: first, Lines: strings.Count(string(data), "\n") + 1, Execution: s.recordedExecution(id)}, true
 }
 
 type Draft struct {
-	s     *Store
-	id    string
-	lock  *store.Lock
-	empty bool
-	exec  string
+	s         *Store
+	id        string
+	lock      *store.Lock
+	empty     bool
+	execution string
 }
 
-func (d *Draft) Execution() string { return d.exec }
+func (d *Draft) Execution() string { return d.execution }
 
 func (d *Draft) SetExecution(project string) error {
 	project = strings.TrimSpace(project)
-	if project == d.exec {
-		return nil
+	record := ""
+	if project != "" {
+		if !config.ValidProjectID(project) {
+			return fmt.Errorf("%w: %q", ErrNotAProjectID, project)
+		}
+		record = project + recordEnd
 	}
-	if err := os.WriteFile(d.s.lockPath(d.id), []byte(project), 0o600); err != nil {
+	if err := os.WriteFile(d.s.lockPath(d.id), []byte(record), 0o600); err != nil {
+		d.execution = d.s.recordedExecution(d.id)
 		return err
 	}
-	d.exec = project
+	d.execution = project
 	return nil
 }
 

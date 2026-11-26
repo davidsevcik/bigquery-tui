@@ -10,6 +10,17 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 )
 
+func wantOneOrphanUnder(t *testing.T, s *Store, now time.Time, project string) {
+	t.Helper()
+	o := s.Orphans(now, nil)
+	if len(o) != 1 {
+		t.Fatalf("want one orphan, got %d: %+v", len(o), o)
+	}
+	if o[0].Execution != project {
+		t.Fatalf("want the orphan's Execution project %q, got %q", project, o[0].Execution)
+	}
+}
+
 func exists(t *testing.T, p string) bool {
 	t.Helper()
 	_, err := os.Stat(p)
@@ -209,9 +220,7 @@ func TestADraftRecordsItsExecutionProject(t *testing.T) {
 	if got, _ := s.read("x"); got != "select 1" {
 		t.Fatalf("the draft file holds the text alone: %q", got)
 	}
-	if o := s.Orphans(now, nil); len(o) != 1 || o[0].Execution != "win-proj" {
-		t.Fatalf("%+v", o)
-	}
+	wantOneOrphanUnder(t, s, now, "win-proj")
 	r, text, err := s.Restore("x")
 	if err != nil || text != "select 1" || r.Execution() != "win-proj" {
 		t.Fatalf("%q %q %v", text, r.Execution(), err)
@@ -220,17 +229,13 @@ func TestADraftRecordsItsExecutionProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.Release()
-	if o := s.Orphans(now, nil); len(o) != 1 || o[0].Execution != "other-proj" {
-		t.Fatalf("%+v", o)
-	}
+	wantOneOrphanUnder(t, s, now, "other-proj")
 	r, _, _ = s.Restore("x")
 	if err := r.SetExecution(""); err != nil || r.Execution() != "" {
 		t.Fatalf("%v %q", err, r.Execution())
 	}
 	r.Release()
-	if o := s.Orphans(now, nil); len(o) != 1 || o[0].Execution != "" {
-		t.Fatalf("the record is removed: %+v", o)
-	}
+	wantOneOrphanUnder(t, s, now, "")
 }
 
 func TestADraftWithoutARecordHasAnUnknownExecutionProject(t *testing.T) {
@@ -283,5 +288,97 @@ func TestTheExecutionRecordGoesWithTheLock(t *testing.T) {
 	entries, _ := os.ReadDir(s.dir)
 	for _, e := range entries {
 		t.Errorf("left behind: %s", e.Name())
+	}
+}
+
+func TestSetExecutionRefusesWhatWouldNotReadBack(t *testing.T) {
+	s := In(t.TempDir())
+	d, err := s.Hold("x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Release()
+	if err := d.SetExecution("good-proj"); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"two words", "two\nlines", "tab\there", "-leading-dash"} {
+		if err := d.SetExecution(bad); !errors.Is(err, ErrNotAProjectID) {
+			t.Fatalf("%q: want ErrNotAProjectID, got %v", bad, err)
+		}
+		if d.Execution() != "good-proj" || s.recordedExecution("x") != "good-proj" {
+			t.Fatalf("%q: a refused value changes nothing: %q on disk %q", bad, d.Execution(), s.recordedExecution("x"))
+		}
+	}
+}
+
+func TestAPartialRecordReadsAsAnUnknownProject(t *testing.T) {
+	s := In(t.TempDir())
+	if err := os.WriteFile(s.Path("x"), []byte("select 1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, partial := range []string{"", "proj", "project-b"} {
+		if err := os.WriteFile(s.lockPath("x"), []byte(partial), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		wantOneOrphanUnder(t, s, time.Now(), "")
+		d, _, err := s.Restore("x")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Execution() != "" {
+			t.Fatalf("%q without its line end is unknown, got %q", partial, d.Execution())
+		}
+		d.Release()
+	}
+}
+
+func TestSetExecutionRewritesADamagedRecord(t *testing.T) {
+	s := In(t.TempDir())
+	d, err := s.Hold("x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Release()
+	if err := d.SetExecution("proj-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(s.lockPath("x"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetExecution("proj-a"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.recordedExecution("x"); got != "proj-a" {
+		t.Fatalf("setting the same project again rewrites the record, got %q", got)
+	}
+}
+
+func TestAFailedRecordReportsWhatIsOnDisk(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write a read-only file")
+	}
+	s := In(t.TempDir())
+	d, err := s.Hold("x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Release()
+	if err := d.SetExecution("proj-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(s.lockPath("x"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetExecution("proj-b"); err == nil {
+		t.Fatal("writing a read-only record should fail")
+	}
+	if d.Execution() != "proj-a" {
+		t.Fatalf("after a failed write the draft reports the record on disk, got %q", d.Execution())
+	}
+	if err := os.Chmod(s.lockPath("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetExecution("proj-b"); err != nil || s.recordedExecution("x") != "proj-b" {
+		t.Fatalf("a retry writes the record: %v, on disk %q", err, s.recordedExecution("x"))
 	}
 }
