@@ -6,6 +6,8 @@ Pull requests are reviewed by the GitHub account `bot-overseer`. The reviewer ru
 
 `.github/CODEOWNERS` makes GitHub request a review from `bot-overseer` when a pull request is opened, or when a draft is marked ready. Leave a pull request as a draft while it isn't ready for review: drafts are skipped.
 
+Before a review is requested (opening a pull request, marking a draft ready, or step 5 below), bring the branch up to date if it is behind `master`: merge `master` in (don't rebase or force-push), resolve any conflicts, run the checks and push. The review is then of the code as it would merge.
+
 The reviewer looks for requests every 5 minutes. To start it at once after a request, run `~/overseer/nudge` if that file exists on your machine.
 
 The reviewer posts one formal review per pass: **Approve** or **Request changes**, with inline comments marked **Blocking** or **Nit**. It reviews pull requests from `kitt-assist` and `davidsevcik` only. Pull requests from anyone else wait for a human.
@@ -31,6 +33,6 @@ For each of those, reply in its thread with the question and the options, tell t
 2. Fix each comment you agree with, and push the fixes as new commits. Don't amend or force-push.
 3. Reply in each thread with the commit that fixed it, or with the reason you didn't change the code. Keep the reason concrete: the guard the reviewer missed, or the spec line that allows the behaviour.
 4. Resolve **Nit** threads yourself once you've replied, except one waiting on the user's decision. Leave **Blocking** threads open: the reviewer resolves them when it agrees, and reopens one that anyone else resolves.
-5. Once you've pushed a fix or replied with a reason, request the review again: `gh pr edit <n> --add-reviewer bot-overseer`, then nudge the reviewer as above. Without this request nothing re-reviews the pull request. Don't request it when the only change since the review is a question waiting on the user: request it after the user answers and you've acted on it.
+5. Once you've pushed a fix or replied with a reason, bring the branch up to date with `master` if it is behind (see above), then request the review again: `gh pr edit <n> --add-reviewer bot-overseer`, then nudge the reviewer as above. Without this request nothing re-reviews the pull request. Don't request it when the only change since the review is a question waiting on the user: request it after the user answers and you've acted on it.
 
 Never approve, dismiss a review, merge, or turn auto-merge on or off yourself.
