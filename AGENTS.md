@@ -14,7 +14,7 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 
 ### Code review
 
-Pull requests are reviewed by `bot-overseer`, which GitHub requests through `.github/CODEOWNERS`. After you push fixes for its comments, reply in each thread and run `gh pr edit <n> --add-reviewer bot-overseer` to request the review again. See `docs/agents/code-review.md`.
+Pull requests are reviewed by `bot-overseer`. Before you answer a review, read `docs/agents/code-review.md`.
 
 ### Code comments
 
