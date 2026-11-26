@@ -22,7 +22,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
-// completion is the state of the completion popup.
 type completion struct {
 	open  bool
 	cands []api.Candidate
@@ -30,41 +29,36 @@ type completion struct {
 	off   int
 }
 
-// promptState is a small form: parameter values, an export path, a file
-// name or the find text.
 type promptState struct {
-	kind   string // params | export | saveas | find
+	kind   string
 	title  string
 	labels []string
 	fields []input
 	idx    int
 	note   string
 
-	// params
 	specs  []api.ParamSpec
-	query  api.Favorite // the query that runs, typed by the buffer's header
+	query  api.Favorite
 	sql    string
 	dry    bool
 	line0  int
 	col0   int
 	format export.Format
-	armed  bool // export: the row-count warning was shown; favorites: overwrite confirmed
+	armed  bool
 
-	back    overlayKind // the overlay to return to (the picker)
-	favID   string      // savefav: the Favorite the buffer already is
-	entryID int64       // promote
-	hoItem  handoffItem // handoff: what to write
-	// favrename: the Favorite as shown (its file)
-	fav api.Favorite
+	back    overlayKind
+	favID   string
+	entryID int64
+	hoItem  handoffItem
+	fav     api.Favorite
 }
 
-// confirmState is a yes/no question.
 type confirmState struct {
-	kind    string // run | quit | closebuf | load | favdelete
+	kind    string
 	runID   int64
 	lines   []string
 	back    overlayKind
-	subject api.Favorite // favdelete: the Favorite as shown (favorites_dir may change meanwhile)
+	subject api.Favorite
 }
 
 type (
@@ -89,8 +83,6 @@ type (
 
 var inferParamFn = sqlx.InferParam
 
-// --- editor zone
-
 func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	b := m.buf()
 	if m.pendingKey != "" {
@@ -110,8 +102,6 @@ func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	vimOn := m.vimOn()
 	v := &b.vim
 	if vimOn && v.mode != vimInsert {
-		// Normal and Visual mode: the registry keeps its ctrl and function
-		// keys, except the few vim claims (ctrl+r is redo, ctrl+d scrolls).
 		if !vimClaims(name) {
 			if act := keys.action(ZoneEditor, name); act != "" {
 				return m.editorAction(act)
@@ -135,7 +125,7 @@ func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 			}
 			return nil
 		case name == "tab" && m.comp.open:
-			v.tainted = true // a completion cannot be replayed by "."
+			v.tainted = true
 		case name == "ctrl+n" && !m.comp.open:
 			m.updateCompletion(true)
 			return nil
@@ -173,7 +163,6 @@ func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	return m.afterEdit(true)
 }
 
-// afterEdit runs after every text change: completion, and the draft.
 func (m *Model) afterEdit(typed bool) tea.Cmd {
 	if typed {
 		m.updateCompletion(false)
@@ -205,7 +194,7 @@ func (m *Model) acceptCompletion() tea.Cmd {
 	a := sqlx.Accept(ed.text(), c)
 	ed.replaceBytes(c.Start, c.End, a.Insert)
 	if a.StepOver {
-		ed.col++ // step over the dot that was already there
+		ed.col++
 	}
 	m.comp.open = false
 	if a.Again {
@@ -284,8 +273,6 @@ func (m *Model) editorAction(act string) tea.Cmd {
 	return nil
 }
 
-// requestRun starts a Run of the selection, or of the whole buffer. A query
-// with @parameters asks for their values first.
 func (m *Model) requestRun(dry bool) tea.Cmd {
 	b := m.buf()
 	sql := b.ed.text()
@@ -326,7 +313,6 @@ func (m *Model) startRun(b *buffer, sql string, params []api.QueryParam, dry boo
 	id := m.runs.Start(m.ctx, runs.Request{SQL: sql, Params: params, Tag: b.id, DryRunOnly: dry, Favorite: m.be.FavoriteFromID(b.path)},
 		runs.Origin{Line: line0, Col: col0, TextVersion: b.ed.version})
 	if !dry {
-		// the result this buffer showed is replaced: free its loaded pages
 		old := b.viewID
 		shared := false
 		for _, o := range m.bufs {
@@ -337,27 +323,21 @@ func (m *Model) startRun(b *buffer, sql string, params []api.QueryParam, dry boo
 		}
 	}
 	b.runID = id
-	// every Run start restores a maximised Layout and shows hidden Results
 	m.maxed = ""
 	m.uncover(ZoneResults)
 	if !dry {
 		b.viewID = id
 		m.showRun()
-		// one Pane at a time: show the Run as it fills in (a dry-run has no
-		// result to show; its estimate is in the status line)
 		m.revealPane(ZoneResults)
 	}
 	b.ed.errLine, b.ed.errCol = 0, 0
 	return m.followRun(id)
 }
 
-// followRun waits for the Run's next change. In tests (no background work) it
-// waits until the Run needs the user or has finished, or its job is held
-// running by the test (Options.JobHeld); a safety limit stops a stuck test.
 func (m *Model) followRun(id int64) tea.Cmd {
 	return func() tea.Msg {
 		ctx := m.ctx
-		var settled func(api.RunInfo) bool // nil: the next change
+		var settled func(api.RunInfo) bool
 		if m.o.NoBackground {
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(m.ctx, 10*time.Second)
@@ -394,7 +374,7 @@ func (m *Model) onRun(msg runMsg) tea.Cmd {
 		return tea.Batch(cmds...)
 	}
 	_, shown := m.arr().rects[ZoneResults]
-	here := b != nil && bi == m.cur && shown // the Results pane shows the outcome
+	here := b != nil && bi == m.cur && shown
 	switch info.State {
 	case api.RunNeedsOK:
 		m.askConfirm(confirmState{kind: "run", runID: info.ID, lines: confirmLines(info)})
@@ -405,7 +385,6 @@ func (m *Model) onRun(msg runMsg) tea.Cmd {
 			if info.DryRunOnly || b.viewID == 0 {
 				b.viewID = info.ID
 			}
-			// the position only means something in the text that was run
 			if mk, ok := m.runs.MarkIn(info.ID, b.runID, b.ed.version); ok {
 				b.ed.moveTo(mk.Line, mk.Col)
 				b.ed.errLine, b.ed.errCol = mk.Line, mk.Col
@@ -491,10 +470,6 @@ func confirmLines(info api.RunInfo) []string {
 	return out
 }
 
-// --- prompts
-
-// promptOverlay asks for one or more values (a file name, query parameters,
-// a Favorite's name…); its box shows the keys.
 type promptOverlay struct{}
 
 func (promptOverlay) frame(m *Model, w, h int) ovFrame {
@@ -609,7 +584,6 @@ func (m *Model) promptSubmit() tea.Cmd {
 			p.note = sErr.Render(err.Error())
 			return nil
 		}
-		// the buffer now lives in the file: its draft is gone
 		m.removeDraft(b)
 		m.ov = ovNone
 		m.toast = "saved " + path
@@ -704,9 +678,6 @@ func (m *Model) onExport(msg exportMsg) tea.Cmd {
 	return nil
 }
 
-// --- confirmations
-
-// confirmOverlay is a yes/no question; its box shows the keys.
 type confirmOverlay struct{}
 
 func (confirmOverlay) frame(m *Model, w, h int) ovFrame {
@@ -721,7 +692,6 @@ func (confirmOverlay) key(m *Model, _ tea.KeyPressMsg, name string, _ ovFrame) t
 
 func (confirmOverlay) hints(*Model) string { return "" }
 
-// askConfirm shows a question now, or after the popup that is open.
 func (m *Model) askConfirm(c confirmState) {
 	if m.ov != ovNone {
 		m.confirmQ = append(m.confirmQ, c)
@@ -730,8 +700,6 @@ func (m *Model) askConfirm(c confirmState) {
 	m.confirm, m.ov = c, ovConfirm
 }
 
-// nextConfirm shows a waiting question once nothing else is open. A Run's
-// question is dropped if the Run no longer waits for an answer.
 func (m *Model) nextConfirm() {
 	for m.ov == ovNone && len(m.confirmQ) > 0 {
 		c := m.confirmQ[0]
@@ -745,18 +713,15 @@ func (m *Model) nextConfirm() {
 	}
 }
 
-// answer is what a key says to a question.
 type answer int
 
 const (
 	noAnswer answer = iota
 	answerYes
 	answerNo
-	answerDismiss // no, for every question but "replace the buffer?"
+	answerDismiss
 )
 
-// answerOf reads a key as an answer: y or enter is yes, n is no, and esc,
-// q or ctrl+c dismisses the question.
 func answerOf(name string) answer {
 	switch name {
 	case "y", "Y", "enter":
@@ -802,8 +767,6 @@ func (m *Model) confirmKey(name string) tea.Cmd {
 	return nil
 }
 
-// answerLoad answers "replace the buffer with the pick?": n opens the pick
-// in a new buffer instead.
 func (m *Model) answerLoad(a answer) tea.Cmd {
 	req := m.pendingLoad
 	if req == nil || a == noAnswer {
@@ -819,7 +782,6 @@ func (m *Model) answerLoad(a answer) tea.Cmd {
 	return m.finishLoad(*req, a == answerYes)
 }
 
-// deleteFavorite deletes the Favorite file the question showed.
 func (m *Model) deleteFavorite(f api.Favorite) {
 	switch err := m.be.DeleteFavorite(f); {
 	case errors.Is(err, favorites.ErrMoved):
@@ -850,8 +812,6 @@ func (m *Model) activeRuns() []api.RunInfo {
 	return out
 }
 
-// cancelFocused implements ctrl+c: the export, then the current buffer's Run,
-// then any other Run; reports whether something was there to cancel.
 func (m *Model) cancelFocused() bool {
 	if m.exp != nil {
 		m.exp.Cancel()
@@ -860,7 +820,6 @@ func (m *Model) cancelFocused() bool {
 	}
 	target := int64(0)
 	if len(m.bufs) > 0 {
-		// the focused Run: the one shown in Results, the buffer's latest in the editor
 		ids := []int64{m.buf().runID, m.buf().viewID}
 		if m.zone == ZoneResults {
 			ids = []int64{m.buf().viewID, m.buf().runID}
@@ -884,10 +843,6 @@ func (m *Model) cancelFocused() bool {
 	return true
 }
 
-// requestCancel cancels a Run that has not finished and says so. Unless the
-// Run's own dry-run put it on a reservation, it warns that the query may still
-// be billed: pricing is per Run (spec 10.2), and an unknown model counts as
-// on-demand.
 func (m *Model) requestCancel(id int64) {
 	m.runs.Cancel(id)
 	m.toast = fmt.Sprintf("cancel requested for run #%d", id)
@@ -896,12 +851,9 @@ func (m *Model) requestCancel(id int64) {
 	}
 }
 
-// --- external editor
-
 func (m *Model) externalEditor() tea.Cmd {
 	b := m.buf()
 	if m.o.Getenv("VISUAL") == "" && m.o.Getenv("EDITOR") == "" {
-		// the OS opener returns at once, so there would be nothing to read back
 		m.toast = "set $EDITOR (or $VISUAL) to a terminal editor to use the hand-off"
 		return nil
 	}
@@ -938,8 +890,6 @@ func (m *Model) onExtEdit(msg extEditMsg) {
 		m.saveDraft(b)
 	}
 }
-
-// --- results zone
 
 func (m *Model) resultsAction(act string) tea.Cmd {
 	if cmd, ok := m.globalAction(act); ok {
@@ -1024,7 +974,8 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 		return m.findNext(-1)
 	case "copy":
 		if cells := g.cells(g.row); cells != nil && g.col < len(cells) {
-			col := g.col // the cursor may move while the row is read
+			// ADR-0011
+			col := g.col
 			return m.copyRow(g, func(cols []api.PreviewColumn, full []api.Cell) (string, string) {
 				if col >= len(full) || full[col].Null {
 					return "", "copied NULL as an empty string"
@@ -1082,7 +1033,6 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 	return m.gridEnsure()
 }
 
-// copyRow reads the cursor row in full and copies what pick returns.
 func (m *Model) copyRow(g *grid, pick func(cols []api.PreviewColumn, full []api.Cell) (text, toast string)) tea.Cmd {
 	row, cols := g.row, g.cols
 	return func() tea.Msg {
@@ -1114,9 +1064,6 @@ func (m *Model) findNext(dir int) tea.Cmd {
 	return m.gridEnsure()
 }
 
-// --- list overlays: runs and buffers
-
-// runsPopup is the run list (ctrl+x l, gr).
 type runsPopup struct{}
 
 func (runsPopup) width(w int) int { return clamp(w-4, 30, 140) }
@@ -1154,8 +1101,6 @@ func (runsPopup) hints(*Model) string {
 		keyHint(ZoneOverlay, "cancel the run", "cancelrun"), footerHints(ZoneOverlay))
 }
 
-// showListedRun shows a Run picked in the run list in the Results, or asks
-// again when it waits for a confirmation.
 func (m *Model) showListedRun(r api.RunInfo) tea.Cmd {
 	if r.State == api.RunNeedsOK {
 		m.askConfirm(confirmState{kind: "run", runID: r.ID, lines: confirmLines(r)})
@@ -1174,7 +1119,6 @@ func (m *Model) showListedRun(r api.RunInfo) tea.Cmd {
 	return m.gridEnsure()
 }
 
-// buffersPopup lists the buffers and the drafts to restore (ctrl+x b).
 type buffersPopup struct{}
 
 func (buffersPopup) width(w int) int { return clamp(w-4, 30, 140) }
@@ -1184,7 +1128,7 @@ func (buffersPopup) page(m *Model, inner, _ int) scrollPage {
 	sel := clamp(m.ovSel, 0, max(0, n-1))
 	cur := sel
 	if cur >= len(m.bufs) {
-		cur += 2 // the "Restore drafts" heading
+		cur += 2
 	}
 	return scrollPage{title: "Buffers", rows: m.buffersLines(inner, sel), cur: cur, sel: &m.ovSel, items: n}
 }
@@ -1211,8 +1155,6 @@ func (buffersPopup) hints(*Model) string {
 	return joinHints(selectHint(ZoneOverlay), keyHint(ZoneOverlay, "open or restore", "open"), footerHints(ZoneOverlay))
 }
 
-// insertPath puts the selected table's qualified name into the editor (the
-// explorer's i); a shard family goes in as its wildcard.
 func (m *Model) insertPath(s selection) {
 	p := s.path
 	if p.Project == "" {

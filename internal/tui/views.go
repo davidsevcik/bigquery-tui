@@ -13,8 +13,6 @@ import (
 	catsync "github.com/davidsevcik/bigquery-tui/pkg/sync"
 )
 
-// agoPhrase is how long ago t was, as a phrase: "just now" under a minute,
-// else "5m ago".
 func agoPhrase(now time.Time, t *time.Time) string {
 	if a := ago(now, t); a != "now" {
 		return a + " ago"
@@ -68,8 +66,6 @@ func (m *Model) health(n api.BrowseNode, long bool) (string, lipgloss.Style) {
 	return "✓ " + a, sOk
 }
 
-// pendingTag is the flag of a pending dataset (listed, its tables not synced
-// yet): syncing while this process's sync reads its unit.
 func pendingTag(syncing bool) (string, lipgloss.Style) {
 	if syncing {
 		return "⟳ syncing", sAcc
@@ -77,8 +73,6 @@ func pendingTag(syncing bool) (string, lipgloss.Style) {
 	return "● not synced", sWarn
 }
 
-// pendingLines explain a pending dataset's empty table list in the Schema
-// pane: still syncing, or not synced and why.
 func (m *Model) pendingLines(n api.BrowseNode, add func(string, lipgloss.Style)) {
 	t, st := pendingTag(n.Syncing)
 	if n.Syncing {
@@ -94,7 +88,6 @@ func (m *Model) pendingLines(n api.BrowseNode, add func(string, lipgloss.Style))
 	add("r syncs the project", sDim)
 }
 
-// labelText renders labels as sorted key:value pairs.
 func labelText(labels map[string]string) string {
 	ls := make([]string, 0, len(labels))
 	for k, v := range labels {
@@ -103,10 +96,8 @@ func labelText(labels map[string]string) string {
 	return strings.Join(sortStrings(ls), " ")
 }
 
-// tooSmall reports that the screen only says "bqt needs a larger terminal".
 func (m *Model) tooSmall() bool { return m.w < 20 || m.h < 6 }
 
-// render builds the whole screen as lines.
 func (m *Model) render() []string {
 	w, h := m.w, m.h
 	if m.tooSmall() {
@@ -175,7 +166,6 @@ func (m *Model) statusLine(w int) string {
 		}
 	}
 	if len(ps) > 1 {
-		// after the messages: a config error or a sync state matters more
 		b.add(fmt.Sprintf("  %d projects", len(ps)), sDim)
 	}
 	if m.status != nil {
@@ -184,14 +174,12 @@ func (m *Model) statusLine(w int) string {
 	return b.line(w)
 }
 
-// syncProblems are the sync problems to show (sync.FindProblems).
 func (m *Model) syncProblems() catsync.Problems {
 	return catsync.FindProblems(m.status, m.be.Datasets, m.syncWarns)
 }
 
 func (m *Model) problemCount() int { return m.syncProblems().Count() }
 
-// nameSample lists up to five names, then how many more.
 func nameSample(names []string) string {
 	if len(names) <= 5 {
 		return strings.Join(names, ", ")
@@ -240,8 +228,6 @@ func (m *Model) footerLine(w int) string {
 	return fit(" "+sFaint.Render(hint), w)
 }
 
-// panesBody draws every Pane of the arrangement into its rectangle, with the
-// separators and the pane bar, and joins them row by row.
 func (m *Model) panesBody(w, h int) []string {
 	a := m.arr()
 	type piece struct {
@@ -277,7 +263,6 @@ func (m *Model) panesBody(w, h int) []string {
 	return out
 }
 
-// paneLines draws one Pane in exactly w×h cells.
 func (m *Model) paneLines(z Zone, w, h int) []string {
 	switch z {
 	case ZoneExplorer:
@@ -292,8 +277,6 @@ func (m *Model) paneLines(z Zone, w, h int) []string {
 	return nil
 }
 
-// explorerPane draws the Explorer in its style, with the filter header while
-// a filter is being typed.
 func (m *Model) explorerPane(w, h int) []string {
 	list := m.millerList
 	switch m.style {
@@ -309,9 +292,6 @@ func (m *Model) explorerPane(w, h int) []string {
 	return list(w, h)
 }
 
-// paneBar is the row above a Pane shown on its own (the focus Layout, a
-// maximised Pane, browse's shared Editor and Results slot): the Panes it
-// stands for, the drawn one in brackets.
 func paneBar(a arrangement, w int) string {
 	b := &rb{bg: lipgloss.Color("236")}
 	at := a.bar.x
@@ -328,20 +308,13 @@ func paneBar(a arrangement, w int) string {
 	return b.line(w)
 }
 
-// --- lists
-
-// millerSpan is one drawn Miller column: which one, and its cells [x, x+w)
-// within the Explorer Pane.
 type millerSpan struct{ col, x, w int }
 
-// millerSpans lays out the Miller columns shown in a w-cell Explorer, one
-// separator column between them: drawing and the wheel both use it.
 func (m *Model) millerSpans(w int) []millerSpan {
 	first := m.milFirst()
 	n := clamp(w/24, 1, 3-first)
 	start := clamp(m.mil.col-(n-1), first, 3-n)
 	avail := w - (n - 1)
-	// Dataset and table names are long; project ids are few and short.
 	weight := []int{3, 5, 5}
 	sum := 0
 	for i := 0; i < n; i++ {
@@ -423,7 +396,6 @@ func (m *Model) millerCol(c, w, h int) []string {
 	return fillTo(out, w, h)
 }
 
-// nodeRow draws one browse node (shared by Miller columns and the tree).
 func (m *Model) nodeRow(b *rb, n api.BrowseNode) {
 	ns := sBase
 	if n.Stale {
@@ -451,7 +423,7 @@ func (m *Model) nodeRow(b *rb, n api.BrowseNode) {
 		b.add(typeLetter(n.Type)+" ", typeStyle(n.Type)).add(n.Name, ns)
 		b.addR(fmt.Sprintf("×%s ", format.Count(int64(n.Children))), sAcc)
 		if f := n.Shard; f != nil && !f.Date && !f.NewestCreated.IsZero() {
-			b.addOpt(f.NewestCreated.Format("2006-01-02")+" ", sFaint) // the newest shard's creation, room permitting
+			b.addOpt(f.NewestCreated.Format("2006-01-02")+" ", sFaint)
 		}
 	default:
 		b.add(typeLetter(n.Type)+" ", typeStyle(n.Type)).add(n.Name, ns)
@@ -505,7 +477,6 @@ func (m *Model) treeList(w, h int) []string {
 	return fillTo(out, w, h)
 }
 
-// filterWhat names the list the filter line narrows.
 func (m *Model) filterWhat() string {
 	if m.style == styleTree {
 		return "tree"
@@ -539,8 +510,6 @@ func (m *Model) searchInfo(st *searchState) string {
 	return fmt.Sprintf("%s/%s · %.1fms", format.Count(int64(min(st.cur+1, st.total))), format.Count(int64(st.total)), st.tookMS)
 }
 
-// resultsList draws one line per result; the selected result expands to show
-// its description and column hits when rich is set.
 func (m *Model) resultsList(st *searchState, w, h int, rich bool) []string {
 	n := len(st.results)
 	if n == 0 {
@@ -634,9 +603,6 @@ func (m *Model) resultRows(st *searchState, i int, selected bool, w int, expande
 	return rows
 }
 
-// --- the Schema pane
-
-// schemaPane draws the Schema pane: the Explorer's selection, scrolled.
 func (m *Model) schemaPane(s selection, w, h int) []string {
 	lines := m.schemaLines(s, w)
 	body := h - 1
@@ -802,8 +768,6 @@ func (m *Model) schemaLines(s selection, w int) []string {
 		}
 	}
 	if t.ViewSQL != "" {
-		// a view lists its fields before its SQL, so they are in sight while
-		// writing a query
 		m.fieldLines(&out, d, t, det.NamesOnly, w)
 		viewSQL()
 		out = append(out, "")
@@ -815,8 +779,6 @@ func (m *Model) schemaLines(s selection, w int) []string {
 	return out
 }
 
-// fieldLines appends the field list of a table (or the notice that it has
-// none) to out, after a blank line.
 func (m *Model) fieldLines(out *[]string, d *detailData, t api.TableMeta, namesOnly bool, w int) {
 	add := func(l string) { *out = append(*out, " "+l) }
 	*out = append(*out, "")
@@ -869,7 +831,6 @@ func (m *Model) fieldLines(out *[]string, d *detailData, t api.TableMeta, namesO
 	}
 }
 
-// orderColumns arranges field paths depth-first so nested fields follow their parent.
 func orderColumns(cols []api.ColumnMeta) []api.ColumnMeta {
 	children := map[string][]api.ColumnMeta{}
 	for _, c := range cols {
@@ -890,7 +851,7 @@ func orderColumns(cols []api.ColumnMeta) []api.ColumnMeta {
 		}
 	}
 	walk("")
-	if len(out) != len(cols) { // orphans: fall back to the stored order
+	if len(out) != len(cols) {
 		return cols
 	}
 	return out

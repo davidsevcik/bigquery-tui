@@ -28,17 +28,16 @@ func (r *rig) tutStep(want int) {
 	}
 }
 
-// Every step opens the next one when its task is done with the real keys.
 func TestTutorialWalkthrough(t *testing.T) {
 	r := tutorialRig(t, 120, 36)
-	r.press("ctrl+o") // the tutorial starts in the Explorer from anywhere
+	r.press("ctrl+o")
 	r.press("ctrl+g")
 	r.tutStep(0)
 	if r.m.zone != ZoneExplorer || r.m.h != 36-tutorialRows {
 		t.Fatalf("zone %s, height %d", r.m.zone, r.m.h)
 	}
 	r.contains("Tutorial 1/18 · Welcome", "ctrl+g then: n next")
-	r.press("j") // the welcome step waits for ctrl+g n
+	r.press("j")
 	r.tutStep(0)
 	r.press("k", "ctrl+g", "n")
 	r.tutStep(1)
@@ -51,10 +50,10 @@ func TestTutorialWalkthrough(t *testing.T) {
 	r.tutStep(3)
 	r.press("/")
 	r.typeText("staging")
-	r.press("esc") // back to the list, the filter kept
+	r.press("esc")
 	r.tutStep(3)
 	r.contains("Projects 1/1 of 2 ▸ sta")
-	r.press("esc") // clears it
+	r.press("esc")
 	r.tutStep(4)
 	r.press("ctrl+t")
 	r.typeText("orders")
@@ -62,14 +61,14 @@ func TestTutorialWalkthrough(t *testing.T) {
 	r.tutStep(5)
 	r.press("L")
 	r.tutStep(6)
-	r.press("L", "L") // back to the columns style, on the orders table
+	r.press("L", "L")
 	r.press("enter")
 	if r.m.zone != ZoneSchema {
 		t.Fatal("enter on a table goes to the Schema pane")
 	}
 	r.press("j")
 	r.tutStep(6)
-	r.press("p") // a free Sample of orders in the Results
+	r.press("p")
 	r.tutStep(7)
 	r.contains("Sample · free read")
 	r.press("esc")
@@ -77,25 +76,25 @@ func TestTutorialWalkthrough(t *testing.T) {
 	r.tutStep(8)
 	r.press("?", "esc")
 	r.tutStep(9)
-	r.press("ctrl+o") // the Schema pane comes first
+	r.press("ctrl+o")
 	r.tutStep(9)
 	r.press("ctrl+o")
 	r.tutStep(10)
 	r.contains("Arrange the panes", "ctrl+w space", "ctrl+w z")
-	for range presets { // switching layouts round to classic is not the task
+	for range presets {
 		r.press("ctrl+w", "space")
 	}
 	r.contains("layout: classic")
 	r.tutStep(10)
 	r.press("ctrl+w", "z")
-	r.tutStep(10) // maximised: now restore it
+	r.tutStep(10)
 	r.contains("(maximised)")
 	r.press("ctrl+w", "z")
 	r.tutStep(11)
 	r.contains("vim keys")
 	r.press("i")
 	r.typeText("SELECT 1")
-	r.tutStep(11) // still in Insert mode
+	r.tutStep(11)
 	r.press("esc")
 	r.tutStep(12)
 	r.press("enter")
@@ -108,7 +107,7 @@ func TestTutorialWalkthrough(t *testing.T) {
 	}
 	r.press("esc")
 	r.tutStep(15)
-	r.press("ctrl+w", "h") // the Schema pane, left of the Results
+	r.press("ctrl+w", "h")
 	r.tutStep(15)
 	r.press("ctrl+w", "k")
 	r.tutStep(16)
@@ -135,32 +134,28 @@ func TestTutorialKeys(t *testing.T) {
 	r.tutStep(1)
 	r.press("ctrl+g", "r")
 	r.tutStep(0)
-	// ctrl+g works while a popup takes the keys, and in Insert mode
 	r.press("ctrl+w", "l", "i", "ctrl+g", "n")
 	r.tutStep(1)
 	if r.text() != "" {
 		t.Fatalf("the tutorial keys do not type: %q", r.text())
 	}
 	r.press("esc")
-	r.typeText(":") // vim Normal mode: : is the palette
+	r.typeText(":")
 	r.press("ctrl+g", "q")
 	if r.m.tut != nil || r.m.h != 24 || r.m.ov != ovPalette {
 		t.Fatal("ctrl+g q closes the tutorial and leaves the palette open")
 	}
-	// the palette starts it too
 	r.typeText("tutorial")
 	r.press("enter")
 	r.tutStep(0)
 }
 
-// The tutorial does not start over a question: closing it would leave the
-// question unanswered.
 func TestTutorialWaitsForAPopupQuestion(t *testing.T) {
 	r := tutorialRig(t, 100, 30)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.QueryScript{StatementType: "DROP_TABLE"} }
 	r.press("ctrl+w", "l")
 	r.typeText("iDROP TABLE x")
-	r.press("esc", "enter") // a non-SELECT statement asks first
+	r.press("esc", "enter")
 	if r.m.ov != ovConfirm {
 		t.Fatal("the run asks for confirmation")
 	}
@@ -171,7 +166,6 @@ func TestTutorialWaitsForAPopupQuestion(t *testing.T) {
 	r.contains("answer the popup first")
 }
 
-// A resize keeps the panel's rows out of the app's height.
 func TestTutorialResize(t *testing.T) {
 	r := tutorialRig(t, 100, 30)
 	r.press("ctrl+g")
@@ -186,6 +180,6 @@ func TestTutorialFilterStepNeedsAFilter(t *testing.T) {
 	r := tutorialRig(t, 120, 36)
 	r.press("ctrl+g", "ctrl+g", "n", "j", "l", "h")
 	r.tutStep(3)
-	r.press("/", "esc") // opened and closed, nothing typed
+	r.press("/", "esc")
 	r.tutStep(3)
 }

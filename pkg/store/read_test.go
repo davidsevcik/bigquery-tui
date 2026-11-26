@@ -115,7 +115,6 @@ func TestWatcherSeesOtherConnectionsAndProcesses(t *testing.T) {
 	if ch, _ := w.Changed(ctx); ch {
 		t.Fatal("no further change")
 	}
-	// same handle, different pooled connection
 	w2, _ := writer.NewWatcher(ctx)
 	defer w2.Close()
 	apply(t, writer, unit("p", "EU"), t0.Add(time.Hour), dsApply("d", "EU", table("d", "t2", "c")))

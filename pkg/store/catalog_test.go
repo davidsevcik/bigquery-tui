@@ -161,7 +161,7 @@ func TestApplyUnitRoundTrip(t *testing.T) {
 	if err != nil || len(tabs) != 2 {
 		t.Fatalf("%v %v", tabs, err)
 	}
-	got := tabs[0] // orders sorts before v
+	got := tabs[0]
 	if got.Name != "orders" || got.Description != "Orders" || got.Labels["team"] != "x" || got.ExpiresAt == nil || !got.ExpiresAt.Equal(exp) || !got.CreatedAt.Equal(t0) {
 		t.Fatalf("%+v", got)
 	}
@@ -172,7 +172,6 @@ func TestApplyUnitRoundTrip(t *testing.T) {
 	if len(cols) != 5 || cols[0].FieldPath != "id" || !cols[0].Partitioning || cols[1].ClusteringOrdinal != 2 || !cols[0].Required || cols[1].Required {
 		t.Fatalf("%+v", cols)
 	}
-	// parent links resolved
 	var parent int64
 	if err := c.db.QueryRow(`SELECT parent_id FROM columns WHERE field_path='addr.geo.lat'`).Scan(&parent); err != nil {
 		t.Fatal(err)
@@ -211,7 +210,6 @@ func TestApplyUnitDiff(t *testing.T) {
 	if len(cols) != 2 {
 		t.Fatalf("changed table columns replaced: %+v", cols)
 	}
-	// orphan columns must be gone (cascade)
 	var n int
 	if err := c.db.QueryRow("SELECT COUNT(*) FROM columns").Scan(&n); err != nil {
 		t.Fatal(err)
@@ -238,7 +236,6 @@ func TestUnitsAreIndependent(t *testing.T) {
 	c := openTemp(t)
 	apply(t, c, unit("p", "EU"), t0, dsApply("eu_ds", "EU", table("eu_ds", "a", "x")))
 	apply(t, c, unit("p", "US"), t0, dsApply("us_ds", "US", table("us_ds", "b", "x")))
-	// Re-applying EU with nothing must not touch US.
 	apply(t, c, unit("p", "EU"), t0.Add(time.Hour))
 	n, _ := c.Counts(ctx)
 	if n.Datasets != 1 {
@@ -299,7 +296,6 @@ func TestShardFamilyStoredAndUpdated(t *testing.T) {
 	if tabs[0].Shard == nil || tabs[0].Shard.Count != 2 || tabs[0].Shard.Last != "20240102" {
 		t.Fatalf("%+v", tabs[0].Shard)
 	}
-	// A new shard arrives: the family changes but the old tables are unchanged.
 	fam := &api.ShardFamily{Prefix: "events_", First: "20240101", Last: "20240103", Count: 3}
 	a2, b2, c2 := a, b, table("d1", "events_20240103", "x")
 	a2.Shard, b2.Shard, c2.Shard = fam, fam, fam
@@ -335,7 +331,6 @@ func TestRecordFailureKeepsSuccessAndData(t *testing.T) {
 	if n, _ := c.Counts(ctx); n.Tables != 1 {
 		t.Fatal("data must survive")
 	}
-	// A project-level discovery unit that never succeeded.
 	if err := c.RecordUnitFailure(ctx, api.UnitState{UnitRef: unit("q", ""), Status: api.UnitInaccessible, Error: "nope", LastAttempt: &later}); err != nil {
 		t.Fatal(err)
 	}
@@ -452,7 +447,6 @@ func TestPathsWithURICharactersStayInsideTheDirectory(t *testing.T) {
 			t.Fatalf("%s must exist at the configured path: %v", f, err)
 		}
 	}
-	// the two databases are different files with different schemas
 	if _, err := h.DB().Exec("SELECT 1 FROM tables"); err == nil {
 		t.Fatal("history and catalog resolved to the same file")
 	}
@@ -494,7 +488,6 @@ func TestPruneKeepsReincludedDatasetOfIgnoredProject(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	// ignore = ["p", "!p.keep"]
 	ignored := func(p, d, tb string) bool { return d != "keep" }
 	st, err := c.Prune(ctx, map[string]bool{"p": true}, ignored)
 	if err != nil || st.Projects != 0 || st.Datasets != 1 {
@@ -508,8 +501,6 @@ func TestPruneKeepsReincludedDatasetOfIgnoredProject(t *testing.T) {
 
 func TestContentHashSeesOnlyASetPartitionFilterFlag(t *testing.T) {
 	a := table("d", "t", "a", "b")
-	// the hash of this table before the flag existed: an upgrade must not
-	// rewrite tables that do not have it
 	if got := a.ContentHash(); got != "78946ca620b91f2398f1b65ce084ccedc13035b9f9cd02cfb263a23bb7121a13" {
 		t.Fatalf("a false flag changed the hash: %s", got)
 	}
@@ -555,8 +546,6 @@ func TestPartitionFilterFlagRoundTripsAndCountsAsAChange(t *testing.T) {
 	}
 }
 
-// catalogWithoutTheFlag is a catalog written before require_partition_filter
-// existed: same schema version, one column fewer.
 func catalogWithoutTheFlag(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "catalog.db")
@@ -611,11 +600,9 @@ func TestReadOnlyOpenOfAnOlderCatalogReadsTheFlagAsFalse(t *testing.T) {
 	}
 }
 
-// Several bqt processes may start at once on a catalog that predates the
-// column, while another one already has it open for reading.
 func TestConcurrentOpensAddTheFlagColumnOnce(t *testing.T) {
 	path := catalogWithoutTheFlag(t)
-	ro, err := OpenCatalogReadOnly(path) // opened before the column exists
+	ro, err := OpenCatalogReadOnly(path)
 	if err != nil {
 		t.Fatal(err)
 	}

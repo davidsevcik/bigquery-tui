@@ -11,22 +11,16 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 )
 
-// ColumnSource provides column data for the col: filter and column hits.
 type ColumnSource interface {
 	EachColumn(ctx context.Context, fn func(tableID int64, pathLC, descLC string)) error
 	ColumnsByTableID(ctx context.Context, tableID int64) ([]api.ColumnMeta, error)
 }
 
-// Searcher answers searches and browse requests against the current Index.
-// It is safe for concurrent use; SetIndex swaps the catalog atomically.
 type Searcher struct {
-	// Columns backs the col: filter. Nil disables it.
 	Columns ColumnSource
-	// Recent returns recently opened object paths, newest first.
-	Recent func(ctx context.Context, n int) ([]string, error)
-	Now    func() time.Time
-	// TTL is the freshness window used for the Stale flag.
-	TTL time.Duration
+	Recent  func(ctx context.Context, n int) ([]string, error)
+	Now     func() time.Time
+	TTL     time.Duration
 
 	mu    gosync.RWMutex
 	idx   *Index
@@ -34,7 +28,6 @@ type Searcher struct {
 	colMu gosync.Mutex
 }
 
-// New returns a Searcher over idx (which may be nil until the first load).
 func New(idx *Index) *Searcher {
 	if idx == nil {
 		idx = BuildIndex(&emptySnapshot)
@@ -42,21 +35,18 @@ func New(idx *Index) *Searcher {
 	return &Searcher{idx: idx, Now: time.Now, TTL: 24 * time.Hour}
 }
 
-// SetIndex replaces the catalog and drops the derived column data.
 func (s *Searcher) SetIndex(idx *Index) {
 	s.mu.Lock()
 	s.idx, s.cols = idx, nil
 	s.mu.Unlock()
 }
 
-// Swap replaces the catalog together with its column source.
 func (s *Searcher) Swap(idx *Index, cols ColumnSource) {
 	s.mu.Lock()
 	s.idx, s.cols, s.Columns = idx, nil, cols
 	s.mu.Unlock()
 }
 
-// SetTTL changes the freshness window.
 func (s *Searcher) SetTTL(ttl time.Duration) {
 	s.mu.Lock()
 	s.TTL = ttl
@@ -75,20 +65,17 @@ func (s *Searcher) ttl() time.Duration {
 	return s.TTL
 }
 
-// Index returns the current index.
 func (s *Searcher) Index() *Index {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.idx
 }
 
-// WarmColumns builds the column data ahead of the first col: query.
 func (s *Searcher) WarmColumns(ctx context.Context) error {
 	_, _, err := s.columns(ctx)
 	return err
 }
 
-// columns returns the column blob for the current index, building it once.
 func (s *Searcher) columns(ctx context.Context) (*Index, *colBlob, error) {
 	s.mu.RLock()
 	idx, cb, src := s.idx, s.cols, s.Columns
@@ -118,18 +105,18 @@ func (s *Searcher) columns(ctx context.Context) (*Index, *colBlob, error) {
 
 type hit struct {
 	kind     api.ResultKind
-	i        int // table, dataset or project index (table: representative member)
+	i        int
 	max, sum int
 	name     string
 	path     string
-	members  int // shard family: matching members
+	members  int
 }
 
 type compiled struct {
 	q       api.ParsedQuery
 	terms   []string
-	filters []api.QueryFilter // usable filters only
-	colVals []string          // positive col: values
+	filters []api.QueryFilter
+	colVals []string
 	colSets []colSet
 }
 
@@ -140,9 +127,6 @@ type colSet struct {
 
 func usable(f api.QueryFilter) bool { return f.Status == api.FilterOK && len(f.Values) > 0 }
 
-// Search runs a query. Results are ranked by tier when the query has free
-// terms and ordered by path otherwise; spans and column hits are computed only
-// for the returned page.
 func (s *Searcher) Search(ctx context.Context, raw string, o api.SearchOptions) (api.SearchResponse, error) {
 	start := time.Now()
 	q := Parse(raw)
@@ -163,7 +147,6 @@ func (s *Searcher) Search(ctx context.Context, raw string, o api.SearchOptions) 
 			p.Table = f.Name
 			hits = []hit{{kind: api.KindShards, i: i, max: tExact * 10, name: f.Name, path: p.String(), members: f.Count}}
 		} else {
-			// not a known path: treat the text as an ordinary term
 			c.q.Path = nil
 			hits = s.rank(ctx, x, c, o)
 		}
@@ -204,9 +187,6 @@ func (s *Searcher) Search(ctx context.Context, raw string, o api.SearchOptions) 
 	return resp, nil
 }
 
-// compile prepares a parsed query: its free terms, its usable filters and,
-// for col:, the matching column sets. It returns the index the column sets
-// belong to.
 func (s *Searcher) compile(ctx context.Context, q api.ParsedQuery) (*Index, *compiled, error) {
 	x := s.Index()
 	c := &compiled{q: q}
@@ -228,6 +208,7 @@ func (s *Searcher) compile(ctx context.Context, q api.ParsedQuery) (*Index, *com
 		if err != nil {
 			return x, c, err
 		}
+		// ADR-0007
 		x = ix
 		for _, f := range c.filters {
 			if f.Key != "col" {
@@ -250,10 +231,9 @@ func (x *Index) tableHit(i, maxScore, sum int) hit {
 	return hit{kind: api.KindTable, i: i, max: maxScore, sum: sum, name: x.tables[i].name, path: x.tablePath(i).String()}
 }
 
-// scoper decides which tables and projects a search may return.
 type scoper struct {
 	scope  *api.ObjectPath
-	only   map[string]bool // nil: every project
+	only   map[string]bool
 	hidden map[string]bool
 }
 
@@ -308,9 +288,6 @@ func (s *Searcher) rank(ctx context.Context, x *Index, c *compiled, o api.Search
 	return out
 }
 
-// datasetScores returns, per term, each dataset's best score from its own
-// name, its project's name or its description. They are the same for every
-// table of a dataset, so they are computed once per (term, dataset).
 func (x *Index) datasetScores(terms []string) [][]int {
 	dsScore := make([][]int, len(terms))
 	for ti, term := range terms {
@@ -338,9 +315,6 @@ func (x *Index) datasetScores(terms []string) [][]int {
 	return dsScore
 }
 
-// tableHits scores the tables in scope that pass the filters, in parallel
-// chunks; chunk order keeps the result deterministic. It returns early, with
-// a partial result, when ctx is cancelled.
 func (x *Index) tableHits(ctx context.Context, sc scoper, c *compiled, dsScore [][]int) []hit {
 	parts := make([][]hit, maxChunks)
 	eachChunk(len(x.tables), func(w, lo, hi int) {
@@ -365,8 +339,6 @@ func (x *Index) tableHits(ctx context.Context, sc scoper, c *compiled, dsScore [
 	return out
 }
 
-// tableScore is table i's worst and summed score over the terms; ok is
-// false when a term does not match it.
 func (x *Index) tableScore(i int, terms []string, dsScore [][]int) (maxS, sum int, ok bool) {
 	for ti, term := range terms {
 		sc := x.scoreTerm(i, term, dsScore[ti])
@@ -379,9 +351,6 @@ func (x *Index) tableScore(i int, terms []string, dsScore [][]int) (maxS, sum in
 	return maxS, sum, true
 }
 
-// containerHits returns the projects and datasets whose names match. Where
-// only tables would be listed (jump-to-table, an empty query), a pending
-// dataset still is: it has no tables yet to stand for it.
 func (x *Index) containerHits(sc scoper, c *compiled, o api.SearchOptions) []hit {
 	var out []hit
 	terms := c.terms
@@ -401,8 +370,6 @@ func (x *Index) containerHits(sc scoper, c *compiled, o api.SearchOptions) []hit
 	return out
 }
 
-// datasetHits returns project p's datasets whose names (or descriptions)
-// match: all of them when named, else only the pending ones.
 func (x *Index) datasetHits(p *projEntry, c *compiled, o api.SearchOptions, named bool) []hit {
 	var out []hit
 	for _, di := range p.datasets {
@@ -420,8 +387,6 @@ func (x *Index) datasetHits(p *projEntry, c *compiled, o api.SearchOptions, name
 	return out
 }
 
-// preferProjects moves the hits in the preferred projects ahead of the rest,
-// keeping each group's order.
 func (x *Index) preferProjects(hits []hit, prefer []string) {
 	want := map[string]bool{}
 	for _, p := range prefer {
@@ -431,20 +396,17 @@ func (x *Index) preferProjects(hits []hit, prefer []string) {
 	sort.SliceStable(hits, func(i, j int) bool { return first(hits[i]) && !first(hits[j]) })
 }
 
-// hitProject is the project a hit belongs to.
 func (x *Index) hitProject(h hit) string {
 	switch h.kind {
 	case api.KindProject:
 		return x.projects[h.i].name
 	case api.KindDataset:
 		return x.projects[x.datasets[h.i].proj].name
-	default: // tables and shard families index a table
+	default:
 		return x.projects[x.datasets[x.tables[h.i].ds].proj].name
 	}
 }
 
-// sortHits orders hits by tier when the query has free terms (ties: shorter
-// name, then path) and by path otherwise.
 func sortHits(hits []hit, ranked bool) {
 	if !ranked {
 		sort.SliceStable(hits, func(i, j int) bool { return hits[i].path < hits[j].path })
@@ -467,8 +429,6 @@ func sortHits(hits []hit, ranked bool) {
 
 const maxChunks = 8
 
-// eachChunk runs fn over [0, n) split into up to maxChunks parallel chunks
-// (one chunk below 4096 items) and waits for them.
 func eachChunk(n int, fn func(chunk, lo, hi int)) {
 	workers := min(runtime.GOMAXPROCS(0), maxChunks)
 	if n < 4096 {
@@ -495,8 +455,6 @@ func onlyScopeFilters(fs []api.QueryFilter) bool {
 	return true
 }
 
-// scoreNames scores a project or dataset: every term must match its name, or
-// (datasets) its description.
 func scoreNames(lname, ldesc string, terms []string) (maxS, sum int, ok bool) {
 	for _, t := range terms {
 		sc := noMatch
@@ -514,15 +472,12 @@ func scoreNames(lname, ldesc string, terms []string) (maxS, sum int, ok bool) {
 	return maxS, sum, true
 }
 
-// scoreTerm returns the best (lowest) score of one term against a table.
-// dsScore holds the precomputed dataset/project-level score per dataset.
-// Columns are never consulted here.
 func (x *Index) scoreTerm(i int, term string, dsScore []int) int {
 	t := &x.tables[i]
 	best := noMatch
 	if tier, _ := matchName(t.lname, term, true); tier >= 0 {
 		best = tier*10 + penName
-		return best // a name hit beats every other field
+		return best
 	}
 	for _, l := range t.labels {
 		if tier, _ := matchName(l, term, false); tier >= 0 && tier*10+penLabel < best {
@@ -556,8 +511,6 @@ func passDataset(p *projEntry, d *dsEntry, fs []api.QueryFilter) bool {
 	return true
 }
 
-// passTable applies the filters to table i. In search, label: and desc: also
-// accept the dataset's labels and description; own keeps them to the table's.
 func (x *Index) passTable(i int, c *compiled, own bool) bool {
 	t := &x.tables[i]
 	d := &x.datasets[t.ds]
@@ -607,18 +560,12 @@ func datasetLabel(d *dsEntry, vals []string) bool {
 	return false
 }
 
-// memberHit reports whether a hit on table i stands for the table itself
-// rather than for its shard family: it is in no family, a free term matches
-// inside its varying part, or (under col:) it has its own schema. A term
-// that matches only the shared prefix or suffix stands for the family.
 func (x *Index) memberHit(i int, terms []string, cols bool) bool {
 	t := &x.tables[i]
 	f := t.shard
 	if f == nil || cols && t.ownSchema {
 		return true
 	}
-	// the match spans are offsets into the lower-cased name, whose bytes can
-	// differ in number from the name's (the Kelvin sign K lowers to k)
 	lo, hi := len(strings.ToLower(f.Prefix)), len(t.lname)-len(strings.ToLower(f.Suffix))
 	for _, term := range terms {
 		tier, sp := matchName(t.lname, term, true)
@@ -634,8 +581,6 @@ func (x *Index) memberHit(i int, terms []string, cols bool) bool {
 	return false
 }
 
-// collapseShards folds the hits on a shard family's members into one family
-// hit, ranked by its best member, except for the members memberHit keeps.
 func (x *Index) collapseShards(hits []hit, c *compiled) []hit {
 	type key struct {
 		ds   int
@@ -662,8 +607,7 @@ func (x *Index) collapseShards(hits []hit, c *compiled) []hit {
 	drop := map[int]bool{}
 	for _, k := range order {
 		members := groups[k]
-		// the representative is the newest shard (it carries the family's
-		// columns), scored as the best member
+		// ADR-0007
 		rep := members[0]
 		best := hits[rep]
 		for _, m := range members {
@@ -697,8 +641,6 @@ func (x *Index) collapseShards(hits []hit, c *compiled) []hit {
 	return out
 }
 
-// familySpans maps spans on a member's name onto its family's name, keeping
-// those in the shared prefix and suffix.
 func familySpans(member string, f *api.ShardFamily, sp []api.Span) []api.Span {
 	lo, hi := len(f.Prefix), len(member)-len(f.Suffix)
 	shift := len(f.Name) - len(member)
@@ -714,7 +656,6 @@ func familySpans(member string, f *api.ShardFamily, sp []api.Span) []api.Span {
 	return out
 }
 
-// datasetFreshness is freshness for a dataset: a pending one was never synced.
 func (s *Searcher) datasetFreshness(x *Index, project string, d *dsEntry) (*time.Time, bool) {
 	if d.status == api.DatasetPending {
 		return nil, true
@@ -752,8 +693,7 @@ func termSpans(lname string, terms []string, fuzzy bool) []api.Span {
 }
 
 func setSpans(m map[string][]api.Span, key, original, lower string, sp []api.Span) {
-	// Offsets are computed on the lower-case text; they are only valid for the
-	// original when lower-casing kept the byte length (true for ASCII).
+	// ADR-0007
 	if len(sp) > 0 && len(original) == len(lower) {
 		m[key] = sp
 	}
@@ -777,7 +717,8 @@ func (s *Searcher) materialize(ctx context.Context, x *Index, c *compiled, h hit
 		setSpans(r.Spans, "name", d.name, d.lname, mergeSpans(append(termSpans(d.lname, terms, false), subSpans(d.lname, c.filterValues("d"))...)))
 		setSpans(r.Spans, "project", p.name, p.lname, subSpans(p.lname, c.filterValues("p")))
 		setSpans(r.Spans, "description", d.desc, d.ldesc, subSpans(d.ldesc, terms))
-		if len(terms) > 0 { // a pending dataset is listed without a term too
+		// ADR-0007
+		if len(terms) > 0 {
 			r.MatchedField, r.Tier = "name", tierName(h.max)
 			if h.max >= descScore {
 				r.MatchedField = "description"

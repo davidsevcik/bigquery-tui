@@ -6,14 +6,12 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 )
 
-// selection is what the cursor is on, in any Explorer style.
 type selection struct {
-	kind api.ResultKind // "" when nothing is selected
+	kind api.ResultKind
 	path api.ObjectPath
 	node api.BrowseNode
 }
 
-// detailKey identifies a table whose detail can be loaded ("" otherwise).
 func (s selection) detailKey() string {
 	if s.kind != api.KindTable && s.kind != api.KindShards {
 		return ""
@@ -21,17 +19,15 @@ func (s selection) detailKey() string {
 	return s.path.Project + "\x00" + s.path.Dataset + "\x00" + s.path.Table
 }
 
-// --- Miller columns
-
 type miller struct {
 	cols       [3][]api.BrowseNode
 	cur        [3]int
 	off        [3]int
 	col        int
-	family     *api.BrowseNode // set when the tables column shows a shard family's members
-	famIdx     int             // cursor to return to when the family is collapsed
-	f          [3]listFilter   // each column's filter
-	unfiltered [3]int          // each column's length before its filter
+	family     *api.BrowseNode
+	famIdx     int
+	f          [3]listFilter
+	unfiltered [3]int
 }
 
 func (ml *miller) at(c int) (api.BrowseNode, bool) {
@@ -50,8 +46,6 @@ func indexOf(nodes []api.BrowseNode, name string) int {
 	return -1
 }
 
-// milLoad refreshes column c and everything to its right, keeping the cursor
-// on the same name where possible.
 func (m *Model) milLoad(c int) {
 	ml := &m.mil
 	keep := func(c int, nodes []api.BrowseNode) {
@@ -75,7 +69,7 @@ func (m *Model) milLoad(c int) {
 		case i >= 0:
 			ml.cur[c] = i
 		case f.active() && f.bestIn(nodes) >= 0:
-			ml.cur[c] = f.bestIn(nodes) // the selection was filtered out
+			ml.cur[c] = f.bestIn(nodes)
 		default:
 			ml.cur[c] = clamp(ml.cur[c], 0, max(0, len(nodes)-1))
 		}
@@ -92,8 +86,6 @@ func (m *Model) milLoad(c int) {
 	}
 	var ts []api.BrowseNode
 	if d, ok := ml.at(1); ok {
-		// an open family belongs to one dataset: drop it when the dataset
-		// changed under it (a project deselected, a config reload)
 		if f := ml.family; f != nil && (f.Path.Project != d.Path.Project || f.Path.Dataset != d.Path.Dataset) {
 			ml.family = nil
 		}
@@ -110,14 +102,11 @@ func (m *Model) milLoad(c int) {
 		ml.family = nil
 	}
 	keep(2, ts)
-	// an empty column cannot hold the focus, unless only its filter emptied it
 	for ml.col > 0 && len(ml.cols[ml.col]) == 0 && !(ml.f[ml.col].active() && ml.unfiltered[ml.col] > 0) {
 		ml.col--
 	}
 }
 
-// milDropHiding clears every column filter that would hide an object or one
-// of its ancestors.
 func (m *Model) milDropHiding(p api.ObjectPath, kind api.ResultKind) {
 	ml := &m.mil
 	levels := []api.BrowseNode{{Kind: api.KindProject, Path: api.ObjectPath{Project: p.Project}}}
@@ -153,32 +142,21 @@ func (m *Model) milCollapseFamily() {
 	}
 }
 
-// --- tree
-
 type treeRow struct {
 	depth int
 	node  api.BrowseNode
-	// more is set on the row after an open family's newest members: how many
-	// it leaves out (node is then the family).
-	more int
+	more  int
 }
 
 type tree struct {
-	rows     []treeRow
-	cur, off int
-	open     map[string]bool
-	f        listFilter
-	// filterOpen is the expansion while the filter is on, kept apart from open so
-	// that clearing the filter restores the rows the user had opened. A row
-	// missing from it is open when it holds a match (shard families stay
-	// closed).
+	rows       []treeRow
+	cur, off   int
+	open       map[string]bool
+	f          listFilter
 	filterOpen map[string]bool
-	// reveal is the openKey of a family member the tree shows although it is
-	// not among the family's newest (a jump to it).
-	reveal string
+	reveal     string
 }
 
-// nodeKey identifies an object across browse nodes and filter matches.
 func nodeKey(kind api.ResultKind, p api.ObjectPath) string { return string(kind) + "\x00" + p.String() }
 
 func openKey(n api.BrowseNode) string { return nodeKey(n.Kind, n.Path) }
@@ -220,8 +198,6 @@ func (m *Model) treeBuild() {
 	t.rows = t.rows[:0]
 	f := &t.f
 	on := t.filtering()
-	// shown: under the filter, a row is a match or holds one; below a
-	// container that matched only by its own name, every row is shown
 	shown := func(n api.BrowseNode, all bool) bool {
 		return !on || all || f.set[openKey(n)] || f.under[openKey(n)]
 	}
@@ -265,15 +241,12 @@ func (m *Model) treeBuild() {
 	}
 	if !found && on {
 		if i := m.treeBest(); i >= 0 {
-			t.cur = i // the selection was filtered out
+			t.cur = i
 		}
 	}
 	t.cur = clamp(t.cur, 0, max(0, len(t.rows)-1))
 }
 
-// familyRows appends an open shard family's members to the tree: under a
-// filter only the members that match, otherwise the [tui] family_rows newest
-// (and the member the tree was asked to show), then a "… N more" row.
 func (m *Model) familyRows(rows []treeRow, fam api.BrowseNode, filtered bool) []treeRow {
 	t := &m.tree
 	members := m.be.ShardMembers(fam.Path.Project, fam.Path.Dataset, fam.Shard.Name, fam.Type)
@@ -299,7 +272,6 @@ func (m *Model) familyRows(rows []treeRow, fam api.BrowseNode, filtered bool) []
 	return rows
 }
 
-// treeNodes are the nodes of the tree's rows.
 func treeNodes(rows []treeRow) []api.BrowseNode {
 	out := make([]api.BrowseNode, len(rows))
 	for i, r := range rows {
@@ -308,15 +280,13 @@ func treeNodes(rows []treeRow) []api.BrowseNode {
 	return out
 }
 
-// familyFor returns the index of the shard family among nodes that holds the
-// table at p, or -1. When several could (orders_* and orders_*_history both
-// fit orders_<id>_history), the one with the longest fixed parts wins.
 func familyFor(nodes []api.BrowseNode, p api.ObjectPath) int {
 	best, bestLen := -1, -1
 	for i, n := range nodes {
 		if n.Kind != api.KindShards || n.Shard == nil || n.Path.Project != p.Project || n.Path.Dataset != p.Dataset {
 			continue
 		}
+		// ADR-0011
 		if _, ok := n.Shard.Varying(p.Table); ok && len(n.Shard.Prefix)+len(n.Shard.Suffix) > bestLen {
 			best, bestLen = i, len(n.Shard.Prefix)+len(n.Shard.Suffix)
 		}
@@ -324,7 +294,6 @@ func familyFor(nodes []api.BrowseNode, p api.ObjectPath) int {
 	return best
 }
 
-// treeBest is the row of the best-ranked match the tree shows, or -1.
 func (m *Model) treeBest() int {
 	nodes := make([]api.BrowseNode, len(m.tree.rows))
 	for i, r := range m.tree.rows {
@@ -332,8 +301,6 @@ func (m *Model) treeBest() int {
 	}
 	return m.tree.f.bestIn(nodes)
 }
-
-// --- shared navigation
 
 func (m *Model) reloadBrowse() {
 	m.milLoad(0)
@@ -370,7 +337,6 @@ func (m *Model) sel() selection {
 	if st := m.activeResults(); st != nil {
 		s := st.selection()
 		if s.kind == api.KindDataset {
-			// a search result carries less than the Explorer's node
 			for _, n := range m.be.Datasets(s.path.Project) {
 				if n.Name == s.path.Dataset {
 					s.node = n
@@ -393,7 +359,6 @@ func (m *Model) sel() selection {
 	return selection{}
 }
 
-// activeResults is the result list the cursor is in, if any.
 func (m *Model) activeResults() *searchState {
 	switch {
 	case m.ov == ovJump:
@@ -404,8 +369,6 @@ func (m *Model) activeResults() *searchState {
 	return nil
 }
 
-// listHeight is the number of rows the Explorer's list shows, give or take
-// its headers.
 func (m *Model) listHeight() int { return max(1, m.paneRect(ZoneExplorer).h-2) }
 
 func (m *Model) move(d int) {
@@ -419,8 +382,6 @@ func (m *Model) move(d int) {
 	}
 }
 
-// milMove moves column c's cursor by d; the deeper columns start again at
-// the top of the new parent. c need not be the focused column (the wheel).
 func (m *Model) milMove(c, d int) {
 	ml := &m.mil
 	old := ml.cur[c]
@@ -465,7 +426,7 @@ func (m *Model) left() {
 			m.treeBuild()
 			return
 		}
-		for i := t.cur - 1; i >= 0; i-- { // go to the parent
+		for i := t.cur - 1; i >= 0; i-- {
 			if t.rows[i].depth < r.depth {
 				t.cur = i
 				return
@@ -498,8 +459,7 @@ func (m *Model) right() tea.Cmd {
 			return nil
 		}
 		if expandable {
-			// already open: step into the first child, if there is one (an empty
-			// project or dataset has none, and must not recurse through open)
+			// ADR-0011
 			if t.cur+1 < len(t.rows) && t.rows[t.cur+1].depth > t.rows[t.cur].depth {
 				t.cur++
 			}
@@ -512,8 +472,6 @@ func (m *Model) right() tea.Cmd {
 	return nil
 }
 
-// open is Enter: expand a container or shard family; on a table, record it as
-// recently opened and go to the Schema pane.
 func (m *Model) open() tea.Cmd {
 	s := m.sel()
 	switch s.kind {
@@ -572,7 +530,6 @@ func (m *Model) setStyle(l explorerStyle) {
 	}
 }
 
-// locate moves the current Explorer style's cursor to an object.
 func (m *Model) locate(p api.ObjectPath, kind api.ResultKind) {
 	switch m.style {
 	case styleColumns:
@@ -603,7 +560,6 @@ func (m *Model) locate(p api.ObjectPath, kind api.ResultKind) {
 			ml.cur[2], ml.col = i, 2
 			return
 		}
-		// a member of a collapsed shard family
 		if fi := familyFor(ml.cols[2], p); fi >= 0 {
 			fam := ml.cols[2][fi]
 			ml.family, ml.famIdx = &fam, fi
@@ -619,7 +575,6 @@ func (m *Model) locate(p api.ObjectPath, kind api.ResultKind) {
 	case styleTree:
 		t := &m.tree
 		if t.f.active() && (!t.filtering() || !m.treeLocateFiltered(p, kind)) {
-			// the filter hides the target: drop it
 			t.f.clear()
 			t.filterOpen = nil
 		}
@@ -647,7 +602,7 @@ func (m *Model) locate(p api.ObjectPath, kind api.ResultKind) {
 		if find() || p.Table == "" {
 			return
 		}
-		if i := familyFor(treeNodes(t.rows), p); i >= 0 { // open the family that holds the table
+		if i := familyFor(treeNodes(t.rows), p); i >= 0 {
 			t.open[openKey(t.rows[i].node)] = true
 			t.reveal = nodeKey(api.KindTable, p)
 		}
@@ -659,8 +614,6 @@ func (m *Model) locate(p api.ObjectPath, kind api.ResultKind) {
 	}
 }
 
-// treeLocateFiltered moves the cursor to an object the tree filter shows,
-// opening its ancestors (and its shard family) in the filter's expansion.
 func (m *Model) treeLocateFiltered(p api.ObjectPath, kind api.ResultKind) bool {
 	t := &m.tree
 	find := func(k api.ResultKind) bool {
@@ -693,19 +646,14 @@ func (m *Model) treeLocateFiltered(p api.ObjectPath, kind api.ResultKind) bool {
 	return find(api.KindTable)
 }
 
-// reveal closes any overlay and shows the object in the explorer.
 func (m *Model) reveal(p api.ObjectPath, kind api.ResultKind) tea.Cmd {
 	m.ov = ovNone
 	if m.style == styleList {
-		// the list style cannot show containers: fall back to the columns style
 		m.style = styleColumns
 	}
 	if m.panes.hiddenPane(ZoneExplorer) || (m.maxed != "" && m.maxed != ZoneExplorer) {
-		// the Explorer is out of sight: go there (shown again, or maximised
-		// in place of the maximised Pane)
 		m.setZone(ZoneExplorer)
 	}
-	// a pasted path can name a project that is not selected
 	show := m.selectForPath(p.Project)
 	m.locate(p, kind)
 	if kind == api.KindShards && m.style == styleColumns {

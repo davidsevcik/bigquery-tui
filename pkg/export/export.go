@@ -18,37 +18,27 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/format"
 )
 
-// Format is an export file format.
 type Format string
 
 const (
 	CSV    Format = "csv"
-	JSON   Format = "json" // one JSON array of objects
+	JSON   Format = "json"
 	NDJSON Format = "ndjson"
 )
 
-// AskAboveRows is the row count above which a frontend asks before it starts
-// an export: a result that large takes long to page through and to write
-// (spec 10.4).
 const AskAboveRows = 1_000_000
 
-// Origin is where a result a frontend shows comes from.
 type Origin int
 
 const (
-	FromRun    Origin = iota // a Run's result
-	FromSample               // a Sample: a free read of a table, with no job
+	FromRun Origin = iota
+	FromSample
 )
 
-// Exportable reports whether a result of origin o can be exported. A Sample
-// cannot: it is not a Run, so there is no job result to page through
-// (Engine.StartExport takes a Run). A SELECT of the table can, and is billed.
 func Exportable(o Origin) bool { return o == FromRun }
 
-// Formats lists the formats in the order a frontend should offer them.
 var Formats = []Format{CSV, JSON, NDJSON}
 
-// FormatOf picks the format from a file name; unknown extensions are CSV.
 func FormatOf(path string) Format {
 	switch strings.ToLower(strings.TrimPrefix(filepath.Ext(path), ".")) {
 	case "json":
@@ -59,7 +49,6 @@ func FormatOf(path string) Format {
 	return CSV
 }
 
-// ParseFormat validates a format name.
 func ParseFormat(s string) (Format, error) {
 	switch f := Format(strings.ToLower(s)); f {
 	case CSV, JSON, NDJSON:
@@ -70,12 +59,8 @@ func ParseFormat(s string) (Format, error) {
 	return "", fmt.Errorf("unknown export format %q (csv, json, ndjson)", s)
 }
 
-// Next returns the rows from startIndex on (any number of them); no rows
-// means the end.
 type Next func(ctx context.Context, startIndex int64) ([][]any, error)
 
-// Write streams every row to w. progress is called after each batch with the
-// number of rows written so far. It returns the row count.
 func Write(ctx context.Context, w io.Writer, f Format, schema []bq.Field, next Next, progress func(rows int64)) (int64, error) {
 	bw := bufio.NewWriterSize(w, 1<<16)
 	var cw *csv.Writer
@@ -167,8 +152,6 @@ func Write(ctx context.Context, w io.Writer, f Format, schema []bq.Field, next N
 	return n, bw.Flush()
 }
 
-// TSV renders formatted cells for the clipboard: a header line and one line
-// per row, tab-separated. Tabs and line breaks inside values become spaces.
 func TSV(cols []api.PreviewColumn, rows [][]api.Cell) string {
 	clean := strings.NewReplacer("\t", " ", "\n", " ", "\r", " ")
 	var b strings.Builder

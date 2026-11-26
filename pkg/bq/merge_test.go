@@ -16,7 +16,6 @@ func TestMergeSnapshotMarksRequiredTopLevelColumns(t *testing.T) {
 	for _, c := range cols[0].Columns {
 		got[c.FieldPath] = c.Required
 	}
-	// the metadata views carry no mode for nested fields
 	if !got["id"] || !got["addr"] || got["addr.city"] || got["name"] {
 		t.Fatalf("%v", got)
 	}

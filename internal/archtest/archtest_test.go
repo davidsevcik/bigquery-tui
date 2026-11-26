@@ -2,6 +2,8 @@
 // core (every package under pkg/) imports no UI libraries, no frontend
 // packages and nothing under internal/, and the shared api types depend on
 // nothing else in the module.
+//
+// It also holds Go code to its comment budget (ADR 0004).
 package archtest
 
 import (
@@ -12,9 +14,6 @@ import (
 
 const module = "github.com/davidsevcik/bigquery-tui"
 
-// forbiddenPrefixes are what no core package may (transitively) import. The
-// core is public so other modules (a GUI) can import it; anything it pulled in
-// from internal/ would leak types those modules cannot name.
 var forbiddenPrefixes = []string{
 	"charm.land/",
 	"github.com/charmbracelet/",

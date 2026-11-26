@@ -15,7 +15,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/runs"
 )
 
-// editorRig opens the UI with the editor focused.
 func editorRig(t *testing.T, w, h int) *rig {
 	t.Helper()
 	r := newRig(t, w, h)
@@ -68,7 +67,6 @@ func TestPanesCycleAndDirections(t *testing.T) {
 		}
 	}
 	r.press("ctrl+w", "l")
-	// printable keys type in the editor, including the explorer's commands
 	r.typeText("q L ? /")
 	if r.text() != "q L ? /" || r.m.zone != ZoneEditor {
 		t.Fatalf("%q", r.text())
@@ -87,7 +85,6 @@ func TestPanesCycleSkipsTheSteppedDownSchema(t *testing.T) {
 	if r.m.zone != ZoneResults {
 		t.Fatalf("ctrl+w W: %s", r.m.zone)
 	}
-	// both the Editor and the Results lie right of the Explorer: the one used last wins
 	r.press("ctrl+w", "h", "ctrl+w", "l")
 	if r.m.zone != ZoneResults {
 		t.Fatalf("ctrl+w l returns to the Results: %s", r.m.zone)
@@ -119,16 +116,16 @@ func TestCompletionPopup(t *testing.T) {
 		t.Fatalf("popup after a backtick path: %+v", r.m.comp)
 	}
 	r.contains("acme-prod", "tab accept")
-	r.press("tab") // project: the dot is added and the datasets follow
+	r.press("tab")
 	if r.text() != "select * from `acme-prod." || !r.m.comp.open {
 		t.Fatalf("%q open=%v", r.text(), r.m.comp.open)
 	}
-	r.press("down", "down", "tab") // events, finance, sales
+	r.press("down", "down", "tab")
 	if r.text() != "select * from `acme-prod.sales." {
 		t.Fatalf("%q", r.text())
 	}
 	r.typeText("ord")
-	r.press("tab") // order_items sorts first: move to orders
+	r.press("tab")
 	if !strings.HasSuffix(r.text(), "order_items`") {
 		t.Fatalf("a table closes the backtick: %q", r.text())
 	}
@@ -138,7 +135,6 @@ func TestCompletionPopup(t *testing.T) {
 		t.Fatalf("%q", r.text())
 	}
 
-	// enter never accepts: it is a new line
 	r.typeText("` o\nwhere o.cu")
 	if !r.m.comp.open {
 		t.Fatal("columns after alias dot")
@@ -148,7 +144,6 @@ func TestCompletionPopup(t *testing.T) {
 		t.Fatalf("%q", r.text())
 	}
 	r.press("backspace")
-	// esc dismisses; ctrl+space brings it back; ctrl+p navigates while open
 	r.typeText("s")
 	r.press("backspace")
 	if !r.m.comp.open {
@@ -197,12 +192,10 @@ func TestRunWithParametersShowsResults(t *testing.T) {
 	if historyCount(t, r) != 1 {
 		t.Fatal("the run is in History")
 	}
-	// the values are remembered for the next run of this buffer
 	r.press("ctrl+r")
 	r.contains("2024-02-29")
 	r.press("esc")
 
-	// results: cursor, paging across the 500-row page, record view
 	r.press("ctrl+o", "G")
 	r.contains("row 1,234 of 1,234", "row 1233")
 	r.press("g", "g", "l", "enter")
@@ -227,7 +220,6 @@ func TestQueryErrorJumpsToThePosition(t *testing.T) {
 		return bqtest.QueryScript{DryRunErr: bqtest.QueryError("Unrecognized name: nope at [2:3]")}
 	}
 	r.typeText("select 1;\n\nselect\nnope from t")
-	// run only the second statement: the position is relative to the selection
 	r.press("up", "home", "home", "shift+down", "shift+end", "ctrl+r")
 	ed := r.m.buf().ed
 	if ed.errLine != 4 || ed.errCol != 3 || ed.row != 3 || ed.col != 2 {
@@ -336,7 +328,6 @@ func TestBuffersAndRunList(t *testing.T) {
 	r.press("ctrl+x", "]")
 	r.contains("[2/2]", "22 rows")
 
-	// the run list is global; enter shows a run and switches to its buffer
 	r.press("ctrl+x", "l")
 	r.contains("Runs", "#2", "#1", "select one", "query 1")
 	r.press("down", "enter")
@@ -345,8 +336,7 @@ func TestBuffersAndRunList(t *testing.T) {
 	}
 	r.contains("#1 done", "11 rows")
 
-	// closing a buffer with text asks; an empty one does not
-	r.press("ctrl+w", "k", "ctrl+x", "w") // the Editor, above the Results
+	r.press("ctrl+w", "k", "ctrl+x", "w")
 	if r.m.ov != ovConfirm {
 		t.Fatalf("zone %s ov %v", r.m.zone, r.m.ov)
 	}
@@ -374,14 +364,12 @@ func TestDraftsSurviveAndAreOfferedForRestore(t *testing.T) {
 		t.Fatalf("%q", b)
 	}
 
-	// a second instance while the first is alive: the draft is locked, not offered
 	m2 := New(r.m.be, Options{NoBackground: true, StableOutput: true, Now: func() time.Time { return r.now }})
 	if len(m2.orphans) != 0 {
 		t.Fatal("a draft held by a running instance must not be offered")
 	}
 	m2.Close()
 
-	// the first instance quits: the next one offers the draft
 	r.m.Close()
 	m3 := New(r.m.be, Options{NoBackground: true, StableOutput: true, Now: func() time.Time { return r.now }})
 	defer m3.Close()
@@ -402,7 +390,6 @@ func TestDraftsSurviveAndAreOfferedForRestore(t *testing.T) {
 		t.Fatal("a restored draft is owned again")
 	}
 
-	// drafts older than 30 days are deleted
 	old := filepath.Join(dir, "deadbeef0000.sql")
 	if err := os.WriteFile(old, []byte("select 'old'"), 0o600); err != nil {
 		t.Fatal(err)
@@ -443,7 +430,6 @@ func TestFileBufferSavesBack(t *testing.T) {
 		t.Fatalf("a file buffer has no draft: %v", files)
 	}
 
-	// a scratch buffer asks for a name, then lives in that file
 	rf.press("ctrl+x", "n")
 	rf.typeText("select 2")
 	rf.press("ctrl+s")
@@ -479,7 +465,7 @@ func wideScript() bqtest.QueryScript {
 }
 
 func TestGridColumnsFreezeHideAndFind(t *testing.T) {
-	r := editorRig(t, 108, 24) // a Results pane 70 cells wide
+	r := editorRig(t, 108, 24)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return wideScript() }
 	r.typeText("select wide")
 	r.press("ctrl+r", "ctrl+o")
@@ -492,24 +478,20 @@ func TestGridColumnsFreezeHideAndFind(t *testing.T) {
 	}
 	r.contains("id INT", "customer-0")
 	r.lacks("tags")
-	// moving right scrolls by whole columns
 	r.press("$")
 	r.contains("tags STR[]", "[2] a, b", "NULL", "long note long note")
 	r.lacks("customer-0")
-	// freezing keeps the first column in view
 	r.press("f")
 	r.contains("first column frozen", "tags STR[]")
 	if !strings.Contains(r.screen(), " 0 ") {
 		t.Fatalf("frozen id column:\n%s", r.screen())
 	}
-	// hiding removes the cursor's column for the session
 	r.press("0", "l", "H")
 	r.lacks("customer-0")
 	r.contains("1 hidden", "country")
 	r.press("U")
 	r.contains("customer-0")
 
-	// find within the loaded page
 	r.press("/")
 	r.typeText("needle")
 	r.press("enter")
@@ -540,11 +522,11 @@ func TestExportFromTheGrid(t *testing.T) {
 	target := filepath.Join(r.dir, "out.csv")
 	r.press("ctrl+u")
 	r.typeText(target)
-	r.press("tab") // json
+	r.press("tab")
 	if got := r.m.prompt.fields[0].value(); !strings.HasSuffix(got, "out.json") {
 		t.Fatalf("tab changes the extension: %q", got)
 	}
-	r.press("tab", "tab") // ndjson, csv
+	r.press("tab", "tab")
 	r.press("enter")
 	r.contains("exported 1,203 rows to")
 	b, err := os.ReadFile(target)
@@ -554,7 +536,6 @@ func TestExportFromTheGrid(t *testing.T) {
 	if lines := strings.Split(strings.TrimSpace(string(b)), "\n"); len(lines) != 1204 || lines[0] != "n,label" {
 		t.Fatalf("%d lines", len(lines))
 	}
-	// an existing file is not overwritten silently
 	r.press("e", "ctrl+u")
 	r.typeText(target)
 	r.press("enter")
@@ -568,7 +549,6 @@ func TestExplorerInsertsTableNamesIntoTheEditor(t *testing.T) {
 	if r.m.zone != ZoneEditor || r.text() != "`acme-prod.sales.orders`" {
 		t.Fatalf("zone %s text %q", r.m.zone, r.text())
 	}
-	// jump-to-table from the editor inserts too
 	r.typeText(" join ")
 	r.press("ctrl+t")
 	r.typeText("refunds")
@@ -576,7 +556,6 @@ func TestExplorerInsertsTableNamesIntoTheEditor(t *testing.T) {
 	if r.m.zone != ZoneEditor || r.text() != "`acme-prod.sales.orders` join `acme-prod.finance.refunds`" {
 		t.Fatalf("zone %s text %q", r.m.zone, r.text())
 	}
-	// a shard family is inserted as a wildcard table
 	r.press("ctrl+w", "h", "h", "k", "k", "l", "j", "i")
 	if !strings.HasSuffix(r.text(), "`acme-prod.events.events_*`") {
 		t.Fatalf("%q", r.text())
@@ -597,7 +576,7 @@ func TestQueryGoldenScreens(t *testing.T) {
 		r.typeText("2024-01-01")
 		r.press("enter")
 		r.golden(name("editor_with_result"))
-		r.press("ctrl+w", "j", "j", "j", "l") // the Results, below the Editor (at 60x20 the Run showed them already)
+		r.press("ctrl+w", "j", "j", "j", "l")
 		r.golden(name("results"))
 		r.press("enter")
 		r.golden(name("result_record"))
@@ -608,9 +587,9 @@ func TestQueryGoldenScreens(t *testing.T) {
 
 func TestListStyleDoesNotStealEditorKeys(t *testing.T) {
 	r := newRig(t, 120, 30)
-	r.press("L", "L")           // the list style
-	r.press("/")                // its filter is now taking keys
-	r.press("ctrl+o", "ctrl+o") // the Schema pane, then the Editor
+	r.press("L", "L")
+	r.press("/")
+	r.press("ctrl+o", "ctrl+o")
 	r.typeText("select 1")
 	if r.text() != "select 1" || r.m.flat.in.value() != "" {
 		t.Fatalf("editor %q, explorer filter %q", r.text(), r.m.flat.in.value())
@@ -655,18 +634,16 @@ func TestCtrlCCancelsTheRunShownInResults(t *testing.T) {
 		return s
 	}
 	r.typeText("select aaa")
-	r.press("ctrl+r") // run #1
+	r.press("ctrl+r")
 	r.press("ctrl+u")
 	r.typeText("select bbb")
-	r.press("ctrl+r") // run #2, the buffer's latest
-	// show run #1 through the run list, then cancel from the Results zone
+	r.press("ctrl+r")
 	r.press("ctrl+x", "l", "down", "enter")
 	if r.m.zone != ZoneResults || r.m.buf().viewID != 1 {
 		t.Fatalf("zone %s view %d", r.m.zone, r.m.buf().viewID)
 	}
 	r.press("ctrl+c")
 	r.contains("cancel requested for run #1")
-	// in the editor the buffer's latest run is the focused one
 	r.press("esc", "ctrl+c")
 	r.contains("cancel requested for run #2")
 }
@@ -679,7 +656,6 @@ func TestConfirmationsQueueInsteadOfReplacingEachOther(t *testing.T) {
 	if r.m.ov != ovConfirm || r.m.confirm.runID != 1 {
 		t.Fatal("the first statement asks")
 	}
-	// a second statement reaches its confirmation while the first is open
 	asks := func(i api.RunInfo) bool { return i.State == api.RunNeedsOK }
 	id := r.m.runs.Start(t.Context(), runs.Request{SQL: "delete from b where true", Tag: r.m.buf().id}, runs.Origin{})
 	u, _ := r.m.runs.Wait(t.Context(), id, asks)
@@ -687,7 +663,7 @@ func TestConfirmationsQueueInsteadOfReplacingEachOther(t *testing.T) {
 	if r.m.confirm.runID != 1 || len(r.m.confirmQ) != 1 {
 		t.Fatalf("the open question must stay: showing #%d, %d queued", r.m.confirm.runID, len(r.m.confirmQ))
 	}
-	r.press("n") // decline the first: the second question appears
+	r.press("n")
 	if r.m.ov != ovConfirm || r.m.confirm.runID != id {
 		t.Fatalf("the queued question was lost: ov %v run #%d", r.m.ov, r.m.confirm.runID)
 	}
@@ -696,11 +672,10 @@ func TestConfirmationsQueueInsteadOfReplacingEachOther(t *testing.T) {
 	if len(r.fake.CallsTo("StartQuery")) != 1 {
 		t.Fatalf("exactly the confirmed statement runs: %d", len(r.fake.CallsTo("StartQuery")))
 	}
-	// a waiting confirmation can be reopened from the run list
-	r.press("ctrl+r", "esc") // run #3 asks; esc declines it
+	r.press("ctrl+r", "esc")
 	id4 := r.m.runs.Start(t.Context(), runs.Request{SQL: "delete from c where true", Tag: r.m.buf().id}, runs.Origin{})
 	r.m.runs.Wait(t.Context(), id4, asks)
-	r.press("ctrl+x", "l", "enter") // the newest run is first
+	r.press("ctrl+x", "l", "enter")
 	if r.m.ov != ovConfirm || r.m.confirm.runID != id4 {
 		t.Fatalf("enter on a waiting run reopens its question: ov %v #%d", r.m.ov, r.m.confirm.runID)
 	}
@@ -733,7 +708,6 @@ func TestDraftWriteFailureIsRetried(t *testing.T) {
 	r := editorRig(t, 120, 30)
 	b := r.m.buf()
 	dir := r.m.be.DraftDir()
-	// make the draft path unwritable: a directory sits where the temp file goes
 	if err := os.MkdirAll(filepath.Join(r.m.draftPath(b.id)+".tmp", "keep"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -755,7 +729,7 @@ func TestPasteIsVerbatim(t *testing.T) {
 	if r.text() != "select 'a\tb'\nfrom t" {
 		t.Fatalf("a pasted tab inside a string literal must survive: %q", r.text())
 	}
-	r.golden("paste_tab_120x30") // tabs still render two cells wide, lines stay 120 wide
+	r.golden("paste_tab_120x30")
 }
 
 func TestJumpToTheLastRowFetchesOnlyThatWindow(t *testing.T) {
@@ -786,7 +760,6 @@ func TestGridsAreBounded(t *testing.T) {
 	if n := len(r.m.grids); n > maxGrids {
 		t.Fatalf("%d grids kept after their buffers were closed", n)
 	}
-	// a dropped grid comes back when its run is opened again
 	r.press("ctrl+x", "l")
 	for i := 0; i < maxGrids+5; i++ {
 		r.press("down")

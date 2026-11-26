@@ -24,8 +24,6 @@ type rig struct {
 	cs   *sdk.ClientSession
 }
 
-// newRig starts the server over the in-memory transport. With sync set the
-// catalog is filled first, as a person's `bqt sync` would.
 func newRig(t *testing.T, sync bool) *rig {
 	t.Helper()
 	dir := t.TempDir()
@@ -72,8 +70,6 @@ func newRig(t *testing.T, sync bool) *rig {
 	return r
 }
 
-// engine runs fn on an engine of the person's own bqt (read-only is enough
-// to change the selection, as `bqt projects` does).
 func (r *rig) engine(t *testing.T, fn func(*engine.Engine)) {
 	t.Helper()
 	r.open(t, true, fn)
@@ -102,8 +98,6 @@ func (r *rig) sync(t *testing.T) {
 	})
 }
 
-// call runs a tool and decodes its structured output into out; it returns
-// the error text of a tool error.
 func (r *rig) call(t *testing.T, name string, args map[string]any, out any) string {
 	t.Helper()
 	res, err := r.cs.CallTool(ctx, &sdk.CallToolParams{Name: name, Arguments: args})
@@ -227,7 +221,7 @@ func TestServerStartedBeforeTheFirstSync(t *testing.T) {
 	if e := r.call(t, "search_catalog", map[string]any{"query": "orders"}, &hits); !strings.Contains(e, "bqt sync") {
 		t.Fatalf("%q", e)
 	}
-	r.sync(t) // the person syncs; the running server picks the catalog up
+	r.sync(t)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		e := r.call(t, "search_catalog", map[string]any{"query": "orders"}, &hits)
@@ -279,8 +273,6 @@ func TestADeselectedProjectIsSearchableWithAWarning(t *testing.T) {
 	}
 }
 
-// Issue 82: search_catalog and catalog_status mark a dataset whose tables
-// are not synced yet, so an agent does not conclude it has none.
 func TestPendingDatasetIsMarked(t *testing.T) {
 	r := newRig(t, false)
 	r.fake.Projects["proj-a"].Datasets = append(r.fake.Projects["proj-a"].Datasets, bqtest.DS("landing", "US", bqtest.Table("drops", "id")))

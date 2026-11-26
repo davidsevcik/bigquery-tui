@@ -21,8 +21,8 @@ type rig struct {
 	m       *Manager
 	mu      sync.Mutex
 	records []api.RunInfo
-	exec    string   // the Execution project now
-	asked   []string // the project each client was asked for
+	exec    string
+	asked   []string
 }
 
 func (r *rig) setExec(p string) { r.mu.Lock(); r.exec = p; r.mu.Unlock() }
@@ -56,7 +56,6 @@ func (r *rig) recorded() []api.RunInfo {
 	return append([]api.RunInfo(nil), r.records...)
 }
 
-// until waits for a Run to reach a state.
 func until(t *testing.T, run *Run, want api.RunState) api.RunInfo {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -97,7 +96,6 @@ func TestRunSelectEndToEnd(t *testing.T) {
 		t.Fatalf("one History record per real run: %+v", rec)
 	}
 
-	// paging: across the 500-row page boundary, and a jump to the end
 	page, err := run.Rows(context.Background(), 498, 4, format.Options{})
 	if err != nil || len(page.Rows) != 4 || page.Rows[0][0].Text != "498" || page.Rows[3][0].Text != "501" || page.TotalRows != 1234 {
 		t.Fatalf("%v %+v", err, page)
@@ -156,7 +154,6 @@ func TestQueryErrorCarriesThePosition(t *testing.T) {
 		t.Fatal("a failed dry-run is not a real Run")
 	}
 
-	// a position is optional
 	r.fake.OnQuery = func(string) bqtest.QueryScript {
 		return bqtest.QueryScript{DryRunErr: &bq.Error{Kind: bq.KindNotFound, Err: errNotFound}}
 	}
@@ -208,7 +205,6 @@ func TestOnDemandOverThresholdNeedsConfirmation(t *testing.T) {
 		t.Fatalf("%+v", info)
 	}
 
-	// declining is a cancel, and nothing ran
 	run = r.m.Start(context.Background(), Request{SQL: "select big"})
 	until(t, run, api.RunNeedsOK)
 	run.Cancel()
@@ -232,7 +228,6 @@ func TestCapacityDoesNotConfirmBytesByDefault(t *testing.T) {
 	if p := r.m.Pricing(); !p.Known || !p.Capacity || p.ReservationID != "admin:EU.res" {
 		t.Fatalf("pricing is learned from the dry-run: %+v", p)
 	}
-	// an explicit confirm_bytes applies on capacity too
 	r.cfg.ConfirmBytes = config.ByteLimit{Mode: config.ByteLimitValue, Bytes: 1 << 30}
 	run := r.m.Start(context.Background(), Request{SQL: "select big"})
 	until(t, run, api.RunNeedsOK)
@@ -262,7 +257,6 @@ func TestHardCapRefusalIsAnOrdinaryFailure(t *testing.T) {
 	if info.State != api.RunFailed || info.Error.Kind != "over_limit" || !strings.Contains(info.Error.Message, "5000 or higher required") {
 		t.Fatalf("%+v %+v", info, info.Error)
 	}
-	// "off" sets no cap at all
 	r.cfg.MaxBytesBilled = config.ByteLimit{Mode: config.ByteLimitOff}
 	if info := r.m.Start(context.Background(), Request{SQL: "select"}).Wait(); info.State != api.RunDone {
 		t.Fatalf("%+v", info)
@@ -274,7 +268,7 @@ func TestHardCapRefusalIsAnOrdinaryFailure(t *testing.T) {
 }
 
 func TestRunsQueueBeyondTheConcurrencyLimit(t *testing.T) {
-	r := newRig(t) // limit 2
+	r := newRig(t)
 	block := make(chan struct{})
 	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.Block = block; return s }
 	a := r.m.Start(context.Background(), Request{SQL: "a"})
@@ -288,7 +282,6 @@ func TestRunsQueueBeyondTheConcurrencyLimit(t *testing.T) {
 	if r.m.Active() != 4 {
 		t.Fatalf("active = %d", r.m.Active())
 	}
-	// a queued run can be cancelled without ever starting a job
 	d.Cancel()
 	if d.Wait().State != api.RunCancelled {
 		t.Fatal("queued run was not cancelled")
@@ -347,7 +340,6 @@ func TestEventsDeliverTheFinalState(t *testing.T) {
 	if last.Run.State != api.RunDone || states[0] != api.RunEstimating {
 		t.Fatalf("%v", states)
 	}
-	// a reader that never reads must not block runs
 	for i := 0; i < 300; i++ {
 		r.m.Start(context.Background(), Request{SQL: "select 1", DryRunOnly: true}).Wait()
 	}
@@ -366,13 +358,11 @@ func TestLearnPricingNeedsALocation(t *testing.T) {
 	if c := r.fake.QueryCalls(); len(c) != 1 || !c[0].Dry || c[0].Req.Location != "EU" {
 		t.Fatalf("%+v", c)
 	}
-	// a query that scans nothing and names no reservation teaches nothing
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.QueryScript{Bytes: 0, Schema: bqtest.Numbers(0).Schema} }
 	r.m.Start(context.Background(), Request{SQL: "select 1"}).Wait()
 	if !r.m.Pricing().Capacity {
 		t.Fatal("SELECT 1 must not flip the model to on-demand")
 	}
-	// one that scans bytes without a reservation is on-demand
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(5) }
 	r.m.Start(context.Background(), Request{SQL: "select"}).Wait()
 	if p := r.m.Pricing(); !p.Known || p.Capacity {
@@ -405,7 +395,6 @@ func TestAwaitFollowsARunToItsEnd(t *testing.T) {
 	if states[len(states)-1] != api.RunDone {
 		t.Fatalf("%v", states)
 	}
-	// after the end it returns at once, and a cancelled context unblocks a waiter
 	if info, _ := run.Await(context.Background(), v); info.State != api.RunDone {
 		t.Fatal("await after the end must not block")
 	}
@@ -448,7 +437,7 @@ func TestOldRunsGiveUpTheirPagesButStayReadable(t *testing.T) {
 
 func TestShortResponsesStillFillThePage(t *testing.T) {
 	r := newRig(t)
-	r.fake.PageLimit = 7 // BigQuery cuts responses of wide rows short
+	r.fake.PageLimit = 7
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1234) }
 	run := r.m.Start(context.Background(), Request{SQL: "select"})
 	if info := run.Wait(); info.TotalRows != 1234 || !info.HasResult {
@@ -458,7 +447,6 @@ func TestShortResponsesStillFillThePage(t *testing.T) {
 	if err != nil || len(page.Rows) != 20 || page.Rows[0][0].Text != "490" || page.Rows[19][0].Text != "509" {
 		t.Fatalf("%v %d rows", err, len(page.Rows))
 	}
-	// an export walks every row, not just the first response
 	var n int64
 	for {
 		_, rows, err := run.RawRows(context.Background(), n)
@@ -496,7 +484,7 @@ func TestCancelWhileSubmittingStillCancelsTheJob(t *testing.T) {
 	r.fake.OnCall = func(c bqtest.Call) {
 		if c.Method == "StartQuery" {
 			<-started
-			run.Cancel() // the user cancels while the request is on the wire
+			run.Cancel()
 		}
 	}
 	run = r.m.Start(context.Background(), Request{SQL: "select"})
@@ -520,7 +508,7 @@ func TestCloseWaitsForASubmissionInFlight(t *testing.T) {
 	r.fake.OnCall = func(c bqtest.Call) {
 		if c.Method == "StartQuery" {
 			close(entered)
-			<-release // BigQuery has the request; the reply is on its way
+			<-release
 		}
 	}
 	run := r.m.Start(context.Background(), Request{SQL: "select"})
@@ -546,12 +534,10 @@ func TestLostJobStatusIsRetriedThenTheJobIsCancelled(t *testing.T) {
 	r := newRig(t)
 	r.m.o.RetryDelay = time.Millisecond
 	transient := &bq.Error{Kind: bq.KindTransient, Err: strErr("backend error")}
-	// two failed polls, then the status arrives: the Run finishes normally
 	r.fake.Fail(bqtest.Failure{Method: "WaitJob", Err: transient, Times: 2})
 	if info := r.m.Start(context.Background(), Request{SQL: "select"}).Wait(); info.State != api.RunDone {
 		t.Fatalf("a transient poll failure must be retried: %+v %+v", info, info.Error)
 	}
-	// the status never arrives: the job is cancelled, not abandoned
 	r.fake.Fail(bqtest.Failure{Method: "WaitJob", Err: transient})
 	info := r.m.Start(context.Background(), Request{SQL: "select"}).Wait()
 	if info.State != api.RunFailed || !strings.Contains(info.Error.Message, "lost track of the job") {
@@ -571,7 +557,6 @@ func TestFailedCancelCanBeAskedAgain(t *testing.T) {
 	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.Block = block; return s }
 	run := r.m.Start(context.Background(), Request{SQL: "slow"})
 	until(t, run, api.RunRunning)
-	// transient failures are retried by the request itself
 	r.fake.Fail(bqtest.Failure{Method: "CancelJob", Err: &bq.Error{Kind: bq.KindTransient, Err: strErr("503")}, Times: 3})
 	run.Cancel()
 	deadline := time.Now().Add(5 * time.Second)
@@ -582,7 +567,7 @@ func TestFailedCancelCanBeAskedAgain(t *testing.T) {
 	if !info.CancelFailed || info.CancelRequested || info.State != api.RunRunning {
 		t.Fatalf("an undelivered cancel must be visible and repeatable: %+v", info)
 	}
-	run.Cancel() // the failure injection is used up: this one arrives
+	run.Cancel()
 	if got := run.Wait(); got.State != api.RunCancelled {
 		t.Fatalf("%+v", got)
 	}
@@ -623,7 +608,6 @@ func TestReopenShowsAnEarlierResult(t *testing.T) {
 	if r.m.Get(run.ID()) == nil || len(r.m.List()) != 2 {
 		t.Fatal("the Run is in the list")
 	}
-	// a job BigQuery no longer has
 	e.Job.ID = "gone"
 	if _, err := r.m.Reopen(context.Background(), e, ""); err == nil || !strings.Contains(err.Error(), "no longer available") {
 		t.Fatalf("%v", err)
@@ -633,13 +617,11 @@ func TestReopenShowsAnEarlierResult(t *testing.T) {
 	}
 }
 
-// Codex review 6, finding 1: a Run runs in the project it recorded, even
-// when the Execution project changes before it gets its client.
 func TestARunUsesTheProjectItStartedIn(t *testing.T) {
 	r := newRig(t)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(3) }
 	run := r.m.Start(context.Background(), Request{SQL: "select n"})
-	r.setExec("other") // the dialog, or bqt projects in another terminal
+	r.setExec("other")
 	info := run.Wait()
 	if info.State != api.RunDone || info.ExecutionProject != "exec" {
 		t.Fatalf("%+v", info)
@@ -653,8 +635,6 @@ func TestARunUsesTheProjectItStartedIn(t *testing.T) {
 	}
 }
 
-// Codex review 6, finding 3: a dry-run that finishes after the Execution
-// project changed does not teach the new project's pricing model.
 func TestPricingFromAnOldProjectIsDropped(t *testing.T) {
 	r := newRig(t)
 	r.cfg.Location = "EU"
@@ -679,10 +659,6 @@ func TestPricingFromAnOldProjectIsDropped(t *testing.T) {
 	}
 }
 
-// A Run given an Execution project of its own does everything there: the
-// dry-run, the job, the result pages and the cancel. Its History entry
-// names that project, the pricing it reveals is that project's, and the
-// Run limit is shared with every other Run.
 func TestARunRunsInTheExecutionProjectItIsGiven(t *testing.T) {
 	r := newRig(t)
 	ctx := context.Background()
@@ -721,7 +697,6 @@ func TestARunRunsInTheExecutionProjectItIsGiven(t *testing.T) {
 		t.Fatalf("%+v", p)
 	}
 
-	// without one, a Run runs in the shared Execution project
 	info = r.m.Start(ctx, Request{SQL: "select"}).Wait()
 	if info.ExecutionProject != "exec" || info.Job.Project != "exec" {
 		t.Fatalf("%+v", info)
@@ -739,7 +714,6 @@ func TestARunRunsInTheExecutionProjectItIsGiven(t *testing.T) {
 		t.Fatalf("clients asked for %s", got)
 	}
 
-	// one Run limit for every project
 	r.cfg.MaxConcurrentQueries = 1
 	block := make(chan struct{})
 	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.Block = block; return s }
@@ -752,7 +726,6 @@ func TestARunRunsInTheExecutionProjectItIsGiven(t *testing.T) {
 		t.Fatalf("%+v", i)
 	}
 
-	// a cancel goes to the project the job runs in
 	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.Block = make(chan struct{}); return s }
 	cancelled := r.m.Start(ctx, Request{SQL: "c", Execution: "window-proj"})
 	until(t, cancelled, api.RunRunning)
@@ -765,8 +738,6 @@ func TestARunRunsInTheExecutionProjectItIsGiven(t *testing.T) {
 	}
 }
 
-// LearnPricingIn learns one Execution project's model and leaves the shared
-// one's alone; ForgetPricing drops them all.
 func TestLearnPricingInAnExecutionProject(t *testing.T) {
 	r := newRig(t)
 	r.cfg.Location = "EU"

@@ -7,22 +7,14 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 )
 
-// TableName is a table as completion sees it.
 type TableName struct {
-	Name string
-	Type api.TableType
-	// Members is set on a shard family's wildcard (Name is prefix*): its
-	// members' names, read only once the typed text reaches past Prefix
-	// into the varying part, so a large family does not flood the popup.
+	Name    string
+	Type    api.TableType
 	Members func() []string
 	Prefix  string
 }
 
-// Catalog is the slice of the metadata index completion needs. Every lookup
-// is scoped (one project, one dataset, one table), so it stays fast.
 type Catalog interface {
-	// DefaultProject is where an unqualified `dataset.table` resolves (the
-	// Execution project).
 	DefaultProject() string
 	Projects() []string
 	Datasets(project string) []string
@@ -30,17 +22,11 @@ type Catalog interface {
 	Columns(project, dataset, table string) []api.ColumnMeta
 }
 
-// Options tunes Complete.
 type Options struct {
-	// Forced lifts the "two typed characters" rule (ctrl+space).
 	Forced bool
-	// Limit caps the candidates (default 50).
-	Limit int
+	Limit  int
 }
 
-// Complete returns the candidates for the cursor position (a byte offset). It
-// works on the token stream, so it never fails on a half-typed query. No
-// candidates means the popup should stay closed.
 func Complete(text string, cursor int, cat Catalog, o Options) []api.Candidate {
 	if cursor < 0 || cursor > len(text) || cat == nil {
 		return nil
@@ -49,7 +35,6 @@ func Complete(text string, cursor int, cat Catalog, o Options) []api.Candidate {
 		o.Limit = 50
 	}
 	all := Tokenize(text)
-	// the token the cursor is in or at the end of
 	cur := -1
 	for i, t := range all {
 		if t.Start < cursor && cursor <= t.End {
@@ -94,7 +79,6 @@ func Complete(text string, cursor int, cat Catalog, o Options) []api.Candidate {
 		}
 	}
 
-	// the dotted chain that ends at the cursor
 	var k int
 	c.pStart, c.pEnd = cursor, cursor
 	if cur >= 0 && cur < len(toks) && isWord(toks[cur]) {
@@ -174,7 +158,6 @@ func isKeyword(text string, t api.Token, words ...string) bool {
 	return false
 }
 
-// statementBounds returns the token range of the statement around the cursor.
 func statementBounds(text string, toks []api.Token, cursor int) (int, int) {
 	lo, hi := 0, len(toks)
 	for i, t := range toks {
@@ -191,10 +174,6 @@ func statementBounds(text string, toks []api.Token, cursor int) (int, int) {
 	return lo, hi
 }
 
-// wordWithHyphens reads the path segment ending at toks[i], joining an
-// unquoted hyphenated project id (my-project). It returns the segments (a
-// quoted token can hold several), the start offset and the index of the token
-// before the segment.
 func wordWithHyphens(text string, toks []api.Token, i int) ([]string, int, int) {
 	t := toks[i]
 	if t.Kind == api.TokQuoted {
@@ -212,7 +191,6 @@ func wordWithHyphens(text string, toks []api.Token, i int) ([]string, int, int) 
 
 var clauseKeywords = []string{"SELECT", "WHERE", "ON", "GROUP", "ORDER", "HAVING", "QUALIFY", "LIMIT", "SET", "USING", "WINDOW", "VALUES", "WHEN", "THEN", "BY"}
 
-// inTableContext reports whether a name after toks[k] names a table.
 func inTableContext(text string, toks []api.Token, k int) bool {
 	if isKeyword(text, toks[k], "FROM", "JOIN", "INTO", "UPDATE", "TABLE") {
 		return !fromOfFunction(text, toks, k)
@@ -220,7 +198,6 @@ func inTableContext(text string, toks []api.Token, k int) bool {
 	if !isPunct(text, toks[k], ",") {
 		return false
 	}
-	// a comma join: walk back to the clause keyword at the same nesting depth
 	depth := 0
 	for i := k - 1; i >= 0; i-- {
 		switch {
@@ -241,8 +218,6 @@ func inTableContext(text string, toks []api.Token, k int) bool {
 	return false
 }
 
-// fromOfFunction reports whether the FROM at toks[i] belongs to
-// EXTRACT(x FROM y) or a similar call rather than to a query.
 func fromOfFunction(text string, toks []api.Token, i int) bool {
 	depth := 0
 	for j := i - 1; j >= 0; j-- {
@@ -266,19 +241,17 @@ func fromOfFunction(text string, toks []api.Token, i int) bool {
 	return false
 }
 
-// --- scope
-
 type relation struct {
-	name   string   // alias, or the table's own name
-	path   []string // table path segments (empty for a CTE, subquery or UNNEST)
+	name   string
+	path   []string
 	cte    *cte
-	unnest []string // UNNEST(expr): the expression's path segments
+	unnest []string
 	group  int
 }
 
 type cte struct {
 	name     string
-	from, to int // body token range, exclusive of the parentheses
+	from, to int
 	busy     bool
 }
 
@@ -288,15 +261,14 @@ type scope struct {
 	cat    Catalog
 	ctes   []*cte
 	rels   []relation
-	group  []int // per token: the query block it belongs to
+	group  []int
 	up     map[int]int
-	at     int // the cursor's query block
+	at     int
 	cursor int
 }
 
 func analyze(text string, toks []api.Token, cat Catalog, cursor int) *scope {
 	s := &scope{text: text, toks: toks, cat: cat, group: make([]int, len(toks)), up: map[int]int{}, at: -1, cursor: cursor}
-	// query blocks: a parenthesis that opens a subquery starts a block
 	type frame struct{ group int }
 	var stack []frame
 	g := -1
@@ -318,7 +290,6 @@ func analyze(text string, toks []api.Token, cat Catalog, cursor int) *scope {
 	}
 	for i := 0; i < len(toks); i++ {
 		t := toks[i]
-		// name AS ( ... ) is a CTE
 		if (t.Kind == api.TokIdent || t.Kind == api.TokQuoted) && i+2 < len(toks) && isKeyword(text, toks[i+1], "AS") && isPunct(text, toks[i+2], "(") {
 			end := matchParen(text, toks, i+2)
 			s.ctes = append(s.ctes, &cte{name: strings.Trim(text[t.Start:t.End], "`"), from: i + 3, to: end})
@@ -361,7 +332,6 @@ func matchParen(text string, toks []api.Token, open int) int {
 	return len(toks)
 }
 
-// parseRef reads one table reference with its alias starting at toks[i].
 func (s *scope) parseRef(i int) (relation, int, bool) {
 	text, toks := s.text, s.toks
 	var rel relation
@@ -384,7 +354,6 @@ func (s *scope) parseRef(i int) (relation, int, bool) {
 		}
 		i = end + 1
 	case t.Kind == api.TokQuoted || t.Kind == api.TokIdent || t.Kind == api.TokNumber:
-		// a dotted path, possibly with a hyphenated project id
 		for {
 			seg := text[toks[i].Start:toks[i].End]
 			if toks[i].Kind == api.TokQuoted {
@@ -419,7 +388,6 @@ func (s *scope) parseRef(i int) (relation, int, bool) {
 	if i < len(toks) && isKeyword(text, toks[i], "AS") {
 		i++
 	}
-	// the word being typed is not an alias yet
 	typing := i < len(toks) && toks[i].Start < s.cursor && s.cursor <= toks[i].End
 	if i < len(toks) && !typing && (toks[i].Kind == api.TokIdent || toks[i].Kind == api.TokQuoted) {
 		rel.name = strings.Trim(text[toks[i].Start:toks[i].End], "`")
@@ -428,8 +396,6 @@ func (s *scope) parseRef(i int) (relation, int, bool) {
 	return rel, i, true
 }
 
-// visible returns the relations the cursor's query block can see: its own and
-// those of the enclosing blocks. With none, every relation of the statement.
 func (s *scope) visible() []relation {
 	ok := map[int]bool{}
 	for g := s.at; ; g = s.up[g] {
@@ -460,7 +426,6 @@ func (s *scope) inGroup(g int) []relation {
 	return out
 }
 
-// columns resolves a relation's columns.
 func (s *scope) columns(r relation, among []relation) []api.ColumnMeta {
 	switch {
 	case r.cte != nil:
@@ -541,8 +506,6 @@ func (s *scope) unnestColumns(r relation, among []relation) []api.ColumnMeta {
 	return nil
 }
 
-// cteColumns reads a CTE's columns from its select list: explicit aliases and
-// plain column names, or the source tables' columns for `*`.
 func (s *scope) cteColumns(c *cte) []api.ColumnMeta {
 	if c.busy {
 		return nil
@@ -550,7 +513,6 @@ func (s *scope) cteColumns(c *cte) []api.ColumnMeta {
 	c.busy = true
 	defer func() { c.busy = false }()
 	text, toks := s.text, s.toks
-	// the first SELECT of the body at depth 0
 	i := c.from
 	depth := 0
 	for ; i < c.to; i++ {
@@ -580,7 +542,6 @@ func (s *scope) cteColumns(c *cte) []api.ColumnMeta {
 		if len(item) == 0 {
 			return
 		}
-		// star, with an optional qualifier and EXCEPT list
 		for n, ti := range item {
 			if !isPunct(text, toks[ti], "*") || (n > 0 && !isPunct(text, toks[item[n-1]], ".")) {
 				continue
@@ -637,8 +598,6 @@ func (s *scope) cteColumns(c *cte) []api.ColumnMeta {
 	return out
 }
 
-// --- candidates
-
 type completer struct {
 	text       string
 	cat        Catalog
@@ -657,8 +616,6 @@ type ranked struct {
 	order int
 }
 
-// match ranks a label against the typed text: a prefix first, then (for
-// catalog objects only) a substring.
 func (c *completer) match(label string, kind api.CandidateKind) (int, bool) {
 	if c.partial == "" {
 		return 0, true
@@ -712,7 +669,6 @@ func (c *completer) finish(rs []ranked) []api.Candidate {
 			break
 		}
 	}
-	// typing a whole candidate is not a reason to keep the popup open
 	if len(out) == 1 && out[0].Insert == c.partial && out[0].End == c.pEnd {
 		return nil
 	}
@@ -740,13 +696,11 @@ func eqFold(list []string, s string) (string, bool) {
 	return "", false
 }
 
-// path completes a project.dataset.table path segment by segment.
 func (c *completer) path(segs []string, withCTEs bool) []ranked {
 	var out []ranked
 	table := func(project, dataset, name, detail string) {
 		cand := api.Candidate{Label: name, Kind: api.CandTable, Detail: detail}
 		if !c.quoted && !plainIdent(name) {
-			// the name needs backticks: replace the whole path
 			cand.Insert = "`" + project + "." + dataset + "." + name + "`"
 			cand.Start, cand.End = c.chainStart, c.pEnd
 		}
@@ -756,6 +710,7 @@ func (c *completer) path(segs []string, withCTEs bool) []ranked {
 		typed := strings.ToLower(c.partial)
 		for _, t := range c.cat.Tables(project, dataset) {
 			table(project, dataset, t.Name, string(t.Type))
+			// ADR-0007
 			if t.Members == nil || len(typed) <= len(t.Prefix) || !strings.HasPrefix(typed, strings.ToLower(t.Prefix)) {
 				continue
 			}
@@ -813,8 +768,6 @@ func fieldCandidates(cols []api.ColumnMeta, parent string) []api.Candidate {
 	return out
 }
 
-// fields completes after "alias." or "struct_column.": the columns of the
-// relation, or the fields under a struct path.
 func (c *completer) fields(quals []string) ([]ranked, bool) {
 	var out []ranked
 	vis := c.sc.visible()
@@ -831,7 +784,6 @@ func (c *completer) fields(quals []string) ([]ranked, bool) {
 	if found {
 		return out, true
 	}
-	// a struct column of any visible relation
 	for _, r := range vis {
 		cands := fieldCandidates(c.sc.columns(r, vis), strings.Join(quals, "."))
 		if len(cands) > 0 {
@@ -844,8 +796,6 @@ func (c *completer) fields(quals []string) ([]ranked, bool) {
 	return out, found
 }
 
-// unqualified completes a bare word: columns of the visible relations, their
-// aliases, functions and keywords.
 func (c *completer) unqualified() []ranked {
 	var out []ranked
 	vis := c.sc.visible()

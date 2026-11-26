@@ -42,7 +42,7 @@ linters:
     gocognit:
       min-complexity: 71 # (*Model).schemaLines in internal/tui/views.go
     funlen:
-      lines: 171 # (*Run).run in pkg/runs/runs.go
+      lines: 172 # (*Run).run in pkg/runs/runs.go
       statements: -1
     dupl:
       threshold: 150 # the starting value: no duplication found at it

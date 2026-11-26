@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-// Zone is where a key binding applies. The four Panes (Explorer, Schema,
-// Editor, Results) are Zones too; user-visible text calls them Panes.
 type Zone string
 
 const (
@@ -21,22 +19,15 @@ const (
 	ZoneOverlay  Zone = "Popups"
 )
 
-// Binding is one entry of the keymap registry. The registry is the single
-// source for key dispatch, the help overlay, the command palette and the
-// footer hints, so they cannot drift apart. A key made of two tokens
-// ("g g") is a chord.
 type Binding struct {
-	Zone   Zone
-	Keys   []string
-	Action string
-	Help   string
-	// Command is the palette name; empty keeps the binding out of the palette.
+	Zone    Zone
+	Keys    []string
+	Action  string
+	Help    string
 	Command string
-	// Hint is the short footer text; empty keeps it out of the footer.
-	Hint string
+	Hint    string
 }
 
-// Keymap is the registry (spec section 15).
 var Keymap = []Binding{
 	{ZoneGlobal, []string{"ctrl+q"}, "quit", "quit (asks if Runs are in flight)", "Quit", ""},
 	{ZoneGlobal, []string{"ctrl+o", "ctrl+w w"}, "panenext", "next pane: Explorer, Schema, Editor, Results", "Next pane", "ctrl+o pane"},
@@ -243,7 +234,6 @@ func buildKeyIndex(km []Binding) keyIndex {
 
 var keys = buildKeyIndex(Keymap)
 
-// action resolves a key in a zone, falling back to the global zone.
 func (k keyIndex) action(z Zone, key string) string {
 	if a, ok := k[z][key]; ok {
 		return a
@@ -251,7 +241,6 @@ func (k keyIndex) action(z Zone, key string) string {
 	return k[ZoneGlobal][key]
 }
 
-// chordPrefix reports whether key starts a chord in the zone (or globally).
 func (k keyIndex) chordPrefix(z Zone, key string) bool {
 	for _, zone := range []Zone{z, ZoneGlobal} {
 		for full := range k[zone] {
@@ -263,7 +252,6 @@ func (k keyIndex) chordPrefix(z Zone, key string) bool {
 	return false
 }
 
-// duplicateBindings lists keys bound twice within one zone.
 func duplicateBindings(km []Binding) []string {
 	seen := map[string]bool{}
 	var dup []string
@@ -292,9 +280,6 @@ func footerHints(zones ...Zone) string {
 	return strings.Join(parts, " · ")
 }
 
-// keyHint is a hint for actions bound in zone z: the first key the Keymap
-// binds to each, then text, as in "n/N next/previous row". Keys with the
-// same modifier write it once: "ctrl+e/y scroll".
 func keyHint(z Zone, text string, actions ...string) string {
 	var ks []string
 	for _, a := range actions {
@@ -323,8 +308,6 @@ func keyHint(z Zone, text string, actions ...string) string {
 	return strings.Join(ks, "/") + " " + text
 }
 
-// selectHint is "↑↓ select" when zone z binds up and down to the arrow
-// keys.
 func selectHint(z Zone) string {
 	const text = "select"
 	arrow := map[string]string{"up": "↑", "down": "↓"}
@@ -342,7 +325,6 @@ func selectHint(z Zone) string {
 	return out + " " + text
 }
 
-// joinHints joins footer hints.
 func joinHints(h ...string) string { return strings.Join(h, " · ") }
 
 type command struct {
@@ -360,8 +342,6 @@ func paletteCommands() []command {
 	return out
 }
 
-// helpLines lays the key reference out for an inner width of w. A key column
-// is at least 16 cells; descriptions wrap under their own column.
 func helpLines(w int) []string {
 	var out []string
 	row := func(keys, text string) {
@@ -382,7 +362,7 @@ func helpLines(w int) []string {
 				continue
 			}
 			if len(b.Keys) == 0 {
-				continue // palette only
+				continue
 			}
 			row(strings.Join(b.Keys, "  "), b.Help)
 		}
@@ -415,14 +395,11 @@ func helpLines(w int) []string {
 	return out
 }
 
-// mouseHelp explains the mouse, which has no keys of its own.
 var mouseHelp = [][2]string{
 	{"Mouse: on/off", "off by default. When on, a click focuses a Pane (or a name in the focus pane bar), the wheel scrolls the Pane under the pointer (sideways in the Results: columns). Popups leave the mouse to the terminal."},
 	{"Shift+drag", "selects text while the mouse is on (Option+drag in iTerm2; middle-click paste may need Shift too)"},
 }
 
-// editingHelp lists the text-editing keys, which belong to the editor widget
-// and not to the registry.
 var editingHelp = [][2]string{
 	{"shift+arrows", "select; typing replaces the selection"},
 	{"ctrl+a  ctrl+e", "line start (first press: first non-blank) and end"},
@@ -432,7 +409,6 @@ var editingHelp = [][2]string{
 	{"ctrl+z  ctrl+y", "undo and redo"},
 }
 
-// vimHelp lists the vim layer's keys (spec 9.1).
 var vimHelp = [][2]string{
 	{"i a I A o O", "insert before / after the cursor, at line start / end, on a new line below / above"},
 	{"esc", "back to Normal mode"},

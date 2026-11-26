@@ -89,7 +89,7 @@ func TestInferParam(t *testing.T) {
 
 type fakeCat struct {
 	def  string
-	data map[string]map[string]map[string][]string // project -> dataset -> table -> field paths
+	data map[string]map[string]map[string][]string
 }
 
 func (f fakeCat) DefaultProject() string { return f.def }
@@ -154,8 +154,6 @@ var testCat = fakeCat{def: "exec", data: map[string]map[string]map[string][]stri
 	"exec":         {"scratch": {"tmp": {"x", "y"}}},
 }}
 
-// complete runs Complete at the "|" marker and returns the labels, and the
-// text after accepting the first candidate.
 func complete(t *testing.T, marked string, forced bool) ([]string, string) {
 	t.Helper()
 	at := strings.Index(marked, "|")
@@ -180,7 +178,7 @@ func TestComplete(t *testing.T) {
 		name    string
 		in      string
 		forced  bool
-		want    string // comma-joined labels; a trailing "…" compares only the listed prefix
+		want    string
 		applied string
 	}{
 		{name: "backtick: projects and datasets", in: "select * from `|", want: "scratch,acme-prod,acme-staging,exec,finance,sales,sales"},

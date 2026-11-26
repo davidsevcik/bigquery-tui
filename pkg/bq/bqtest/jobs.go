@@ -10,64 +10,47 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/bq"
 )
 
-// QueryScript says how the fake answers one query.
 type QueryScript struct {
-	StatementType string // default SELECT
+	StatementType string
 	Bytes         int64
-	Accuracy      string // default PRECISE
+	Accuracy      string
 	ReservationID string
 	Edition       string
-	// DryRunErr fails the dry-run; JobErr fails the job after it started.
-	DryRunErr error
-	JobErr    error
-	Schema    []bq.Field
-	Rows      [][]any
-	// Block keeps the job running until it is closed or the job is cancelled.
-	Block chan struct{}
-	// SubmitBlock holds StartQuery until it is closed or the call's context
-	// ends (a submission whose answer never arrives).
-	SubmitBlock  chan struct{}
-	SlotMs       int64
-	CacheHit     bool
-	AffectedRows int64
-	// IgnoreCancel accepts a cancel request but keeps the job running, as
-	// BigQuery does until it confirms the cancel.
-	IgnoreCancel bool
+	DryRunErr     error
+	JobErr        error
+	Schema        []bq.Field
+	Rows          [][]any
+	Block         chan struct{}
+	SubmitBlock   chan struct{}
+	SlotMs        int64
+	CacheHit      bool
+	AffectedRows  int64
+	IgnoreCancel  bool
 }
 
-// QueryCall records one DryRun or StartQuery request.
 type QueryCall struct {
-	Req bq.QueryRequest
-	Dry bool
-	// Exec is the Execution project the request ran in (see In).
+	Req  bq.QueryRequest
+	Dry  bool
 	Exec string
 }
 
-// fakeExec is the project the fake's jobs run in unless In names another.
 const fakeExec = "fake-exec"
 
-// ExecClient is the fake as the client of one Execution project: its
-// dry-runs and jobs run in Project, so their JobRefs, QueryCalls and Calls
-// name it. Every other call goes to the fake, whose state it shares.
 type ExecClient struct {
 	*Fake
 	Project string
 }
 
-// In returns the fake as the client whose jobs run in project.
 func (f *Fake) In(project string) ExecClient { return ExecClient{Fake: f, Project: project} }
 
-// DryRun implements bq.Jobs in c.Project.
 func (c ExecClient) DryRun(ctx context.Context, req bq.QueryRequest) (bq.DryRunResult, error) {
 	return c.dryRun(ctx, req, c.Project)
 }
 
-// StartQuery implements bq.Jobs in c.Project.
 func (c ExecClient) StartQuery(ctx context.Context, req bq.QueryRequest) (api.JobRef, error) {
 	return c.startQuery(ctx, req, c.Project)
 }
 
-// Close does nothing; with it an ExecClient stands in for a real client.
 func (ExecClient) Close() error { return nil }
 
 type fakeJob struct {
@@ -75,11 +58,9 @@ type fakeJob struct {
 	project   string
 	cancelled chan struct{}
 	created   time.Time
-	held      bool // WaitJob is waiting on script.Block (guarded by Fake.mu)
+	held      bool
 }
 
-// Held reports whether the job is being kept running by its script's Block,
-// so a test can tell a job held on purpose from one that is merely slow.
 func (f *Fake) Held(jobID string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -87,16 +68,12 @@ func (f *Fake) Held(jobID string) bool {
 	return j != nil && j.held
 }
 
-// message is an error worded the way BigQuery words it (capitals and all).
 type message string
 
 func (m message) Error() string { return string(m) }
 
-// QueryError builds a query failure the way BigQuery words it, for example
-// QueryError("Syntax error: Unexpected keyword FROM at [1:8]").
 func QueryError(msg string) error { return &bq.Error{Kind: bq.KindOther, Err: message(msg)} }
 
-// Numbers is a script whose result has n rows with the columns n and label.
 func Numbers(n int) QueryScript {
 	s := QueryScript{Bytes: int64(n) * 100, Schema: []bq.Field{{Name: "n", Type: "INTEGER"}, {Name: "label", Type: "STRING"}}}
 	for i := 0; i < n; i++ {
@@ -122,14 +99,12 @@ func (f *Fake) script(sql string) QueryScript {
 	return s
 }
 
-// QueryCalls returns the recorded query requests.
 func (f *Fake) QueryCalls() []QueryCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]QueryCall(nil), f.queries...)
 }
 
-// DryRun implements bq.Jobs.
 func (f *Fake) DryRun(ctx context.Context, req bq.QueryRequest) (bq.DryRunResult, error) {
 	return f.dryRun(ctx, req, fakeExec)
 }
@@ -155,7 +130,6 @@ func (f *Fake) dryRun(ctx context.Context, req bq.QueryRequest, exec string) (bq
 	}, nil
 }
 
-// StartQuery implements bq.Jobs.
 func (f *Fake) StartQuery(ctx context.Context, req bq.QueryRequest) (api.JobRef, error) {
 	return f.startQuery(ctx, req, fakeExec)
 }
@@ -207,7 +181,6 @@ func (f *Fake) fakeJob(ref api.JobRef) (*fakeJob, error) {
 	return j, nil
 }
 
-// WaitJob implements bq.Jobs.
 func (f *Fake) WaitJob(ctx context.Context, ref api.JobRef) (bq.JobResult, error) {
 	j, err := f.fakeJob(ref)
 	if err != nil {
@@ -247,7 +220,6 @@ func (f *Fake) WaitJob(ctx context.Context, ref api.JobRef) (bq.JobResult, error
 	return res, nil
 }
 
-// CancelJob implements bq.Jobs.
 func (f *Fake) CancelJob(ctx context.Context, ref api.JobRef) error {
 	if err := f.begin(ctx, Call{Method: "CancelJob", Project: ref.Project, Location: ref.Location}); err != nil {
 		return err
@@ -269,7 +241,6 @@ func (f *Fake) CancelJob(ctx context.Context, ref api.JobRef) error {
 	return nil
 }
 
-// QueryRows implements bq.Jobs.
 func (f *Fake) QueryRows(ctx context.Context, ref api.JobRef, startIndex int64, maxRows int) (bq.ResultPage, error) {
 	j, err := f.fakeJob(ref)
 	if err != nil {

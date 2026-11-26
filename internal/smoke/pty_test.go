@@ -1,6 +1,6 @@
 // Package smoke starts the real binary in a pseudo-terminal: the one test
 // that exercises terminal setup, the alternate screen, key input and a clean
-// exit together (ticket 16).
+// exit together.
 package smoke
 
 import (
@@ -55,7 +55,6 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	cfg := filepath.Join(dir, "config.toml")
-	// No projects: the UI must come up without credentials or network.
 	if err := os.WriteFile(cfg, []byte("data_dir = \""+filepath.Join(dir, "data")+"\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +70,7 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 		buf := make([]byte, 32<<10)
 		for {
 			n, err := f.Read(buf)
-			_, _ = out.Write(buf[:n]) // capture.Write never fails (in-memory buffer)
+			_, _ = out.Write(buf[:n])
 			if err != nil {
 				return
 			}
@@ -79,8 +78,6 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 	}()
 
 	waitFor(t, out, "smoke-exec", 10*time.Second)
-	// nothing selected: the Projects dialog opens first; closing it shows
-	// the first-run hint
 	waitFor(t, out, "space select", 5*time.Second)
 	if _, err := f.Write([]byte("\x1b")); err != nil {
 		t.Fatal(err)
@@ -89,27 +86,22 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 	if _, err := f.Write([]byte("?")); err != nil {
 		t.Fatal(err)
 	}
-	// the first row of the help: on 24 rows the overlay shows only the top of
-	// its list
 	waitFor(t, out, "quit (asks if Runs are in flight)", 5*time.Second)
 	if _, err := f.Write([]byte("\x1b")); err != nil {
 		t.Fatal(err)
-	} // esc closes the help
+	}
 	time.Sleep(150 * time.Millisecond)
-	// ctrl+o goes to the editor; printable keys type there (q must not quit)
 	if _, err := f.Write([]byte("\x0f")); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, out, "i inserts", 5*time.Second)
 	if _, err := f.Write([]byte("iselect q")); err != nil {
 		t.Fatal(err)
-	} // i: the editor starts in vim's Normal mode
-	// the renderer only sends changed cells, so there is no stable text to
-	// wait for: the draft file checked below proves the keys arrived
+	}
 	time.Sleep(500 * time.Millisecond)
 	if _, err := f.Write([]byte("\x11")); err != nil {
 		t.Fatal(err)
-	} // ctrl+q quits from anywhere
+	}
 
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -127,7 +119,6 @@ func TestTUIStartsRendersAndQuitsInAPTY(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "data", "catalog.db")); err != nil {
 		t.Fatalf("the UI creates its catalog: %v", err)
 	}
-	// the buffer was autosaved as a draft for the next start
 	drafts, _ := filepath.Glob(filepath.Join(dir, "data", "drafts", "tui", "*.sql"))
 	if len(drafts) != 1 {
 		t.Fatalf("drafts: %v", drafts)

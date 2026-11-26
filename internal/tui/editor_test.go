@@ -10,7 +10,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
-// edKey builds a key press from a name such as "a", "enter", "shift+left", "ctrl+z" or "alt+b".
 func edKey(name string) tea.KeyPressMsg {
 	var mod tea.KeyMod
 	for {
@@ -79,7 +78,6 @@ func TestEditorTypingAndUndo(t *testing.T) {
 	if e.offset() != len("select 1\nfrom t") {
 		t.Fatalf("offset %d", e.offset())
 	}
-	// typing is one undo step per run, the newline its own
 	edType(e, "ctrl+z")
 	if e.text() != "select 1\n" {
 		t.Fatalf("%q", e.text())
@@ -109,7 +107,7 @@ func TestEditorMovementSelectionAndDeletes(t *testing.T) {
 	if e.col != 10 {
 		t.Fatalf("word right: %d", e.col)
 	}
-	edType(e, "right") // wraps to the next line
+	edType(e, "right")
 	if e.row != 1 || e.col != 0 {
 		t.Fatalf("%d:%d", e.row, e.col)
 	}
@@ -149,7 +147,6 @@ func TestEditorMovementSelectionAndDeletes(t *testing.T) {
 	if e.text() != "last" {
 		t.Fatalf("kill at the end joins: %q", e.text())
 	}
-	// multi-line selection, up and down keep the wanted column
 	e.setText("abcdef\nab\nabcdef")
 	e.row, e.col, e.want = 0, 5, 5
 	edType(e, "down")
@@ -224,7 +221,6 @@ func TestEditorViewScrollsAndHighlights(t *testing.T) {
 	if e.hl[0][0] != "keyword" || e.hl[0][39] != "comment" {
 		t.Fatalf("%v", e.hl[0])
 	}
-	// an error position marks the line
 	e.errLine, e.errCol = 31, 1
 	lines, _, _ = e.view(24, 6, true, sqlx.Tokenize, "")
 	if !strings.Contains(ansi.Strip(lines[5]), "✗") {

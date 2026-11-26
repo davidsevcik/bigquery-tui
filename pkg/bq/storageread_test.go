@@ -29,8 +29,6 @@ import (
 	bqapi "cloud.google.com/go/bigquery"
 )
 
-// serviceDisabled is how BigQuery refuses a read session when the BigQuery
-// Storage API is disabled on the project.
 func serviceDisabled(t *testing.T) error {
 	t.Helper()
 	st, err := status.New(codes.PermissionDenied, "BigQuery Storage API has not been used in project 123 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/bigquerystorage.googleapis.com/overview?project=123 then retry.").
@@ -72,9 +70,6 @@ func TestReadSessionUnavailable(t *testing.T) {
 	}
 }
 
-// The fallback decision: a permission or disabled-service error switches the
-// client to REST for good, once; any other error leaves it on the Storage
-// Read API.
 func TestReadPathRemembersOnlyUnavailable(t *testing.T) {
 	var p readPath
 	for _, err := range []error{status.Error(codes.Unavailable, "x"), status.Error(codes.Internal, "x"), errReadSessionBudget} {
@@ -98,7 +93,6 @@ func TestReadPathRemembersOnlyUnavailable(t *testing.T) {
 	}
 }
 
-// fakeRead is a Storage Read server that refuses every read session.
 type fakeRead struct {
 	storagepb.UnimplementedBigQueryReadServer
 	err   error
@@ -110,9 +104,6 @@ func (f *fakeRead) CreateReadSession(context.Context, *storagepb.CreateReadSessi
 	return nil, f.err
 }
 
-// fakeREST answers the REST calls of one query read through jobs.query: the
-// first page with a page token, the job and its anonymous destination table
-// (looked up for the read session), and the second page.
 func fakeREST(t *testing.T) *httptest.Server {
 	t.Helper()
 	var seq atomic.Int32
@@ -194,7 +185,6 @@ func newSyncQueryRig(t *testing.T, sessionErr error) *syncQueryRig {
 	return r
 }
 
-// query runs one sync query and returns the rows and the read path.
 func (r *syncQueryRig) query(t *testing.T) ([]string, string) {
 	t.Helper()
 	ctx := WithWarnings(context.Background(), func(msg string) {
@@ -226,8 +216,6 @@ func TestSyncQueryFallsBackToRESTWithoutTheReadSessionPermission(t *testing.T) {
 	if r.logWarnings() != 1 || len(r.warns) != 1 || !strings.Contains(r.warns[0], "REST paging") {
 		t.Fatalf("log %q, warnings %q", r.log, r.warns)
 	}
-	// Remembered: the next query does not try the Storage Read API, and the
-	// sync run hears of it again (it adds the warning once).
 	rows, read = r.query(t)
 	if strings.Join(rows, ",") != "r1,r2" || read != readREST {
 		t.Fatalf("rows %v read %q", rows, read)
@@ -253,8 +241,6 @@ func TestSyncQueryFallsBackToRESTWhenTheAPIIsDisabled(t *testing.T) {
 	}
 }
 
-// Any other read-session error reads that result through REST and leaves
-// the Storage Read API on for the next query.
 func TestSyncQueryKeepsTheStorageReadAPIAfterOtherErrors(t *testing.T) {
 	r := newSyncQueryRig(t, status.Error(codes.InvalidArgument, "bad session"))
 	for i := 1; i <= 2; i++ {
@@ -270,8 +256,6 @@ func TestSyncQueryKeepsTheStorageReadAPIAfterOtherErrors(t *testing.T) {
 	}
 }
 
-// An unreachable endpoint is retried by the client; the budget ends that and
-// the result is read through REST.
 func TestSyncQueryReadSessionBudget(t *testing.T) {
 	r := newSyncQueryRig(t, status.Error(codes.Unavailable, "unreachable"))
 	r.c.sessionBudget = 300 * time.Millisecond
@@ -290,10 +274,6 @@ func TestSyncQueryReadSessionBudget(t *testing.T) {
 	}
 }
 
-// The client retries CreateReadSession outside the interceptor and sleeps
-// between attempts, so the budget holds only if the interceptor never
-// returns an error the client retries: it retries within the budget itself,
-// waits included, whether the endpoint refuses at once or hangs.
 func TestSessionInterceptorKeepsRetriesInTheBudget(t *testing.T) {
 	const budget = 300 * time.Millisecond
 	for _, tc := range []struct {
@@ -336,8 +316,6 @@ func TestSessionInterceptorKeepsRetriesInTheBudget(t *testing.T) {
 	}
 }
 
-// Errors the client does not retry, and a created session, come back at
-// once, as they are.
 func TestSessionInterceptorReturnsFinalResultsAtOnce(t *testing.T) {
 	for _, want := range []error{nil, noReadSessionPermission(), status.Error(codes.InvalidArgument, "bad table")} {
 		w := &sessionWatch{budget: time.Minute}

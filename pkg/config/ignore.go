@@ -7,17 +7,6 @@ import (
 	"unicode"
 )
 
-// Matcher evaluates the ordered gitignore-style `ignore` patterns over the
-// dotted path project.dataset.table.
-//
-// Semantics (ticket 05):
-//   - `*` stays inside one segment, `**` spans segments, `?` is one character
-//     inside a segment.
-//   - A pattern covers everything beneath the path it matches, so `proj`
-//     ignores the project and `proj.tmp_*` ignores matching datasets.
-//   - A leading `!` negates. The last matching line wins.
-//   - There is no bare-name-matches-anywhere rule.
-//   - Elements starting with `#` are comments; blank elements are skipped.
 type Matcher struct {
 	rules []rule
 }
@@ -28,7 +17,6 @@ type rule struct {
 	re     *regexp.Regexp
 }
 
-// PatternError reports an invalid ignore pattern.
 type PatternError struct {
 	Index   int
 	Pattern string
@@ -39,7 +27,6 @@ func (e *PatternError) Error() string {
 	return fmt.Sprintf("ignore[%d] %q: %s", e.Index, e.Pattern, e.Reason)
 }
 
-// NewMatcher compiles patterns. All invalid patterns are reported.
 func NewMatcher(patterns []string) (*Matcher, []*PatternError) {
 	m := &Matcher{}
 	var errs []*PatternError
@@ -103,8 +90,6 @@ func compilePattern(p string) (*regexp.Regexp, string) {
 	return re, ""
 }
 
-// Ignored reports whether the object is ignored. Pass an empty dataset to ask
-// about a project, an empty table to ask about a dataset.
 func (m *Matcher) Ignored(project, dataset, table string) bool {
 	if m == nil || len(m.rules) == 0 {
 		return false
@@ -128,9 +113,6 @@ func (m *Matcher) Ignored(project, dataset, table string) bool {
 	return ignored
 }
 
-// Tightening reports whether newPatterns only adds ignore rules to
-// oldPatterns, with no negations among the additions. A tightening change can
-// be applied by pruning the stored catalog; anything else may need a sync.
 func Tightening(oldPatterns, newPatterns []string) bool {
 	o := effective(oldPatterns)
 	n := effective(newPatterns)

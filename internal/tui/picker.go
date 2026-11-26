@@ -14,10 +14,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/format"
 )
 
-// The picker is one overlay over Favorites and History (spec 11): tab
-// switches the scope, the search box is shared, a preview shows the SQL and
-// its metadata. Opening a pick loads it into the editor.
-
 const (
 	scopeFavorites = iota
 	scopeHistory
@@ -41,7 +37,7 @@ type picker struct {
 	herr     string
 
 	sel, off [2]int
-	poff     int // preview scroll
+	poff     int
 }
 
 type histMsg struct {
@@ -57,12 +53,11 @@ type reopenMsg struct {
 	buf string
 }
 
-// loadReq is a pick waiting to be loaded into a buffer.
 type loadReq struct {
 	text   string
-	path   string // a Favorite's file; "" loads a scratch buffer
+	path   string
 	params map[string]string
-	what   string // for the toast
+	what   string
 }
 
 func (m *Model) openPicker(scope int) tea.Cmd {
@@ -70,7 +65,6 @@ func (m *Model) openPicker(scope int) tea.Cmd {
 	case m.pk == nil:
 		m.pk = &picker{}
 	case m.pk.scope != scope:
-		// the search text is kept for reopening the same list only
 		m.pk.in.set("")
 		m.pk.sel, m.pk.off = [2]int{}, [2]int{}
 	}
@@ -109,7 +103,7 @@ func (m *Model) searchHistory(appendPage bool) tea.Cmd {
 func (m *Model) onHistory(msg histMsg) {
 	pk := m.pk
 	if pk == nil || msg.seq != pk.hseq {
-		return // a newer search replaced this one
+		return
 	}
 	pk.hloading = false
 	if msg.err != nil {
@@ -118,7 +112,6 @@ func (m *Model) onHistory(msg histMsg) {
 	}
 	pk.herr = ""
 	if msg.append {
-		// History may have changed between pages: skip groups already shown
 		seen := map[string]bool{}
 		for _, g := range pk.hist {
 			seen[g.Key] = true
@@ -158,8 +151,6 @@ func (m *Model) pickedHistory() (api.HistoryGroup, bool) {
 	return pk.hist[pk.sel[1]], true
 }
 
-// pickedSQL is the SQL of the entry under the cursor, which the preview
-// shows.
 func (m *Model) pickedSQL() string {
 	if f, ok := m.pickedFavorite(); ok {
 		return f.SQL
@@ -170,12 +161,10 @@ func (m *Model) pickedSQL() string {
 	return ""
 }
 
-// pickerKey handles a key in the picker; page is the rows its list shows.
 func (m *Model) pickerKey(msg tea.KeyPressMsg, name string, page int) tea.Cmd {
 	pk := m.pk
 	act := keys[ZonePicker][name]
 	if act == "" && strings.HasPrefix(name, "ctrl+") {
-		// the global ctrl keys (quit, help, cancel) still work; letters type
 		if cmd, ok := m.globalAction(keys[ZoneGlobal][name]); ok {
 			return cmd
 		}
@@ -207,7 +196,7 @@ func (m *Model) pickerKey(msg tea.KeyPressMsg, name string, page int) tea.Cmd {
 		pk.poff = 0
 		return nil
 	case "detaildown", "detailup":
-		last := strings.Count(m.pickedSQL(), "\n") // the preview's last SQL line
+		last := strings.Count(m.pickedSQL(), "\n")
 		pk.poff = clamp(pk.poff, 0, last)
 		if act == "detaildown" {
 			pk.poff = min(pk.poff+1, last)
@@ -269,7 +258,6 @@ func (m *Model) pickerKey(msg tea.KeyPressMsg, name string, page int) tea.Cmd {
 	return nil
 }
 
-// pickOpen loads the selected Favorite or History entry into the editor.
 func (m *Model) pickOpen() tea.Cmd {
 	if f, ok := m.pickedFavorite(); ok {
 		return m.loadPick(loadReq{text: f.Text, path: f.Path, what: "favorite " + f.ID})
@@ -280,9 +268,6 @@ func (m *Model) pickOpen() tea.Cmd {
 	return nil
 }
 
-// loadPick puts a pick into the current buffer. A Favorite already open is
-// switched to; a buffer with unsaved text asks first (y replaces it, n opens
-// the pick in a new buffer).
 func (m *Model) loadPick(req loadReq) tea.Cmd {
 	m.ov = ovNone
 	if req.path != "" {
@@ -308,7 +293,6 @@ func (m *Model) loadPick(req loadReq) tea.Cmd {
 	return m.finishLoad(req, true)
 }
 
-// finishLoad loads the pick, replacing the current buffer or into a new one.
 func (m *Model) finishLoad(req loadReq, replace bool) tea.Cmd {
 	idx := m.cur
 	var nb *buffer
@@ -320,13 +304,13 @@ func (m *Model) finishLoad(req loadReq, replace bool) tea.Cmd {
 		nb = m.buf()
 	} else {
 		nb = m.addBuffer(req.text, "")
-		nb.draftVersion = -1 // write the draft on the next tick
+		// ADR-0011
+		nb.draftVersion = -1
 	}
 	for k, v := range req.params {
 		nb.params[k] = v
 	}
 	if replace {
-		// drop the old buffer and put the new one in its place
 		m.cur = idx
 		m.closeBuffer()
 		last := len(m.bufs) - 1
@@ -357,8 +341,6 @@ func (m *Model) onReopen(msg reopenMsg) tea.Cmd {
 	m.toast = ""
 	return m.followRun(msg.id)
 }
-
-// --- prompts and questions started from the picker
 
 func (m *Model) promptFavorite(p *promptState) tea.Cmd {
 	switch p.kind {
@@ -424,8 +406,6 @@ func splitTags(s string) []string {
 	return out
 }
 
-// openSaveFavorite asks for the name, description and tags of the buffer as
-// a Favorite, prefilled from its header (and its name, if it is one).
 func (m *Model) openSaveFavorite() {
 	b := m.buf()
 	f := favorites.Parse(b.ed.text())
@@ -438,8 +418,6 @@ func (m *Model) openSaveFavorite() {
 		strings.TrimSuffix(own, ".sql"), f.Description, strings.Join(f.Tags, ", "))
 }
 
-// saveBufferAsFavorite writes the buffer with a fresh header; the buffer then
-// is that Favorite's file (ctrl+s saves back to it).
 func (m *Model) saveBufferAsFavorite(p *promptState) tea.Cmd {
 	b := m.buf()
 	text := b.ed.text()
@@ -456,7 +434,6 @@ func (m *Model) saveBufferAsFavorite(p *promptState) tea.Cmd {
 		p.note = sErr.Render(err.Error())
 		return nil
 	}
-	// the buffer takes the new header (one undo step), keeping the cursor
 	if h := s.Header; text[:h.Old] != h.New {
 		row, col := b.ed.row, b.ed.col
 		delta := strings.Count(h.New, "\n") - strings.Count(text[:h.Old], "\n")
@@ -477,24 +454,16 @@ func (m *Model) saveBufferAsFavorite(p *promptState) tea.Cmd {
 	return nil
 }
 
-// --- the overlay
-
-// pickerOverlay is the Favorites and History picker (ctrl+x f, ctrl+x r).
 type pickerOverlay struct{}
 
-// pickerGeom is the picker's layout in a w×h box: under a header of
-// pickerHead rows, the list beside the preview when the box is wide, above
-// it when not.
 type pickerGeom struct {
-	w, inner, body int // the box's width, the cells inside its border, the rows under the header
+	w, inner, body int
 	listW, listH   int
 	side           bool
 }
 
-const pickerHead = 4 // the tabs, the search, its chips and a rule
+const pickerHead = 4
 
-// pickerPlace lays the picker out over a body of w×h cells: the box is at
-// (x, 1).
 func pickerPlace(w, h int) (x int, g pickerGeom) {
 	bw := clamp(w-4, 40, 170)
 	bh := max(8, h-2)
@@ -507,8 +476,6 @@ func pickerPlace(w, h int) (x int, g pickerGeom) {
 	return (w - bw) / 2, g
 }
 
-// pickerOff is where the list's window starts: where it was, moved just
-// enough to show the cursor.
 func (m *Model) pickerOff(g pickerGeom) int {
 	pk := m.pk
 	off := pk.off[pk.scope]
@@ -522,8 +489,6 @@ func (pickerOverlay) frame(m *Model, w, h int) ovFrame {
 	return ovFrame{x: x, y: 1, lines: m.pickerBox(g, off), rows: g.listH, off: off}
 }
 
-// key pages by the rows the list shows, and keeps the window where it was
-// drawn.
 func (pickerOverlay) key(m *Model, k tea.KeyPressMsg, name string, f ovFrame) tea.Cmd {
 	m.pk.off[m.pk.scope] = f.off
 	cmd := m.pickerKey(k, name, f.rows)
@@ -544,7 +509,6 @@ func (pickerOverlay) hints(m *Model) string {
 		own[0], own[1], keyHint(z, "scroll", "detaildown", "detailup"), keyHint(z, "close", "back"))
 }
 
-// pickerBox draws the picker in its layout, the list's window from off on.
 func (m *Model) pickerBox(g pickerGeom, off int) []string {
 	pk := m.pk
 	inner := g.inner
@@ -594,7 +558,6 @@ func (m *Model) pickerBox(g pickerGeom, off int) []string {
 	return popup("Favorites and History", lines, g.w)
 }
 
-// favQuery marks every word of a Favorites search as a term, for colour.
 func favQuery(raw string) api.ParsedQuery {
 	q := api.ParsedQuery{Raw: raw}
 	i := 0
@@ -606,7 +569,6 @@ func favQuery(raw string) api.ParsedQuery {
 	return q
 }
 
-// pickerList draws the list in w×h cells, the window from off on.
 func (m *Model) pickerList(w, h, off int) []string {
 	pk := m.pk
 	s := pk.scope
@@ -681,7 +643,6 @@ func shortAgo(now, t time.Time) string {
 
 func oneLine(sql string) string { return strings.Join(strings.Fields(sql), " ") }
 
-// pickerPreview returns the preview lines; the caller trims them to the height.
 func (m *Model) pickerPreview(w int) []string {
 	pk := m.pk
 	var meta []string
@@ -771,8 +732,6 @@ func durationText(ms *int64) string {
 	return " · " + (time.Duration(*ms) * time.Millisecond).Round(100*time.Millisecond).String()
 }
 
-// sqlLines highlights SQL with the tokenizer's kinds and marks the matched
-// spans (byte offsets) reversed. Lines are cut at w cells.
 func sqlLines(sql string, toks []api.Token, marks []api.Span, w int) []string {
 	kind := make([]api.TokenKind, len(sql))
 	for _, t := range toks {

@@ -19,18 +19,14 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
-// ErrUnknownRun is returned for a Run ID this process does not know.
 var ErrUnknownRun = runs.ErrUnknownRun
 
-// FollowRuns returns a new Follower of this engine's Runs, for one frontend.
 func (e *Engine) FollowRuns() *runs.Follower { return e.runs.Follow() }
 
-// StartRun begins a Run (dry-run, confirmation, job) and returns at once.
 func (e *Engine) StartRun(ctx context.Context, req runs.Request) *runs.Run {
 	return e.runs.Start(ctx, req)
 }
 
-// RunRows returns formatted result rows of a finished Run.
 func (e *Engine) RunRows(ctx context.Context, id int64, startIndex int64, n int, o format.Options) (api.PreviewPage, error) {
 	r := e.runs.Get(id)
 	if r == nil {
@@ -39,12 +35,8 @@ func (e *Engine) RunRows(ctx context.Context, id int64, startIndex int64, n int,
 	return r.Rows(ctx, startIndex, n, o)
 }
 
-// LearnPricing pre-learns the pricing model with a free dry-run (spec 10.2).
 func (e *Engine) LearnPricing(ctx context.Context) error { return e.runs.LearnPricing(ctx) }
 
-// LearnPricingIn is LearnPricing in an Execution project given per call, as
-// runs.Request.Execution is; "" is the shared one. Follower.PricingIn reads
-// what it learned.
 func (e *Engine) LearnPricingIn(ctx context.Context, project string) error {
 	return e.runs.LearnPricingIn(ctx, project)
 }
@@ -62,16 +54,12 @@ func (e *Engine) recordRun(info api.RunInfo) {
 	}
 }
 
-// Tokenize splits SQL into highlight spans.
 func (e *Engine) Tokenize(text string) []api.Token { return sqlx.Tokenize(text) }
 
-// Complete returns completion candidates for a cursor position (byte offset).
 func (e *Engine) Complete(text string, cursor int, forced bool) []api.Candidate {
 	return e.CompleteWith(text, cursor, api.CompleteOptions{Forced: forced})
 }
 
-// CompleteWith is Complete limited to a set of projects and resolving
-// unqualified names in a given Execution project (api.CompleteOptions).
 func (e *Engine) CompleteWith(text string, cursor int, o api.CompleteOptions) []api.Candidate {
 	c := completionCatalog{e: e, exec: o.Execution}
 	if c.exec == "" {
@@ -86,23 +74,18 @@ func (e *Engine) CompleteWith(text string, cursor int, o api.CompleteOptions) []
 	return sqlx.Complete(text, cursor, c, sqlx.Options{Forced: o.Forced})
 }
 
-// completionCatalog adapts the in-memory index and the catalog to sqlx.Catalog.
 type completionCatalog struct {
 	e    *Engine
-	exec string          // where unqualified names resolve
-	only map[string]bool // the projects offered (nil: every Selected one)
+	exec string
+	only map[string]bool
 }
 
 func (c completionCatalog) DefaultProject() string { return c.exec }
 
-// listed reports whether completion offers project by name: a Selected
-// project (completion follows the Explorer: deselected projects are not
-// offered) within the requested set.
 func (c completionCatalog) listed(sel selection.State, project string) bool {
 	return sel.Has(project) && (c.only == nil || c.only[project])
 }
 
-// Projects offers the listed projects that hold data.
 func (c completionCatalog) Projects() []string {
 	sel := c.e.Selection()
 	var out []string
@@ -114,10 +97,6 @@ func (c completionCatalog) Projects() []string {
 	return out
 }
 
-// offered reports whether completion offers the names inside project: a
-// listed project, or the Execution project (unqualified dataset.table
-// names resolve there, listed or not). The columns of a table the query
-// names are offered in any cached project: the user wrote that table.
 func (c completionCatalog) offered(project string) bool {
 	return project == c.exec || c.listed(c.e.Selection(), project)
 }
@@ -143,8 +122,6 @@ func (c completionCatalog) Tables(project, dataset string) []sqlx.TableName {
 			out = append(out, sqlx.TableName{Name: n.Name, Type: n.Type})
 			continue
 		}
-		// a family: its wildcard and its newest shard, the members once the
-		// typed text reaches into the varying part
 		fam := *n.Shard
 		members := func() []string {
 			var names []string
@@ -159,9 +136,7 @@ func (c completionCatalog) Tables(project, dataset string) []sqlx.TableName {
 }
 
 func (c completionCatalog) Columns(project, dataset, table string) []api.ColumnMeta {
-	// Completion runs on the frontend's input path, so a table's columns are
-	// read from the catalog once and then served from memory (the cache is
-	// dropped whenever the index reloads), and the read itself is bounded.
+	// ADR-0008
 	key := project + "\x00" + dataset + "\x00" + table
 	c.e.colMu.Lock()
 	cols, ok := c.e.colCache[key]
@@ -187,7 +162,6 @@ func (c completionCatalog) Columns(project, dataset, table string) []api.ColumnM
 	return d.Table.Columns
 }
 
-// ExportHandle is a running export.
 type ExportHandle struct {
 	cancel context.CancelFunc
 	events chan api.ExportEvent
@@ -196,14 +170,10 @@ type ExportHandle struct {
 	last   api.ExportEvent
 }
 
-// Events streams progress; when the reader falls behind, older events are
-// dropped. The channel closes after the final event (Done set).
 func (h *ExportHandle) Events() <-chan api.ExportEvent { return h.events }
 
-// Cancel stops the export; the partial file is removed.
 func (h *ExportHandle) Cancel() { h.cancel() }
 
-// Wait blocks until the export has finished and returns the final event.
 func (h *ExportHandle) Wait() api.ExportEvent {
 	<-h.done
 	h.mu.Lock()
@@ -228,16 +198,11 @@ func (h *ExportHandle) emit(ev api.ExportEvent) {
 	}
 }
 
-// DefaultExportPath is the suggested destination: bqt-<timestamp>.<ext> in
-// export_dir, or in the working directory when that is unset.
 func (e *Engine) DefaultExportPath(f export.Format) string {
 	name := fmt.Sprintf("bqt-%s.%s", e.o.Now().Format("20060102-150405"), f)
 	return filepath.Join(e.Config().ExportDir, name)
 }
 
-// StartExport writes every row of a Run's result to path, streaming through
-// the result pages. The file is written under a temporary name and renamed
-// when complete, so a cancelled or failed export leaves nothing behind.
 func (e *Engine) StartExport(ctx context.Context, runID int64, path string, f export.Format) (*ExportHandle, error) {
 	r := e.runs.Get(runID)
 	if r == nil {
@@ -265,7 +230,6 @@ func (e *Engine) StartExport(ctx context.Context, runID int64, path string, f ex
 		defer close(h.done)
 		defer close(h.events)
 		defer cancel()
-		// the schema the Run kept, so no fetch can fail (or be skipped) here
 		schema := r.Schema()
 		next := func(c context.Context, start int64) ([][]any, error) {
 			if start >= info.TotalRows {
@@ -296,9 +260,6 @@ func (e *Engine) StartExport(ctx context.Context, runID int64, path string, f ex
 	return h, nil
 }
 
-// Handoff renders a hand-off item (handoff.Items) as the text its file
-// holds: a schema from the table's detail, the first rows from the Run's
-// result, and the error and the summary from the Run as the item holds it.
 func (e *Engine) Handoff(ctx context.Context, it handoff.Item) (string, error) {
 	switch it.Kind {
 	case handoff.KindSchemaMarkdown, handoff.KindSchemaJSON:
@@ -324,10 +285,6 @@ func (e *Engine) Handoff(ctx context.Context, it handoff.Item) (string, error) {
 	return "", fmt.Errorf("unknown hand-off %q", it.Kind)
 }
 
-// RunSample renders the first handoff.SampleRows rows of a Run's result for
-// a hand-off. NDJSON is written from the raw values (as an export would), so
-// strings keep their line breaks and tabs; markdown and TSV come from the
-// formatted cells, which they have to flatten anyway.
 func (e *Engine) RunSample(ctx context.Context, id int64, f handoff.SampleFormat) (string, error) {
 	r := e.runs.Get(id)
 	if r == nil {

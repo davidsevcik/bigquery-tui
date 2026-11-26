@@ -10,9 +10,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/engine"
 )
 
-// cmdProjects lists the projects (BigQuery's list, the Selected ones, the
-// cached ones) and changes the selection and the Execution project, like the
-// TUI's Projects dialog. It never syncs.
 func cmdProjects(ctx context.Context, o *out, g *globals, args []string) error {
 	fs := commandFlags("projects", g)
 	pos, err := parseAnywhere(fs, args)
@@ -78,9 +75,6 @@ func cmdProjects(ctx context.Context, o *out, g *globals, args []string) error {
 	return nil
 }
 
-// warnUnlisted warns about IDs BigQuery's projects list does not return
-// (data shared at dataset level, a typo, or no list at all). They are still
-// accepted.
 func warnUnlisted(ctx context.Context, eng *engine.Engine, env Env, ids []string) {
 	listed, err := eng.AccessibleProjects(ctx, false)
 	if err != nil {
@@ -107,7 +101,6 @@ func printProjects(w io.Writer, r api.ProjectsReport, env Env) {
 	if r.ListError != "" {
 		fmt.Fprintf(w, "could not list your projects: %s\n", r.ListError)
 	}
-	// Selected projects first, then the rest; each A–Z (as in the dialog).
 	for _, sel := range []bool{true, false} {
 		for _, p := range r.Projects {
 			if p.Selected != sel {
@@ -122,7 +115,6 @@ func printProjects(w io.Writer, r api.ProjectsReport, env Env) {
 	}
 }
 
-// projectState is the right-hand text of a project row.
 func projectState(p api.ProjectInfo, env Env) string {
 	var parts []string
 	if !p.Listed {

@@ -74,7 +74,6 @@ func TestSearchAndBrowseAfterSync(t *testing.T) {
 	if len(ps) != 3 || ps[2].Name != "proj-never" {
 		t.Fatalf("%+v", ps)
 	}
-	// proj-never does not exist in the fake: discovery failed and says so
 	if ps[2].UnitStatus != api.UnitInaccessible || ps[2].Error == "" || !ps[2].Stale {
 		t.Fatalf("unsynced project carries its discovery error: %+v", ps[2])
 	}
@@ -156,9 +155,6 @@ func TestTableDetailStatsAndPreview(t *testing.T) {
 	}
 }
 
-// BigQuery refuses tabledata.list on a materialized view ("Cannot list a
-// table of type MATERIALIZED_VIEW", seen live 2026-10-31), so it needs a query
-// like a view.
 func TestPreviewOfAMaterializedViewNeedsAQuery(t *testing.T) {
 	e := newEnv(t, "proj-a")
 	mv := bqtest.Table("mv_totals", "n")
@@ -166,7 +162,6 @@ func TestPreviewOfAMaterializedViewNeedsAQuery(t *testing.T) {
 	ds := &e.fake.Projects["proj-a"].Datasets[0]
 	ds.Tables = append(ds.Tables, mv)
 	e.fake.TableData = map[string]bqtest.TableData{
-		// the catalog says table, BigQuery now says materialized view
 		"proj-a.sales.orders": {Info: bq.TableInfo{Type: api.TypeMView, Schema: []bq.Field{{Name: "id", Type: "INTEGER"}}}},
 	}
 	eng := e.openWithTables()
@@ -220,7 +215,7 @@ func TestPreviewReadsPastShortPages(t *testing.T) {
 	td := e.fake.TableData["proj-a.sales.orders"]
 	td.Rows = rows
 	e.fake.TableData["proj-a.sales.orders"] = td
-	e.fake.ListRowsLimit = 3 // BigQuery cuts responses of wide rows short
+	e.fake.ListRowsLimit = 3
 	p := api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "orders"}
 	page, err := eng.Preview(ctx, p, 1, 5, format.Options{})
 	if err != nil {
@@ -292,9 +287,9 @@ func TestWatchCatalogReloadsAfterAnotherProcessSyncs(t *testing.T) {
 	wctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	changed := reader.WatchCatalog(wctx, 10*time.Millisecond)
-	time.Sleep(40 * time.Millisecond) // let the watcher take its baseline
+	time.Sleep(40 * time.Millisecond)
 
-	writer := e.openWithTables() // "another process"
+	writer := e.openWithTables()
 	h, _ := writer.StartSync(ctx, api.SyncScope{})
 	if _, err := h.Wait(); err != nil {
 		t.Fatal(err)
@@ -321,7 +316,6 @@ func TestReconcilePrunesWithoutBigQuery(t *testing.T) {
 	calls := len(e.fake.Calls)
 	eng.SetConfig(e.config(shardDates + `ignore = ["proj-a.us_data"]`))
 	rec, skipped, err := eng.Reconcile(ctx)
-	// only the ignore pattern prunes: the deselected project keeps its cache
 	if err != nil || skipped || !rec.Changed || rec.Pruned.Projects != 0 || rec.Pruned.Datasets != 1 {
 		t.Fatalf("%+v skipped=%v err=%v", rec, skipped, err)
 	}
@@ -339,7 +333,6 @@ func TestReconcilePrunesWithoutBigQuery(t *testing.T) {
 func TestAutoRefresh(t *testing.T) {
 	e := newEnv(t, "proj-a", "proj-b")
 	eng := e.openWithTables()
-	// empty catalog: full sync
 	h, err := eng.AutoRefresh(ctx)
 	if err != nil || h == nil {
 		t.Fatalf("%v %v", h, err)
@@ -348,11 +341,9 @@ func TestAutoRefresh(t *testing.T) {
 	if res.UnitsOK != 3 {
 		t.Fatalf("%+v", res)
 	}
-	// fresh: nothing to do
 	if h, err := eng.AutoRefresh(ctx); err != nil || h != nil {
 		t.Fatalf("fresh catalog must not sync: %v %v", h, err)
 	}
-	// one project goes stale
 	e.fake.Calls = nil
 	e.now = e.now.Add(25 * time.Hour)
 	h2, _ := eng.StartSync(ctx, api.SyncScope{Projects: []string{"proj-b"}})
@@ -393,7 +384,6 @@ func TestAutoRefreshSyncsANewlySelectedProject(t *testing.T) {
 	if _, err := h.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	// the user selects another project: background refresh syncs just it
 	if err := eng.SelectProjects("proj-b"); err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +415,6 @@ func TestUnreadSyncEventsDoNotLeakThePump(t *testing.T) {
 	select {
 	case _, ok := <-h.Events():
 		if ok {
-			// a queued event may still be handed over; the channel must then close
 			for range h.Events() {
 			}
 		}
@@ -445,8 +434,6 @@ func TestOperationsAfterCloseFailCleanly(t *testing.T) {
 
 func TestDetailRejectsAStaleIndexEntry(t *testing.T) {
 	e, eng := synced(t, "proj-a")
-	// the table disappears from BigQuery and the catalog, but this engine's
-	// index is deliberately left stale
 	e.fake.Projects["proj-a"].Datasets[1].Tables = nil
 	other := e.openWithTables()
 	h, _ := other.StartSync(ctx, api.SyncScope{})
@@ -458,8 +445,6 @@ func TestDetailRejectsAStaleIndexEntry(t *testing.T) {
 	}
 }
 
-// Only stored tables have a free Sample; the others are read by a SELECT,
-// which is billed.
 func TestNoSampleByTableType(t *testing.T) {
 	for _, typ := range []api.TableType{api.TypeTable, api.TypeSnapshot, api.TypeClone, api.TypeOther, ""} {
 		if got := NoSample(typ); got != SampleFree {

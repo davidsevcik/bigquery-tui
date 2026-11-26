@@ -30,28 +30,19 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/version"
 )
 
-// Env holds everything a command touches outside its arguments, so tests can
-// replace it.
 type Env struct {
 	Stdin          io.Reader
 	Stdout, Stderr io.Writer
 	Getenv         func(string) string
-	// IsTTY reports whether a stream is an interactive terminal.
-	IsTTY func(any) bool
-	Now   func() time.Time
-	// Meta builds the BigQuery metadata client; nil uses the real one.
-	Meta func(context.Context) (bq.Metadata, error)
-	// Jobs builds the BigQuery query client; nil uses the real one.
-	Jobs func(context.Context) (bq.Jobs, error)
-	// CheckAuth inspects the default credentials; nil uses the real check.
-	CheckAuth func(context.Context) (bq.AuthInfo, error)
-	// RunEditor runs an editor command attached to the terminal.
-	RunEditor func(ctx context.Context, argv []string, env Env) error
-	// Backoff overrides sync retry waits (tests).
-	Backoff func(int) time.Duration
+	IsTTY          func(any) bool
+	Now            func() time.Time
+	Meta           func(context.Context) (bq.Metadata, error)
+	Jobs           func(context.Context) (bq.Jobs, error)
+	CheckAuth      func(context.Context) (bq.AuthInfo, error)
+	RunEditor      func(ctx context.Context, argv []string, env Env) error
+	Backoff        func(int) time.Duration
 }
 
-// DefaultEnv returns the process environment.
 func DefaultEnv() Env {
 	return Env{
 		Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
@@ -103,7 +94,6 @@ func (g *globals) loadOptions(env Env) config.LoadOptions {
 	return config.LoadOptions{Path: g.configPath, Getenv: env.Getenv, Flags: flags}
 }
 
-// cmdError carries an exit code and a stable error code to the printer.
 type cmdError struct {
 	exit int
 	code string
@@ -117,7 +107,6 @@ func usageErr(format string, a ...any) error {
 	return &cmdError{exit: api.ExitUsage, code: "usage", msg: fmt.Sprintf(format, a...), hint: "run `bqt help`"}
 }
 
-// out renders results.
 type out struct {
 	env  Env
 	json bool
@@ -147,7 +136,6 @@ func (o *out) envelope(e api.Envelope) error {
 	return json.NewEncoder(o.env.Stdout).Encode(e)
 }
 
-// fail prints err in the active format and returns its exit code.
 func (o *out) fail(err error) int {
 	ce := classify(err)
 	if o.json {
@@ -161,8 +149,6 @@ func (o *out) fail(err error) int {
 	return ce.exit
 }
 
-// loginHint fixes missing or expired credentials, not a refused
-// impersonation (bq.ImpersonationDenied).
 const loginHint = "run `gcloud auth application-default login`"
 
 func classify(err error) *cmdError {
@@ -193,7 +179,7 @@ func classify(err error) *cmdError {
 			return &cmdError{exit: api.ExitOverLimit, code: "timeout", msg: qf.Error(), hint: "narrow the query, or raise agent_timeout in the config"}
 		case "auth":
 			hint := ""
-			if qf.Err.Hint != "" { // none for a refused impersonation
+			if qf.Err.Hint != "" {
 				hint = loginHint
 			}
 			return &cmdError{exit: api.ExitAuth, code: "auth", msg: qf.Error(), hint: hint}
@@ -228,7 +214,7 @@ func classify(err error) *cmdError {
 	case bq.KindAuth:
 		ce := &cmdError{exit: api.ExitAuth, code: "auth", msg: err.Error(), hint: loginHint}
 		if bq.ImpersonationDenied(err) {
-			ce.hint = "" // the message names the fix
+			ce.hint = ""
 		}
 		return ce
 	case bq.KindOverLimit:
@@ -296,7 +282,6 @@ refused by the policy, 6 BigQuery error (also: sync finished with failed
 units), 7 cancelled.
 `
 
-// Run executes one bqt invocation and returns the process exit code.
 func Run(ctx context.Context, args []string, env Env) int {
 	g := &globals{}
 	fs := flag.NewFlagSet("bqt", flag.ContinueOnError)
@@ -311,11 +296,10 @@ func Run(ctx context.Context, args []string, env Env) int {
 			fmt.Fprint(env.Stderr, usage)
 			return api.ExitUsage
 		}
-		rest = []string{"tui"} // bare `bqt` on a terminal opens the explorer
+		rest = []string{"tui"}
 	}
 	cmd, cargs := rest[0], rest[1:]
 	if strings.HasSuffix(strings.ToLower(cmd), ".sql") {
-		// `bqt path/to/query.sql` opens the file as an editor buffer
 		cmd, cargs = "tui", rest
 	}
 	if cmd == "help" || cmd == "--help" || cmd == "-h" {
@@ -323,8 +307,6 @@ func Run(ctx context.Context, args []string, env Env) int {
 		return api.ExitOK
 	}
 	if g.format == "" {
-		// the format may follow the command (`bqt sync --format text`), but
-		// the output is chosen before the command reads its flags
 		g.format = formatFlag(cargs)
 	}
 	o, err := newOut(env, g.format)
@@ -376,9 +358,6 @@ func Run(ctx context.Context, args []string, env Env) int {
 	return api.ExitOK
 }
 
-// formatFlag finds a --format value among a command's arguments, the way
-// the command's own parser reads them: the last one wins, and an argument
-// with white space in it (SQL such as "--format=x\nSELECT 1") is no flag.
 func formatFlag(args []string) string {
 	f := ""
 	for i := 0; i < len(args); i++ {
@@ -419,7 +398,6 @@ func printUsageError(env Env, err error) int {
 	return (&out{env: env}).fail(usageErr("%v", err))
 }
 
-// commandFlags builds a FlagSet for a command that also accepts the globals.
 func commandFlags(name string, g *globals) *flag.FlagSet {
 	fs := flag.NewFlagSet("bqt "+name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -437,11 +415,6 @@ func parse(fs *flag.FlagSet, args []string) error {
 	return nil
 }
 
-// parseAnywhere parses flags that may come before, between or after the
-// positional arguments (`bqt query "SELECT 1" --limit 5`). An argument with
-// white space in it is never a flag, so SQL starting with "--" or "-" stays
-// SQL; a lone "--" ends the flags. A negated search filter (-status:failed)
-// is a positional argument too.
 func parseAnywhere(fs *flag.FlagSet, args []string) ([]string, error) {
 	var flags, pos []string
 	for i := 0; i < len(args); i++ {
@@ -483,12 +456,9 @@ func isFlagArg(a string) bool {
 	if i := strings.IndexByte(name, '='); i >= 0 {
 		name = name[:i]
 	}
-	// -status:failed is a negated filter, -5 a number
 	return name != "" && !strings.Contains(name, ":") && !unicode.IsDigit(rune(name[0]))
 }
 
-// parseNoArgs parses the flags of a command that takes no arguments, and
-// refuses an argument rather than ignore it and the flags after it.
 func parseNoArgs(fs *flag.FlagSet, args []string) error {
 	pos, err := parseAnywhere(fs, args)
 	if err == nil && len(pos) > 0 {

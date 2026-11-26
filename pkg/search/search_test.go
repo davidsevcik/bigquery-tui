@@ -131,15 +131,14 @@ func eq(t *testing.T, got []string, want ...string) {
 
 func TestRankingTiers(t *testing.T) {
 	s := standard().searcher()
-	// exact (shorter path first among equals), prefix, word-boundary, substring, description
 	got := names(t, s, "orders", api.SearchOptions{TablesOnly: true})
 	eq(t, got,
-		"acme-prod.sales.orders", "acme-staging.sales.orders", // exact
-		"acme-prod.tmp_scratch.orders_tmp", // prefix
-		"acme-prod.sales.v_orders",         // word boundary
-		"acme-prod.sales.reorders",         // substring
-		"acme-prod.sales.order_items",      // fuzzy subsequence
-		"acme-prod.sales.customers",        // description only
+		"acme-prod.sales.orders", "acme-staging.sales.orders",
+		"acme-prod.tmp_scratch.orders_tmp",
+		"acme-prod.sales.v_orders",
+		"acme-prod.sales.reorders",
+		"acme-prod.sales.order_items",
+		"acme-prod.sales.customers",
 	)
 }
 
@@ -195,7 +194,6 @@ func TestColFilterMatchesPathAndDescriptionWithHits(t *testing.T) {
 	if len(r.Results) != 1 || len(r.Results[0].ColumnHits[0].DescSpans) != 1 {
 		t.Fatalf("description match: %+v", r.Results)
 	}
-	// negation and combination with a term
 	eq(t, names(t, s, "orders -col:id", api.SearchOptions{TablesOnly: true}),
 		"acme-prod.tmp_scratch.orders_tmp", "acme-prod.sales.v_orders", "acme-prod.sales.reorders")
 }
@@ -209,11 +207,9 @@ func TestFilters(t *testing.T) {
 	eq(t, names(t, s, "type:v,snap p:prod", o), "acme-prod.sales.v_orders")
 	eq(t, names(t, s, "label:finance", o), "acme-prod.sales.refunds")
 	eq(t, names(t, s, "desc:buyer", o), "acme-prod.sales.customers")
-	// dataset description counts for desc:
 	if got := names(t, s, "desc:marts p:prod", o); len(got) != 6 {
 		t.Fatalf("%v", got)
 	}
-	// pending and invalid filters are ignored until complete
 	eq(t, names(t, s, "refunds d: type:zzz", o), "acme-prod.sales.refunds")
 }
 
@@ -233,7 +229,6 @@ func TestFilterOnlyOrdersByPath(t *testing.T) {
 func TestShardFamiliesCollapse(t *testing.T) {
 	s := standard().searcher()
 	r, _ := s.Search(ctx, "events", api.SearchOptions{TablesOnly: true})
-	// the family (a name match) comes before clicks, which only matches through its dataset name
 	if len(r.Results) != 2 || r.Results[1].Path.Table != "clicks" || r.Results[1].MatchedField != "dataset" {
 		t.Fatalf("%+v", r.Results)
 	}
@@ -244,7 +239,6 @@ func TestShardFamiliesCollapse(t *testing.T) {
 	if sp := fam.Spans["name"]; len(sp) != 1 || sp[0] != (api.Span{Start: 0, End: 6}) {
 		t.Fatalf("spans stay inside the prefix: %+v", sp)
 	}
-	// a query that pins one shard returns that table, not the family
 	r, _ = s.Search(ctx, "events_20240102", api.SearchOptions{TablesOnly: true})
 	if len(r.Results) == 0 || r.Results[0].Kind != api.KindTable || r.Results[0].Path.Table != "events_20240102" {
 		t.Fatalf("%+v", r.Results)
@@ -265,7 +259,6 @@ func TestProjectAndDatasetResults(t *testing.T) {
 	if r.Results[0].Kind != api.KindProject {
 		t.Fatalf("%+v", r.Results[0])
 	}
-	// other filters suppress project and dataset rows
 	r, _ = s.Search(ctx, "sales type:table", api.SearchOptions{})
 	for _, x := range r.Results {
 		if x.Kind != api.KindTable {
@@ -334,9 +327,6 @@ func TestHiddenProjects(t *testing.T) {
 	}
 }
 
-// Projects limits every kind of result, the recently opened tables and the
-// total to a set of projects; empty is no limit. It only narrows: a Scope or a
-// hidden project outside it stays out.
 func TestProjectsLimitResultsAndTotal(t *testing.T) {
 	s := standard().searcher()
 	s.Recent = func(context.Context, int) ([]string, error) {
@@ -362,8 +352,6 @@ func TestProjectsLimitResultsAndTotal(t *testing.T) {
 	}
 }
 
-// Prefer moves every kind of result in the preferred projects ahead of the
-// rest, keeps each group's ranked order, and applies before paging.
 func TestPreferProjects(t *testing.T) {
 	s := standard().searcher()
 	prefer := api.SearchOptions{Prefer: []string{"acme-staging"}}
@@ -467,12 +455,10 @@ func TestCaseSensitiveIdentity(t *testing.T) {
 	if !ok || !ok2 || u.ID != upper.ID || l.ID != lower.ID {
 		t.Fatalf("names differing only in case are different tables: %+v %+v", u, l)
 	}
-	// an exact pasted path picks exactly that table
 	r, _ := s.Search(ctx, "p.d.Orders", api.SearchOptions{})
 	if len(r.Results) != 1 || r.Results[0].Path.Table != "Orders" {
 		t.Fatalf("%+v", r.Results)
 	}
-	// a wrongly cased path is ambiguous here, so it falls back to a term search
 	r, _ = s.Search(ctx, "p.d.ORDERS", api.SearchOptions{})
 	for _, x := range r.Results {
 		if x.Tier == "exact" && x.MatchedField == "name" && len(r.Results) == 1 {
@@ -489,9 +475,6 @@ func TestExpandShardsOption(t *testing.T) {
 	}
 }
 
-// Issue 82: a pending dataset has no tables yet, so it is found by name
-// wherever tables would be (jump-to-table, the flat list), flagged, and its
-// project's freshness does not pretend it was synced.
 func TestPendingDatasets(t *testing.T) {
 	f := standard()
 	f.dataset("acme-prod", "ml_features", "asia-east1", "")
@@ -522,14 +505,11 @@ func TestPendingDatasets(t *testing.T) {
 	if ml.Status != api.DatasetPending || ml.Children != 0 || ml.Location != "asia-east1" || ml.FriendlyName != "ML features" || ml.SyncedAt != nil || !ml.Stale {
 		t.Fatalf("%+v", ml)
 	}
-	// asia-east1 has no unit state: the project has a unit that never synced.
 	if p := s.Projects()[0]; !p.Stale {
 		t.Fatalf("%+v", p)
 	}
 }
 
-// Issue 82: while any dataset is pending, a discovery unit's success (which
-// records an empty project's sync) does not count.
 func TestPendingDatasetsIgnoreTheDiscoverySuccess(t *testing.T) {
 	f := newFixture()
 	f.dataset("p", "big", "US", "")

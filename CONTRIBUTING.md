@@ -19,6 +19,8 @@ It needs nothing but Go (each tool runs through `go run` at a pinned version) an
 
 The lint rules allow no blanket suppressions. If a finding cannot be fixed, suppress it on that line with the linter's name and a reason: `//nolint:gosec // why`.
 
+Go code carries no comments ([ADR 0004](docs/adr/0004-code-carries-no-comments.md)): say it in names and tests, record a lasting decision in `docs/adr/`, and file a known shortcut as an issue. The exceptions are one package doc per package, a bare `// ADR-NNNN` pointer where a decision would be easy to break without a test noticing, and directives such as `//go:build` and the `//nolint` reason. `internal/archtest` enforces it.
+
 - Tests use the fakes in `pkg/bq/bqtest`; no Google Cloud account is needed. The optional live suite is described below.
 - The core lives under `pkg/` so other modules can import it; frontends and tools live under `internal/`. Core packages must not import UI libraries or anything under `internal/`. `internal/archtest` enforces this.
 - Terminal screens are golden files in `internal/tui/testdata`. If a change alters a screen, regenerate with `go test ./internal/tui -update` and check the diff.

@@ -291,8 +291,6 @@ func TestTUIEditingKey(t *testing.T) {
 	}
 }
 
-// [gui] is read by BigQuery Studio, which shares this file; bqt loads it but
-// reads nothing from it.
 func TestGUIEditingKey(t *testing.T) {
 	c := mustParse(t, `location = "EU"`, LoadOptions{})
 	if c.GUIEditing() != EditingPlain {
@@ -315,8 +313,6 @@ func TestGUIEditingKey(t *testing.T) {
 	}
 }
 
-// The same key in [tui] and [gui] is reported at the line of the table it is
-// wrong in.
 func TestTableKeyLines(t *testing.T) {
 	src := "[gui]\nediting = \"vim\"\n\n[tui]\nediting = \"emacs\"\n"
 	if es := parseErrs(t, src, LoadOptions{}); len(es) != 1 || es[0].Key != "tui.editing" || es[0].Line != 5 {
@@ -336,7 +332,6 @@ func TestTableKeyLines(t *testing.T) {
 	}
 }
 
-// Codex review 4, finding 2: a retention so large it would overflow is refused.
 func TestRetentionDaysBound(t *testing.T) {
 	es := parseErrs(t, "location = \"EU\"\nhistory_retention_days = 200000\n", LoadOptions{})
 	if !strings.Contains(es.Error(), "at most 36500") {

@@ -14,10 +14,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/format"
 )
 
-// TestLiveReopen runs a query that reads no table, then reopens its result
-// from a second Manager, as a later bqt process does from a History entry.
-//
-//	BQT_LIVE_EXECUTION_PROJECT=... go test -tags live ./pkg/runs -run Live -v
 func TestLiveReopen(t *testing.T) {
 	exec := os.Getenv("BQT_LIVE_EXECUTION_PROJECT")
 	if exec == "" {
@@ -53,7 +49,6 @@ func TestLiveReopen(t *testing.T) {
 		t.Fatalf("%+v %v", page, err)
 	}
 	t.Logf("reopened job %s in %s: %d rows", info.Job.ID, info.Job.Location, r.Info().TotalRows)
-	// a job id that does not exist reads as gone
 	ref := *info.Job
 	ref.ID += "-nope"
 	if _, err := m2.Reopen(rctx, api.HistoryEntry{Job: ref, State: api.RunDone}, ""); err == nil {

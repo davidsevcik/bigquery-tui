@@ -3,10 +3,8 @@ package version
 
 import "runtime/debug"
 
-// Version is set at build time with -ldflags "-X .../pkg/version.Version=v1.2.3".
 var Version = ""
 
-// String returns the version, falling back to the build information.
 func String() string {
 	if Version != "" {
 		return Version
@@ -18,8 +16,6 @@ func String() string {
 	return fromBuildInfo(bi)
 }
 
-// fromBuildInfo prefers the module version that `go install …@v1.2.3` records,
-// then the VCS revision of a local build.
 func fromBuildInfo(bi *debug.BuildInfo) string {
 	if v := bi.Main.Version; v != "" && v != "(devel)" {
 		return v

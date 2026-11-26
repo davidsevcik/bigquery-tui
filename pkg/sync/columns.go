@@ -10,9 +10,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
-// ownSchemaMarks reads which tables of a unit were synced on their own (gs):
-// sync keeps reading their columns. A failed read is logged and costs only
-// those tables' own schemas until the next sync.
 func (s *Syncer) ownSchemaMarks(ctx context.Context, u api.UnitRef) map[string]bool {
 	marks, err := s.o.Catalog.OwnSchemaTables(ctx, u)
 	if err != nil {
@@ -22,16 +19,6 @@ func (s *Syncer) ownSchemaMarks(ctx context.Context, u api.UnitRef) map[string]b
 	return marks
 }
 
-// readColumns is phase 2 of a unit: it reads the columns of every table that
-// should have them and attaches them. Those are the tables in no family, and
-// the keep list: each family's newest shard, every table that matches a
-// pattern but is in no family, and every member synced on its own. The other
-// members are left out on BigQuery's side and marked as using their family's
-// schema.
-//
-// The safety net: a table that should have columns but got none is read
-// again by name, so a difference between BigQuery's regex dialect and Go's
-// costs a query but never a schema.
 func (s *Syncer) readColumns(ctx context.Context, project string, applies []store.DatasetApply, op string, r *run, fetch func(bq.ColumnFilter) ([]bq.TableColumns, error)) error {
 	pats := s.o.Config.Shards()
 	f := bq.ColumnFilter{Pattern: pats.Combined()}
@@ -58,7 +45,7 @@ func (s *Syncer) readColumns(ctx context.Context, project string, applies []stor
 		}
 	}
 	if f.Pattern == "" {
-		f.Keep = nil // today's query: every table
+		f.Keep = nil
 	}
 	sort.Strings(f.Keep)
 	attach := func(cols []bq.TableColumns) int {
@@ -66,9 +53,10 @@ func (s *Syncer) readColumns(ctx context.Context, project string, applies []stor
 		for _, tc := range cols {
 			w, ok := want[tc.Dataset+"."+tc.Table]
 			if !ok {
-				continue // a collapsed member BigQuery returned anyway, or a leaked table
+				continue
 			}
 			t := &applies[w.a].Tables[w.t]
+			// ADR-0006
 			if len(t.Columns) == 0 && len(tc.Columns) > 0 {
 				n++
 			}
@@ -100,8 +88,6 @@ func (s *Syncer) readColumns(ctx context.Context, project string, applies []stor
 	if err != nil {
 		return err
 	}
-	// Tables without any columns stay missing and are not news; a table the
-	// re-read found is one the filtered query should have returned.
 	if n := attach(again); n > 0 {
 		var found []string
 		for _, key := range missing {
@@ -117,12 +103,6 @@ func (s *Syncer) readColumns(ctx context.Context, project string, applies []stor
 	return nil
 }
 
-// syncTable syncs one table's row and schema with REST tables.get (gs, bqt
-// sync --table). A family member read this way is marked as having its own
-// schema, so later unit syncs keep reading its columns, the newest shard
-// included (it keeps them once a newer shard comes). family is set when the
-// user named the family: its newest shard is then only refreshed, and keeps
-// any mark it had. A plain table is only refreshed.
 func (s *Syncer) syncTable(ctx context.Context, p api.ObjectPath, family bool, r *run) error {
 	stored, err := s.o.Catalog.StoredTable(ctx, p)
 	if err != nil {

@@ -11,7 +11,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 )
 
-// applyReq turns a synthetic snapshot into one ApplyUnit request.
 func applyReq(snap *api.Snapshot) ApplyRequest {
 	byDS := map[string][]api.TableMeta{}
 	for _, t := range snap.Tables {
@@ -26,16 +25,13 @@ func applyReq(snap *api.Snapshot) ApplyRequest {
 	return req
 }
 
-// TestScaleApply measures the transactional unit swap at the spec's target
-// size (50k tables, 1.25M field paths). It is slow, so it runs only with
-// BQT_SCALE=1. Run: BQT_SCALE=1 go test ./pkg/store -run Scale -v
 func TestScaleApply(t *testing.T) {
 	if os.Getenv("BQT_SCALE") == "" {
 		t.Skip("set BQT_SCALE=1 to run the scale measurement")
 	}
 	datasets := 500
 	if v, err := strconv.Atoi(os.Getenv("BQT_SCALE")); err == nil && v > 1 {
-		datasets = v // BQT_SCALE=50 runs a tenth of the size
+		datasets = v
 	}
 	snap := bqtest.Synthetic(bqtest.SyntheticSpec{Project: "p", Location: "EU", Datasets: datasets, TablesPerDataset: 100, ColumnsPerTable: 20, NestedPerTable: 5})
 	c, err := OpenCatalog(filepath.Join(t.TempDir(), "catalog.db"))
@@ -64,7 +60,6 @@ func TestScaleApply(t *testing.T) {
 		t.Fatalf("unchanged tables = %d", st.TablesUnchanged)
 	}
 
-	// change 1% of tables
 	for i := 0; i < len(snap.Tables); i += 100 {
 		snap.Tables[i].Description = "changed"
 	}

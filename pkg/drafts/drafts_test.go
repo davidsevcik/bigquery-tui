@@ -26,7 +26,7 @@ func TestDirIsPerFrontend(t *testing.T) {
 }
 
 func TestADraftIsHeldByOneInstance(t *testing.T) {
-	s := In(filepath.Join(t.TempDir(), "tui")) // created on the first Hold
+	s := In(filepath.Join(t.TempDir(), "tui"))
 	d, err := s.Hold("a1")
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +63,6 @@ func TestSaveWritesTheDraftAndEmptyTextRemovesIt(t *testing.T) {
 	if exists(t, s.Path(d.id)) {
 		t.Fatal("an empty buffer has no draft")
 	}
-	// a write that fails leaves the draft as it was and reports the error
 	if err := d.Save("select 2"); err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +178,7 @@ func TestRestorePassesOtherLockErrorsThrough(t *testing.T) {
 	if err := os.WriteFile(s.Path("x"), []byte("select 'x'"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(s.lockPath("x"), 0o700); err != nil { // the lock file cannot be opened
+	if err := os.Mkdir(s.lockPath("x"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := s.Restore("x"); err == nil || errors.Is(err, ErrHeld) {

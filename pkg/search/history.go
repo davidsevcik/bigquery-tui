@@ -9,12 +9,8 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
-// HistoryKeys are the History search filters (spec 11): status:, project:
-// (or p:), source: and since:.
 var HistoryKeys = map[string]bool{"status": true, "project": true, "p": true, "source": true, "since": true}
 
-// HistoryStates and HistorySources are the values of status: and source:
-// (matched by prefix).
 var (
 	HistoryStates  = []string{string(api.RunDone), string(api.RunFailed), string(api.RunCancelled)}
 	HistorySources = sourceNames()
@@ -28,7 +24,6 @@ func sourceNames() []string {
 	return names
 }
 
-// ParseHistory parses a History search query. Free terms match the SQL text.
 func ParseHistory(raw string) api.ParsedQuery {
 	q := ParseWith(raw, HistoryKeys, validateHistoryFilter)
 	for i := range q.Filters {
@@ -56,8 +51,6 @@ func validateHistoryFilter(f *api.QueryFilter) {
 	}
 }
 
-// HistoryQuery resolves a parsed History query for the store. Incomplete and
-// invalid filters are left out.
 func HistoryQuery(q api.ParsedQuery, now time.Time) store.HistoryQuery {
 	hq := store.HistoryQuery{Terms: q.Terms}
 	for _, f := range q.Filters {
@@ -79,7 +72,6 @@ func HistoryQuery(q api.ParsedQuery, now time.Time) store.HistoryQuery {
 		case "project":
 			c.Values = f.Values
 		case "since":
-			// comma means OR: the earliest cutoff covers every value
 			for _, v := range f.Values {
 				if t, ok := SinceTime(v, now); ok && (c.Since.IsZero() || t.Before(c.Since)) {
 					c.Since = t
@@ -96,7 +88,6 @@ func HistoryQuery(q api.ParsedQuery, now time.Time) store.HistoryQuery {
 	return hq
 }
 
-// ExpandPrefix returns the names v is a prefix of.
 func ExpandPrefix(names []string, v string) []string {
 	var out []string
 	for _, n := range names {
@@ -107,12 +98,8 @@ func ExpandPrefix(names []string, v string) []string {
 	return out
 }
 
-// maxAge bounds an age so the duration cannot overflow (into the future).
 const maxAge = 200 * 365 * 24 * time.Hour
 
-// SinceTime reads a since: value: an age such as 30m, 12h, 7d or 2w (up to
-// 200 years), or a date (2026-10-01) or date and time (2026-10-01T08:00) in
-// local time.
 func SinceTime(v string, now time.Time) (time.Time, bool) {
 	v = strings.TrimSpace(v)
 	if len(v) >= 2 {

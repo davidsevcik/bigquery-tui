@@ -13,8 +13,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
-// cmdTUI starts the interactive explorer. Logs go to the log file only: the
-// terminal belongs to the UI.
 func cmdTUI(ctx context.Context, o *out, g *globals, args []string) error {
 	fs := commandFlags("tui", g)
 	pos, err := parseAnywhere(fs, args)
@@ -45,7 +43,7 @@ func cmdTUI(ctx context.Context, o *out, g *globals, args []string) error {
 	if err != nil {
 		return usageErr("%v", err)
 	}
-	defer func() { _ = closeLog() }() // a failed log close at exit has nobody to tell
+	defer func() { _ = closeLog() }()
 	eng, err := engine.Open(ctx, engine.Options{Config: cfg, Meta: env.Meta, Now: env.Now, Log: log, Source: api.SourceTUI})
 	if err != nil {
 		return err

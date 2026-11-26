@@ -1,7 +1,7 @@
 // Package selection keeps the user's Selected projects and their chosen
-// Execution project: the working set that used to live in the config file.
-// It is one small JSON file in the data directory's state folder, shared by
-// every frontend (TUI, CLI, MCP) and every process.
+// Execution project (ADR 0001). It is one small JSON file in the data
+// directory's state folder, shared by every frontend (TUI, CLI, MCP) and
+// every process.
 package selection
 
 import (
@@ -15,26 +15,18 @@ import (
 	"time"
 )
 
-// ErrLastSelected is returned when a change would deselect the last Selected
-// project.
 var ErrLastSelected = errors.New("the last selected project stays selected (select only another one instead)")
 
-// Project is one Selected project.
 type Project struct {
-	ID string `json:"id"`
-	// SelectedAt decides the default Execution project: the earliest one.
+	ID         string    `json:"id"`
 	SelectedAt time.Time `json:"selected_at"`
 }
 
-// State is the saved selection.
 type State struct {
-	Selected []Project `json:"selected"`
-	// Execution is the chosen Execution project; "" until the user first
-	// chooses one.
-	Execution string `json:"execution_project,omitempty"`
+	Selected  []Project `json:"selected"`
+	Execution string    `json:"execution_project,omitempty"`
 }
 
-// Has reports whether id is selected.
 func (s State) Has(id string) bool {
 	for _, p := range s.Selected {
 		if p.ID == id {
@@ -44,7 +36,6 @@ func (s State) Has(id string) bool {
 	return false
 }
 
-// IDs lists the Selected projects A–Z.
 func (s State) IDs() []string {
 	out := make([]string, 0, len(s.Selected))
 	for _, p := range s.Selected {
@@ -54,7 +45,6 @@ func (s State) IDs() []string {
 	return out
 }
 
-// Earliest is the project selected first (ties by ID), or "".
 func (s State) Earliest() string {
 	best := Project{}
 	for _, p := range s.Selected {
@@ -65,7 +55,6 @@ func (s State) Earliest() string {
 	return best.ID
 }
 
-// Select adds projects. One already selected keeps its selection time.
 func (s *State) Select(now time.Time, ids ...string) {
 	for _, id := range ids {
 		if !s.Has(id) {
@@ -74,8 +63,6 @@ func (s *State) Select(now time.Time, ids ...string) {
 	}
 }
 
-// Deselect removes projects. It refuses (changing nothing) when the selection
-// would become empty.
 func (s *State) Deselect(ids ...string) error {
 	drop := map[string]bool{}
 	for _, id := range ids {
@@ -94,8 +81,6 @@ func (s *State) Deselect(ids ...string) error {
 	return nil
 }
 
-// Only leaves id as the one Selected project (keeping its selection time when
-// it was selected already).
 func (s *State) Only(id string, now time.Time) {
 	for _, p := range s.Selected {
 		if p.ID == id {
@@ -106,8 +91,6 @@ func (s *State) Only(id string, now time.Time) {
 	s.Selected = []Project{{ID: id, SelectedAt: now}}
 }
 
-// Store reads and writes the state file. Reads are cached until the file
-// changes, so a change from another process shows up on the next read.
 type Store struct {
 	path string
 
@@ -117,24 +100,20 @@ type Store struct {
 	ok    bool
 }
 
-// stamp identifies one version of the file. Every save renames a new file
-// into place, so the file's identity changes even within one mtime tick.
 type stamp struct {
 	fi os.FileInfo
 }
 
 func (a stamp) same(b stamp) bool {
+	// ADR-0006
 	return a.fi != nil && b.fi != nil && os.SameFile(a.fi, b.fi) &&
 		a.fi.ModTime().Equal(b.fi.ModTime()) && a.fi.Size() == b.fi.Size()
 }
 
-// Open returns the store for path (the file need not exist).
 func Open(path string) *Store { return &Store{path: path} }
 
-// Path is the state file.
 func (st *Store) Path() string { return st.path }
 
-// Load returns the current state; a missing file is the empty state.
 func (st *Store) Load() (State, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -166,12 +145,11 @@ func (st *Store) loadLocked() (State, error) {
 	return clone(s), nil
 }
 
-// Update reads the file afresh, applies fn and writes the result atomically
-// (last write wins between processes). Nothing is written when fn fails.
 func (st *Store) Update(fn func(*State) error) (State, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	st.ok = false // never apply a change to a cached copy
+	// ADR-0006
+	st.ok = false
 	s, err := st.loadLocked()
 	if err != nil {
 		return State{}, err
@@ -186,7 +164,6 @@ func (st *Store) Update(fn func(*State) error) (State, error) {
 	return s, nil
 }
 
-// Save writes s to path atomically.
 func Save(path string, s State) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err

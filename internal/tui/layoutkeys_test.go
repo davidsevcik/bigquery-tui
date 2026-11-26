@@ -8,8 +8,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 )
 
-// The ctrl+w window commands, through the keys and the palette.
-
 func (r *rig) tree(want string) {
 	r.t.Helper()
 	if got := r.m.panes.String(); got != want {
@@ -31,29 +29,24 @@ func TestCtrlWSpaceCyclesTheLayouts(t *testing.T) {
 			t.Fatalf("%s: preset %s tree %s", want, r.m.preset, r.m.panes)
 		}
 	}
-	// the palette names every preset
 	for _, want := range []string{"query", "browse", "tall", "focus", "classic"} {
 		r.palette("Layout: " + want)
 		r.contains("layout: " + want)
 	}
 	r.palette("Next layout")
 	r.contains("layout: query")
-	// switching from the Schema to query, which hides it: the focus goes to
-	// the most recently focused visible Pane
 	r.palette("Layout: classic")
 	r.onOrders()
 	r.press("enter", "ctrl+w", "space")
 	if r.m.zone != ZoneExplorer {
 		t.Fatalf("focus %s", r.m.zone)
 	}
-	// "Show Schema" in query shows it under the Explorer and focuses it
 	r.palette("Show Schema")
 	if r.m.zone != ZoneSchema || r.m.panes.hiddenPane(ZoneSchema) {
 		t.Fatalf("focus %s tree %s", r.m.zone, r.m.panes)
 	}
 	r.contains("layout: custom", " Schema · acme-prod.sales.ord")
 	r.tree("row[col[E:60 S:40]:25 col[Q:50 R:50]:75]")
-	// ctrl+w c hides it again: query's own tree
 	r.press("ctrl+w", "c")
 	r.contains("layout: query")
 	if r.m.zone != ZoneExplorer {
@@ -92,7 +85,6 @@ func TestEditingALayoutMakesItCustomUntilUndone(t *testing.T) {
 	r.press("ctrl+w", "r")
 	r.tree("row[col[S:50 E:50]:50 col[Q:50 R:50]:50]")
 
-	// from custom, Next layout goes to the preset after the source
 	r.palette("Next layout")
 	r.contains("layout: query")
 	r.tree("row[col[E:60 (S):40]:25 col[Q:50 R:50]:75]")
@@ -115,7 +107,7 @@ func TestPaletteRunsTheWindowCommands(t *testing.T) {
 		{"Hide pane", "row[col[(E):50 S:50]:35 col[Q:50 R:50]:65]"},
 	} {
 		r.palette("Reset layout")
-		r.press("ctrl+w", "k") // back to the Explorer
+		r.press("ctrl+w", "k")
 		r.palette(c.name)
 		if got := r.m.panes.String(); got != c.tree {
 			t.Errorf("%s: %s, want %s", c.name, got, c.tree)
@@ -171,7 +163,6 @@ func TestTheWindowCommandsSayWhyTheyDoNothing(t *testing.T) {
 	if r.m.layoutName() != "classic" {
 		t.Fatalf("layout %s", r.m.layoutName())
 	}
-	// switching and showing still work
 	r.press("ctrl+w", "space")
 	if r.m.layoutName() != "query" {
 		t.Fatalf("layout %s", r.m.layoutName())
@@ -181,7 +172,6 @@ func TestTheWindowCommandsSayWhyTheyDoNothing(t *testing.T) {
 		t.Fatalf("Show Schema: %s", r.m.zone)
 	}
 
-	// the edge, and resizing at the minimum
 	r = newRig(t, 120, 36)
 	r.press("ctrl+w", "H", "ctrl+w", "H")
 	r.contains("Explorer is already at the far left")
@@ -195,7 +185,7 @@ func TestARunRestoresAMaximisedLayout(t *testing.T) {
 		r := editorRig(t, 120, 36)
 		r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(3) }
 		r.typeText("select 1")
-		r.press("ctrl+w", "j", "ctrl+w", "c", "ctrl+w", "z") // the Results hidden, the Editor maximised
+		r.press("ctrl+w", "j", "ctrl+w", "c", "ctrl+w", "z")
 		if r.m.maxed != ZoneEditor || !r.m.panes.hiddenPane(ZoneResults) {
 			t.Fatalf("maxed %q tree %s", r.m.maxed, r.m.panes)
 		}
@@ -210,7 +200,6 @@ func TestARunRestoresAMaximisedLayout(t *testing.T) {
 		}
 		r.contains("layout: classic", " SQL · query 1", "Projects 1/2")
 	}
-	// a parameters prompt cancelled starts no Run and leaves the zoom
 	r := editorRig(t, 120, 36)
 	r.typeText("select @x")
 	r.press("ctrl+w", "z", "ctrl+r")
@@ -219,7 +208,6 @@ func TestARunRestoresAMaximisedLayout(t *testing.T) {
 	if r.m.maxed != ZoneEditor {
 		t.Fatalf("maxed %q", r.m.maxed)
 	}
-	// answered, it runs and restores
 	r.press("ctrl+r")
 	r.typeText("1")
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
@@ -230,7 +218,6 @@ func TestARunRestoresAMaximisedLayout(t *testing.T) {
 }
 
 func TestContentBringsItsPaneBack(t *testing.T) {
-	// p with the Results hidden, then covered
 	r := newRig(t, 120, 36)
 	r.press("ctrl+w", "l", "ctrl+w", "j", "ctrl+w", "c")
 	if !r.m.panes.hiddenPane(ZoneResults) || r.m.zone != ZoneEditor {
@@ -247,16 +234,14 @@ func TestContentBringsItsPaneBack(t *testing.T) {
 	if r.m.maxed != "" || r.m.zone != ZoneExplorer {
 		t.Fatalf("p clears the zoom over the Results: %q %s", r.m.maxed, r.m.zone)
 	}
-	// p while the Results are maximised keeps the zoom
 	r.press("ctrl+w", "l", "ctrl+w", "j", "ctrl+w", "z")
-	r.m.zone = ZoneExplorer // as if p came from the Explorer while the Results were maximised
+	r.m.zone = ZoneExplorer
 	r.m.maxed = ZoneResults
 	r.run(r.m.sampleAction())
 	if r.m.maxed != ZoneResults {
 		t.Fatalf("the target itself maximised keeps the zoom: %q", r.m.maxed)
 	}
 
-	// in browse's shared slot, p puts the Results in it and the focus stays
 	r = newRig(t, 100, 28)
 	r.onOrders()
 	r.palette("Layout: browse")
@@ -267,7 +252,6 @@ func TestContentBringsItsPaneBack(t *testing.T) {
 	}
 	r.contains("Editor  [Results]", sampleTitle)
 
-	// s and i with the Editor hidden
 	for _, key := range []string{"s", "i"} {
 		r := newRig(t, 120, 36)
 		r.press("ctrl+w", "l", "ctrl+w", "c", "ctrl+w", "h")
@@ -282,12 +266,10 @@ func TestContentBringsItsPaneBack(t *testing.T) {
 		r.contains("orders")
 	}
 
-	// ctrl+e with the Schema hidden says so
 	r = newRig(t, 120, 36)
 	r.press("ctrl+w", "space", "ctrl+e")
 	r.contains("the Schema pane is hidden (palette: Show Schema)")
 
-	// the run list's enter with the Results hidden
 	r = editorRig(t, 120, 36)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(2) }
 	r.typeText("select 2")
@@ -301,7 +283,7 @@ func TestContentBringsItsPaneBack(t *testing.T) {
 
 func TestACustomLayoutIsRememberedWithoutTheZoom(t *testing.T) {
 	r := newRig(t, 120, 36)
-	r.press("ctrl+w", "space", "ctrl+w", "space") // browse
+	r.press("ctrl+w", "space", "ctrl+w", "space")
 	r.press("ctrl+w", "L", "ctrl+w", "j", "ctrl+w", "c", "ctrl+w", "z")
 	want := r.m.panes.String()
 	if !isCustom("browse", r.m.panes) || r.m.maxed == "" {
@@ -319,12 +301,10 @@ func TestACustomLayoutIsRememberedWithoutTheZoom(t *testing.T) {
 	if m2.preset != "browse" || m2.panes.String() != want || m2.maxed != "" {
 		t.Fatalf("restart: preset %s tree %s maxed %q", m2.preset, m2.panes, m2.maxed)
 	}
-	// a saved tree that hides the Explorer starts on a visible Pane
 	m3 := r.restartWith(`{"explorer_style":"columns","pane_layout":{"preset":"classic","tree":{"split":"row","weights":[1,1],"kids":[{"pane":"explorer","hidden":true},{"split":"col","weights":[1,1,1],"kids":[{"pane":"schema"},{"pane":"editor"},{"pane":"results"}]}]}}}`)
 	if m3.zone == ZoneExplorer || m3.layoutName() != "custom" {
 		t.Fatalf("focus %s layout %s", m3.zone, m3.layoutName())
 	}
-	// unknown presets and bad trees
 	for state, want := range map[string]string{
 		`{"pane_layout":{"preset":"wide","tree":{"pane":"explorer"}}}`: classicStr,
 		`{"pane_layout":{"preset":"tall","tree":{"split":"row","weights":[1,1,1,1],"kids":[{"pane":"explorer","hidden":true},{"pane":"schema","hidden":true},{"pane":"editor","hidden":true},{"pane":"results","hidden":true}]}}}`: presetTree("tall").String(),
@@ -338,7 +318,6 @@ func TestACustomLayoutIsRememberedWithoutTheZoom(t *testing.T) {
 }
 
 func TestWindowCommandsDoNotClashWithPaneKeys(t *testing.T) {
-	// Results: ctrl+w H moves the Pane, H alone hides a column
 	r := editorRig(t, 120, 36)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(3) }
 	r.typeText("select n")
@@ -349,21 +328,20 @@ func TestWindowCommandsDoNotClashWithPaneKeys(t *testing.T) {
 		t.Fatalf("hidden columns %v focus %s", r.m.grid().hidden, r.m.zone)
 	}
 	r.tree("row[R:33 col[E:50 S:50]:23 Q:43]")
-	// Explorer: ctrl+w L and ctrl+w r neither cycle the style nor refresh
 	r = newRig(t, 120, 36)
 	syncs := len(r.fake.Calls)
 	r.press("ctrl+w", "L", "ctrl+w", "r")
 	if r.m.style != styleColumns || len(r.fake.Calls) != syncs || r.m.syncing {
 		t.Fatalf("style %s, %d calls, syncing %v", styleNames[r.m.style], len(r.fake.Calls)-syncs, r.m.syncing)
 	}
-	r.tree("row[E:23 S:43 col[Q:50 R:50]:33]") // moved to the far right, then rotated to the front
+	r.tree("row[E:23 S:43 col[Q:50 R:50]:33]")
 }
 
 func TestWindowCommandsInEveryEditingMode(t *testing.T) {
 	type mode struct {
 		name  string
 		vim   bool
-		enter []string // from Normal mode
+		enter []string
 		want  vimMode
 	}
 	for _, md := range []mode{
@@ -431,7 +409,7 @@ func TestPresetGoldenScreens(t *testing.T) {
 	r.onOrders()
 	r.palette("Layout: browse")
 	r.golden("layout_browse_short_100x28")
-	r.press("ctrl+w", "j", "ctrl+w", "j") // the Editor, then the Results in the shared slot
+	r.press("ctrl+w", "j", "ctrl+w", "j")
 	r.golden("layout_browse_short_results_100x28")
 
 	r = editorRig(t, 120, 36)
