@@ -16,7 +16,7 @@ The reviewer posts one formal review per pass: **Approve** or **Request changes*
 
 When the reviewer approves a pull request from `kitt-assist`, it turns on auto-merge. GitHub then squash-merges the pull request by itself once every thread is resolved and CI passes. On an approved pull request, resolving the last **Nit** thread is what merges it. Other pull requests are merged by hand.
 
-If an approved pull request falls behind its base before it merges, the reviewer merges the base in itself (GitHub's update-branch). The approval stays, so the pull request merges once CI passes, and the author has nothing to do. If that merge conflicts, the reviewer says so in a comment: merge the base in yourself, resolve the conflicts and request the review again.
+If an approved pull request falls behind its base before it merges, the reviewer merges the base in itself (GitHub's update-branch). The approval stays, so the pull request merges once CI passes, and the author has nothing to do. If that merge conflicts, the reviewer says so in a comment: bring the branch up to date as described under "How a review is requested", then request the review again.
 
 The reviewer leaves auto-merge off while another open pull request is based on the branch: the branch is deleted after the merge, and that would close the other pull request. Retarget it to `master` first, then request the review again.
 
