@@ -67,17 +67,21 @@ func (s *Store) Hold(id string) (*Draft, error) {
 	if st, err := os.Stat(s.Path(id)); err == nil && st.Size() > 0 {
 		empty = false
 	}
-	return &Draft{s: s, id: id, lock: l, empty: empty, executionProject: s.recordedExecutionProject(id)}, nil
+	return &Draft{s: s, id: id, lock: l, empty: empty, executionProject: heldExecutionProject(l)}, nil
 }
 
 const recordEnd = "\n"
 
-func (s *Store) recordedExecutionProject(id string) string {
-	data, err := os.ReadFile(s.lockPath(id))
+func heldExecutionProject(l *store.Lock) string {
+	record, err := l.Read()
 	if err != nil {
 		return ""
 	}
-	project, complete := strings.CutSuffix(string(data), recordEnd)
+	return executionProjectIn(record)
+}
+
+func executionProjectIn(record []byte) string {
+	project, complete := strings.CutSuffix(string(record), recordEnd)
 	if !complete || !config.ValidProjectID(project) {
 		return ""
 	}
@@ -172,7 +176,7 @@ func (s *Store) orphan(e os.DirEntry, id string, now time.Time) (Orphan, bool) {
 			break
 		}
 	}
-	return Orphan{ID: id, ModTime: info.ModTime(), First: first, Lines: strings.Count(string(data), "\n") + 1, ExecutionProject: s.recordedExecutionProject(id)}, true
+	return Orphan{ID: id, ModTime: info.ModTime(), First: first, Lines: strings.Count(string(data), "\n") + 1, ExecutionProject: heldExecutionProject(l)}, true
 }
 
 type Draft struct {
@@ -195,7 +199,7 @@ func (d *Draft) SetExecutionProject(project string) error {
 		record = project + recordEnd
 	}
 	if err := d.lock.Rewrite([]byte(record)); err != nil {
-		d.executionProject = d.s.recordedExecutionProject(d.id)
+		d.executionProject = heldExecutionProject(d.lock)
 		return err
 	}
 	d.executionProject = project

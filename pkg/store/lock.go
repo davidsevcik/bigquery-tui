@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"syscall"
 )
@@ -28,6 +29,22 @@ func TryLock(path string) (*Lock, error) {
 		return nil, fmt.Errorf("flock: %w", err)
 	}
 	return &Lock{f: f}, nil
+}
+
+func (l *Lock) Read() ([]byte, error) {
+	if l == nil || l.f == nil {
+		return nil, ErrUnlocked
+	}
+	info, err := l.f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	content := make([]byte, info.Size())
+	n, err := l.f.ReadAt(content, 0)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	return content[:n], nil
 }
 
 func (l *Lock) Rewrite(content []byte) error {

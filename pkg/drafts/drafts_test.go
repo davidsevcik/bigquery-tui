@@ -22,6 +22,15 @@ func wantOneOrphanUnder(t *testing.T, s *Store, now time.Time, project string) {
 	}
 }
 
+func projectOnDisk(t *testing.T, s *Store, id string) string {
+	t.Helper()
+	record, err := os.ReadFile(s.lockPath(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return executionProjectIn(record)
+}
+
 func exists(t *testing.T, p string) bool {
 	t.Helper()
 	_, err := os.Stat(p)
@@ -308,8 +317,8 @@ func TestSetExecutionProjectRefusesWhatWouldNotReadBack(t *testing.T) {
 		if err := d.SetExecutionProject(bad); !errors.Is(err, ErrNotAProjectID) {
 			t.Fatalf("%q: want ErrNotAProjectID, got %v", bad, err)
 		}
-		if d.ExecutionProject() != "good-proj" || s.recordedExecutionProject("x") != "good-proj" {
-			t.Fatalf("%q: a refused value changes nothing: %q on disk %q", bad, d.ExecutionProject(), s.recordedExecutionProject("x"))
+		if d.ExecutionProject() != "good-proj" || projectOnDisk(t, s, "x") != "good-proj" {
+			t.Fatalf("%q: a refused value changes nothing: %q on disk %q", bad, d.ExecutionProject(), projectOnDisk(t, s, "x"))
 		}
 	}
 }
@@ -351,12 +360,12 @@ func TestSetExecutionProjectRewritesADamagedRecord(t *testing.T) {
 	if err := d.SetExecutionProject("proj-a"); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.recordedExecutionProject("x"); got != "proj-a" {
+	if got := projectOnDisk(t, s, "x"); got != "proj-a" {
 		t.Fatalf("setting the same project again rewrites the record, got %q", got)
 	}
 }
 
-func TestAFailedRecordReportsWhatIsOnDisk(t *testing.T) {
+func TestAFailedRecordReportsOnlyWhatTheHeldLockSays(t *testing.T) {
 	s := In(t.TempDir())
 	d, err := s.Hold("x")
 	if err != nil {
@@ -369,7 +378,10 @@ func TestAFailedRecordReportsWhatIsOnDisk(t *testing.T) {
 	if err := d.SetExecutionProject("proj-a"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(s.lockPath("x"), []byte("proj-"), 0o600); err != nil {
+	if err := os.Remove(s.lockPath("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.lockPath("x"), []byte("proj-other\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.lock.Unlock(); err != nil {
@@ -379,7 +391,7 @@ func TestAFailedRecordReportsWhatIsOnDisk(t *testing.T) {
 		t.Fatalf("writing without the lock should fail: %v", err)
 	}
 	if d.ExecutionProject() != "" {
-		t.Fatalf("after a failed write the draft reports the damaged record on disk as unknown, got %q", d.ExecutionProject())
+		t.Fatalf("after a failed write the draft knows only what its held lock says, so unknown, got %q", d.ExecutionProject())
 	}
 	if got, err := s.read("x"); err != nil || got != "select 1" {
 		t.Fatalf("a failed record leaves the text alone: %q %v", got, err)
