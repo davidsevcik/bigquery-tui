@@ -127,3 +127,69 @@ func TestInRunsJobsInAnExecutionProject(t *testing.T) {
 		t.Fatalf("the job's calls name its project: %+v", w)
 	}
 }
+
+func TestAJobIsFoundOnlyInItsOwnProject(t *testing.T) {
+	f := New()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	f.OnQuery = func(sql string) QueryScript {
+		s := Numbers(1)
+		if sql == "slow" {
+			s.Block = make(chan struct{})
+		}
+		return s
+	}
+	a, err := f.In("proj-a").StartQuery(ctx, bq.QueryRequest{SQL: "select 1", JobID: "same"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrong := a
+	wrong.Project = "proj-c"
+	if _, err := f.WaitJob(ctx, wrong); bq.KindOf(err) != bq.KindNotFound {
+		t.Fatalf("WaitJob: %v", err)
+	}
+	if _, err := f.QueryRows(ctx, wrong, 0, 10); bq.KindOf(err) != bq.KindNotFound {
+		t.Fatalf("QueryRows: %v", err)
+	}
+	if err := f.CancelJob(ctx, wrong); bq.KindOf(err) != bq.KindNotFound {
+		t.Fatalf("CancelJob: %v", err)
+	}
+
+	b, err := f.In("proj-b").StartQuery(ctx, bq.QueryRequest{SQL: "select 1", JobID: "same"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.CancelJob(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := f.WaitJob(ctx, b); err != nil || res.Err != nil {
+		t.Fatalf("cancelling proj-a's job cancelled proj-b's: %v %v", err, res.Err)
+	}
+	if res, err := f.WaitJob(ctx, a); err != nil || bq.KindOf(res.Err) != bq.KindCancelled {
+		t.Fatalf("%v %v", err, res.Err)
+	}
+
+	held, err := f.In("proj-a").StartQuery(ctx, bq.QueryRequest{SQL: "slow", JobID: "held"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wctx, stop := context.WithCancel(ctx)
+	waited := make(chan struct{})
+	go func() {
+		defer close(waited)
+		_, _ = f.WaitJob(wctx, held)
+	}()
+	for !f.Held(held) {
+		if ctx.Err() != nil {
+			t.Fatal("the job was never held")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	other := held
+	other.Project = "proj-b"
+	if f.Held(other) {
+		t.Fatal("Held reports another project's job")
+	}
+	stop()
+	<-waited
+}

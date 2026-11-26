@@ -67,7 +67,7 @@ type Fake struct {
 	columnReads []string
 
 	queries []QueryCall
-	jobs    map[string]*fakeJob
+	jobs    map[jobKey]*fakeJob
 	jobSeq  int
 }
 

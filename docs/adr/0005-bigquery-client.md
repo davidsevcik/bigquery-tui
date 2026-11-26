@@ -105,6 +105,7 @@ Status: accepted
 - **`bqtest.Fake.MissColumns`**: names `"project.dataset.table"` tables whose columns a filtered column call leaves out although bqt kept them, as when BigQuery's regex matching differs from Go's. A re-read by name (the filter's `Only`) still returns them.
 - **`bqtest.(*Fake).Fail`**: an unknown method panics, because a failure that can match no call would let a test pass without testing anything.
 - **`bqtest.QueryScript.IgnoreCancel`**: accepts a cancel request but keeps the job running, as BigQuery does until it confirms the cancel.
+- **`bqtest.(*Fake).fakeJob`**: finds a job by its project and ID, as BigQuery does, so a ref that names another project is not found and a test catches a Run that waits on, reads or cancels its job through the wrong project.
 - **`bqtest.fakeJob.held`**: true while `WaitJob` is waiting on `script.Block`; guarded by `Fake.mu`.
 - **`bqtest.Synthetic`**: generates a deterministic snapshot. The default scale used by the spec's budgets is 50k tables with 1.25M field paths: 500 datasets x 100 tables x (20 columns + 5 nested fields).
 

@@ -343,7 +343,7 @@ func (m *Model) followRun(id int64) tea.Cmd {
 			ctx, cancel = context.WithTimeout(m.ctx, 10*time.Second)
 			defer cancel()
 			settled = func(info api.RunInfo) bool {
-				held := info.Job != nil && m.o.JobHeld != nil && m.o.JobHeld(info.Job.ID)
+				held := info.Job != nil && m.o.JobHeld != nil && m.o.JobHeld(*info.Job)
 				return info.State == api.RunNeedsOK || held
 			}
 		}

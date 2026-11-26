@@ -54,7 +54,7 @@ const searchPage = 300
 type Options struct {
 	NoBackground bool
 	StableOutput bool
-	JobHeld      func(jobID string) bool
+	JobHeld      func(api.JobRef) bool
 	Getenv       func(string) string
 	Now          func() time.Time
 	Location     *time.Location

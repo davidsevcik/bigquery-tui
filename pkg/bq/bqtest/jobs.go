@@ -55,16 +55,19 @@ func (ExecClient) Close() error { return nil }
 
 type fakeJob struct {
 	script    QueryScript
-	project   string
 	cancelled chan struct{}
 	created   time.Time
 	held      bool
 }
 
-func (f *Fake) Held(jobID string) bool {
+type jobKey struct{ project, id string }
+
+func keyOf(ref api.JobRef) jobKey { return jobKey{project: ref.Project, id: ref.ID} }
+
+func (f *Fake) Held(ref api.JobRef) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	j := f.jobs[jobID]
+	j := f.jobs[keyOf(ref)]
 	return j != nil && j.held
 }
 
@@ -156,7 +159,7 @@ func (f *Fake) startQuery(ctx context.Context, req bq.QueryRequest, exec string)
 		return api.JobRef{}, &bq.Error{Kind: bq.KindOverLimit, Err: message(fmt.Sprintf("Query exceeded limit for bytes billed: %d. %d or higher required.", req.MaxBytesBilled, s.Bytes))}
 	}
 	if f.jobs == nil {
-		f.jobs = map[string]*fakeJob{}
+		f.jobs = map[jobKey]*fakeJob{}
 	}
 	f.jobSeq++
 	loc := req.Location
@@ -167,16 +170,16 @@ func (f *Fake) startQuery(ctx context.Context, req bq.QueryRequest, exec string)
 	if req.JobID != "" {
 		ref.ID = req.JobID
 	}
-	f.jobs[ref.ID] = &fakeJob{script: s, project: exec, cancelled: make(chan struct{}), created: time.Unix(1700000000+int64(f.jobSeq), 0).UTC()}
+	f.jobs[keyOf(ref)] = &fakeJob{script: s, cancelled: make(chan struct{}), created: time.Unix(1700000000+int64(f.jobSeq), 0).UTC()}
 	return ref, nil
 }
 
 func (f *Fake) fakeJob(ref api.JobRef) (*fakeJob, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	j := f.jobs[ref.ID]
+	j := f.jobs[keyOf(ref)]
 	if j == nil {
-		return nil, &bq.Error{Kind: bq.KindNotFound, Err: message("Not found: Job " + ref.ID)}
+		return nil, &bq.Error{Kind: bq.KindNotFound, Err: message("Not found: Job " + ref.Project + ":" + ref.ID)}
 	}
 	return j, nil
 }
@@ -216,7 +219,7 @@ func (f *Fake) WaitJob(ctx context.Context, ref api.JobRef) (bq.JobResult, error
 		return res, nil //nolint:nilerr // the poll worked; the job's own failure travels in res.Err
 	}
 	res.BytesProcessed, res.BytesBilled, res.SlotMs, res.CacheHit, res.AffectedRows = s.Bytes, s.Bytes, s.SlotMs, s.CacheHit, s.AffectedRows
-	res.Destination = j.project + "._anon." + ref.ID
+	res.Destination = ref.Project + "._anon." + ref.ID
 	return res, nil
 }
 

@@ -154,7 +154,7 @@ func TestFollowerWaitUntil(t *testing.T) {
 	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.Block = block; return s }
 	f := r.m.Follow()
 	id := f.Start(context.Background(), Request{SQL: "select 1"}, Origin{})
-	u, _ := f.Wait(context.Background(), id, func(i api.RunInfo) bool { return i.Job != nil && r.fake.Held(i.Job.ID) })
+	u, _ := f.Wait(context.Background(), id, func(i api.RunInfo) bool { return i.Job != nil && r.fake.Held(*i.Job) })
 	if u.Info.State != api.RunRunning {
 		t.Fatalf("%+v", u.Info)
 	}
