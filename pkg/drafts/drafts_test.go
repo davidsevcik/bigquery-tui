@@ -243,17 +243,7 @@ func TestADraftWithoutARecordHasAnUnknownExecutionProject(t *testing.T) {
 	if err := os.WriteFile(s.Path("old"), []byte("select 'old'"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(s.Path("odd"), []byte("select 'odd'"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(s.lockPath("odd"), []byte("two\nlines"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	for _, o := range s.Orphans(time.Now(), nil) {
-		if o.Execution != "" {
-			t.Fatalf("%+v", o)
-		}
-	}
+	wantOneOrphanUnder(t, s, time.Now(), "")
 	d, _, err := s.Restore("old")
 	if err != nil || d.Execution() != "" {
 		t.Fatalf("%q %v", d.Execution(), err)
@@ -279,7 +269,7 @@ func TestTheExecutionRecordGoesWithTheLock(t *testing.T) {
 	if err := os.Chtimes(s.Path("stale"), at, at); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(s.lockPath("lone"), []byte("p"), 0o600); err != nil {
+	if err := os.WriteFile(s.lockPath("lone"), []byte("p\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if o := s.Orphans(now, nil); len(o) != 0 {
@@ -316,7 +306,7 @@ func TestAPartialRecordReadsAsAnUnknownProject(t *testing.T) {
 	if err := os.WriteFile(s.Path("x"), []byte("select 1"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, partial := range []string{"", "proj", "project-b"} {
+	for _, partial := range []string{"", "proj", "project-b", "two\nlines"} {
 		if err := os.WriteFile(s.lockPath("x"), []byte(partial), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -363,7 +353,13 @@ func TestAFailedRecordReportsWhatIsOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.Release()
+	if err := d.Save("select 1"); err != nil {
+		t.Fatal(err)
+	}
 	if err := d.SetExecution("proj-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.lockPath("x"), []byte("proj-"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(s.lockPath("x"), 0o400); err != nil {
@@ -372,13 +368,29 @@ func TestAFailedRecordReportsWhatIsOnDisk(t *testing.T) {
 	if err := d.SetExecution("proj-b"); err == nil {
 		t.Fatal("writing a read-only record should fail")
 	}
-	if d.Execution() != "proj-a" {
-		t.Fatalf("after a failed write the draft reports the record on disk, got %q", d.Execution())
+	if d.Execution() != "" {
+		t.Fatalf("after a failed write the draft reports the damaged record on disk as unknown, got %q", d.Execution())
+	}
+	if got, _ := s.read("x"); got != "select 1" {
+		t.Fatalf("a failed record leaves the text alone: %q", got)
 	}
 	if err := os.Chmod(s.lockPath("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.SetExecution("proj-b"); err != nil || s.recordedExecution("x") != "proj-b" {
 		t.Fatalf("a retry writes the record: %v, on disk %q", err, s.recordedExecution("x"))
+	}
+}
+
+func TestRestoringAMissingDraftLeavesNoLock(t *testing.T) {
+	s := In(t.TempDir())
+	if _, _, err := s.Restore("gone"); !os.IsNotExist(err) {
+		t.Fatalf("want a not-exist error, got %v", err)
+	}
+	if exists(t, s.lockPath("gone")) {
+		t.Fatal("a failed restore leaves no lock file behind")
+	}
+	if _, err := s.Hold("gone"); err != nil {
+		t.Fatalf("a failed restore releases the lock: %v", err)
 	}
 }

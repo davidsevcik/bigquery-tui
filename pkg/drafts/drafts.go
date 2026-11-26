@@ -90,12 +90,13 @@ func (s *Store) read(id string) (string, error) {
 }
 
 func (s *Store) Restore(id string) (*Draft, string, error) {
-	text, err := s.read(id)
+	d, err := s.Hold(id)
 	if err != nil {
 		return nil, "", err
 	}
-	d, err := s.Hold(id)
+	text, err := s.read(id)
 	if err != nil {
+		d.Release()
 		return nil, "", err
 	}
 	return d, text, nil
