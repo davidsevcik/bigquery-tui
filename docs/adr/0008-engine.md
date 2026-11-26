@@ -18,12 +18,11 @@ Package `engine` is the facade every frontend (TUI, CLI, MCP server) uses: it wi
 
 ### BigQuery clients and the Execution project
 
-- **`engine.Engine`** (`lastExec`): records the Execution project last seen, because pricing is learned per project. `noticeExecution` forgets the learned pricing model when it changes.
 - **`engine.(*Engine).lister`**: the metadata client for listing projects needs no Execution project and never uses one. The credentials' own quota project applies, so an unusable Execution project cannot hide the list the user needs to pick another from.
-- **`engine.(*Engine).LearnPricingIn`**: a Run in an Execution project of its own runs on that project's client, built once beside the shared one's, so pricing is learned per call the same way (`runs.Request.Execution`); `""` is the shared Execution project.
+- **`engine.(*Engine).LearnPricingIn`**: `""` is the shared Execution project; the rest is `runs.(*Manager).LearnPricingIn`.
 - **`engine.(*Engine).jobs`**: returns the query client of the Run's own Execution project. A Run keeps the project it started in, even if the Execution project changes meanwhile.
 - **`engine.(*Engine).clientFor`**: keeps one shared client per Execution project, built on first use. Clients of earlier Execution projects stay open, because Runs that started in them still use them.
-- **`engine.(*Engine).SetConfig`**: run-related and sync-related keys apply only to operations started afterwards. A changed Execution project takes effect on the next BigQuery call, since each project has its own client. `data_dir` cannot change at run time; callers report it as restart-required.
+- **`engine.(*Engine).SetConfig`**: run-related and sync-related keys apply only to operations started afterwards. A changed Execution project takes effect on the next BigQuery call, since each project has its own client, and forgets no pricing model; a changed `location` forgets them all (`runs.(*Manager).ForgetPricing`). `data_dir` cannot change at run time; callers report it as restart-required.
 
 ### The agent surface
 

@@ -211,6 +211,9 @@ func TestARunRunsInTheExecutionProjectItIsGiven(t *testing.T) {
 	if strings.Join(got, ",") != "window-proj/window-proj,exec-proj/exec-proj,window-proj/window-proj" {
 		t.Fatalf("History: %q", got)
 	}
+	if info := eng.StartRun(ctx, runs.Request{SQL: "select 1", Execution: "Bad Project"}).Wait(); info.State != api.RunFailed || info.Error == nil || !strings.Contains(info.Error.Message, "not a valid project ID") {
+		t.Fatalf("%+v", info)
+	}
 	e.cfg.Location = "EU"
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.QueryScript{ReservationID: "res"} }
 	if err := eng.LearnPricingIn(ctx, "window-proj"); err != nil {
@@ -223,6 +226,39 @@ func TestARunRunsInTheExecutionProjectItIsGiven(t *testing.T) {
 	defer mu.Unlock()
 	if strings.Join(asked, ",") != "window-proj,exec-proj" {
 		t.Fatalf("clients built for %q", asked)
+	}
+}
+
+func TestOnlyALocationChangeForgetsThePricingModels(t *testing.T) {
+	e := newEnv(t, "proj-a", "proj-b")
+	e.cfg.Location = "EU"
+	eng, err := Open(ctx, Options{
+		Config: e.cfg, Now: func() time.Time { return e.now },
+		Client: func(_ context.Context, exec string) (Client, error) { return e.fake.In(exec), nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.QueryScript{ReservationID: "res"} }
+	if err := eng.LearnPricingIn(ctx, "window-proj"); err != nil {
+		t.Fatal(err)
+	}
+	if err := eng.LearnPricing(ctx); err != nil {
+		t.Fatal(err)
+	}
+	f := eng.FollowRuns()
+	if err := eng.ChooseExecution("proj-b"); err != nil {
+		t.Fatal(err)
+	}
+	if !f.PricingIn("window-proj").Capacity || !f.PricingIn("exec-proj").Capacity || f.Pricing().Known {
+		t.Fatalf("a change of the shared Execution project forgot a model: %+v %+v %+v", f.PricingIn("window-proj"), f.PricingIn("exec-proj"), f.Pricing())
+	}
+	cfg := *e.cfg
+	cfg.Location = "US"
+	eng.SetConfig(&cfg)
+	if f.PricingIn("window-proj").Known || f.PricingIn("exec-proj").Known {
+		t.Fatalf("a change of location kept a model: %+v %+v", f.PricingIn("window-proj"), f.PricingIn("exec-proj"))
 	}
 }
 

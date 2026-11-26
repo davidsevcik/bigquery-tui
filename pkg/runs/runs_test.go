@@ -642,7 +642,6 @@ func TestPricingFromAnOldProjectIsDropped(t *testing.T) {
 	r.fake.OnCall = func(c bqtest.Call) {
 		if c.Method == "DryRun" {
 			r.setExec("on-demand-proj")
-			r.m.ForgetPricing()
 		}
 	}
 	if err := r.m.LearnPricing(context.Background()); err != nil {
@@ -735,6 +734,24 @@ func TestARunRunsInTheExecutionProjectItIsGiven(t *testing.T) {
 	}
 	if cs := r.fake.CallsTo("CancelJob"); len(cs) != 1 || cs[0].Project != "window-proj" {
 		t.Fatalf("%+v", cs)
+	}
+}
+
+func TestAnInvalidExecutionProjectBuildsNoClient(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	r.cfg.Location = "EU"
+	info := r.m.Start(ctx, Request{SQL: "select 1", Execution: "Not a project!"}).Wait()
+	if info.State != api.RunFailed || info.Error == nil || info.Error.Message != `"Not a project!" is not a valid project ID` || info.Job != nil {
+		t.Fatalf("%+v %+v", info, info.Error)
+	}
+	if err := r.m.LearnPricingIn(ctx, "Not a project!"); err == nil || err.Error() != `"Not a project!" is not a valid project ID` {
+		t.Fatalf("%v", err)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.asked) != 0 || len(r.fake.QueryCalls()) != 0 || len(r.records) != 0 {
+		t.Fatalf("clients %q, calls %+v, History %+v", r.asked, r.fake.QueryCalls(), r.records)
 	}
 }
 

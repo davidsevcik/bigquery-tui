@@ -405,7 +405,6 @@ func (e *Engine) SetConfig(cfg *config.Config) {
 	if changed {
 		e.runs.ForgetPricing()
 	}
-	e.noticeExecution()
 	e.search.SetTTL(cfg.SyncTTL)
 	e.mu.Lock()
 	e.stats, e.infos = map[string]statsEntry{}, map[string]bq.TableInfo{}

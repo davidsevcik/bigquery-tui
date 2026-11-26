@@ -106,13 +106,25 @@ func (m *Manager) publish(info api.RunInfo) {
 	}
 }
 
+// ADR-0009
+func (m *Manager) orShared(exec string) string {
+	if exec == "" {
+		return m.o.Execution()
+	}
+	return exec
+}
+
+func validExecution(exec string) error {
+	if exec != "" && !config.ValidProjectID(exec) {
+		return fmt.Errorf("%q is not a valid project ID", exec)
+	}
+	return nil
+}
+
 func (m *Manager) Pricing() api.PricingModel { return m.pricingIn("") }
 
 func (m *Manager) pricingIn(exec string) api.PricingModel {
-	// ADR-0009
-	if exec == "" {
-		exec = m.o.Execution()
-	}
+	exec = m.orShared(exec)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.pricing[exec]
@@ -142,13 +154,14 @@ const pricingProbe = "SELECT x FROM UNNEST(GENERATE_ARRAY(1, 2)) AS x ORDER BY x
 func (m *Manager) LearnPricing(ctx context.Context) error { return m.LearnPricingIn(ctx, "") }
 
 func (m *Manager) LearnPricingIn(ctx context.Context, exec string) error {
+	if err := validExecution(exec); err != nil {
+		return err
+	}
 	cfg := m.o.Config()
 	if cfg.Location == "" {
 		return nil
 	}
-	if exec == "" {
-		exec = m.o.Execution()
-	}
+	exec = m.orShared(exec)
 	jobs, err := m.o.Jobs(ctx, exec)
 	if err != nil {
 		return err
@@ -343,11 +356,7 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 			rctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), p.Timeout)
 		}
 	}
-	// ADR-0009
-	exec := req.Execution
-	if exec == "" {
-		exec = m.o.Execution()
-	}
+	exec := m.orShared(req.Execution)
 	m.mu.Lock()
 	m.seq++
 	r := &Run{
@@ -365,6 +374,10 @@ func (m *Manager) Start(ctx context.Context, req Request) *Run {
 	m.mu.Unlock()
 	if closed {
 		r.finish(r.markCancelled)
+		return r
+	}
+	if err := validExecution(req.Execution); err != nil {
+		r.fail(err)
 		return r
 	}
 	m.publish(r.Info())

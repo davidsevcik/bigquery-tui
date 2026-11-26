@@ -53,9 +53,6 @@ func validIDs(ids []string) error {
 
 func (e *Engine) updateSelection(fn func(*selection.State) error) error {
 	_, err := e.sel.Update(fn)
-	if err == nil {
-		e.noticeExecution()
-	}
 	return err
 }
 
@@ -132,17 +129,6 @@ func resolveExecution(cfg *config.Config, s selection.State) (string, api.Execut
 func (e *Engine) execProject() string {
 	p, _ := e.ExecutionProject()
 	return p
-}
-
-func (e *Engine) noticeExecution() {
-	p := e.execProject()
-	e.execMu.Lock()
-	changed := e.lastExec != p
-	e.lastExec = p
-	e.execMu.Unlock()
-	if changed {
-		e.runs.ForgetPricing()
-	}
 }
 
 func (e *Engine) checkScope(ctx context.Context, scope api.SyncScope, selected []string) error {
