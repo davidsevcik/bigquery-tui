@@ -18,6 +18,15 @@ The reviewer leaves auto-merge off while another open pull request is based on t
 
 ## Answering a review (pull request authors)
 
+Answer a review as soon as it lands, without waiting to be asked: fix what it reports and push. Stop and ask the user only when a finding needs their decision:
+
+- The fixes differ in what users see or what the product does: scope, behaviour, wording, defaults.
+- The fix could cost money, delete or migrate user data, or change credentials, CI, the ruleset or the reviewer.
+- You disagree, and the reviewer kept the finding after your reply.
+- The fix needs access you don't have, such as a GCP project or a secret.
+
+For those, reply in the thread with the question and the options, leave it open, and tell the user. Fix everything else in the same pass.
+
 1. Read every inline comment and the review body: `gh pr view <n> --comments`, and the threads through `gh api graphql` (`pullRequest.reviewThreads`).
 2. Fix each comment you agree with, and push the fixes as new commits. Don't amend or force-push.
 3. Reply in each thread with the commit that fixed it, or with the reason you didn't change the code. Keep the reason concrete: the guard the reviewer missed, or the spec line that allows the behaviour.
