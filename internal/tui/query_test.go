@@ -9,10 +9,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq"
-	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
-	"github.com/davidsevcik/bigquery-tui/internal/runs"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/runs"
 )
 
 func editorRig(t *testing.T, w, h int) *rig {

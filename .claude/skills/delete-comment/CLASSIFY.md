@@ -11,7 +11,7 @@ A ledger file from `commentkit list`: one JSON object per comment group, `{"id",
 A verdicts file with **exactly one line per ledger id**:
 
 ```json
-{"id":"internal/store/catalog.go:120","cat":"tautology|stale|excuse|decision|keep","why":"<=15 words","symbol":"store.(*Catalog).Apply","decision":"...","hack":"...","fix":"..."}
+{"id":"pkg/store/catalog.go:120","cat":"tautology|stale|excuse|decision|keep","why":"<=15 words","symbol":"store.(*Catalog).Apply","decision":"...","hack":"...","fix":"..."}
 ```
 
 - `symbol`: the Go symbol the comment sits on or in. Required for `decision` and `excuse`.

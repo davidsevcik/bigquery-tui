@@ -10,10 +10,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq"
-	"github.com/davidsevcik/bigquery-tui/internal/format"
-	"github.com/davidsevcik/bigquery-tui/internal/sqlx"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/format"
+	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
 type sample struct {
@@ -73,14 +74,14 @@ func (m *Model) sampleAction() tea.Cmd {
 	if m.tut != nil {
 		m.tut.sampled = true
 	}
-	switch s.node.Type {
-	case api.TypeView:
+	switch engine.NoSample(s.node.Type) {
+	case engine.NoSampleView:
 		m.toast = viewNoSample
 		return nil
-	case api.TypeExternal:
+	case engine.NoSampleExternal:
 		m.toast = externalNoSample
 		return nil
-	case api.TypeMView:
+	case engine.NoSampleMView:
 		m.toast = mviewNoSample
 		return nil
 	}
@@ -116,7 +117,7 @@ func (m *Model) onSample(msg sampleMsg) tea.Cmd {
 	case errors.Is(msg.err, bq.ErrNeedsQuery):
 		m.toast = viewNoSample
 		prev := sm.prev
-		// ADR-0010
+		// ADR-0011
 		if prev != nil && prev.g == nil && prev.err == "" {
 			prev = nil
 		}
@@ -213,7 +214,7 @@ func (m *Model) openSelect(path api.ObjectPath, det api.TableDetail) {
 		det.Shard = det.Table.Shard
 	}
 	text, at := sqlx.SelectStar(det)
-	b := m.addBuffer(text, "", "")
+	b := m.addBuffer(text, "")
 	b.draftVersion = -1
 	b.name = m.bufferName(selectName(path))
 	row, col := lineCol(text, at)

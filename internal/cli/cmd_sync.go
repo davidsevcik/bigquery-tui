@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/config"
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
-	"github.com/davidsevcik/bigquery-tui/internal/logging"
-	"github.com/davidsevcik/bigquery-tui/internal/store"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/config"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/logging"
+	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
 type stringList []string

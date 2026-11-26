@@ -9,9 +9,9 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
-	"github.com/davidsevcik/bigquery-tui/internal/favorites"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/favorites"
 )
 
 func TestParamsPromptBindsLikeTheCLI(t *testing.T) {

@@ -14,12 +14,6 @@ import (
 	"strings"
 )
 
-var frontendPackages = map[string]bool{
-	"internal/cli": true,
-	"internal/tui": true,
-	"internal/mcp": true,
-}
-
 const excludedPrefix = "internal/tools/"
 
 type listPackage struct {
@@ -84,7 +78,7 @@ func Load(dir string) (*Model, []string, error) {
 		p := &Package{
 			Path:       lp.ImportPath,
 			Short:      s,
-			Label:      strings.TrimPrefix(s, "internal/"),
+			Label:      label(s),
 			Name:       lp.Name,
 			Group:      classify(s, lp),
 			Files:      len(lp.GoFiles),
@@ -169,10 +163,10 @@ func classify(short string, lp *listPackage) string {
 	switch {
 	case len(lp.GoFiles) == 0 && len(lp.TestGoFiles)+len(lp.XTestGoFiles) > 0:
 		return "test"
-	case strings.HasPrefix(short, "cmd/") || frontendPackages[short]:
-		return "frontend"
-	default:
+	case strings.HasPrefix(short, "pkg/"):
 		return "core"
+	default:
+		return "frontend"
 	}
 }
 
@@ -217,4 +211,13 @@ func goCmd(dir string, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("go %s: %w\n%s", strings.Join(args, " "), err, stderr.String())
 	}
 	return out, nil
+}
+
+func label(short string) string {
+	for _, prefix := range []string{"pkg/", "internal/"} {
+		if s, ok := strings.CutPrefix(short, prefix); ok {
+			return s
+		}
+	}
+	return short
 }

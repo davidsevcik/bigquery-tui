@@ -7,8 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/sqlx"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
 type listFilter struct {
@@ -31,7 +31,7 @@ type listFilter struct {
 func (f *listFilter) active() bool { return strings.TrimSpace(f.in.value()) != "" }
 
 func (f *listFilter) passes(n api.BrowseNode) bool {
-	// ADR-0010
+	// ADR-0011
 	return !f.active() || !f.answered || f.set[openKey(n)]
 }
 
@@ -85,7 +85,7 @@ func (m *Model) filterQuery(f *listFilter) (opts api.FilterOptions, scope string
 			if d, ok := m.mil.at(1); ok {
 				opts.Scope = &api.ObjectPath{Project: d.Path.Project, Dataset: d.Path.Dataset}
 			}
-			// ADR-0010
+			// ADR-0011
 			opts.ExpandShards = m.mil.family != nil
 		}
 		if opts.Scope != nil {
@@ -127,7 +127,7 @@ func (m *Model) onFilter(msg filterMsg) {
 	if msg.seq != f.seq {
 		return
 	}
-	// ADR-0010
+	// ADR-0011
 	if _, scope := m.filterQuery(f); scope != msg.scope {
 		return
 	}
@@ -186,7 +186,7 @@ func matchedFamily(fams []api.FilterMatch, p api.ObjectPath) (api.ObjectPath, bo
 		if fm.Shard != nil {
 			prefix, suffix, ok = fm.Shard.Prefix, fm.Shard.Suffix, true
 		}
-		// ADR-0010
+		// ADR-0011
 		if ok && len(p.Table) > len(prefix)+len(suffix) && strings.HasPrefix(p.Table, prefix) && strings.HasSuffix(p.Table, suffix) && len(prefix)+len(suffix) > bestLen {
 			best, bestLen = fm.Path, len(prefix)+len(suffix)
 		}
@@ -310,7 +310,7 @@ func (m *Model) filterKey(f *listFilter, msg tea.KeyPressMsg, name string) tea.C
 	if f.in.handle(msg) {
 		f.best = true
 		if f == &m.tree.f {
-			// ADR-0010
+			// ADR-0011
 			m.tree.filterOpen = nil
 		}
 		return m.refilter(f)

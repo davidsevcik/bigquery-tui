@@ -146,34 +146,46 @@ func TestLoadThisModule(t *testing.T) {
 			t.Errorf("the generator itself is on the map: %s", p.Short)
 		}
 	}
-	for _, want := range []string{"cmd/bqt", "internal/api", "internal/engine", "internal/tui"} {
+	for _, want := range []string{"cmd/bqt", "pkg/api", "pkg/engine", "internal/tui"} {
 		if byShort[want] == nil {
 			t.Fatalf("package %s missing", want)
 		}
 	}
-	if imps := byShort["internal/api"].Imports; len(imps) != 0 {
-		t.Errorf("internal/api imports %v, want nothing", imps)
+	if imps := byShort["pkg/api"].Imports; len(imps) != 0 {
+		t.Errorf("pkg/api imports %v, want nothing", imps)
 	}
 	if g := byShort["internal/tui"].Group; g != "frontend" {
 		t.Errorf("tui group = %s", g)
 	}
-	if g := byShort["internal/engine"].Group; g != "core" {
+	if g := byShort["pkg/engine"].Group; g != "core" {
 		t.Errorf("engine group = %s", g)
 	}
 	if p := byShort["internal/archtest"]; p == nil || p.Group != "test" {
 		t.Errorf("archtest should be a test-only package: %+v", p)
 	}
-	if !hasEdge(m.Edges, "internal/engine", "internal/runs") {
-		t.Error("edge internal/engine -> internal/runs missing")
+	for _, p := range m.Packages {
+		if p.Group == "test" {
+			continue
+		}
+		want := "frontend"
+		if strings.HasPrefix(p.Short, "pkg/") {
+			want = "core"
+		}
+		if p.Group != want {
+			t.Errorf("%s group = %s, want %s (the path decides)", p.Short, p.Group, want)
+		}
 	}
-	if byShort["internal/engine"].Exported == 0 {
+	if !hasEdge(m.Edges, "pkg/engine", "pkg/runs") {
+		t.Error("edge pkg/engine -> pkg/runs missing")
+	}
+	if byShort["pkg/engine"].Exported == 0 {
 		t.Error("engine has no exported API")
 	}
-	if byShort["cmd/bqt"].Y >= byShort["internal/api"].Y {
-		t.Error("cmd/bqt should be drawn above internal/api")
+	if byShort["cmd/bqt"].Y >= byShort["pkg/api"].Y {
+		t.Error("cmd/bqt should be drawn above pkg/api")
 	}
-	if m.Layout.Hub != "internal/api" {
-		t.Errorf("hub = %s, want internal/api", m.Layout.Hub)
+	if m.Layout.Hub != "pkg/api" {
+		t.Errorf("hub = %s, want pkg/api", m.Layout.Hub)
 	}
 	ext := map[string]bool{}
 	for _, e := range m.External {

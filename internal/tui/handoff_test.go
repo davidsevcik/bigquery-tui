@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 )
 
 func (r *rig) handoffText(id string) string {

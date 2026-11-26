@@ -8,7 +8,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/search"
 )
 
 func fg(c string) lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color(c)) }
@@ -394,7 +395,7 @@ func chips(q api.ParsedQuery, w int, scope string) string {
 	return chipsWith(q, w, scope, `p: d: type: col: label: desc:  -neg  a,b=OR  "quoted"  proj.ds.table`)
 }
 
-const historyHint = `status:done|failed|cancelled  project:  source:tui|cli|mcp  since:7d|2026-10-01  -neg  a,b=OR`
+var historyHint = "status:" + strings.Join(search.HistoryStates, "|") + "  project:  source:" + strings.Join(search.HistorySources, "|") + "  since:7d|2026-10-01  -neg  a,b=OR"
 
 func chipsWith(q api.ParsedQuery, w int, scope, hint string) string {
 	var parts []string

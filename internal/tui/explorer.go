@@ -3,7 +3,7 @@ package tui
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
 )
 
 type selection struct {
@@ -286,7 +286,7 @@ func familyFor(nodes []api.BrowseNode, p api.ObjectPath) int {
 		if n.Kind != api.KindShards || n.Shard == nil || n.Path.Project != p.Project || n.Path.Dataset != p.Dataset {
 			continue
 		}
-		// ADR-0010
+		// ADR-0011
 		if _, ok := n.Shard.Varying(p.Table); ok && len(n.Shard.Prefix)+len(n.Shard.Suffix) > bestLen {
 			best, bestLen = i, len(n.Shard.Prefix)+len(n.Shard.Suffix)
 		}
@@ -459,7 +459,7 @@ func (m *Model) right() tea.Cmd {
 			return nil
 		}
 		if expandable {
-			// ADR-0010
+			// ADR-0011
 			if t.cur+1 < len(t.rows) && t.rows[t.cur+1].depth > t.rows[t.cur].depth {
 				t.cur++
 			}

@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq"
-	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
-	"github.com/davidsevcik/bigquery-tui/internal/selection"
-	"github.com/davidsevcik/bigquery-tui/internal/store"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/selection"
+	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
 type sandbox struct {

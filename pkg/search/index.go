@@ -1,0 +1,209 @@
+package search
+
+import (
+	"context"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/store"
+)
+
+type projEntry struct {
+	name, lname string
+	datasets    []int
+}
+
+type dsEntry struct {
+	id          int64
+	proj        int
+	name, lname string
+	location    string
+	desc, ldesc string
+	friendly    string
+	labels      map[string]string
+	status      api.DatasetStatus
+	tables      []int
+}
+
+type tableEntry struct {
+	id          int64
+	ds          int
+	name, lname string
+	typ         api.TableType
+	desc, ldesc string
+	labels      []string
+	namesOnly   bool
+	shard       *api.ShardFamily
+	created     time.Time
+	ownSchema   bool
+}
+
+type Index struct {
+	projects   []projEntry
+	datasets   []dsEntry
+	tables     []tableEntry
+	units      map[api.UnitRef]api.UnitState
+	pending    map[api.UnitRef]int
+	byPath     map[string]int
+	byPathLC   map[string]int
+	byID       map[int64]int
+	families   map[string]int
+	familyRank map[string]int
+}
+
+func (x *Index) Empty() bool { return x == nil || len(x.tables) == 0 }
+
+func (x *Index) Size() (datasets, tables int) { return len(x.datasets), len(x.tables) }
+
+func BuildIndex(snap *store.IndexSnapshot) *Index {
+	x := &Index{units: map[api.UnitRef]api.UnitState{}, pending: map[api.UnitRef]int{}, byPath: map[string]int{}, byPathLC: map[string]int{}, byID: map[int64]int{}, families: map[string]int{}, familyRank: map[string]int{}}
+	pi := map[string]int{}
+	for _, p := range snap.Projects {
+		pi[p] = len(x.projects)
+		x.projects = append(x.projects, projEntry{name: p, lname: strings.ToLower(p)})
+	}
+	di := map[int64]int{}
+	for _, d := range snap.Datasets {
+		p, ok := pi[d.Project]
+		if !ok {
+			continue
+		}
+		di[d.ID] = len(x.datasets)
+		x.projects[p].datasets = append(x.projects[p].datasets, len(x.datasets))
+		x.datasets = append(x.datasets, dsEntry{
+			id: d.ID, proj: p, name: d.Name, lname: strings.ToLower(d.Name), location: d.Location,
+			desc: d.Description, ldesc: strings.ToLower(d.Description), friendly: d.FriendlyName, labels: d.Labels, status: d.Status,
+		})
+		if d.Status == api.DatasetPending {
+			x.pending[api.UnitRef{Project: d.Project, Location: d.Location}]++
+		}
+	}
+	for _, t := range snap.Tables {
+		d, ok := di[t.DatasetID]
+		if !ok {
+			continue
+		}
+		e := tableEntry{
+			id: t.ID, ds: d, name: t.Name, lname: strings.ToLower(t.Name), typ: t.Type,
+			desc: t.Description, ldesc: strings.ToLower(t.Description), namesOnly: t.NamesOnly, shard: t.Shard,
+			created: t.CreatedAt, ownSchema: t.OwnSchema,
+		}
+		for k, v := range t.Labels {
+			e.labels = append(e.labels, strings.ToLower(k+":"+v))
+		}
+		sort.Strings(e.labels)
+		idx := len(x.tables)
+		x.datasets[d].tables = append(x.datasets[d].tables, idx)
+		x.tables = append(x.tables, e)
+		x.byID[t.ID] = idx
+		de := &x.datasets[d]
+		x.byPath[x.projects[de.proj].name+"."+de.name+"."+e.name] = idx
+		lc := x.projects[de.proj].lname + "." + de.lname + "." + e.lname
+		if _, dup := x.byPathLC[lc]; dup {
+			x.byPathLC[lc] = -1
+		} else {
+			x.byPathLC[lc] = idx
+		}
+		if f := e.shard; f != nil && f.Newest == e.name {
+			dp := x.projects[de.proj].name + "." + de.name + "."
+			x.setFamily(dp+f.Name, idx, true)
+			x.setFamily(dp+f.Wildcard(), idx, f.Suffix == "")
+		}
+	}
+	for _, u := range snap.Units {
+		x.units[u.UnitRef] = u
+	}
+	return x
+}
+
+func (x *Index) setFamily(path string, idx int, own bool) {
+	// ADR-0007
+	rank := 0
+	if own {
+		rank += 2
+	}
+	if x.tables[idx].typ == api.TypeTable {
+		rank++
+	}
+	if cur, taken := x.familyRank[path]; taken && cur >= rank {
+		return
+	}
+	x.families[path], x.familyRank[path] = idx, rank
+}
+
+func (x *Index) resolve(path string) (int, bool) {
+	if i, ok := x.byPath[path]; ok {
+		return i, true
+	}
+	if i, ok := x.byPathLC[strings.ToLower(path)]; ok && i >= 0 {
+		return i, true
+	}
+	return 0, false
+}
+
+func (x *Index) tablePath(i int) api.ObjectPath {
+	t := &x.tables[i]
+	d := &x.datasets[t.ds]
+	return api.ObjectPath{Project: x.projects[d.proj].name, Dataset: d.name, Table: t.name}
+}
+
+type colBlob struct {
+	text   string
+	starts []int32
+	table  []int32
+}
+
+func buildColBlob(ctx context.Context, x *Index, src ColumnSource) (*colBlob, error) {
+	var b strings.Builder
+	cb := &colBlob{}
+	err := src.EachColumn(ctx, func(tableID int64, pathLC, descLC string) {
+		ti, ok := x.byID[tableID]
+		if !ok {
+			return
+		}
+		cb.starts = append(cb.starts, int32(b.Len()))
+		cb.table = append(cb.table, int32(ti))
+		b.WriteString(pathLC)
+		b.WriteByte(0)
+		b.WriteString(strings.ReplaceAll(descLC, "\n", " "))
+		b.WriteByte('\n')
+	})
+	if err != nil {
+		return nil, err
+	}
+	cb.text = b.String()
+	return cb, nil
+}
+
+func (cb *colBlob) match(ctx context.Context, values []string) map[int]int {
+	out := map[int]int{}
+	hit := map[int32]bool{}
+	for _, v := range values {
+		if v == "" || strings.ContainsAny(v, "\x00\n") {
+			continue
+		}
+		pos := 0
+		for n := 0; pos < len(cb.text); n++ {
+			if n%4096 == 0 && ctx.Err() != nil {
+				return out
+			}
+			i := strings.Index(cb.text[pos:], v)
+			if i < 0 {
+				break
+			}
+			off := int32(pos + i)
+			r := sort.Search(len(cb.starts), func(k int) bool { return cb.starts[k] > off }) - 1
+			if !hit[int32(r)] {
+				hit[int32(r)] = true
+				out[int(cb.table[r])]++
+			}
+			if r+1 >= len(cb.starts) {
+				break
+			}
+			pos = int(cb.starts[r+1])
+		}
+	}
+	return out
+}

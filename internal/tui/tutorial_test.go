@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 )
 
 func tutorialRig(t *testing.T, w, h int) *rig {

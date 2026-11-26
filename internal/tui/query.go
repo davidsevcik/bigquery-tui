@@ -13,13 +13,13 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/config"
-	"github.com/davidsevcik/bigquery-tui/internal/export"
-	"github.com/davidsevcik/bigquery-tui/internal/favorites"
-	"github.com/davidsevcik/bigquery-tui/internal/format"
-	"github.com/davidsevcik/bigquery-tui/internal/runs"
-	"github.com/davidsevcik/bigquery-tui/internal/sqlx"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/config"
+	"github.com/davidsevcik/bigquery-tui/pkg/export"
+	"github.com/davidsevcik/bigquery-tui/pkg/favorites"
+	"github.com/davidsevcik/bigquery-tui/pkg/format"
+	"github.com/davidsevcik/bigquery-tui/pkg/runs"
+	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
 type completion struct {
@@ -82,8 +82,6 @@ type (
 )
 
 var inferParamFn = sqlx.InferParam
-
-const exportAskRows = 1_000_000
 
 func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	b := m.buf()
@@ -193,30 +191,13 @@ func (m *Model) acceptCompletion() tea.Cmd {
 	}
 	c := m.comp.cands[m.comp.sel]
 	ed := m.buf().ed
-	text := ed.text()
-	ins := c.Insert
-	after := ""
-	if c.End < len(text) {
-		after = text[c.End:]
-	}
-	again := false
-	switch c.Kind {
-	case api.CandProject, api.CandDataset:
-		if !strings.HasPrefix(after, ".") {
-			ins += "."
-		}
-		again = true
-	case api.CandTable:
-		if strings.Count(text[:c.Start], "`")%2 == 1 && !strings.HasPrefix(after, "`") && !strings.HasPrefix(ins, "`") {
-			ins += "`"
-		}
-	}
-	ed.replaceBytes(c.Start, c.End, ins)
-	if again && strings.HasPrefix(after, ".") {
+	a := sqlx.Accept(ed.text(), c)
+	ed.replaceBytes(c.Start, c.End, a.Insert)
+	if a.StepOver {
 		ed.col++
 	}
 	m.comp.open = false
-	if again {
+	if a.Again {
 		m.updateCompletion(false)
 	}
 	if m.o.NoBackground {
@@ -257,13 +238,13 @@ func (m *Model) editorAction(act string) tea.Cmd {
 	case "runs":
 		m.ov, m.ovSel, m.ovOff = ovRuns, 0, 0
 	case "newbuf":
-		m.addBuffer("", "", "")
+		m.addBuffer("", "")
 		m.toast = fmt.Sprintf("new buffer (%d open)", len(m.bufs))
 	case "buflist":
 		m.scanOrphans()
 		m.ov, m.ovSel, m.ovOff = ovBuffers, m.cur, 0
 	case "closebuf":
-		if b.modified() || (b.path == "" && !b.ed.empty()) {
+		if b.state().Unsaved() {
 			what := "discard this buffer? Its text is not saved to a file."
 			if b.path != "" {
 				what = "close " + b.title() + " without saving the changes?"
@@ -404,7 +385,7 @@ func (m *Model) onRun(msg runMsg) tea.Cmd {
 			if info.DryRunOnly || b.viewID == 0 {
 				b.viewID = info.ID
 			}
-			if mk, ok := m.runs.ErrorMark(info.ID); ok && b.runID == info.ID && b.ed.version == mk.TextVersion {
+			if mk, ok := m.runs.MarkIn(info.ID, b.runID, b.ed.version); ok {
 				b.ed.moveTo(mk.Line, mk.Col)
 				b.ed.errLine, b.ed.errCol = mk.Line, mk.Col
 			}
@@ -603,10 +584,6 @@ func (m *Model) promptSubmit() tea.Cmd {
 			p.note = sErr.Render(err.Error())
 			return nil
 		}
-		if b.lock != nil {
-			b.lock.Unlock()
-			b.lock = nil
-		}
 		m.removeDraft(b)
 		m.ov = ovNone
 		m.toast = "saved " + path
@@ -636,7 +613,7 @@ func (m *Model) promptSubmit() tea.Cmd {
 		if path == "" {
 			return nil
 		}
-		if g.total > exportAskRows && !p.armed {
+		if g.total > export.AskAboveRows && !p.armed {
 			p.armed = true
 			p.note = sWarn.Render(fmt.Sprintf("%s rows: press enter again to export them all", format.Count(g.total)))
 			return nil
@@ -869,13 +846,10 @@ func (m *Model) cancelFocused() bool {
 func (m *Model) requestCancel(id int64) {
 	m.runs.Cancel(id)
 	m.toast = fmt.Sprintf("cancel requested for run #%d", id)
-	if r, ok := m.runs.Info(id); !ok || mayBeBilled(r) {
+	if r, ok := m.runs.Info(id); !ok || runs.MayBeBilled(r) {
 		m.toast += " (it may still be billed)"
 	}
 }
-
-// ADR-0010
-func mayBeBilled(r api.RunInfo) bool { return r.Estimate == nil || !r.Estimate.Capacity }
 
 func (m *Model) externalEditor() tea.Cmd {
 	b := m.buf()
@@ -1000,7 +974,7 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 		return m.findNext(-1)
 	case "copy":
 		if cells := g.cells(g.row); cells != nil && g.col < len(cells) {
-			// ADR-0010
+			// ADR-0011
 			col := g.col
 			return m.copyRow(g, func(cols []api.PreviewColumn, full []api.Cell) (string, string) {
 				if col >= len(full) || full[col].Null {
@@ -1037,7 +1011,11 @@ func (m *Model) resultsAction(act string) tea.Cmd {
 		m.toast = fmt.Sprintf("copied %d rows as TSV", len(rows))
 		return tea.SetClipboard(export.TSV(g.cols, rows))
 	case "export":
+		origin := export.FromRun
 		if m.sampleShown() {
+			origin = export.FromSample
+		}
+		if !export.Exportable(origin) {
 			m.toast = "a Sample cannot be exported: s writes a SELECT whose result can be (billed)"
 			return nil
 		}

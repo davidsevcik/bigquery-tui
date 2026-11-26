@@ -9,15 +9,17 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
-	"github.com/davidsevcik/bigquery-tui/internal/favorites"
-	"github.com/davidsevcik/bigquery-tui/internal/policy"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/favorites"
+	"github.com/davidsevcik/bigquery-tui/pkg/policy"
+	"github.com/davidsevcik/bigquery-tui/pkg/search"
 )
 
 const (
@@ -86,7 +88,7 @@ func (s *Server) engine(ctx context.Context) *engine.Engine {
 			fresh.Close()
 			return s.eng
 		}
-		// ADR-0009
+		// ADR-0010
 		s.old = append(s.old, s.eng)
 		s.eng = fresh
 		s.watch(fresh)
@@ -155,7 +157,7 @@ func (s *Server) MCP(version string) *sdk.Server {
 			out, err := s.engine(ctx).FavoriteList(in.Query, listLimit(in.Limit), off, in.IncludeSQL)
 			return nil, out, toolErr(err)
 		})
-	sdk.AddTool(srv, &sdk.Tool{Name: "search_history", Annotations: ro, Description: `Queries run before (newest first, identical SQL grouped). Free terms match the SQL; filters status:done|failed|cancelled, source:tui|cli|mcp, project:, since:7d or since:2026-10-01. A done entry carries a result_id for get_results while BigQuery keeps it.`},
+	sdk.AddTool(srv, &sdk.Tool{Name: "search_history", Annotations: ro, Description: historyToolDescription},
 		func(ctx context.Context, _ *sdk.CallToolRequest, in historyIn) (*sdk.CallToolResult, api.HistoryList, error) {
 			off, err := cursor(in.Cursor)
 			if err != nil {
@@ -258,3 +260,7 @@ func toolErr(err error) error {
 	}
 	return err
 }
+
+var historyToolDescription = "Queries run before (newest first, identical SQL grouped). Free terms match the SQL; filters status:" +
+	strings.Join(search.HistoryStates, "|") + ", source:" + strings.Join(search.HistorySources, "|") +
+	", project:, since:7d or since:2026-10-01. A done entry carries a result_id for get_results while BigQuery keeps it."

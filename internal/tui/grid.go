@@ -9,9 +9,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/format"
-	"github.com/davidsevcik/bigquery-tui/internal/runs"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/format"
+	"github.com/davidsevcik/bigquery-tui/pkg/runs"
 )
 
 const (
@@ -209,7 +209,7 @@ func (g *grid) need(h int) []int64 {
 	if g.total == 0 {
 		return nil
 	}
-	// ADR-0010
+	// ADR-0011
 	g.scroll(h)
 	last := min(g.top+int64(max(h, 1))-1, g.total-1)
 	for _, p := range []int64{pageOf(g.top), pageOf(last), pageOf(g.row)} {

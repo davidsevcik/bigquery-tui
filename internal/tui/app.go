@@ -15,9 +15,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/config"
-	"github.com/davidsevcik/bigquery-tui/internal/runs"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/config"
+	"github.com/davidsevcik/bigquery-tui/pkg/runs"
 )
 
 type explorerStyle int
@@ -180,7 +180,7 @@ func New(be Backend, o Options) *Model {
 		}
 	}
 	if len(m.bufs) == 0 {
-		m.addBuffer("", "", "")
+		m.addBuffer("", "")
 	}
 	m.scanOrphans()
 	if n := len(m.orphans); n > 0 && m.toast == "" {
@@ -188,7 +188,7 @@ func New(be Backend, o Options) *Model {
 	}
 	if m.firstRun && m.toast == "" && !o.NoBackground && !m.autoProjs {
 		m.toast = "new to bqt? ctrl+g starts a short tutorial of the navigation"
-		// ADR-0010
+		// ADR-0011
 		m.saveState()
 	}
 	return m
@@ -657,7 +657,7 @@ func (m *Model) onConfig(ev config.Event) tea.Cmd {
 		return nil
 	}
 	m.cfgErr = ""
-	// ADR-0010
+	// ADR-0011
 	relearn := m.be.Config().Location != ev.Config.Location
 	m.be.SetConfig(ev.Config)
 	if len(ev.RestartRequired) > 0 {

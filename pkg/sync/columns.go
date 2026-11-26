@@ -1,0 +1,141 @@
+package sync
+
+import (
+	"context"
+	"fmt"
+	"sort"
+
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq"
+	"github.com/davidsevcik/bigquery-tui/pkg/store"
+)
+
+func (s *Syncer) ownSchemaMarks(ctx context.Context, u api.UnitRef) map[string]bool {
+	marks, err := s.o.Catalog.OwnSchemaTables(ctx, u)
+	if err != nil {
+		s.o.Log.Warn("read own-schema marks", "project", u.Project, "location", u.Location, "err", err)
+		return nil
+	}
+	return marks
+}
+
+func (s *Syncer) readColumns(ctx context.Context, project string, applies []store.DatasetApply, op string, r *run, fetch func(bq.ColumnFilter) ([]bq.TableColumns, error)) error {
+	pats := s.o.Config.Shards()
+	f := bq.ColumnFilter{Pattern: pats.Combined()}
+	type at struct{ a, t int }
+	want := map[string]at{}
+	for ai := range applies {
+		ts := applies[ai].Tables
+		for ti := range ts {
+			t := &ts[ti]
+			key := t.Dataset + "." + t.Name
+			t.SharedSchema = false
+			switch {
+			case t.Shard == nil:
+				want[key] = at{ai, ti}
+				if f.Pattern != "" && pats.MatchesAny(t.Name) {
+					f.Keep = append(f.Keep, key)
+				}
+			case t.Shard.Newest == t.Name || t.OwnSchema:
+				want[key] = at{ai, ti}
+				f.Keep = append(f.Keep, key)
+			default:
+				t.SharedSchema = true
+			}
+		}
+	}
+	if f.Pattern == "" {
+		f.Keep = nil
+	}
+	sort.Strings(f.Keep)
+	attach := func(cols []bq.TableColumns) int {
+		n := 0
+		for _, tc := range cols {
+			w, ok := want[tc.Dataset+"."+tc.Table]
+			if !ok {
+				continue
+			}
+			t := &applies[w.a].Tables[w.t]
+			// ADR-0006
+			if len(t.Columns) == 0 && len(tc.Columns) > 0 {
+				n++
+			}
+			t.Columns = append(t.Columns, tc.Columns...)
+		}
+		return n
+	}
+	cols, err := retry(ctx, s, op, func() ([]bq.TableColumns, error) { return fetch(f) })
+	if err != nil {
+		return err
+	}
+	attach(cols)
+	if f.Pattern == "" {
+		return nil
+	}
+	var missing []string
+	for key, w := range want {
+		if len(applies[w.a].Tables[w.t].Columns) == 0 {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	sort.Strings(missing)
+	again, err := retry(ctx, s, op+" by name", func() ([]bq.TableColumns, error) {
+		return fetch(bq.ColumnFilter{Only: missing})
+	})
+	if err != nil {
+		return err
+	}
+	if n := attach(again); n > 0 {
+		var found []string
+		for _, key := range missing {
+			w := want[key]
+			if len(applies[w.a].Tables[w.t].Columns) > 0 {
+				found = append(found, key)
+			}
+		}
+		msg := fmt.Sprintf("%d table(s) got no columns from the filtered column query and were read again by name: BigQuery's regex dialect may read shard_patterns differently from bqt's (%s)", n, sample(found))
+		s.o.Log.Warn("shard pattern dialect", "project", project, "tables", n, "op", op)
+		r.warn(project, msg)
+	}
+	return nil
+}
+
+func (s *Syncer) syncTable(ctx context.Context, p api.ObjectPath, family bool, r *run) error {
+	stored, err := s.o.Catalog.StoredTable(ctx, p)
+	if err != nil {
+		return err
+	}
+	if s.o.Config.Matcher().Ignored(p.Project, p.Dataset, p.Table) {
+		return fmt.Errorf("%s is excluded by the ignore patterns", p)
+	}
+	ref := api.UnitRef{Project: p.Project, Location: stored.Location}
+	r.mu.Lock()
+	r.total = 1
+	r.mu.Unlock()
+	r.event(api.SyncEvent{Kind: api.EventUnitStarted, Project: ref.Project, Location: ref.Location, Datasets: 1, Message: p.String()})
+	r.startUnit(ref, "table", p.String())
+	now := s.o.Now()
+	st := api.UnitState{UnitRef: ref, Status: api.UnitOK, LastAttempt: &now, Datasets: 1, Tables: 1}
+	t, err := retry(ctx, s, "get table "+p.String(), func() (api.TableMeta, error) {
+		return s.o.Meta.GetTableMeta(ctx, p.Project, p.Dataset, p.Table)
+	})
+	if err == nil {
+		t.Dataset, t.Name = p.Dataset, p.Table
+		own := stored.Table.Shard != nil && (!family || stored.Table.OwnSchema)
+		err = s.o.Catalog.ApplyTable(ctx, p.Project, t, own)
+	}
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil //nolint:nilerr // a cancelled run reports Cancelled, not an error
+		}
+		st.Status, st.Error = api.UnitInaccessible, errText(err)
+		r.finishUnit(st, api.EventUnitFailed)
+		return nil
+	}
+	st.LastSuccess = &now
+	r.finishUnit(st, api.EventUnitDone)
+	return nil
+}

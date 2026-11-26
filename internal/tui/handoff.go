@@ -5,24 +5,25 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
-	"github.com/davidsevcik/bigquery-tui/internal/handoff"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/handoff"
 )
-
-const handoffDir = ".bqt-handoff"
 
 type handoffItem struct {
 	id    string
 	label string
-	file  string
+	path  string
 	make  func(ctx context.Context) (string, error)
+}
+
+var handoffActions = map[handoff.Kind]string{
+	handoff.KindSchemaMarkdown: "hoschemamd", handoff.KindSchemaJSON: "hoschemajson", handoff.KindQueryError: "hoerror",
+	handoff.KindRowsMarkdown: "hosamplemd", handoff.KindRowsTSV: "hosampletsv", handoff.KindRowsNDJSON: "hosamplendjson",
+	handoff.KindRun: "horun",
 }
 
 type handoffMsg struct {
@@ -46,57 +47,21 @@ func (m *Model) focusedRun() (api.RunInfo, bool) {
 	return api.RunInfo{}, false
 }
 
-var unsafeFile = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
-
 func (m *Model) handoffItems() []handoffItem {
-	var items []handoffItem
-	if s := m.sel(); (s.kind == api.KindTable || s.kind == api.KindShards) && s.path.Table != "" {
+	var sit handoff.Situation
+	if s := m.sel(); s.kind == api.KindTable || s.kind == api.KindShards {
 		p := s.path
-		base := unsafeFile.ReplaceAllString(p.String(), "_")
-		schema := func(ctx context.Context) (api.TableSchema, error) {
-			d, err := m.be.TableDetail(ctx, p)
-			if err != nil {
-				return api.TableSchema{}, err
-			}
-			return engine.SchemaOf(d), nil
-		}
-		items = append(items,
-			handoffItem{"hoschemamd", "Schema of " + p.String() + " (markdown)", base + ".md", func(ctx context.Context) (string, error) {
-				s, err := schema(ctx)
-				return handoff.SchemaMarkdown(s), err
-			}},
-			handoffItem{"hoschemajson", "Schema of " + p.String() + " (JSON, as bqt schema)", base + ".json", func(ctx context.Context) (string, error) {
-				s, err := schema(ctx)
-				return handoff.SchemaJSON(s), err
-			}})
+		sit.Table = &p
 	}
-	r, ok := m.focusedRun()
-	if !ok {
-		return items
+	if r, ok := m.focusedRun(); ok {
+		sit.Run = &r
 	}
-	if r.Error != nil {
-		info := r
-		items = append(items, handoffItem{"hoerror", fmt.Sprintf("Query and error of run #%d", r.ID), "query-error.md", func(context.Context) (string, error) {
-			return handoff.QueryError(info.SQL, *info.Error, info.ExecutionProject, info.Location), nil
+	var items []handoffItem
+	for _, it := range handoff.Items(sit) {
+		items = append(items, handoffItem{handoffActions[it.Kind], it.Label, it.DefaultPath(), func(ctx context.Context) (string, error) {
+			return m.be.Handoff(ctx, it)
 		}})
 	}
-	if r.HasResult {
-		for _, f := range []struct {
-			id  string
-			f   handoff.SampleFormat
-			ext string
-		}{{"hosamplemd", handoff.Markdown, "md"}, {"hosampletsv", handoff.TSV, "tsv"}, {"hosamplendjson", handoff.NDJSON, "ndjson"}} {
-			id, sf := r.ID, f.f
-			items = append(items, handoffItem{
-				f.id, fmt.Sprintf("First %d rows of run #%d (%s)", handoff.SampleRows, r.ID, f.ext), fmt.Sprintf("sample-%d.%s", r.ID, f.ext),
-				func(ctx context.Context) (string, error) { return m.be.RunSample(ctx, id, sf) },
-			})
-		}
-	}
-	info := r
-	items = append(items, handoffItem{"horun", fmt.Sprintf("Run #%d: SQL, estimate, state, outcome", r.ID), fmt.Sprintf("run-%d.md", r.ID), func(context.Context) (string, error) {
-		return handoff.Run(info), nil
-	}})
 	return items
 }
 
@@ -111,12 +76,18 @@ func (m *Model) handoffDirect(id string) tea.Cmd {
 			return m.handoffCopy(it)
 		}
 	}
-	switch id {
-	case "hoschemamd", "hoschemajson":
+	kind := handoff.KindRun
+	for k, a := range handoffActions {
+		if a == id {
+			kind = k
+		}
+	}
+	switch handoff.Missing(kind) {
+	case handoff.NeedTable:
 		m.toast = "select a table in the explorer first"
-	case "hoerror":
+	case handoff.NeedRunError:
 		m.toast = "the focused run has no error"
-	case "hosamplemd", "hosampletsv", "hosamplendjson":
+	case handoff.NeedRunRows:
 		m.toast = "the focused run has no result rows"
 	default:
 		m.toast = "no run yet"
@@ -145,23 +116,9 @@ func (m *Model) handoffWrite(it handoffItem, path string, overwrite bool) tea.Cm
 }
 
 func writeHandoff(path, text string, overwrite bool) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
-	if overwrite {
-		flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	}
-	f, err := os.OpenFile(path, flags, 0o644)
+	err := handoff.Write(path, text, overwrite)
 	if errors.Is(err, os.ErrExist) {
 		return fmt.Errorf("%s was created meanwhile; write again to overwrite it", path)
-	}
-	if err != nil {
-		return err
-	}
-	_, err = f.WriteString(text)
-	if cerr := f.Close(); err == nil {
-		err = cerr
 	}
 	return err
 }
@@ -220,7 +177,7 @@ func (handoffPopup) act(m *Model, act string) (tea.Cmd, bool) {
 		m.openPrompt(promptState{
 			kind: "handoff", title: "Write " + it.label, labels: []string{"file"},
 			note: "enter writes · esc cancels", hoItem: it,
-		}, filepath.Join(".", handoffDir, it.file))
+		}, it.path)
 		return nil, true
 	}
 	m.ov = ovNone

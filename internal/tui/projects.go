@@ -9,11 +9,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/config"
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
-	"github.com/davidsevcik/bigquery-tui/internal/format"
-	"github.com/davidsevcik/bigquery-tui/internal/search"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/config"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/format"
+	"github.com/davidsevcik/bigquery-tui/pkg/search"
 )
 
 type projDialog struct {
@@ -449,7 +449,7 @@ func (m *Model) afterSelectionChange(execBefore string) tea.Cmd {
 	m.selSeen = selectionKey(m.be)
 	m.reloadBrowse()
 	cmds := []tea.Cmd{m.rerunSearches(), m.statusCmd()}
-	// ADR-0010
+	// ADR-0011
 	if exec, _ := m.be.ExecutionProject(); exec != execBefore && !m.o.NoBackground {
 		cmds = append(cmds, m.learnPricing())
 	}
@@ -464,7 +464,7 @@ func (m *Model) closeProjects() tea.Cmd {
 	}
 	if pd.auto && m.toast == "" {
 		m.toast = "new to bqt? ctrl+g starts a short tutorial of the navigation"
-		// ADR-0010
+		// ADR-0011
 		m.saveState()
 	}
 	var ids []string
@@ -531,7 +531,7 @@ func (m *Model) afterSync() tea.Cmd {
 		m.forceAll, m.forceLater = false, nil
 		if all {
 			sel := m.be.Selection()
-			// ADR-0010
+			// ADR-0011
 			var extra []string
 			for _, id := range ids {
 				if !sel.Has(id) {

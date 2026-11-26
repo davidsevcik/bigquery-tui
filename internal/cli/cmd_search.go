@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
 )
 
 func cmdSearch(ctx context.Context, o *out, g *globals, args []string) error {

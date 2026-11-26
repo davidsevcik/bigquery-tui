@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/config"
-	"github.com/davidsevcik/bigquery-tui/internal/engine"
-	"github.com/davidsevcik/bigquery-tui/internal/favorites"
-	"github.com/davidsevcik/bigquery-tui/internal/format"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/config"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
+	"github.com/davidsevcik/bigquery-tui/pkg/favorites"
+	"github.com/davidsevcik/bigquery-tui/pkg/format"
 )
 
 type limits struct {
@@ -49,7 +49,7 @@ func openAgent(ctx context.Context, o *out, g *globals) (*engine.Engine, func(),
 	if err != nil {
 		return nil, nil, err
 	}
-	eng, err := engine.Open(ctx, engine.Options{Config: cfg, ReadOnly: true, Now: env.Now, Log: log.Logger, Source: "cli", Jobs: env.Jobs})
+	eng, err := engine.Open(ctx, engine.Options{Config: cfg, ReadOnly: true, Now: env.Now, Log: log.Logger, Source: api.SourceCLI, Jobs: env.Jobs})
 	if err != nil {
 		closeLog()
 		return nil, nil, err

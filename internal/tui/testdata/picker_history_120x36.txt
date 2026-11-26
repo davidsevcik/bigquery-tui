@@ -2,7 +2,7 @@
 ac╭─ Favorites and History ──────────────────────────────────────────────────────────────────────────────────────────╮
 ac│  Favorites 0   History 2   tab switches                                                                          │
   │ ▸  search history: words of the SQL, status: project: source: since:7d                                           │
-  │ status:done|failed|cancelled  project:  source:tui|cli|mcp  since:7d|2026-10-01  -neg  a,b=OR                    │
+  │ status:done|failed|cancelled  project:  source:tui|gui|cli|mcp  since:7d|2026-10-01  -neg  a,b=OR                │
   │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
   │ ✓ now  select n from orders where d = @d       ×2 │ state      done   (latest of 2 runs)                         │
   │ ✗ now  select broken                              │ ran        2026-10-01 12:00 · 0s                             │

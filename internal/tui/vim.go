@@ -1383,7 +1383,7 @@ func (m *Model) vimRepeat(b *buffer) tea.Cmd {
 		}
 		v.key(b.ed, keyName(k), max(2, m.editorRows()))
 	}
-	// ADR-0010
+	// ADR-0011
 	if v.mode == vimInsert {
 		m.vimLeaveInsert(b)
 	}

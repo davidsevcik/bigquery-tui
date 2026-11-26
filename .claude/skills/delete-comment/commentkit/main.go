@@ -89,7 +89,12 @@ func goFiles(paths []string) []string {
 		die(fmt.Errorf("git ls-files: %w", err))
 	}
 	var files []string
+	seen := map[string]bool{}
 	for _, f := range strings.Fields(string(out)) {
+		if seen[f] {
+			continue
+		}
+		seen[f] = true
 		if strings.HasSuffix(f, ".go") && !strings.Contains("/"+f, "/testdata/") {
 			if _, err := os.Stat(f); err == nil {
 				files = append(files, f)

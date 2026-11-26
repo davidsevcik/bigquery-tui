@@ -114,10 +114,12 @@ func scanRepo(t *testing.T) []scannedFile {
 		t.Fatalf("git ls-files: %v", err)
 	}
 	var files []scannedFile
+	seen := map[string]bool{}
 	for _, rel := range strings.Split(string(out), "\x00") {
-		if rel == "" || isTestdata(rel) {
+		if rel == "" || isTestdata(rel) || seen[rel] {
 			continue
 		}
+		seen[rel] = true
 		src, err := os.ReadFile(filepath.Join("../..", rel))
 		if errors.Is(err, fs.ErrNotExist) {
 			continue

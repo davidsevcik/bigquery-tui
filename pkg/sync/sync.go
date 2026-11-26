@@ -1,0 +1,738 @@
+// Package sync keeps the local catalog in line with BigQuery (spec section 7).
+//
+// The unit of work is a (project, location) pair. Each unit is fetched with
+// region-qualified INFORMATION_SCHEMA views and applied to the catalog in one
+// transaction. When the region views are not accessible the unit degrades
+// through a ladder: per-dataset views, then table names only, then "keep the
+// old data and mark the dataset inaccessible".
+package sync
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"sort"
+	"strings"
+	gosync "sync"
+	"time"
+
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq"
+	"github.com/davidsevcik/bigquery-tui/pkg/config"
+	"github.com/davidsevcik/bigquery-tui/pkg/shard"
+	"github.com/davidsevcik/bigquery-tui/pkg/store"
+)
+
+var ErrNoProjects = errors.New("no projects selected: pick them in the Projects dialog (ctrl+x p) or with `bqt projects select`")
+
+type Options struct {
+	Config      *config.Config
+	Selected    []string
+	Meta        bq.Metadata
+	Catalog     *store.Catalog
+	Now         func() time.Time
+	Parallelism int
+	Retries     int
+	Backoff     func(attempt int) time.Duration
+	Log         *slog.Logger
+}
+
+type Syncer struct {
+	o Options
+}
+
+func New(o Options) *Syncer {
+	if o.Now == nil {
+		o.Now = time.Now
+	}
+	if o.Parallelism <= 0 {
+		o.Parallelism = 4
+	}
+	if o.Retries < 0 {
+		o.Retries = 0
+	} else if o.Retries == 0 {
+		o.Retries = 2
+	}
+	if o.Backoff == nil {
+		o.Backoff = func(attempt int) time.Duration {
+			if attempt <= 1 {
+				return time.Second
+			}
+			return 3 * time.Second
+		}
+	}
+	if o.Log == nil {
+		o.Log = slog.New(slog.NewTextHandler(discard{}, nil))
+	}
+	return &Syncer{o: o}
+}
+
+type discard struct{}
+
+func (discard) Write(p []byte) (int, error) { return len(p), nil }
+
+type unitJob struct {
+	ref      api.UnitRef
+	datasets []api.DatasetMeta
+}
+
+type discovery struct {
+	project     string
+	units       []unitJob
+	state       *api.UnitState
+	failed      bool
+	unreachable []string
+}
+
+type run struct {
+	s           *Syncer
+	emit        func(api.SyncEvent)
+	mu          gosync.Mutex
+	done        int
+	total       int
+	states      []api.UnitState
+	failed      map[api.UnitRef]bool
+	warns       []string
+	clientWarns map[string]bool
+	started     map[api.UnitRef]time.Time
+}
+
+func (r *run) event(e api.SyncEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e.Time = r.s.o.Now()
+	e.UnitsDone, e.UnitsTotal = r.done, r.total
+	if r.emit != nil {
+		r.emit(e)
+	}
+}
+
+func (r *run) finishUnit(st api.UnitState, kind api.SyncEventKind) {
+	r.logUnit(st, kind)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.done++
+	r.states = append(r.states, st)
+	if kind == api.EventUnitFailed {
+		if r.failed == nil {
+			r.failed = map[api.UnitRef]bool{}
+		}
+		r.failed[st.UnitRef] = true
+	}
+	if r.emit != nil {
+		r.emit(api.SyncEvent{
+			Kind: kind, Time: r.s.o.Now(), Project: st.Project, Location: st.Location,
+			Status: st.Status, Datasets: st.Datasets, Tables: st.Tables, Error: st.Error,
+			UnitsDone: r.done, UnitsTotal: r.total,
+		})
+	}
+}
+
+func (r *run) startUnit(ref api.UnitRef, what ...any) {
+	r.mu.Lock()
+	if r.started == nil {
+		r.started = map[api.UnitRef]time.Time{}
+	}
+	r.started[ref] = r.s.o.Now()
+	r.mu.Unlock()
+	r.s.o.Log.Info("sync unit started", append([]any{"project", ref.Project, "location", ref.Location}, what...)...)
+}
+
+func (r *run) logUnit(st api.UnitState, kind api.SyncEventKind) {
+	args := []any{"project", st.Project}
+	if st.Location == "" {
+		r.s.o.Log.Warn("sync discovery failed", append(args, "status", st.Status, "err", st.Error)...)
+		return
+	}
+	args = append(args, "location", st.Location, "status", st.Status,
+		"datasets", st.Datasets, "tables", st.Tables, "names_only", st.NamesOnly, "inaccessible", st.Inaccessible)
+	r.mu.Lock()
+	start, ok := r.started[st.UnitRef]
+	delete(r.started, st.UnitRef)
+	r.mu.Unlock()
+	if ok {
+		args = append(args, "took", r.s.o.Now().Sub(start).Round(time.Millisecond))
+	}
+	if st.Error != "" {
+		args = append(args, "err", st.Error)
+	}
+	if kind == api.EventUnitFailed {
+		r.s.o.Log.Warn("sync unit failed", args...)
+		return
+	}
+	r.s.o.Log.Info("sync unit done", args...)
+}
+
+func (r *run) logUnfinished() {
+	r.mu.Lock()
+	refs := make([]api.UnitRef, 0, len(r.started))
+	for ref := range r.started {
+		refs = append(refs, ref)
+	}
+	r.mu.Unlock()
+	sort.Slice(refs, func(i, j int) bool {
+		return refs[i].Project+"\x00"+refs[i].Location < refs[j].Project+"\x00"+refs[j].Location
+	})
+	for _, ref := range refs {
+		r.mu.Lock()
+		start := r.started[ref]
+		delete(r.started, ref)
+		r.mu.Unlock()
+		r.s.o.Log.Info("sync unit cancelled", "project", ref.Project, "location", ref.Location,
+			"took", r.s.o.Now().Sub(start).Round(time.Millisecond))
+	}
+}
+
+func (r *run) warn(project, msg string) {
+	line := msg
+	if project != "" {
+		line = project + ": " + msg
+	}
+	r.mu.Lock()
+	r.warns = append(r.warns, line)
+	r.mu.Unlock()
+	r.event(api.SyncEvent{Kind: api.EventWarning, Project: project, Message: msg})
+}
+
+func (r *run) clientWarn(msg string) {
+	r.mu.Lock()
+	seen := r.clientWarns[msg]
+	if r.clientWarns == nil {
+		r.clientWarns = map[string]bool{}
+	}
+	r.clientWarns[msg] = true
+	r.mu.Unlock()
+	if !seen {
+		r.warn("", msg)
+	}
+}
+
+func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.SyncEvent)) (api.SyncResult, error) {
+	res := api.SyncResult{Started: s.o.Now()}
+	var projects []string
+	var full bool
+	if scope.Table == nil {
+		var err error
+		if projects, full, err = s.resolveScope(scope); err != nil {
+			return res, err
+		}
+	}
+	r := &run{s: s, emit: emit}
+	ctx = bq.WithWarnings(ctx, r.clientWarn)
+	msg := fmt.Sprintf("%d project(s)", len(projects))
+	if scope.Table != nil {
+		msg = "table " + scope.Table.String()
+	}
+	r.event(api.SyncEvent{Kind: api.EventRunStarted, Message: msg})
+
+	rec, err := ReconcileConfig(ctx, s.o.Catalog, s.o.Config)
+	if err != nil {
+		return res, fmt.Errorf("reconcile config: %w", err)
+	}
+	if rec.Pruned.Projects+rec.Pruned.Datasets+rec.Pruned.Tables > 0 {
+		r.warn("", fmt.Sprintf("config changed: pruned %d project(s), %d dataset(s), %d table(s) from the catalog", rec.Pruned.Projects, rec.Pruned.Datasets, rec.Pruned.Tables))
+	}
+	if rec.Reason == ReasonDateRuleGone {
+		r.warn("", ReasonDateRuleGone)
+	}
+
+	if scope.Table != nil {
+		if err := s.syncTable(ctx, *scope.Table, scope.Family, r); err != nil {
+			return res, err
+		}
+	} else {
+		s.syncProjects(ctx, projects, r)
+	}
+
+	r.logUnfinished()
+	res.Finished = s.o.Now()
+	res.Cancelled = ctx.Err() != nil
+	res.UnitsTotal = r.total
+	res.Units = r.states
+	sort.Slice(res.Units, func(i, j int) bool {
+		a, b := res.Units[i], res.Units[j]
+		if a.Project != b.Project {
+			return a.Project < b.Project
+		}
+		return a.Location < b.Location
+	})
+	for _, u := range res.Units {
+		switch {
+		case r.failed[u.UnitRef]:
+			res.UnitsFailed++
+		case u.Status == api.UnitOK:
+			res.UnitsOK++
+		default:
+			res.UnitsDegraded++
+		}
+	}
+	res.Warnings = r.warns
+
+	if !res.Cancelled && full {
+		cctx := context.WithoutCancel(ctx)
+		if err := setSyncNeeded(cctx, s.o.Catalog, false, ""); err != nil {
+			return res, err
+		}
+	}
+	r.event(api.SyncEvent{Kind: api.EventRunFinished, Message: fmt.Sprintf("%d ok, %d degraded, %d failed", res.UnitsOK, res.UnitsDegraded, res.UnitsFailed)})
+	return res, nil
+}
+
+func (s *Syncer) syncProjects(ctx context.Context, projects []string, r *run) {
+	disc := make([]discovery, len(projects))
+	s.parallel(ctx, len(projects), func(i int) { disc[i] = s.discover(ctx, projects[i], r) })
+	var jobs []unitJob
+	var failed []api.UnitState
+	for _, d := range disc {
+		jobs = append(jobs, d.units...)
+		if d.failed && d.state != nil {
+			failed = append(failed, *d.state)
+		}
+	}
+	r.mu.Lock()
+	r.total = len(jobs) + len(failed)
+	r.mu.Unlock()
+	refs := make([]api.UnitRef, len(jobs))
+	for i, j := range jobs {
+		refs[i] = j.ref
+	}
+	r.event(api.SyncEvent{Kind: api.EventDiscovered, Message: fmt.Sprintf("%d unit(s)", len(jobs)), Units: refs})
+	for _, st := range failed {
+		r.finishUnit(st, api.EventUnitFailed)
+	}
+	s.parallel(ctx, len(jobs), func(i int) { s.processUnit(ctx, jobs[i], r) })
+}
+
+func (s *Syncer) resolveScope(scope api.SyncScope) (projects []string, full bool, err error) {
+	if len(scope.Projects) == 0 {
+		if len(s.o.Selected) == 0 {
+			return nil, false, ErrNoProjects
+		}
+		return append([]string(nil), s.o.Selected...), true, nil
+	}
+	in := map[string]bool{}
+	for _, p := range scope.Projects {
+		if !in[p] {
+			in[p] = true
+			projects = append(projects, p)
+		}
+	}
+	full = len(s.o.Selected) > 0
+	for _, p := range s.o.Selected {
+		full = full && in[p]
+	}
+	return projects, full, nil
+}
+
+func (s *Syncer) parallel(ctx context.Context, n int, fn func(i int)) {
+	sem := make(chan struct{}, s.o.Parallelism)
+	var wg gosync.WaitGroup
+	for i := 0; i < n; i++ {
+		if ctx.Err() != nil {
+			break
+		}
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if ctx.Err() != nil {
+				return
+			}
+			fn(i)
+		}(i)
+	}
+	wg.Wait()
+}
+
+func (s *Syncer) discover(ctx context.Context, project string, r *run) discovery {
+	d := discovery{project: project}
+	now := s.o.Now()
+	list, err := retry(ctx, s, "list datasets "+project, func() (bq.DatasetList, error) {
+		return s.o.Meta.ListDatasets(ctx, project)
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return d
+		}
+		st := api.UnitState{UnitRef: api.UnitRef{Project: project}, Status: api.UnitInaccessible, Error: errText(err), LastAttempt: &now}
+		if rerr := s.o.Catalog.RecordUnitFailure(ctx, st); rerr != nil {
+			s.o.Log.Error("record discovery failure", "project", project, "err", rerr)
+		}
+		d.failed, d.state = true, &st
+		return d
+	}
+
+	byLoc := map[string][]api.DatasetMeta{}
+	var listed []api.DatasetMeta
+	for _, ds := range list.Datasets {
+		if s.o.Config.Matcher().Ignored(project, ds.Name, "") {
+			continue
+		}
+		byLoc[ds.Location] = append(byLoc[ds.Location], ds)
+		listed = append(listed, ds)
+	}
+	if _, _, err := s.o.Catalog.RecordListing(ctx, project, listed, len(list.Unreachable) == 0); err != nil && ctx.Err() == nil {
+		s.o.Log.Error("record dataset listing", "project", project, "err", err)
+	}
+	locs := make([]string, 0, len(byLoc))
+	for l := range byLoc {
+		locs = append(locs, l)
+	}
+	sort.Strings(locs)
+	for _, l := range locs {
+		ds := byLoc[l]
+		sort.Slice(ds, func(i, j int) bool { return ds[i].Name < ds[j].Name })
+		d.units = append(d.units, unitJob{ref: api.UnitRef{Project: project, Location: l}, datasets: ds})
+	}
+
+	known, err := s.o.Catalog.Locations(ctx, project)
+	if err == nil && len(list.Unreachable) == 0 {
+		for _, l := range known {
+			if _, ok := byLoc[l]; !ok {
+				if err := s.o.Catalog.RemoveUnit(ctx, api.UnitRef{Project: project, Location: l}); err != nil {
+					s.o.Log.Error("remove vanished unit", "project", project, "location", l, "err", err)
+				}
+			}
+		}
+	}
+
+	if len(list.Unreachable) > 0 {
+		msg := fmt.Sprintf("BigQuery could not enumerate: %v", list.Unreachable)
+		r.warn(project, msg)
+		st := api.UnitState{UnitRef: api.UnitRef{Project: project}, Status: api.UnitDegraded, Error: msg, LastAttempt: &now}
+		if rerr := s.o.Catalog.RecordUnitFailure(ctx, st); rerr != nil {
+			s.o.Log.Error("record unreachable", "project", project, "err", rerr)
+		}
+		d.unreachable = list.Unreachable
+	} else if len(d.units) == 0 {
+		if err := s.o.Catalog.RecordEmptyProject(ctx, project, now); err != nil {
+			s.o.Log.Error("record empty project", "project", project, "err", err)
+		}
+	} else if err := s.o.Catalog.RemoveUnit(ctx, api.UnitRef{Project: project}); err != nil {
+		s.o.Log.Error("clear discovery state", "project", project, "err", err)
+	}
+	return d
+}
+
+func (s *Syncer) processUnit(ctx context.Context, job unitJob, r *run) {
+	now := s.o.Now()
+	names := make([]string, len(job.datasets))
+	for i, d := range job.datasets {
+		names[i] = d.Name
+	}
+	r.event(api.SyncEvent{Kind: api.EventUnitStarted, Project: job.ref.Project, Location: job.ref.Location, Datasets: len(names)})
+	r.startUnit(job.ref, "datasets", len(names))
+
+	marks := s.ownSchemaMarks(ctx, job.ref)
+	req := bq.RegionRequest{Project: job.ref.Project, Location: job.ref.Location, Datasets: names}
+	where := job.ref.Project + "/" + job.ref.Location
+	snap, err := retry(ctx, s, "region tables "+where, func() (*api.Snapshot, error) {
+		return s.o.Meta.RegionTables(ctx, req)
+	})
+	var applies []store.DatasetApply
+	if err == nil {
+		applies = s.fromSnapshot(job, snap, marks)
+		err = s.readColumns(ctx, job.ref.Project, applies, "region columns "+where, r, func(f bq.ColumnFilter) ([]bq.TableColumns, error) {
+			return s.o.Meta.RegionColumns(ctx, req, f)
+		})
+	}
+
+	switch {
+	case err == nil:
+	case ctx.Err() != nil:
+		return
+	case bq.KindOf(err) == bq.KindPermission:
+		s.o.Log.Info("region views not accessible, falling back to per-dataset", "project", job.ref.Project, "location", job.ref.Location, "err", err)
+		applies = s.ladder(ctx, job, marks, r)
+		if ctx.Err() != nil {
+			return
+		}
+	default:
+		s.failUnit(ctx, job, now, err, r)
+		return
+	}
+
+	status, summary := summarize(applies)
+	var refreshed bool
+	for _, a := range applies {
+		if a.Mode != store.ModeKeepOld {
+			refreshed = true
+		}
+	}
+	if len(applies) == 0 {
+		refreshed = true
+	}
+	state := api.UnitState{UnitRef: job.ref, Status: status, Error: summary, LastAttempt: &now}
+	if refreshed {
+		state.LastSuccess = &now
+	}
+	if _, err := s.o.Catalog.ApplyUnit(ctx, store.ApplyRequest{Unit: job.ref, Datasets: applies, State: state}); err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		s.failUnit(ctx, job, now, fmt.Errorf("store: %w", err), r)
+		return
+	}
+	state.Datasets = len(applies)
+	for _, a := range applies {
+		state.Tables += len(a.Tables)
+		switch a.Status {
+		case api.DatasetNamesOnly:
+			state.NamesOnly++
+		case api.DatasetInaccessible:
+			state.Inaccessible++
+		}
+	}
+	kind := api.EventUnitDone
+	if status == api.UnitInaccessible {
+		kind = api.EventUnitFailed
+	}
+	r.finishUnit(state, kind)
+}
+
+func (s *Syncer) failUnit(ctx context.Context, job unitJob, now time.Time, err error, r *run) {
+	status := api.UnitInaccessible
+	var lastSuccess *time.Time
+	if units, uerr := s.o.Catalog.Units(ctx); uerr == nil {
+		for _, u := range units {
+			if u.Project == job.ref.Project && u.Location == job.ref.Location && u.LastSuccess != nil {
+				status = api.UnitDegraded
+				lastSuccess = u.LastSuccess
+			}
+		}
+	}
+	st := api.UnitState{UnitRef: job.ref, Status: status, Error: errText(err), LastAttempt: &now, LastSuccess: lastSuccess, Datasets: len(job.datasets)}
+	if rerr := s.o.Catalog.RecordUnitFailure(ctx, st); rerr != nil {
+		s.o.Log.Error("record unit failure", "project", job.ref.Project, "location", job.ref.Location, "err", rerr)
+	}
+	r.finishUnit(st, api.EventUnitFailed)
+}
+
+func (s *Syncer) fromSnapshot(job unitJob, snap *api.Snapshot, marks map[string]bool) []store.DatasetApply {
+	meta := map[string]api.DatasetMeta{}
+	for _, d := range job.datasets {
+		meta[d.Name] = d
+	}
+	for _, d := range snap.Datasets {
+		if base, ok := meta[d.Name]; ok {
+			if d.Description != "" {
+				base.Description = d.Description
+			}
+			if d.FriendlyName != "" {
+				base.FriendlyName = d.FriendlyName
+			}
+			if len(d.Labels) > 0 {
+				base.Labels = d.Labels
+			}
+			meta[d.Name] = base
+		}
+	}
+	byDS := map[string][]api.TableMeta{}
+	for _, t := range snap.Tables {
+		if _, ok := meta[t.Dataset]; !ok {
+			continue
+		}
+		if s.o.Config.Matcher().Ignored(job.ref.Project, t.Dataset, t.Name) {
+			continue
+		}
+		byDS[t.Dataset] = append(byDS[t.Dataset], t)
+	}
+	applies := make([]store.DatasetApply, 0, len(job.datasets))
+	for _, d := range job.datasets {
+		tables := byDS[d.Name]
+		sort.Slice(tables, func(i, j int) bool { return tables[i].Name < tables[j].Name })
+		shard.Assign(tables, s.o.Config.Shards())
+		for i := range tables {
+			tables[i].OwnSchema = marks[d.Name+"."+tables[i].Name]
+		}
+		m := meta[d.Name]
+		m.Project = job.ref.Project
+		m.Location = job.ref.Location
+		applies = append(applies, store.DatasetApply{Meta: m, Mode: store.ModeReplace, Status: api.DatasetOK, Tables: tables})
+	}
+	return applies
+}
+
+func (s *Syncer) ladder(ctx context.Context, job unitJob, marks map[string]bool, r *run) []store.DatasetApply {
+	out := make([]store.DatasetApply, len(job.datasets))
+	keep := make([]bool, len(job.datasets))
+	s.parallel(ctx, len(job.datasets), func(i int) {
+		a, ok := s.fallbackDataset(ctx, job, job.datasets[i], marks, r)
+		out[i], keep[i] = a, ok
+	})
+	res := out[:0]
+	for i, a := range out {
+		if keep[i] {
+			res = append(res, a)
+		}
+	}
+	return res
+}
+
+func (s *Syncer) fallbackDataset(ctx context.Context, job unitJob, d api.DatasetMeta, marks map[string]bool, r *run) (store.DatasetApply, bool) {
+	proj := job.ref.Project
+	m := d
+	m.Project, m.Location = proj, job.ref.Location
+	keepOld := func(why error) (store.DatasetApply, bool) {
+		s.o.Log.Warn("dataset could not be refreshed", "project", proj, "dataset", d.Name, "err", why)
+		return store.DatasetApply{Meta: m, Mode: store.ModeKeepOld, Status: api.DatasetInaccessible}, true
+	}
+
+	req := bq.DatasetRequest{Project: proj, Location: job.ref.Location, Dataset: d.Name}
+	snap, err := retry(ctx, s, "dataset tables "+proj+"."+d.Name, func() (*api.Snapshot, error) {
+		return s.o.Meta.DatasetTables(ctx, req)
+	})
+	var sub []store.DatasetApply
+	if err == nil {
+		sub = s.fromSnapshot(unitJob{ref: job.ref, datasets: []api.DatasetMeta{d}}, snap, marks)
+		err = s.readColumns(ctx, proj, sub, "dataset columns "+proj+"."+d.Name, r, func(f bq.ColumnFilter) ([]bq.TableColumns, error) {
+			return s.o.Meta.DatasetColumns(ctx, req, f)
+		})
+	}
+	if err == nil {
+		if len(sub) == 1 {
+			return s.withDatasetOptions(ctx, sub[0]), true
+		}
+		return keepOld(errors.New("empty dataset snapshot"))
+	}
+	if ctx.Err() != nil {
+		return store.DatasetApply{}, false
+	}
+	switch bq.KindOf(err) {
+	// ADR-0006
+	case bq.KindNotFound:
+		return store.DatasetApply{}, false
+	case bq.KindPermission:
+	default:
+		return keepOld(err)
+	}
+
+	names, nerr := retry(ctx, s, "list tables "+proj+"."+d.Name, func() ([]api.TableMeta, error) {
+		return s.o.Meta.ListTableNames(ctx, proj, d.Name)
+	})
+	if nerr == nil {
+		var kept []api.TableMeta
+		for _, t := range names {
+			if s.o.Config.Matcher().Ignored(proj, d.Name, t.Name) {
+				continue
+			}
+			t.Dataset, t.NamesOnly, t.Columns = d.Name, true, nil
+			kept = append(kept, t)
+		}
+		sort.Slice(kept, func(i, j int) bool { return kept[i].Name < kept[j].Name })
+		shard.Assign(kept, s.o.Config.Shards())
+		for i := range kept {
+			kept[i].OwnSchema = marks[d.Name+"."+kept[i].Name]
+		}
+		return s.withDatasetOptions(ctx, store.DatasetApply{Meta: m, Mode: store.ModeNamesOnly, Status: api.DatasetNamesOnly, Tables: kept}), true
+	}
+	if ctx.Err() != nil {
+		return store.DatasetApply{}, false
+	}
+	if bq.KindOf(nerr) == bq.KindNotFound {
+		return store.DatasetApply{}, false
+	}
+	return keepOld(nerr)
+}
+
+func (s *Syncer) withDatasetOptions(ctx context.Context, a store.DatasetApply) store.DatasetApply {
+	m := a.Meta
+	got, err := retry(ctx, s, "get dataset "+m.Project+"."+m.Name, func() (api.DatasetMeta, error) {
+		return s.o.Meta.GetDataset(ctx, m.Project, m.Name)
+	})
+	if err != nil {
+		if ctx.Err() == nil {
+			s.o.Log.Warn("dataset options not read", "project", m.Project, "dataset", m.Name, "err", err)
+		}
+		return a
+	}
+	a.Meta.Description, a.Meta.FriendlyName, a.Meta.Labels = got.Description, got.FriendlyName, got.Labels
+	return a
+}
+
+func summarize(applies []store.DatasetApply) (api.UnitStatus, string) {
+	var namesOnly, inaccessible []string
+	for _, a := range applies {
+		switch a.Status {
+		case api.DatasetNamesOnly:
+			namesOnly = append(namesOnly, a.Meta.Name)
+		case api.DatasetInaccessible:
+			inaccessible = append(inaccessible, a.Meta.Name)
+		}
+	}
+	if len(namesOnly)+len(inaccessible) == 0 {
+		return api.UnitOK, ""
+	}
+	msg := ""
+	if len(inaccessible) > 0 {
+		msg += fmt.Sprintf("%d of %d datasets could not be read: %s", len(inaccessible), len(applies), sample(inaccessible))
+	}
+	if len(namesOnly) > 0 {
+		if msg != "" {
+			msg += "; "
+		}
+		msg += fmt.Sprintf("%d datasets have table names only (no metadata access): %s", len(namesOnly), sample(namesOnly))
+	}
+	if len(inaccessible) == len(applies) {
+		return api.UnitInaccessible, msg
+	}
+	return api.UnitDegraded, msg
+}
+
+func sample(names []string) string {
+	sort.Strings(names)
+	if len(names) <= 5 {
+		return joinNames(names)
+	}
+	return joinNames(names[:5]) + fmt.Sprintf(" and %d more", len(names)-5)
+}
+
+func joinNames(n []string) string {
+	out := ""
+	for i, s := range n {
+		if i > 0 {
+			out += ", "
+		}
+		out += s
+	}
+	return out
+}
+
+func DeniedUnit(u api.UnitState) bool {
+	return u.Status == api.UnitInaccessible &&
+		(strings.HasPrefix(u.Error, bq.KindPermission.String()+":") || strings.HasPrefix(u.Error, bq.KindNotFound.String()+":"))
+}
+
+func errText(err error) string {
+	var be *bq.Error
+	if errors.As(err, &be) {
+		return fmt.Sprintf("%s: %v", be.Kind, be.Err)
+	}
+	return err.Error()
+}
+
+func retry[T any](ctx context.Context, s *Syncer, op string, fn func() (T, error)) (T, error) {
+	var zero T
+	for attempt := 0; ; attempt++ {
+		v, err := fn()
+		if err == nil {
+			return v, nil
+		}
+		if ctx.Err() != nil || !bq.Retryable(err) || attempt >= s.o.Retries {
+			return zero, bq.Wrap(op, err)
+		}
+		wait := s.o.Backoff(attempt + 1)
+		s.o.Log.Warn("transient error, retrying", "op", op, "attempt", attempt+1, "wait", wait, "err", err)
+		if wait > 0 {
+			t := time.NewTimer(wait)
+			select {
+			case <-t.C:
+			case <-ctx.Done():
+				t.Stop()
+				return zero, bq.Wrap(op, ctx.Err())
+			}
+		}
+	}
+}

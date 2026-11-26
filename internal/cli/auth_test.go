@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq"
-	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 )
 
 const impersonatedSA = "bqt-reader@bqt-sandbox.iam.gserviceaccount.com"

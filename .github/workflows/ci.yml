@@ -37,4 +37,4 @@ jobs:
       - name: pty smoke
         run: go test -count=1 ./internal/smoke
       - name: search latency guard
-        run: go test ./internal/search -run TestSearchLatencySmoke
+        run: go test ./pkg/search -run TestSearchLatencySmoke

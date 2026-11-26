@@ -278,7 +278,7 @@ func (m *Model) tutorialPanel(w int) []string {
 }
 
 func keyMarkup(lines []string) []string {
-	// ADR-0010
+	// ADR-0011
 	in := false
 	out := make([]string, len(lines))
 	for i, l := range lines {

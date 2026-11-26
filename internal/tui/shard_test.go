@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davidsevcik/bigquery-tui/internal/api"
-	"github.com/davidsevcik/bigquery-tui/internal/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 )
 
 func orderID(i int) string { return fmt.Sprintf("5f%02x00000000000000000abc", i) }

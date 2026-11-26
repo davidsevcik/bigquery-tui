@@ -7,7 +7,7 @@ argument-hint: "[path ...]  (default: every file that still has comments)"
 
 # Delete comments
 
-Code comments are banned in this repo ([ADR 0003](../../../docs/adr/0003-code-carries-no-comments.md)), except one package doc per package, bare `// ADR-NNNN` pointers and tool directives; `commentkit` never lists those. `internal/archtest/comments_test.go` holds every Go file to its budget in `internal/archtest/testdata/comment_budget.txt` (`<lines> <path>`), a ratchet that only goes down. This skill pays the budget down: every comment in scope gets a verdict, and its content is deleted, moved into an ADR or filed as an issue.
+Code comments are banned in this repo ([ADR 0004](../../../docs/adr/0004-code-carries-no-comments.md)), except one package doc per package, bare `// ADR-NNNN` pointers and tool directives; `commentkit` never lists those. `internal/archtest/comments_test.go` holds every Go file to its budget in `internal/archtest/testdata/comment_budget.txt` (`<lines> <path>`), a ratchet that only goes down. This skill pays the budget down: every comment in scope gets a verdict, and its content is deleted, moved into an ADR or filed as an issue.
 
 Scratch files go in `.scratch/delete-comment/` (gitignored). `commentkit` is `go run ./.claude/skills/delete-comment/commentkit`.
 
