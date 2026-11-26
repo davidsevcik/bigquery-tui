@@ -50,6 +50,18 @@ func newRig(t *testing.T) *rig {
 	return r
 }
 
+func (r *rig) clientsAsked() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.asked...)
+}
+
+func (r *rig) forgetClientsAsked() {
+	r.mu.Lock()
+	r.asked = nil
+	r.mu.Unlock()
+}
+
 func (r *rig) recorded() []api.RunInfo {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -623,9 +635,7 @@ func TestReopenReadsThroughTheEntrysExecutionProject(t *testing.T) {
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(700) }
 	first := r.m.Start(ctx, Request{SQL: "select n", Execution: "window-proj"}).Wait()
 	r.setExec("")
-	r.mu.Lock()
-	r.asked = nil
-	r.mu.Unlock()
+	r.forgetClientsAsked()
 	e := api.HistoryEntry{ID: 3, Job: *first.Job, SQL: "select n", State: api.RunDone, Source: "tui", ExecutionProject: "window-proj"}
 	run, err := r.m.Reopen(ctx, e, "")
 	if err != nil {
@@ -637,9 +647,7 @@ func TestReopenReadsThroughTheEntrysExecutionProject(t *testing.T) {
 	if info := run.Info(); info.ExecutionProject != "window-proj" || info.Job.Project != "window-proj" {
 		t.Fatalf("%+v", info)
 	}
-	r.mu.Lock()
-	asked := strings.Join(r.asked, ",")
-	r.mu.Unlock()
+	asked := strings.Join(r.clientsAsked(), ",")
 	if asked != "window-proj" {
 		t.Fatalf("the reopened Run read through clients of %q", asked)
 	}
@@ -659,9 +667,7 @@ func TestARunUsesTheProjectItStartedIn(t *testing.T) {
 	if info.State != api.RunDone || info.ExecutionProject != "exec" {
 		t.Fatalf("%+v", info)
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, p := range r.asked {
+	for _, p := range r.clientsAsked() {
 		if p != "exec" {
 			t.Fatalf("the Run asked for a client of %q", p)
 		}
@@ -738,9 +744,7 @@ func TestARunRunsInTheExecutionProjectItIsGiven(t *testing.T) {
 	if p := r.m.pricingIn("window-proj"); !p.Capacity {
 		t.Fatalf("one project's model does not replace another's: %+v", p)
 	}
-	r.mu.Lock()
-	asked := strings.Join(r.asked, ",")
-	r.mu.Unlock()
+	asked := strings.Join(r.clientsAsked(), ",")
 	if got := asked; got != "window-proj,exec" {
 		t.Fatalf("clients asked for %s", got)
 	}
@@ -780,10 +784,8 @@ func TestAnInvalidExecutionProjectBuildsNoClient(t *testing.T) {
 	if err := r.m.LearnPricingIn(ctx, "Not a project!"); err == nil || err.Error() != `"Not a project!" is not a valid project ID` {
 		t.Fatalf("%v", err)
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if len(r.asked) != 0 || len(r.fake.QueryCalls()) != 0 || len(r.records) != 0 {
-		t.Fatalf("clients %q, calls %+v, History %+v", r.asked, r.fake.QueryCalls(), r.records)
+	if asked, records := r.clientsAsked(), r.recorded(); len(asked) != 0 || len(r.fake.QueryCalls()) != 0 || len(records) != 0 {
+		t.Fatalf("clients %q, calls %+v, History %+v", asked, r.fake.QueryCalls(), records)
 	}
 }
 
