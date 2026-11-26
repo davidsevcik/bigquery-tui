@@ -125,7 +125,7 @@ func (r *Run) RawRows(ctx context.Context, startIndex int64) ([]bq.Field, [][]an
 }
 
 func (m *Manager) Reopen(ctx context.Context, e api.HistoryEntry, tag string) (*Run, error) {
-	jobs, err := m.o.Jobs(ctx, m.o.Execution())
+	jobs, err := m.o.Jobs(ctx, m.orShared(e.ExecutionProject))
 	if err != nil {
 		return nil, err
 	}

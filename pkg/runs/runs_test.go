@@ -617,6 +617,39 @@ func TestReopenShowsAnEarlierResult(t *testing.T) {
 	}
 }
 
+func TestReopenReadsThroughTheEntrysExecutionProject(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(700) }
+	first := r.m.Start(ctx, Request{SQL: "select n", Execution: "window-proj"}).Wait()
+	r.setExec("")
+	r.mu.Lock()
+	r.asked = nil
+	r.mu.Unlock()
+	e := api.HistoryEntry{ID: 3, Job: *first.Job, SQL: "select n", State: api.RunDone, Source: "tui", ExecutionProject: "window-proj"}
+	run, err := r.m.Reopen(ctx, e, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run.Rows(ctx, 600, 3, format.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if info := run.Info(); info.ExecutionProject != "window-proj" || info.Job.Project != "window-proj" {
+		t.Fatalf("%+v", info)
+	}
+	r.mu.Lock()
+	asked := strings.Join(r.asked, ",")
+	r.mu.Unlock()
+	if asked != "window-proj" {
+		t.Fatalf("the reopened Run read through clients of %q", asked)
+	}
+	for _, c := range r.fake.CallsTo("QueryRows") {
+		if c.Project != "window-proj" {
+			t.Fatalf("%+v", c)
+		}
+	}
+}
+
 func TestARunUsesTheProjectItStartedIn(t *testing.T) {
 	r := newRig(t)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(3) }
@@ -635,7 +668,7 @@ func TestARunUsesTheProjectItStartedIn(t *testing.T) {
 	}
 }
 
-func TestPricingFromAnOldProjectIsDropped(t *testing.T) {
+func TestAModelIsLearnedForTheProjectTheDryRunRanIn(t *testing.T) {
 	r := newRig(t)
 	r.cfg.Location = "EU"
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.QueryScript{ReservationID: "res"} }
@@ -647,14 +680,13 @@ func TestPricingFromAnOldProjectIsDropped(t *testing.T) {
 	if err := r.m.LearnPricing(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if p := r.m.Pricing(); p.Known {
-		t.Fatalf("the old project's model was kept: %+v", p)
+	if p := r.m.Pricing(); p.Known || !r.m.pricingIn("exec").Capacity {
+		t.Fatalf("the probe's model went to the project that became shared during it: %+v %+v", p, r.m.pricingIn("exec"))
 	}
-	r.setExec("exec")
-	run := r.m.Start(context.Background(), Request{SQL: "select"})
-	run.Wait()
-	if p := r.m.Pricing(); p.Known {
-		t.Fatalf("a Run of the old project taught the model: %+v", p)
+	r.setExec("run-proj")
+	r.m.Start(context.Background(), Request{SQL: "select"}).Wait()
+	if p := r.m.Pricing(); p.Known || !r.m.pricingIn("run-proj").Capacity {
+		t.Fatalf("the Run's model went to the project that became shared during it: %+v %+v", p, r.m.pricingIn("run-proj"))
 	}
 }
 
