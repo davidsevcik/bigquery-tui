@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"sort"
 	"time"
@@ -44,8 +43,8 @@ func (e *Engine) selected() []string { return e.Selection().IDs() }
 
 func validIDs(ids []string) error {
 	for _, id := range ids {
-		if !config.ValidProjectID(id) {
-			return fmt.Errorf("%q is not a valid project ID", id)
+		if err := config.CheckProjectID(id); err != nil {
+			return err
 		}
 	}
 	return nil
