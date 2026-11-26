@@ -18,14 +18,14 @@ The reviewer leaves auto-merge off while another open pull request is based on t
 
 ## Answering a review (pull request authors)
 
-Answer a review as soon as it lands, without waiting to be asked, by following the steps below. Stop and ask the user only when a finding needs their decision:
+Answer a review as soon as it lands, without waiting to be asked, by following the steps below. Ask the user only about a finding that needs their decision:
 
 - The fix, or the choice between possible fixes, changes what users see or what the product does: scope, behaviour, wording, defaults.
 - The fix could cost money, delete or migrate user data, or change credentials, CI, the `master` ruleset, `.github/CODEOWNERS` or how reviews are requested.
 - You disagree, and the reviewer kept the finding after your reply.
 - The fix needs access you don't have, such as a GCP project or a secret.
 
-For those, reply in the thread with the question and the options, and tell the user. Leave that thread open, even a **Nit**: on an approved pull request, resolving it would merge the pull request before the user answers.
+For each of those, reply in its thread with the question and the options, tell the user, and go on with every other finding and step 5. Leave that thread open, even a **Nit**: on an approved pull request, resolving it would merge the pull request before the user answers.
 
 1. Read every inline comment and the review body: `gh pr view <n> --comments`, and the threads through `gh api graphql` (`pullRequest.reviewThreads`).
 2. Fix each comment you agree with, and push the fixes as new commits. Don't amend or force-push.
