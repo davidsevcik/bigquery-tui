@@ -14,10 +14,8 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/format"
 )
 
-// SampleRows is how many rows a result sample holds.
 const SampleRows = 20
 
-// SampleFormat is the format of a result sample.
 type SampleFormat string
 
 const (
@@ -26,8 +24,6 @@ const (
 	NDJSON   SampleFormat = "ndjson"
 )
 
-// SchemaMarkdown is a table's schema as a compact markdown table: path, type
-// and description, nested fields as dotted paths.
 func SchemaMarkdown(s api.TableSchema) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## `%s` (%s", s.Table, s.Type)
@@ -73,14 +69,11 @@ func SchemaMarkdown(s api.TableSchema) string {
 	return b.String()
 }
 
-// SchemaJSON is the schema in the shape `bqt schema` prints as data.
 func SchemaJSON(s api.TableSchema) string {
 	b, _ := json.MarshalIndent(s, "", "  ")
 	return string(b) + "\n"
 }
 
-// QueryError is a failed query for an agent to fix: the SQL, the error with
-// its position, the Execution project and the location.
 func QueryError(sql string, qe api.QueryError, execProject, location string) string {
 	var b strings.Builder
 	b.WriteString("BigQuery query failed")
@@ -109,8 +102,6 @@ func QueryError(sql string, qe api.QueryError, execProject, location string) str
 	return b.String()
 }
 
-// Sample is the first rows of a result as markdown, TSV or NDJSON. cells
-// should be unclipped so the values are exact.
 func Sample(cols []api.PreviewColumn, rows [][]api.Cell, f SampleFormat) string {
 	if len(rows) > SampleRows {
 		rows = rows[:SampleRows]
@@ -149,7 +140,6 @@ func Sample(cols []api.PreviewColumn, rows [][]api.Cell, f SampleFormat) string 
 	return b.String()
 }
 
-// Run summarises a Run: SQL, estimate, state and outcome.
 func Run(info api.RunInfo) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "BigQuery Run: %s", info.State)
@@ -225,7 +215,6 @@ func columnList(cols []api.PreviewColumn) string {
 	return strings.Join(names, ", ")
 }
 
-// cellText makes text safe inside a markdown table cell.
 func cellText(s string) string {
 	return strings.ReplaceAll(oneLine(s), "|", `\|`)
 }

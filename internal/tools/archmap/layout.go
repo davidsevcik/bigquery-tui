@@ -5,7 +5,6 @@ import (
 	"sort"
 )
 
-// Drawing sizes, in SVG units.
 const (
 	nodeW   = 156.0
 	nodeH   = 42.0
@@ -15,14 +14,10 @@ const (
 	extW    = 176.0
 	extH    = 30.0
 	extGap  = 12.0
-	extDrop = 28.0 // extra space above the third-party row
+	extDrop = 28.0
 	sweeps  = 24
 )
 
-// arrange gives every graph package and third-party module a position.
-// Packages sit in rows by rank (longest import chain below them), so
-// importers are always above what they import. Test-only packages are not
-// drawn.
 func arrange(m *Model) {
 	var nodes []string
 	byShort := map[string]*Package{}
@@ -38,7 +33,6 @@ func arrange(m *Model) {
 		byShort[s].Rank = r
 	}
 
-	// Positions relative to the centre line, in columns.
 	rel := map[string]float64{}
 	widest := 0
 	for _, layer := range layers {
@@ -48,8 +42,6 @@ func arrange(m *Model) {
 		}
 	}
 
-	// Third-party modules: one row under the packages, ordered by the mean
-	// position of their importers.
 	ext := append([]*External(nil), m.External...)
 	key := map[string]float64{}
 	for _, e := range ext {
@@ -70,7 +62,6 @@ func arrange(m *Model) {
 		byShort[n].Y = margin + nodeH/2 + float64(level)*rowH
 	}
 	height := 2*margin + nodeH + float64(max(len(layers)-1, 0))*rowH
-	// Wrap the third-party modules into rows no wider than the packages.
 	extTop := height - margin + extDrop
 	extRows := (len(ext) + perRow - 1) / perRow
 	for i, e := range ext {
@@ -97,8 +88,6 @@ func arrange(m *Model) {
 	}
 }
 
-// layerGraph ranks the nodes (0 = imports nothing in the graph) and orders
-// each row to reduce edge crossings. layers[0] is the top row (highest rank).
 func layerGraph(nodes []string, edges []Edge) (map[string]int, [][]string) {
 	in := map[string]bool{}
 	for _, n := range nodes {
@@ -123,7 +112,7 @@ func layerGraph(nodes []string, edges []Edge) (map[string]int, [][]string) {
 		if r, ok := rank[n]; ok {
 			return r
 		}
-		if onStack[n] { // Go forbids import cycles; stay safe anyway.
+		if onStack[n] {
 			return 0
 		}
 		onStack[n] = true
@@ -186,13 +175,12 @@ func positions(layers [][]string) map[string]float64 {
 	return x
 }
 
-// crossings counts pairs of edges whose straight lines cross.
 func crossings(layers [][]string, edges []Edge) int {
 	x := positions(layers)
 	y := map[string]float64{}
 	for level, layer := range layers {
 		for _, n := range layer {
-			y[n] = float64(level) * 2 // rows are about twice as far apart as columns
+			y[n] = float64(level) * 2
 		}
 	}
 	c := 0

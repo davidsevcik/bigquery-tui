@@ -23,15 +23,12 @@ import (
 	projsel "github.com/davidsevcik/bigquery-tui/pkg/selection"
 )
 
-// SyncRun is a running sync.
 type SyncRun interface {
 	Events() <-chan api.SyncEvent
 	Wait() (api.SyncResult, error)
 	Cancel()
 }
 
-// Backend is the slice of the engine the TUI uses. Tests substitute an engine
-// built on fakes.
 type Backend interface {
 	Config() *config.Config
 	SetConfig(*config.Config)
@@ -39,7 +36,6 @@ type Backend interface {
 	WatchConfig(ctx context.Context, kick <-chan struct{}) <-chan config.Event
 	StatePath() string
 
-	// The Selected projects and the Execution project (the Projects dialog).
 	ExecutionProject() (string, api.ExecutionSource)
 	Selection() projsel.State
 	SelectProjects(ids ...string) error
@@ -67,36 +63,25 @@ type Backend interface {
 	Status(ctx context.Context) (api.CatalogStatus, error)
 	StartSync(ctx context.Context, scope api.SyncScope) (SyncRun, error)
 	AutoRefresh(ctx context.Context) (SyncRun, error)
-	// Reconcile prunes the catalog after a config change and reports whether a
-	// sync is now needed.
 	Reconcile(ctx context.Context) (syncNeeded bool, reason string, err error)
 	WatchCatalog(ctx context.Context) <-chan struct{}
 
-	// Editor intelligence (byte offsets).
 	Tokenize(text string) []api.Token
 	Complete(text string, cursor int, forced bool) []api.Candidate
 
-	// FollowRuns returns a new Follower of the Runs: it starts, follows,
-	// confirms and cancels them for this frontend.
 	FollowRuns() *runs.Follower
 	RunRows(ctx context.Context, id int64, startIndex int64, n int, o format.Options) (api.PreviewPage, error)
-	// Handoff renders a hand-off item (handoff.Items).
 	Handoff(ctx context.Context, it handoff.Item) (string, error)
 	LearnPricing(ctx context.Context) error
 	StartExport(ctx context.Context, runID int64, path string, f export.Format) (Export, error)
 	DefaultExportPath(f export.Format) string
-	// DraftDir is where this frontend autosaves its buffers.
 	DraftDir() string
 
-	// History and Favorites (spec 11).
 	ParseHistoryQuery(raw string) api.ParsedQuery
 	SearchHistory(ctx context.Context, raw string, limit, offset int) (api.HistoryPage, error)
 	HistoryEntry(ctx context.Context, id int64) (api.HistoryEntry, error)
 	ReopenResult(ctx context.Context, entryID int64, tag string) (int64, error)
 	PromoteHistory(ctx context.Context, entryID int64, name, description string, tags []string, overwrite bool) (string, error)
-	// The Favorites of the current favorites_dir. Parsing, matching and
-	// binding parameters need no directory: the TUI calls the favorites
-	// package for those.
 	ListFavorites() ([]api.Favorite, error)
 	FavoriteFromID(file string) string
 	SaveFavorite(r favorites.SaveRequest) (favorites.Saved, error)
@@ -104,14 +89,12 @@ type Backend interface {
 	DeleteFavorite(f api.Favorite) error
 }
 
-// Export is a running export.
 type Export interface {
 	Events() <-chan api.ExportEvent
 	Wait() api.ExportEvent
 	Cancel()
 }
 
-// EngineBackend adapts *engine.Engine to Backend.
 type EngineBackend struct {
 	*engine.Engine
 	Load config.LoadOptions

@@ -33,39 +33,30 @@ type tableEntry struct {
 	name, lname string
 	typ         api.TableType
 	desc, ldesc string
-	labels      []string // lower-case "key:value"
+	labels      []string
 	namesOnly   bool
 	shard       *api.ShardFamily
 	created     time.Time
-	ownSchema   bool // a family member synced on its own (gs)
+	ownSchema   bool
 }
 
-// Index is the immutable in-memory catalog (everything but columns).
 type Index struct {
-	projects []projEntry
-	datasets []dsEntry
-	tables   []tableEntry
-	units    map[api.UnitRef]api.UnitState
-	// pending counts the pending datasets per unit.
-	pending  map[api.UnitRef]int
-	byPath   map[string]int // exact project.dataset.table -> table index
-	byPathLC map[string]int // lower-case path -> table index, -1 when ambiguous
-	byID     map[int64]int
-	// families maps a family path (project.dataset.<family name>, and for a
-	// family without a suffix also its wildcard prefix*) to its newest
-	// member's table index.
-	families map[string]int
-	// familyRank is the claim each families entry won with (setFamily).
+	projects   []projEntry
+	datasets   []dsEntry
+	tables     []tableEntry
+	units      map[api.UnitRef]api.UnitState
+	pending    map[api.UnitRef]int
+	byPath     map[string]int
+	byPathLC   map[string]int
+	byID       map[int64]int
+	families   map[string]int
 	familyRank map[string]int
 }
 
-// Empty reports whether the index holds no tables.
 func (x *Index) Empty() bool { return x == nil || len(x.tables) == 0 }
 
-// Size returns the number of datasets and tables.
 func (x *Index) Size() (datasets, tables int) { return len(x.datasets), len(x.tables) }
 
-// BuildIndex turns a catalog snapshot into an Index.
 func BuildIndex(snap *store.IndexSnapshot) *Index {
 	x := &Index{units: map[api.UnitRef]api.UnitState{}, pending: map[api.UnitRef]int{}, byPath: map[string]int{}, byPathLC: map[string]int{}, byID: map[int64]int{}, families: map[string]int{}, familyRank: map[string]int{}}
 	pi := map[string]int{}
@@ -108,8 +99,6 @@ func BuildIndex(snap *store.IndexSnapshot) *Index {
 		x.tables = append(x.tables, e)
 		x.byID[t.ID] = idx
 		de := &x.datasets[d]
-		// Identity is case-sensitive (BigQuery allows `Orders` next to `orders`);
-		// the lower-case map only serves typed or pasted paths.
 		x.byPath[x.projects[de.proj].name+"."+de.name+"."+e.name] = idx
 		lc := x.projects[de.proj].lname + "." + de.lname + "." + e.lname
 		if _, dup := x.byPathLC[lc]; dup {
@@ -120,7 +109,7 @@ func BuildIndex(snap *store.IndexSnapshot) *Index {
 		if f := e.shard; f != nil && f.Newest == e.name {
 			dp := x.projects[de.proj].name + "." + de.name + "."
 			x.setFamily(dp+f.Name, idx, true)
-			x.setFamily(dp+f.Wildcard(), idx, f.Suffix == "") // a suffixed family answers its wildcard only when no other does
+			x.setFamily(dp+f.Wildcard(), idx, f.Suffix == "")
 		}
 	}
 	for _, u := range snap.Units {
@@ -129,13 +118,8 @@ func BuildIndex(snap *store.IndexSnapshot) *Index {
 	return x
 }
 
-// setFamily lets a family path resolve to the newest shard idx. own is
-// false for a path the family answers only when no other family owns it (a
-// suffixed family's wildcard). Families of two table types can share a name
-// (orders_* tables and orders_* views): the path then resolves to the TABLE
-// family, which wildcard queries can read, whatever order the rows come in;
-// the other is reached through its members. Equal claims keep the first.
 func (x *Index) setFamily(path string, idx int, own bool) {
+	// ADR-0007
 	rank := 0
 	if own {
 		rank += 2
@@ -149,8 +133,6 @@ func (x *Index) setFamily(path string, idx int, own bool) {
 	x.families[path], x.familyRank[path] = idx, rank
 }
 
-// resolve finds a table by path: exactly, or case-insensitively when that is
-// unambiguous.
 func (x *Index) resolve(path string) (int, bool) {
 	if i, ok := x.byPath[path]; ok {
 		return i, true
@@ -167,12 +149,10 @@ func (x *Index) tablePath(i int) api.ObjectPath {
 	return api.ObjectPath{Project: x.projects[d.proj].name, Dataset: d.name, Table: t.name}
 }
 
-// colBlob is every column's lower-case "path\x00description\n" in one string,
-// so a col: value is found with a handful of fast substring scans.
 type colBlob struct {
 	text   string
-	starts []int32 // record start offsets
-	table  []int32 // table index per record
+	starts []int32
+	table  []int32
 }
 
 func buildColBlob(ctx context.Context, x *Index, src ColumnSource) (*colBlob, error) {
@@ -197,10 +177,9 @@ func buildColBlob(ctx context.Context, x *Index, src ColumnSource) (*colBlob, er
 	return cb, nil
 }
 
-// match returns table index -> number of columns containing any value.
 func (cb *colBlob) match(ctx context.Context, values []string) map[int]int {
 	out := map[int]int{}
-	hit := map[int32]bool{} // records already counted (several values, one column)
+	hit := map[int32]bool{}
 	for _, v := range values {
 		if v == "" || strings.ContainsAny(v, "\x00\n") {
 			continue

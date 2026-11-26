@@ -8,13 +8,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 )
 
-// Filter returns every object that passes the Explorer's in-place filter,
-// best match first (by path when the query has no free term).
-//
-// Unlike Search, free terms match only an object's own name, so a term that
-// names a dataset does not keep the tables inside it. Table filters (type:,
-// col:, label:, desc:) keep a table that passes them and a project or dataset
-// that holds one; p: and d: narrow by path.
 func (s *Searcher) Filter(ctx context.Context, raw string, o api.FilterOptions) (api.FilterResponse, error) {
 	start := time.Now()
 	q := Parse(raw)
@@ -36,27 +29,20 @@ func (s *Searcher) Filter(ctx context.Context, raw string, o api.FilterOptions) 
 	return resp, nil
 }
 
-// filterRun holds one Filter call's state between its stages, which run in
-// order: passTables fills pass and own, addContainers and addTables read them
-// and append to out, and matches sorts out into the response.
 type filterRun struct {
-	x  *Index
-	c  *compiled
-	o  api.FilterOptions
-	sc scoper
-	// tableFilters: the query has filters beyond p: and d:, so a container
-	// is kept only when it holds a passing table (or passes them itself).
-	// dsFilters: the query has filters beyond p:, so a project is kept only
-	// when it holds a kept dataset.
+	x                       *Index
+	c                       *compiled
+	o                       api.FilterOptions
+	sc                      scoper
 	tableFilters, dsFilters bool
-	pasted                  int // the table a pasted path resolved to, or -1
+	pasted                  int
 
-	pass []bool   // pass[i]: table i is in scope and passes every filter
-	own  []ownHit // own[i]: table i's own-name score; ok false when it fails
+	pass []bool
+	own  []ownHit
 
 	out   []hit
-	paths []api.ObjectPath         // paths[h.i] for every hit
-	famOf map[int]*api.ShardFamily // family of a shard_family path, by paths index
+	paths []api.ObjectPath
+	famOf map[int]*api.ShardFamily
 }
 
 func newFilterRun(x *Index, c *compiled, o api.FilterOptions, path *api.ObjectPath) *filterRun {
@@ -70,8 +56,6 @@ func newFilterRun(x *Index, c *compiled, o api.FilterOptions, path *api.ObjectPa
 	}
 	if path != nil {
 		if i, ok := x.resolve(path.String()); ok {
-			// a pasted path keeps that table and the containers that hold it,
-			// so its text is not matched as terms (this clears c.terms)
 			f.pasted, c.terms, f.tableFilters, f.dsFilters = i, nil, true, true
 		}
 	}
@@ -90,7 +74,6 @@ func (f *filterRun) want(k api.ResultKind) bool {
 	return false
 }
 
-// passTables fills pass and own, in parallel chunks.
 func (f *filterRun) passTables(ctx context.Context) error {
 	x, c := f.x, f.c
 	f.pass = make([]bool, len(x.tables))
@@ -109,21 +92,18 @@ func (f *filterRun) passTables(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// addIfNamed appends a hit for a container whose own name matches the terms.
 func (f *filterRun) addIfNamed(k api.ResultKind, p api.ObjectPath, lname, name string) {
 	if maxS, sum, ok := ownScore(lname, f.c.terms, true); ok {
 		f.addHit(hit{kind: k, max: maxS, sum: sum, name: name}, p)
 	}
 }
 
-// addHit appends h with p as its path.
 func (f *filterRun) addHit(h hit, p api.ObjectPath) {
 	h.i, h.path = len(f.paths), p.String()
 	f.out = append(f.out, h)
 	f.paths = append(f.paths, p)
 }
 
-// addContainers adds the projects and datasets that pass.
 func (f *filterRun) addContainers() {
 	x := f.x
 	for pi := range x.projects {
@@ -148,8 +128,6 @@ func (f *filterRun) addContainers() {
 	}
 }
 
-// keepDataset reports whether d is in scope, passes the path filters and,
-// under table filters, passes them itself or holds a table that does.
 func (f *filterRun) keepDataset(p *projEntry, d *dsEntry) bool {
 	if f.o.Scope != nil && f.o.Scope.Dataset != "" && f.o.Scope.Dataset != d.name {
 		return false
@@ -168,20 +146,16 @@ func (f *filterRun) keepDataset(p *projEntry, d *dsEntry) bool {
 	return false
 }
 
-// famKey names a shard family: its dataset, base name and table type.
 type famKey struct {
 	ds   int
 	name string
 	typ  api.TableType
 }
 
-// addTables adds the tables that pass and the shard families they belong
-// to. A family passes when one of its members does, ranked by its best
-// member.
 func (f *filterRun) addTables() {
 	x := f.x
 	cols := len(f.c.colVals) > 0
-	fams := map[famKey]int{} // index into out
+	fams := map[famKey]int{}
 	for i := range x.tables {
 		if !f.own[i].ok {
 			continue
@@ -189,8 +163,6 @@ func (f *filterRun) addTables() {
 		t := &x.tables[i]
 		maxS, sum := f.own[i].max, f.own[i].sum
 		p := x.tablePath(i)
-		// a member is a match of its own only when the filter reaches into
-		// its varying part (or its own schema, under col:)
 		if f.want(api.KindTable) && (f.o.ExpandShards || f.pasted == i || x.memberHit(i, f.c.terms, cols)) {
 			f.addHit(hit{kind: api.KindTable, max: maxS, sum: sum, name: t.name}, p)
 		}
@@ -208,7 +180,6 @@ func (f *filterRun) addTables() {
 	}
 }
 
-// matches sorts the hits and turns them into the response's matches.
 func (f *filterRun) matches() []api.FilterMatch {
 	sortHits(f.out, len(f.c.terms) > 0)
 	ms := make([]api.FilterMatch, 0, len(f.out))
@@ -223,13 +194,11 @@ func (f *filterRun) matches() []api.FilterMatch {
 	return ms
 }
 
-// ownHit is a table's own-name score.
 type ownHit struct {
 	max, sum int
 	ok       bool
 }
 
-// ownScore scores a name against every term; each term must match it.
 func ownScore(lname string, terms []string, fuzzy bool) (maxS, sum int, ok bool) {
 	for _, t := range terms {
 		tier, _ := matchName(lname, t, fuzzy)
@@ -242,9 +211,6 @@ func ownScore(lname string, terms []string, fuzzy bool) (maxS, sum int, ok bool)
 	return maxS, sum, true
 }
 
-// passDatasetOwn reports whether a dataset satisfies the table filters by
-// itself: only desc: and label: can describe a dataset, through its own
-// description and labels.
 func passDatasetOwn(d *dsEntry, fs []api.QueryFilter) bool {
 	for _, f := range fs {
 		var m bool
@@ -284,8 +250,6 @@ func onlyP(fs []api.QueryFilter) []api.QueryFilter {
 	return out
 }
 
-// ProjectMatches is the Projects dialog's filter: every space-separated term
-// must occur, ignoring case, in the project ID or its friendly name.
 func ProjectMatches(id, friendlyName, query string) bool {
 	hay := strings.ToLower(id + " " + friendlyName)
 	for _, t := range strings.Fields(strings.ToLower(query)) {

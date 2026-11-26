@@ -11,43 +11,22 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/bq"
 )
 
-// ContractOptions bounds the contract run (the real implementation is read-only
-// and billed, so it samples).
 type ContractOptions struct {
-	Project string
-	// MaxDatasets limits how many datasets a location's region request covers.
-	MaxDatasets int
-	// MaxLocations limits how many locations are exercised.
-	MaxLocations int
-	// FallbackSamples is how many datasets to check through the dataset-scope
-	// and tables.list fallbacks.
+	Project         string
+	MaxDatasets     int
+	MaxLocations    int
 	FallbackSamples int
-	// Family, when set, checks the phase 2 column filter against a dataset
-	// that holds a shard family.
-	Family *FamilyCase
+	Family          *FamilyCase
 }
 
-// FamilyCase names a dataset with a shard family for the column-filter
-// contract.
 type FamilyCase struct {
-	// Project holds Dataset; empty means the contract's project. It may be
-	// one the credentials only read, such as bigquery-public-data.
 	Project  string
 	Location string
 	Dataset  string
-	// Patterns are shard patterns as configured (bqt anchors them).
 	Patterns []string
-	// Keep lists table names (in Dataset) to read although a pattern
-	// matches them.
-	Keep []string
+	Keep     []string
 }
 
-// runColumnFilter checks that the phase 2 call returns columns for the tables
-// on the keep list and for those matching no pattern, and none for the rest,
-// judged by Go's regexp as bqt anchors the patterns. It uses the region views
-// and, where those are refused, the dataset views sync falls back to (the
-// same filter SQL in another scope). tables.get (gs) must read a kept
-// member's field paths as the views do.
 func runColumnFilter(t *testing.T, md bq.Metadata, project string, f FamilyCase) {
 	t.Helper()
 	ctx := context.Background()
@@ -128,7 +107,6 @@ func runColumnFilter(t *testing.T, md bq.Metadata, project string, f FamilyCase)
 	if len(f.Keep) == 0 {
 		return
 	}
-	// the re-read by name returns exactly the names asked for
 	only, err := columns(bq.ColumnFilter{Pattern: "^(?:.*)$", Only: keepNames[:1]})
 	if err != nil {
 		t.Fatalf("columns by name: %v", err)
@@ -136,7 +114,6 @@ func runColumnFilter(t *testing.T, md bq.Metadata, project string, f FamilyCase)
 	if len(only) != 1 || only[0].Table != f.Keep[0] {
 		t.Fatalf("columns by name returned %d tables, want only %s", len(only), f.Keep[0])
 	}
-	// tables.get (gs) reads the kept member's field paths as the views do
 	tm, err := md.GetTableMeta(ctx, project, f.Dataset, f.Keep[0])
 	if err != nil {
 		t.Fatalf("GetTableMeta(%s.%s): %v", f.Dataset, f.Keep[0], err)
@@ -147,7 +124,6 @@ func runColumnFilter(t *testing.T, md bq.Metadata, project string, f FamilyCase)
 	t.Logf("GetTableMeta(%s.%s): %d field paths, as the views", f.Dataset, f.Keep[0], len(tm.Columns))
 }
 
-// withColumns attaches phase 2's columns to phase 1's tables.
 func withColumns(t *testing.T, s *api.Snapshot, cols []bq.TableColumns) *api.Snapshot {
 	t.Helper()
 	at := map[string]int{}
@@ -156,8 +132,9 @@ func withColumns(t *testing.T, s *api.Snapshot, cols []bq.TableColumns) *api.Sna
 	}
 	for _, tc := range cols {
 		i, ok := at[tc.Dataset+"."+tc.Table]
+		// ADR-0005
 		if !ok {
-			continue // a leaked or deleted table: the caller filters
+			continue
 		}
 		s.Tables[i].Columns = append(s.Tables[i].Columns, tc.Columns...)
 	}
@@ -173,9 +150,6 @@ func fieldPaths(cols []api.ColumnMeta) string {
 	return strings.Join(out, ",")
 }
 
-// RunMetadataContract checks the behaviour every bq.Metadata must share. It
-// asserts invariants rather than exact data so it can run against a live
-// project as well as the fake.
 func RunMetadataContract(t *testing.T, md bq.Metadata, o ContractOptions) {
 	t.Helper()
 	ctx := context.Background()
@@ -189,8 +163,6 @@ func RunMetadataContract(t *testing.T, md bq.Metadata, o ContractOptions) {
 		o.FallbackSamples = 2
 	}
 
-	// The projects list: unique, non-empty IDs; it includes the project the
-	// contract runs on (the credentials hold a role in it).
 	projects, err := md.ListProjects(ctx)
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
@@ -373,8 +345,6 @@ func columnCount(ts []api.TableMeta) int {
 	return n
 }
 
-// runRegion checks one location: both phases at region scope, and that the
-// fallbacks agree with them.
 func runRegion(t *testing.T, md bq.Metadata, o ContractOptions, loc string, names []string) {
 	t.Helper()
 	ctx := context.Background()
@@ -401,7 +371,6 @@ func runRegion(t *testing.T, md bq.Metadata, o ContractOptions, loc string, name
 	if len(snap.Tables) == 0 {
 		return
 	}
-	// dataset-scope and tables.list must agree with the region view.
 	sampled := 0
 	for _, d := range names {
 		if sampled >= o.FallbackSamples {
@@ -416,8 +385,6 @@ func runRegion(t *testing.T, md bq.Metadata, o ContractOptions, loc string, name
 	}
 }
 
-// checkFallbacks checks that dataset scope, datasets.get, tables.list and
-// tables.get agree with the region views for dataset d.
 func checkFallbacks(t *testing.T, md bq.Metadata, o ContractOptions, loc, d string, snap *api.Snapshot, region []api.TableMeta) {
 	t.Helper()
 	ctx := context.Background()
@@ -438,7 +405,6 @@ func checkFallbacks(t *testing.T, md bq.Metadata, o ContractOptions, loc, d stri
 	if got, want := columnCount(tablesOf(ds, d)), columnCount(region); got != want {
 		t.Fatalf("dataset %s: dataset-scope has %d columns, region has %d", d, got, want)
 	}
-	// datasets.get stands in for SCHEMATA_OPTIONS in the fallback.
 	meta, err := md.GetDataset(ctx, o.Project, d)
 	if err != nil {
 		t.Fatalf("GetDataset(%s): %v", d, err)
@@ -460,7 +426,6 @@ func checkFallbacks(t *testing.T, md bq.Metadata, o ContractOptions, loc, d stri
 	if got, want := tableNames(names2), tableNames(region); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("dataset %s: tables.list names differ from region tables\n got %v\nwant %v", d, got, want)
 	}
-	// tables.get (gs) reads the same field paths as the views.
 	for _, tb := range region {
 		if len(tb.Columns) == 0 {
 			continue

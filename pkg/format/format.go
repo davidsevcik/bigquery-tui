@@ -14,19 +14,12 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/bq"
 )
 
-// Options controls cell formatting.
 type Options struct {
-	// MaxChars truncates a cell's text (in characters). 0 means no limit.
-	MaxChars int
-	// ArraySummary shows a REPEATED value as "[3] first, second, third"
-	// instead of JSON (the results grid).
+	MaxChars     int
 	ArraySummary bool
-	// KeepNewlines leaves line breaks in the text (the record view wraps
-	// them); other control characters are still replaced.
 	KeepNewlines bool
 }
 
-// Row formats one wire row against its schema.
 func Row(schema []bq.Field, raw []any, o Options) []api.Cell {
 	out := make([]api.Cell, len(schema))
 	for i, f := range schema {
@@ -39,8 +32,6 @@ func Row(schema []bq.Field, raw []any, o Options) []api.Cell {
 	return out
 }
 
-// Cell formats one wire value. Scalars are shown as text; RECORD, REPEATED
-// and JSON values as compact one-line JSON.
 func Cell(f bq.Field, v any, o Options) api.Cell {
 	if v == nil {
 		return api.Cell{Null: true}
@@ -52,9 +43,6 @@ func Cell(f bq.Field, v any, o Options) api.Cell {
 	return clip(sanitize(text, o.KeepNewlines), o.MaxChars)
 }
 
-// Text is the full, unsanitized text of a wire value (export): scalars as
-// they are, RECORD, REPEATED and JSON values as compact JSON. null reports a
-// NULL value.
 func Text(f bq.Field, v any) (text string, null bool) {
 	if v == nil {
 		return "", true
@@ -65,8 +53,6 @@ func Text(f bq.Field, v any) (text string, null bool) {
 	return scalarText(f.Type, v), false
 }
 
-// JSONValue renders a wire value as compact JSON, keeping field order and
-// exact numeric text.
 func JSONValue(f bq.Field, v any) string {
 	var b strings.Builder
 	writeJSON(&b, f, v, f.Mode == "REPEATED")
@@ -95,7 +81,7 @@ func arraySummary(f bq.Field, v any) string {
 		t, _ := Text(elem, it)
 		b.WriteString(t)
 		if b.Len() > 4096 {
-			break // the cell is clipped anyway
+			break
 		}
 	}
 	return b.String()
@@ -117,8 +103,6 @@ func scalarText(typ string, v any) string {
 	return s
 }
 
-// writeJSON renders a wire value as compact JSON, keeping field order and
-// exact numeric text (INT64 and NUMERIC are never routed through floats).
 func writeJSON(b *strings.Builder, f bq.Field, v any, repeated bool) {
 	if v == nil {
 		b.WriteString("null")
@@ -219,7 +203,6 @@ func looksNumeric(s string) bool {
 	return true
 }
 
-// sanitize replaces control characters so a cell is always one safe line.
 func sanitize(s string, keepNewlines bool) string {
 	clean := true
 	for i := 0; i < len(s); i++ {
@@ -263,7 +246,6 @@ func clip(s string, maxChars int) api.Cell {
 	return api.Cell{Text: s[:i], Truncated: true}
 }
 
-// Columns derives the preview headers from a schema.
 func Columns(schema []bq.Field) []api.PreviewColumn {
 	out := make([]api.PreviewColumn, len(schema))
 	for i, f := range schema {
@@ -272,7 +254,6 @@ func Columns(schema []bq.Field) []api.PreviewColumn {
 	return out
 }
 
-// Bytes renders a byte count for humans (binary units).
 func Bytes(n int64) string {
 	const unit = 1024
 	if n < unit {
@@ -286,7 +267,6 @@ func Bytes(n int64) string {
 	return strconv.FormatFloat(float64(n)/float64(div), 'f', 1, 64) + " " + []string{"KiB", "MiB", "GiB", "TiB", "PiB"}[exp]
 }
 
-// Count renders a row count with thousands separators.
 func Count(n int64) string {
 	s := strconv.FormatInt(n, 10)
 	neg := strings.HasPrefix(s, "-")
@@ -304,9 +284,6 @@ func Count(n int64) string {
 	return b.String()
 }
 
-// RowJSON renders formatted cells as one JSON object, columns in schema
-// order. Nested and JSON values, numbers and booleans keep their JSON form;
-// everything else is a string. Pass untruncated cells.
 func RowJSON(cols []api.PreviewColumn, cells []api.Cell) string {
 	var b strings.Builder
 	b.WriteByte('{')
@@ -341,7 +318,6 @@ func RowJSON(cols []api.PreviewColumn, cells []api.Cell) string {
 	return b.String()
 }
 
-// Age renders a duration coarsely for status text: 45m, 26h, 5d.
 func Age(d time.Duration) string {
 	switch {
 	case d < time.Hour:

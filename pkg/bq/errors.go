@@ -11,24 +11,22 @@ import (
 	"google.golang.org/api/googleapi"
 )
 
-// Kind classifies a BigQuery failure for the retry and fallback logic.
 type Kind int
 
 const (
-	KindOther      Kind = iota
-	KindPermission      // access denied: do not retry, try the next fallback
-	KindNotFound        // object is gone
-	KindTransient       // quota, 5xx, network: retry with backoff
-	KindOverLimit       // bytes-billed cap exceeded: do not retry
-	KindAuth            // credentials missing, expired or refused impersonation
-	KindCancelled       // context cancelled or deadline exceeded by the caller
+	KindOther Kind = iota
+	KindPermission
+	KindNotFound
+	KindTransient
+	KindOverLimit
+	KindAuth
+	KindCancelled
 )
 
 func (k Kind) String() string {
 	return [...]string{"other", "permission", "not_found", "transient", "over_limit", "auth", "cancelled"}[k]
 }
 
-// Error wraps a failure with its classification.
 type Error struct {
 	Kind Kind
 	Op   string
@@ -44,7 +42,6 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error { return e.Err }
 
-// Wrap classifies err (if it is not already classified) and attaches op.
 func Wrap(op string, err error) error {
 	if err == nil {
 		return nil
@@ -62,7 +59,6 @@ func Wrap(op string, err error) error {
 	return &Error{Kind: Classify(err), Op: op, Err: err}
 }
 
-// KindOf returns the classification of err.
 func KindOf(err error) Kind {
 	var be *Error
 	if errors.As(err, &be) {
@@ -71,10 +67,8 @@ func KindOf(err error) Kind {
 	return Classify(err)
 }
 
-// Retryable reports whether the failure is worth retrying.
 func Retryable(err error) bool { return KindOf(err) == KindTransient }
 
-// Classify maps a raw client error to a Kind.
 func Classify(err error) Kind {
 	if err == nil {
 		return KindOther
@@ -86,7 +80,7 @@ func Classify(err error) Kind {
 		return KindTransient
 	}
 	if ImpersonationDenied(err) {
-		return KindAuth // before net.Error: the client wraps it in a *url.Error
+		return KindAuth
 	}
 	reason := ""
 	code := 0

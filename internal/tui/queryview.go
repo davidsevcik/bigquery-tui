@@ -12,14 +12,10 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/runs"
 )
 
-// editorRows is the number of text lines the editor shows: its Pane less
-// the title.
 func (m *Model) editorRows() int {
 	return max(1, m.paneRect(ZoneEditor).h-1)
 }
 
-// gridRows is the number of result rows the grid shows: its Pane less the
-// title, the column header and the status line.
 func (m *Model) gridRows() int {
 	return max(1, m.paneRect(ZoneResults).h-3)
 }
@@ -68,7 +64,6 @@ func (m *Model) elapsed(r api.RunInfo) string {
 	return d.Round(time.Second).String()
 }
 
-// runSummary is the one-line description of a Run's outcome.
 func (m *Model) runSummary(r api.RunInfo) string {
 	parts := []string{fmt.Sprintf("#%d %s", r.ID, stateWord(r))}
 	switch {
@@ -98,8 +93,6 @@ func (m *Model) runSummary(r api.RunInfo) string {
 	return strings.Join(parts, " · ")
 }
 
-// editorPane draws the Editor: its title and the buffer's text. It records
-// where it drew the cursor, relative to the Pane, for the completion popup.
 func (m *Model) editorPane(w, h int) []string {
 	b := m.buf()
 
@@ -155,8 +148,6 @@ func (m *Model) editorPane(w, h int) []string {
 	return fillTo(out, w, h)
 }
 
-// withCompletion draws the completion popup over the composed body, at the
-// Editor's cursor; it may overlap a neighbouring Pane.
 func (m *Model) withCompletion(body []string, ed rect, w int) []string {
 	if !m.comp.open || m.zone != ZoneEditor || m.ov != ovNone {
 		return body
@@ -253,8 +244,6 @@ func (m *Model) resultsPane(w, h int) []string {
 	return fillTo(out, w, h)
 }
 
-// samplePane draws the Sample in the Results pane, titled in the success
-// colour so that a free read never looks like a billed Run.
 func (m *Model) samplePane(w, h int) []string {
 	focused := m.zone == ZoneResults
 	sm := m.sample
@@ -329,8 +318,6 @@ func (m *Model) completionBox(w int) []string {
 	return out
 }
 
-// --- overlays of the query side
-
 func (m *Model) promptBox(bw int) []string {
 	p := &m.prompt
 	inner := bw - 2
@@ -381,9 +368,6 @@ func (m *Model) confirmBox(bw int) []string {
 	return popup("Confirm", lines, bw)
 }
 
-// confirmFooter names what each answer to a Confirm question does, in rows
-// of at most w cells: an answer that does not fit moves to the next row
-// whole, so a narrow box never cuts one off.
 func confirmFooter(kind string, w int) []string {
 	key := func(k, does string) string { return sKey.Render(k) + sDim.Render(does) }
 	yes := map[string]string{
@@ -395,7 +379,6 @@ func confirmFooter(kind string, w int) []string {
 	}[kind]
 	answers := []string{key("y", " / enter  "+yes), key("n", " / esc  cancel")}
 	if kind == "load" {
-		// n opens the pick in a new buffer instead (answerLoad)
 		answers = []string{key("y", " / enter  "+yes), key("n", "  new buffer"), key("esc", "  cancel")}
 	}
 	const gap = "   "
@@ -415,7 +398,6 @@ func confirmFooter(kind string, w int) []string {
 	return append(rows, row)
 }
 
-// runsLines are the run list's rows, the cursor on row sel.
 func (m *Model) runsLines(w, sel int) []string {
 	list := m.runs.List()
 	if len(list) == 0 {
@@ -451,7 +433,6 @@ func (m *Model) runsLines(w, sel int) []string {
 	return out
 }
 
-// buffersLines are the buffer list's rows, the cursor on entry sel.
 func (m *Model) buffersLines(w, sel int) []string {
 	var out []string
 	for i, b := range m.bufs {
@@ -498,7 +479,6 @@ func inferLabel(name, value string) string {
 	return p.Type
 }
 
-// pricingText describes the detected pricing model for the status line.
 func pricingText(p api.PricingModel) string {
 	switch {
 	case !p.Known:

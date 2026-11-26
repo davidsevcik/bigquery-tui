@@ -46,8 +46,6 @@ func nested(name string) api.TableMeta {
 	return t
 }
 
-// strictOrders is acme-prod.sales.orders: partitioned on created_at, and
-// queries must filter on it.
 func strictOrders() api.TableMeta {
 	t := nested("orders")
 	t.RequirePartitionFilter = true
@@ -90,17 +88,10 @@ func fixtureFake() *bqtest.Fake {
 	return f
 }
 
-// rigEditing is the [tui] editing style the next rig is built with. Most
-// tests type straight into the editor, so the default here is "plain"; the vim
-// tests set "vim".
 var rigEditing = "plain"
 
-// rigShards are the shard patterns of the next rig: the fixture's
-// events_YYYYMMDD tables collapse, and so would hex-id families.
 var rigShards = "shard_patterns = ['.+(\\d{8})', '.+_([0-9a-f]{24})(?:_history)?']\n"
 
-// rigTUI is more of the next rig's [tui] table, and rigFake changes its
-// fake before the first sync.
 var (
 	rigTUI  string
 	rigFake func(*bqtest.Fake)
@@ -136,7 +127,6 @@ func newRig(t *testing.T, w, h int) *rig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { eng.Close() })
-	// first sync happened three hours before "now"
 	r.now = testNow.Add(-3 * time.Hour)
 	if err := eng.SelectProjects("acme-prod", "acme-staging"); err != nil {
 		t.Fatal(err)
@@ -163,7 +153,6 @@ func newRig(t *testing.T, w, h int) *rig {
 	return r
 }
 
-// run executes a command and everything it leads to, synchronously.
 func (r *rig) run(cmd tea.Cmd) {
 	r.t.Helper()
 	for depth := 0; cmd != nil; depth++ {
@@ -192,21 +181,16 @@ func (r *rig) send(msg tea.Msg) {
 	r.run(cmd)
 }
 
-// click sends a plain left click at the screen cell (x, y).
 func (r *rig) click(x, y int) {
 	r.t.Helper()
 	r.send(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
 }
 
-// wheel sends one wheel step (tea.MouseWheelUp, Down, Left or Right) at the
-// screen cell (x, y).
 func (r *rig) wheel(x, y int, button tea.MouseButton) {
 	r.t.Helper()
 	r.send(tea.MouseWheelMsg{X: x, Y: y, Button: button})
 }
 
-// center is the middle cell of a drawn Pane, read from the arrangement the
-// model draws.
 func (r *rig) center(z Zone) (int, int) {
 	r.t.Helper()
 	p, ok := r.m.arr().rects[z]
@@ -221,8 +205,6 @@ var special = map[string]rune{
 	"left": tea.KeyLeft, "right": tea.KeyRight, "backspace": tea.KeyBackspace, "f1": tea.KeyF1, "pgdown": tea.KeyPgDown, "pgup": tea.KeyPgUp,
 }
 
-// press sends keys: a name such as "enter", "ctrl+p", "shift+left" or "f1",
-// or literal text (typed rune by rune).
 func (r *rig) press(keys ...string) {
 	r.t.Helper()
 	for _, k := range keys {
@@ -237,7 +219,6 @@ func (r *rig) press(keys ...string) {
 	}
 }
 
-// typeText types text literally; a line break is the enter key.
 func (r *rig) typeText(text string) {
 	r.t.Helper()
 	for _, ch := range text {
@@ -252,7 +233,6 @@ func (r *rig) typeText(text string) {
 	}
 }
 
-// settle waits for every Run to finish and lets the model see the outcome.
 func (r *rig) settle() {
 	r.t.Helper()
 	var ends []runs.Update
@@ -295,7 +275,6 @@ func (r *rig) lacks(not ...string) {
 
 func (r *rig) golden(name string) {
 	r.t.Helper()
-	// every line must be exactly as wide as the terminal
 	for i, l := range r.m.render() {
 		if wd := ansi.StringWidth(l); wd != r.m.w {
 			r.t.Errorf("%s: line %d is %d cells wide, terminal is %d: %q", name, i, wd, r.m.w, ansi.Strip(l))

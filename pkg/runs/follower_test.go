@@ -12,8 +12,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/policy"
 )
 
-// follow loops Wait and Apply the way a frontend does, until the Run has
-// finished, and returns the states that were news.
 func follow(t *testing.T, f *Follower, id int64) []api.RunState {
 	t.Helper()
 	var news []api.RunState
@@ -51,7 +49,6 @@ func TestFollowerReportsEachChangeOnce(t *testing.T) {
 			t.Fatalf("a state is news once: %v", news)
 		}
 	}
-	// a finished Run answers at once, and nothing about it is news any more
 	u, _ := f.Wait(context.Background(), id, nil)
 	if info, isNews := f.Apply(u); isNews || info.State != api.RunDone || info.TotalRows != 3 {
 		t.Fatalf("%+v news %v", info, isNews)
@@ -96,8 +93,8 @@ func TestFollowerMapsTheErrorIntoTheTextItRanFrom(t *testing.T) {
 		bqPos           string
 		line, col, from int
 	}{
-		{"[1:8]", 3, 12, 0}, // the first line of a selection starts at its column
-		{"[2:3]", 4, 3, 0},  // later lines start at column 1
+		{"[1:8]", 3, 12, 0},
+		{"[2:3]", 4, 3, 0},
 	} {
 		r.fake.OnQuery = func(string) bqtest.QueryScript {
 			return bqtest.QueryScript{DryRunErr: bqtest.QueryError("Syntax error: Unexpected end at " + c.bqPos)}
@@ -109,7 +106,6 @@ func TestFollowerMapsTheErrorIntoTheTextItRanFrom(t *testing.T) {
 			t.Fatalf("%s: %+v", c.bqPos, mk)
 		}
 	}
-	// no position, no mark
 	r.fake.OnQuery = func(string) bqtest.QueryScript {
 		return bqtest.QueryScript{DryRunErr: bqtest.QueryError("Access denied")}
 	}
@@ -139,7 +135,6 @@ func TestFollowerConfirmMovesOnAtOnce(t *testing.T) {
 		t.Fatalf("%v", news)
 	}
 
-	// declining is a cancel
 	id = f.Start(context.Background(), Request{SQL: "delete from t where true"}, Origin{})
 	u, _ = f.Wait(context.Background(), id, asks)
 	f.Apply(u)
@@ -159,19 +154,16 @@ func TestFollowerWaitUntil(t *testing.T) {
 	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.Block = block; return s }
 	f := r.m.Follow()
 	id := f.Start(context.Background(), Request{SQL: "select 1"}, Origin{})
-	// the condition may depend on more than the Run: it is checked between changes too
 	u, _ := f.Wait(context.Background(), id, func(i api.RunInfo) bool { return i.Job != nil && r.fake.Held(i.Job.ID) })
 	if u.Info.State != api.RunRunning {
 		t.Fatalf("%+v", u.Info)
 	}
-	// ctx ends the wait with the newest state
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	f.Apply(u)
 	if u, _ := f.Wait(ctx, id, nil); u.Info.State != api.RunRunning {
 		t.Fatalf("%+v", u.Info)
 	}
-	// a finished Run ends the wait whatever the condition says
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
 	id = f.Start(context.Background(), Request{SQL: "select 2"}, Origin{})
 	if u, _ := f.Wait(context.Background(), id, func(api.RunInfo) bool { return false }); u.Info.State != api.RunDone {
@@ -188,7 +180,7 @@ func TestFollowerUnknownRun(t *testing.T) {
 	if _, err := f.Outcome(context.Background(), 42); !errors.Is(err, ErrUnknownRun) {
 		t.Fatalf("%v", err)
 	}
-	f.Confirm(42) // no-ops
+	f.Confirm(42)
 	f.Cancel(42)
 }
 
@@ -221,7 +213,6 @@ func TestFollowerOutcome(t *testing.T) {
 		t.Fatalf("a failure is a *QueryFailure: %v", err)
 	}
 
-	// the caller giving up cancels the Run and its job
 	block := make(chan struct{})
 	defer close(block)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { s := bqtest.Numbers(1); s.Block = block; return s }

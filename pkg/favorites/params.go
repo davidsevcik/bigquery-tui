@@ -12,19 +12,12 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
-// Query is the query that runs: the body (a selection, or the whole text)
-// typed by the Favorite header the text carries. The TUI reads the header
-// from the whole buffer, so a selection still gets typed parameters.
 func Query(text, body string) api.Favorite {
 	f := Parse(text)
 	f.SQL = body
 	return f
 }
 
-// Schema is the parameter schema of a query: the parameters the body uses,
-// in order of first use, typed by the header declarations. A parameter used
-// but not declared has no type (its type is guessed from the value); a
-// declared one the body does not use is left out (BigQuery would refuse it).
 func Schema(f api.Favorite) []api.ParamSpec {
 	decl := map[string]api.ParamSpec{}
 	for _, p := range f.Params {
@@ -42,37 +35,23 @@ func Schema(f api.Favorite) []api.ParamSpec {
 	return out
 }
 
-// Values are the parameter values a frontend collected. How they were
-// collected (Given or Prompted) says what an empty value means.
 type Values struct {
 	m        map[string]string
 	prompted bool
 }
 
-// Given are values passed by name (`--param name=value`, an MCP tool's
-// params): a default fills only a missing value, and a value given empty
-// stays empty (spec 14).
 func Given(values map[string]string) Values { return Values{m: values} }
 
-// Prompted are the answers to a prompt that asked for every parameter: an
-// empty answer takes the default (spec 11).
 func Prompted(values map[string]string) Values { return Values{m: values, prompted: true} }
 
-// ParamError is a value that does not fit its parameter.
 type ParamError struct {
-	Name string // the parameter, as the query spells it
+	Name string
 	Err  error
 }
 
 func (e *ParamError) Error() string { return e.Err.Error() }
 func (e *ParamError) Unwrap() error { return e.Err }
 
-// Bind binds the values to the parameters the query uses, in schema order.
-// A declared type is checked; an undeclared one is guessed from the value (a
-// TYPE: prefix forces it); "null" is NULL for every type. Names ignore case.
-// Errors: two names that differ only in case, a value for a parameter the
-// query does not use, a parameter with neither a value nor a default, and a
-// value that does not fit its type (a *ParamError).
 func Bind(q api.Favorite, v Values) ([]api.QueryParam, error) {
 	seen := map[string]string{}
 	for k := range v.m {
@@ -93,14 +72,13 @@ func Bind(q api.Favorite, v Values) ([]api.QueryParam, error) {
 		used[strings.ToLower(s.Name)] = true
 		val, ok := lookupFold(v.m, s.Name)
 		if v.prompted && strings.TrimSpace(val) == "" {
-			ok = false // an empty answer is no answer
+			ok = false
 		}
 		switch {
 		case ok:
 		case s.Default != nil:
 			val = *s.Default
 		case v.prompted:
-			// asked and left empty, with no default: bind it empty
 		default:
 			missing = append(missing, "@"+s.Name)
 			continue
@@ -139,10 +117,6 @@ func lookupFold(m map[string]string, name string) (string, bool) {
 	return "", false
 }
 
-// Remembered turns the parameters a Run ran with back into the values a
-// prompt shows, so the query runs again as it did: NULL as "null", and a
-// typed value with its type as a prefix ("DATE:2024-01-01"), which Bind
-// reads back under a declared or a guessed type.
 func Remembered(params []api.QueryParam) map[string]string {
 	out := map[string]string{}
 	for _, p := range params {
@@ -155,7 +129,6 @@ func Remembered(params []api.QueryParam) map[string]string {
 	return out
 }
 
-// valueText is a parameter's value as text that binds back to it.
 func valueText(p api.QueryParam) string {
 	if p.Null {
 		return "null"
@@ -163,13 +136,10 @@ func valueText(p api.QueryParam) string {
 	return p.Value
 }
 
-// bindValue turns one value into a query parameter of its spec.
 func bindValue(p api.ParamSpec, v string) (api.QueryParam, error) {
 	if p.Type == "" {
 		return sqlx.InferParam(p.Name, v), nil
 	}
-	// a remembered value may carry the type as a prefix (History keeps
-	// "DATE:2024-01-01"); the declared type makes it redundant
 	if pre, rest, ok := strings.Cut(v, ":"); ok && strings.EqualFold(strings.TrimSpace(pre), p.Type) {
 		v = strings.TrimPrefix(rest, " ")
 	}

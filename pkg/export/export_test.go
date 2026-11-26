@@ -33,7 +33,6 @@ func rows(n int) [][]any {
 	return out
 }
 
-// paged serves the rows in pages of 2.
 func paged(all [][]any) Next {
 	return func(_ context.Context, start int64) ([][]any, error) {
 		if start >= int64(len(all)) {

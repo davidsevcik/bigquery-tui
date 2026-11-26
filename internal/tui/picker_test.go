@@ -14,10 +14,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/favorites"
 )
 
-// The params prompt binds a Favorite as `bqt favorites run` and the MCP
-// tools do (favorites.Bind with the values given): the same values give
-// the same parameters, and an answer left empty is what a value left out is
-// on the CLI (spec 11: it takes the default).
 func TestParamsPromptBindsLikeTheCLI(t *testing.T) {
 	r := editorRig(t, 120, 36)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
@@ -73,7 +69,6 @@ func (r *rig) writeFav(id, text string) {
 	}
 }
 
-// runSQL replaces the buffer's text and runs it (plain editing).
 func (r *rig) runSQL(sql string) {
 	r.t.Helper()
 	r.press("ctrl+x", "h")
@@ -94,7 +89,7 @@ func TestHistoryPickerSearchesLoadsAndShowsResults(t *testing.T) {
 	r.press("enter")
 	r.runSQL("select broken")
 	r.runSQL("select  n from orders where d = @d")
-	r.press("enter") // the remembered value
+	r.press("enter")
 
 	r.press("ctrl+x", "r")
 	if r.m.ov != ovPicker || r.m.pk.scope != scopeHistory {
@@ -114,7 +109,6 @@ func TestHistoryPickerSearchesLoadsAndShowsResults(t *testing.T) {
 	if len(r.m.pk.hist) != 1 {
 		t.Fatal("the term matches the SQL")
 	}
-	// show the result again: a new Run, not recorded twice
 	before := historyCount(t, r)
 	r.press("ctrl+r")
 	if r.m.zone != ZoneResults || r.m.grid() == nil || r.m.grid().total != 7 {
@@ -123,7 +117,6 @@ func TestHistoryPickerSearchesLoadsAndShowsResults(t *testing.T) {
 	if historyCount(t, r) != before {
 		t.Fatal("reopening is not a new History entry")
 	}
-	// load the SQL into the editor: the buffer has text, so it asks
 	r.press("ctrl+x", "r")
 	if r.m.pk.in.value() != "orders" {
 		t.Fatal("the search survives closing the picker")
@@ -133,15 +126,14 @@ func TestHistoryPickerSearchesLoadsAndShowsResults(t *testing.T) {
 		t.Fatal("unsaved text: asks first")
 	}
 	r.contains("Replace the text of query 1")
-	r.press("n") // into a new buffer
+	r.press("n")
 	if len(r.m.bufs) != 2 || r.text() != "select  n from orders where d = @d" || r.m.buf().params["d"] != "DATE:2024-01-01" {
 		t.Fatalf("%d buffers, %q, %v", len(r.m.bufs), r.text(), r.m.buf().params)
 	}
-	r.press("ctrl+x", "r", "enter", "y") // replace this one
+	r.press("ctrl+x", "r", "enter", "y")
 	if len(r.m.bufs) != 2 || r.m.cur != 1 {
 		t.Fatalf("replaced in place: %d buffers, cur %d", len(r.m.bufs), r.m.cur)
 	}
-	// a failed run has no result to show
 	r.press("ctrl+x", "r")
 	for range "orders" {
 		r.press("backspace")
@@ -180,7 +172,6 @@ func TestSaveBufferAsFavoriteAndTypedParameters(t *testing.T) {
 	if _, err := os.Stat(r.m.draftPath(b.id)); !os.IsNotExist(err) {
 		t.Fatal("no draft for a file buffer")
 	}
-	// running it: the header types @start, @x is guessed
 	r.press("ctrl+r")
 	if r.m.ov != ovPrompt || r.m.prompt.fields[0].value() != "2024-01-01" {
 		t.Fatalf("the default is prefilled: %+v", r.m.prompt)
@@ -207,7 +198,6 @@ func TestSaveBufferAsFavoriteAndTypedParameters(t *testing.T) {
 	if page.Groups[0].Latest.FavoritePath != "sales/daily.sql" {
 		t.Fatalf("the Run carries its favorite: %+v", page.Groups[0].Latest)
 	}
-	// saving again under the same name overwrites without asking
 	r.press("ctrl+x", "s")
 	if r.m.prompt.fields[0].value() != "sales/daily" || r.m.prompt.fields[2].value() != "sales, daily" {
 		t.Fatal("prefilled from the favorite")
@@ -219,7 +209,6 @@ func TestSaveBufferAsFavoriteAndTypedParameters(t *testing.T) {
 	if r.m.ov != ovNone {
 		t.Fatal(r.m.prompt.note)
 	}
-	// another name that exists asks once
 	r.writeFav("taken.sql", "select 0\n")
 	r.press("ctrl+x", "s", "ctrl+u")
 	r.typeText("taken")
@@ -249,13 +238,12 @@ func TestFavoritesPickerOpenRenameDeleteAndPromote(t *testing.T) {
 	if len(r.m.pk.fm) != 1 {
 		t.Fatal("filtered")
 	}
-	r.press("enter") // the buffer is empty: no question
+	r.press("enter")
 	if r.m.ov != ovNone || len(r.m.bufs) != 1 || !strings.HasSuffix(r.m.buf().path, filepath.Join("events", "dau.sql")) || r.m.zone != ZoneEditor {
 		t.Fatalf("%d buffers, %q", len(r.m.bufs), r.m.buf().path)
 	}
 	r.press("ctrl+x", "f", "enter")
 	r.contains("is already open")
-	// rename: the open buffer follows
 	r.press("ctrl+x", "f", "ctrl+r", "ctrl+u")
 	r.typeText("metrics/dau")
 	r.press("enter")
@@ -265,7 +253,6 @@ func TestFavoritesPickerOpenRenameDeleteAndPromote(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(r.favDir(), "events")); !os.IsNotExist(err) {
 		t.Fatal("the empty folder is gone")
 	}
-	// delete asks; n keeps it
 	r.press("ctrl+d")
 	r.contains("Delete the favorite metrics/dau.sql?")
 	r.press("n")
@@ -277,7 +264,6 @@ func TestFavoritesPickerOpenRenameDeleteAndPromote(t *testing.T) {
 		t.Fatal("deleted")
 	}
 	r.press("esc")
-	// promote a History entry
 	r.press("ctrl+x", "n")
 	r.runSQL("select @k")
 	r.typeText("7")
@@ -312,7 +298,7 @@ func TestPickerOpensFromVimAndExplorer(t *testing.T) {
 	if r.m.ov != ovPicker || r.m.pk.scope != scopeHistory {
 		t.Fatal("space h")
 	}
-	r.typeText("q?") // letters type into the search
+	r.typeText("q?")
 	if r.m.pk.in.value() != "q?" || r.m.ov != ovPicker {
 		t.Fatal("printable keys are search text")
 	}
@@ -323,8 +309,6 @@ func TestPickerOpensFromVimAndExplorer(t *testing.T) {
 	r.golden("picker_empty_100x30")
 }
 
-// Codex review 4, finding 3: a reload of favorites_dir while the delete
-// question is open does not delete a same-named file in the new directory.
 func TestFavoriteDeleteIsBoundToTheShownFile(t *testing.T) {
 	r := editorRig(t, 120, 36)
 	r.writeFav("q.sql", "select 1\n")
@@ -349,8 +333,6 @@ func TestFavoriteDeleteIsBoundToTheShownFile(t *testing.T) {
 	}
 }
 
-// Codex review 4, finding 4: a History entry of a Favorite (typed header)
-// loads and runs again with its values.
 func TestHistoryEntryWithTypedHeaderRunsAgain(t *testing.T) {
 	r := editorRig(t, 120, 36)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1) }
@@ -370,7 +352,6 @@ func TestHistoryEntryWithTypedHeaderRunsAgain(t *testing.T) {
 	}
 }
 
-// Codex review 4, finding 8: a later page skips groups already listed.
 func TestHistoryPagesSkipGroupsAlreadyShown(t *testing.T) {
 	r := editorRig(t, 100, 30)
 	r.press("ctrl+x", "r")
@@ -382,8 +363,6 @@ func TestHistoryPagesSkipGroupsAlreadyShown(t *testing.T) {
 	}
 }
 
-// Each Confirm question names what y does: a favorite delete deletes, a
-// pick over a modified buffer replaces its text (n opens a new buffer).
 func TestConfirmFooterNamesTheAction(t *testing.T) {
 	r := editorRig(t, 60, 30)
 	r.writeFav("dau.sql", "select 1\n")
@@ -406,8 +385,6 @@ func TestConfirmFooterNamesTheAction(t *testing.T) {
 	}
 }
 
-// At the narrowest box (30 columns, 28 inside) every answer stays whole:
-// the footer wraps by answer instead of cutting the last one off.
 func TestConfirmFooterWrapsInANarrowBox(t *testing.T) {
 	for _, kind := range []string{"run", "quit", "closebuf", "favdelete", "load"} {
 		for _, w := range []int{28, 40, 50} {
@@ -436,9 +413,6 @@ func TestConfirmFooterWrapsInANarrowBox(t *testing.T) {
 	r.contains("y / enter  replace", "n  new buffer", "esc  cancel")
 }
 
-// Tabs in a favorite's or History entry's text never reach the terminal,
-// and every line stays as wide as the terminal at 60 (stacked) and 120
-// (side by side) columns.
 func TestPickerHasNoTabsAtAnyWidth(t *testing.T) {
 	for _, w := range []int{60, 120} {
 		r := editorRig(t, w, 30)

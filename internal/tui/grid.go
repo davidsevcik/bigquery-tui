@@ -24,16 +24,11 @@ const (
 
 var gridFormat = format.Options{MaxChars: gridCellChar, ArraySummary: true}
 
-// rowSource reads n formatted rows from start: a Run's result (RunRows) or a
-// table's rows (Preview, the Sample).
 type rowSource func(ctx context.Context, start int64, n int, o format.Options) (api.PreviewPage, error)
 
-// grid is the results viewer of a Run or of the Sample: a window over pages
-// read through its row source, with a cell cursor. It never sorts or
-// filters; the rows are as BigQuery returned them.
 type grid struct {
-	run   int64  // the Run (0 for the Sample)
-	name  string // what the record view calls it
+	run   int64
+	name  string
 	src   rowSource
 	cols  []api.PreviewColumn
 	total int64
@@ -54,8 +49,6 @@ type grid struct {
 	find string
 }
 
-// pageMsg is a page read for a grid; it is dropped when the grid is no
-// longer kept (a replaced Sample, a dropped Run grid).
 type pageMsg struct {
 	g     *grid
 	start int64
@@ -70,7 +63,6 @@ func newGrid(name string, cols []api.PreviewColumn, total int64, src rowSource) 
 	}
 }
 
-// runGrid is the grid of a Run's result.
 func (m *Model) runGrid(info api.RunInfo) *grid {
 	id := info.ID
 	g := newGrid(fmt.Sprintf("run #%d", id), info.Columns, info.TotalRows, func(ctx context.Context, start int64, n int, o format.Options) (api.PreviewPage, error) {
@@ -82,7 +74,6 @@ func (m *Model) runGrid(info api.RunInfo) *grid {
 
 func pageOf(row int64) int64 { return row - row%gridPage }
 
-// cells returns a loaded row, or nil while its page is not loaded.
 func (g *grid) cells(row int64) []api.Cell {
 	p, ok := g.pages[pageOf(row)]
 	if !ok {
@@ -121,7 +112,6 @@ func shortType(c api.PreviewColumn) string {
 	return t
 }
 
-// measure sets the column widths from the first loaded page.
 func (g *grid) measure(rows [][]api.Cell) {
 	g.widths = make([]int, len(g.cols))
 	for i, c := range g.cols {
@@ -145,7 +135,6 @@ func (g *grid) shownCols() []int {
 	return out
 }
 
-// moveCol moves the cell cursor by d visible columns.
 func (g *grid) moveCol(d int) {
 	shown := g.shownCols()
 	if len(shown) == 0 {
@@ -164,8 +153,6 @@ func (g *grid) moveRow(d int64) {
 	g.row = max(0, min(g.row+d, g.total-1))
 }
 
-// layout picks the columns that fit in w cells: the frozen first column, then
-// whole columns from leftCol on, scrolled so the cursor column is visible.
 func (g *grid) layout(w int) []int {
 	shown := g.shownCols()
 	if len(shown) == 0 || len(g.widths) != len(g.cols) {
@@ -206,7 +193,6 @@ func (g *grid) layout(w int) []int {
 		if has || g.leftCol >= g.col {
 			return out
 		}
-		// scroll right by one whole column
 		next := g.col
 		for _, c := range shown {
 			if c > g.leftCol {
@@ -218,16 +204,12 @@ func (g *grid) layout(w int) []int {
 	}
 }
 
-// need returns the page starts the window [top, top+h) spans that are
-// neither loaded nor loading.
 func (g *grid) need(h int) []int64 {
 	var out []int64
 	if g.total == 0 {
 		return nil
 	}
-	// Scroll first: after a jump (G) the window is where the cursor is, not
-	// where it was, and only that window is fetched: at most three pages,
-	// never the pages in between.
+	// ADR-0011
 	g.scroll(h)
 	last := min(g.top+int64(max(h, 1))-1, g.total-1)
 	for _, p := range []int64{pageOf(g.top), pageOf(last), pageOf(g.row)} {
@@ -251,7 +233,6 @@ func (g *grid) store(start int64, rows [][]api.Cell) {
 	if g.widths == nil {
 		g.measure(rows)
 	}
-	// keep the pages nearest the cursor
 	for len(g.pages) > gridPages {
 		var far int64 = -1
 		var dist int64 = -1
@@ -268,7 +249,6 @@ func (g *grid) store(start int64, rows [][]api.Cell) {
 	}
 }
 
-// scroll keeps the cursor row inside h visible rows.
 func (g *grid) scroll(h int) {
 	if h < 1 {
 		h = 1
@@ -282,9 +262,6 @@ func (g *grid) scroll(h int) {
 	g.top = max(0, min(g.top, max(0, g.total-int64(h))))
 }
 
-// search finds the next (dir 1) or previous (dir -1) cell containing the find
-// text in the loaded pages, starting after the cursor. It reports the number
-// of matching cells in the loaded pages.
 func (g *grid) search(dir int) (found bool, hits int) {
 	q := strings.ToLower(g.find)
 	if q == "" {
@@ -335,7 +312,6 @@ func (g *grid) search(dir int) (found bool, hits int) {
 	return true, len(all)
 }
 
-// view draws the header and the rows into w x h cells.
 func (g *grid) view(w, h int, focused bool) []string {
 	if h < 2 {
 		return fillTo(nil, w, h)
@@ -413,10 +389,6 @@ func (g *grid) view(w, h int, focused bool) []string {
 	return fillTo(out, w, h)
 }
 
-// --- model side
-
-// grid is the grid the Results pane shows: the Sample's while it is shown,
-// else the buffer's Run's.
 func (m *Model) grid() *grid {
 	if m.sampleShown() {
 		return m.sample.g
@@ -427,7 +399,6 @@ func (m *Model) grid() *grid {
 	return m.grids[m.buf().viewID]
 }
 
-// kept reports whether the model still holds g (pages for others are dropped).
 func (m *Model) kept(g *grid) bool {
 	if m.sample != nil && m.sample.g == g {
 		return true
@@ -435,7 +406,6 @@ func (m *Model) kept(g *grid) bool {
 	return g.run != 0 && m.grids[g.run] == g
 }
 
-// shownRun is the Run the results pane shows.
 func (m *Model) shownRun() (api.RunInfo, bool) {
 	if len(m.bufs) == 0 {
 		return api.RunInfo{}, false
@@ -452,7 +422,6 @@ func (m *Model) fetchPage(g *grid, start int64) tea.Cmd {
 	}
 }
 
-// gridEnsure loads the pages the visible window needs.
 func (m *Model) gridEnsure() tea.Cmd {
 	g := m.grid()
 	if g == nil {
@@ -468,8 +437,6 @@ func (m *Model) gridEnsure() tea.Cmd {
 func (m *Model) onPage(msg pageMsg) {
 	g := msg.g
 	if !m.kept(g) {
-		// not shown now, but it may be again (a Sample restored after the
-		// next one failed): it must not wait for this page for ever
 		delete(g.loading, msg.start)
 		return
 	}
@@ -483,11 +450,8 @@ func (m *Model) onPage(msg pageMsg) {
 	g.store(msg.start, msg.page.Rows)
 }
 
-// maxGrids bounds the result grids kept in memory. A grid that was dropped is
-// rebuilt from the Run when its result is opened again.
 const maxGrids = 8
 
-// trimGrids drops the grids no buffer shows, oldest Run first, down to maxGrids.
 func (m *Model) trimGrids() {
 	shown := map[int64]bool{}
 	for _, b := range m.bufs {

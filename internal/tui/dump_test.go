@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// TestDump prints screens for eyeballing: DUMP=1 go test ./internal/tui -run TestDump -v
 func TestDump(t *testing.T) {
 	if os.Getenv("DUMP") == "" {
 		t.Skip("set DUMP=1")

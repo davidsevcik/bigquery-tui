@@ -12,7 +12,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
-// synthetic builds the spec's target catalog: 50k tables, 1.3M field paths.
 func synthetic() (*Searcher, int) {
 	snap := bqtest.Synthetic(bqtest.SyntheticSpec{Project: "acme-prod", Location: "EU", Datasets: 500, TablesPerDataset: 100, ColumnsPerTable: 20, NestedPerTable: 5})
 	idx := &store.IndexSnapshot{Projects: []string{"acme-prod"}}
@@ -55,8 +54,6 @@ func measure(t *testing.T, s *Searcher, queries []string, rounds int) (p50, p95,
 	})
 }
 
-// filterScopes are the Explorer filter's two shapes: the whole tree, and one
-// Miller column (a dataset's tables).
 var filterScopes = []api.FilterOptions{
 	{},
 	{Scope: &api.ObjectPath{Project: "acme-prod", Dataset: "dataset_0042"}, Kinds: []api.ResultKind{api.KindTable, api.KindShards}},
@@ -93,11 +90,6 @@ func measureFn(t *testing.T, queries []string, rounds int, run func(string) erro
 	return percentile(all, 0.5), percentile(all, 0.95), worst, slowest
 }
 
-// TestSearchLatencySmoke is the CI guard: at the target catalog size a
-// keystroke must stay well under 5x the 30 ms budget. It catches
-// order-of-magnitude regressions without being flaky on slow runners.
-// The race detector slows the search path several times over, so CI runs
-// this in its own step without -race.
 func TestSearchLatencySmoke(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds a 50k-table catalog")
@@ -111,13 +103,11 @@ func TestSearchLatencySmoke(t *testing.T) {
 		t.Fatalf("p95 %s exceeds the 150 ms guard (worst %s on %q)", p95, worst, slowest)
 	}
 	_, p95, worst, slowest = measureFilter(t, s, benchQueries, 3)
-	if p95 > 2*150*time.Millisecond { // two filter queries per round: tree and column
+	if p95 > 2*150*time.Millisecond {
 		t.Fatalf("filter p95 %s exceeds the 300 ms guard (worst %s on %q)", p95, worst, slowest)
 	}
 }
 
-// TestSearchLatencyReport prints the numbers behind the 30 ms budget.
-// Run: BQT_SCALE=1 go test ./pkg/search -run LatencyReport -v
 func TestSearchLatencyReport(t *testing.T) {
 	if os.Getenv("BQT_SCALE") == "" {
 		t.Skip("set BQT_SCALE=1")

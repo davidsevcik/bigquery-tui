@@ -9,9 +9,6 @@ import (
 	"strings"
 )
 
-// extractAPI returns the exported declarations of one package and the first
-// sentence of its package comment. files must be parsed with fset and with
-// comments.
 func extractAPI(fset *token.FileSet, files []*ast.File, importPath string) (API, string, error) {
 	pkg, err := doc.NewFromFiles(fset, files, importPath)
 	if err != nil {
@@ -46,7 +43,6 @@ func extractAPI(fset *token.FileSet, files []*ast.File, importPath string) (API,
 	return api, pkg.Synopsis(pkg.Doc), nil
 }
 
-// emptyAPI has non-nil lists, so they serialize as [] rather than null.
 func emptyAPI() API {
 	return API{Types: []TypeDoc{}, Funcs: []Symbol{}, Consts: []Symbol{}, Vars: []Symbol{}}
 }
@@ -87,8 +83,6 @@ func typeSymbol(fset *token.FileSet, pkg *doc.Package, t *doc.Type) Symbol {
 	return Symbol{Name: t.Name, Kind: kind, Sig: printNode(fset, &decl), Doc: pkg.Synopsis(t.Doc)}
 }
 
-// printNode prints a declaration without comments, indented with spaces.
-// go/printer notes fields that go/doc filtered out.
 func printNode(fset *token.FileSet, node ast.Node) string {
 	var buf bytes.Buffer
 	cfg := printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}

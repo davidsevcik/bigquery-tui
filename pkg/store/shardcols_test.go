@@ -22,7 +22,7 @@ func TestPatternFamilyAndSchemaMarksRoundTrip(t *testing.T) {
 	if err != nil || len(tabs) != 2 {
 		t.Fatalf("%v %v", tabs, err)
 	}
-	got := tabs[0] // orders_a_history sorts first
+	got := tabs[0]
 	if got.Shard == nil || *got.Shard != *fam || !got.SharedSchema || got.OwnSchema {
 		t.Fatalf("%+v %+v", got, got.Shard)
 	}
@@ -34,7 +34,6 @@ func TestPatternFamilyAndSchemaMarksRoundTrip(t *testing.T) {
 		t.Fatalf("TableByID: %+v", byID)
 	}
 
-	// gs on the member: its own row and columns, marked
 	own := table("d1", "orders_a_history", "id", "extra")
 	if err := c.ApplyTable(ctx, "p", own, true); err != nil {
 		t.Fatal(err)
@@ -51,7 +50,6 @@ func TestPatternFamilyAndSchemaMarksRoundTrip(t *testing.T) {
 		t.Fatalf("another unit: %v", m)
 	}
 
-	// an unchanged table still takes the new marks
 	own.Shard, own.OwnSchema = fam, true
 	st := apply(t, c, unit("p", "EU"), t0.Add(time.Hour), dsApply("d1", "EU", newest, own))
 	if st.TablesUnchanged != 2 {
@@ -76,8 +74,6 @@ func TestPatternFamilyAndSchemaMarksRoundTrip(t *testing.T) {
 	}
 }
 
-// legacyCatalog is a catalog an older bqt wrote: the built-in date rule put
-// events_* in a family, with only prefix, first, last and count.
 func legacyCatalog(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "catalog.db")
@@ -132,7 +128,6 @@ func TestALegacyFamilyReadsAsADateFamily(t *testing.T) {
 		t.Fatal("the added columns are added in place")
 	}
 	check(w)
-	// once a sync stores the families with names, nothing is legacy
 	fam := &api.ShardFamily{Name: "events_YYYYMMDD", Prefix: "events_", Date: true, First: "20240101", Last: "20240102", Count: 2, Newest: "events_20240102"}
 	a, b := table("d1", "events_20240101", "x"), table("d1", "events_20240102", "x")
 	a.Shard, b.Shard = fam, fam
@@ -142,9 +137,6 @@ func TestALegacyFamilyReadsAsADateFamily(t *testing.T) {
 	}
 }
 
-// A family is stale when its newest shard is gone from the catalog, or when
-// an older bqt (which neither writes nor updates the family columns) added a
-// row next to this version's: what an older writer leaves behind.
 func TestStaleFamilies(t *testing.T) {
 	setup := func(t *testing.T) *Catalog {
 		c := openTemp(t)
@@ -168,7 +160,6 @@ func TestStaleFamilies(t *testing.T) {
 	})
 	t.Run("an older writer's row", func(t *testing.T) {
 		c := setup(t)
-		// the old date rule's columns only, as an older bqt inserts them
 		if _, err := c.db.Exec(`UPDATE tables SET shard_name='', shard_newest='', shard_prefix='customers_', shard_first='20240101', shard_last='20240101', shard_count=1 WHERE name = 'customers'`); err != nil {
 			t.Fatal(err)
 		}
@@ -178,9 +169,6 @@ func TestStaleFamilies(t *testing.T) {
 	})
 }
 
-// Old-rule rows in a dataset without this version's families are not stale,
-// and checking them stays linear (a per-row scan of the dataset made a
-// 20,000-member family take minutes).
 func TestStaleFamiliesIsLinearInOldRows(t *testing.T) {
 	c := openTemp(t)
 	apply(t, c, unit("p", "EU"), t0, dsApply("d1", "EU", table("d1", "seed", "id")))

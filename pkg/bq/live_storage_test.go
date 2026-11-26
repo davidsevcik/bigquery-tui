@@ -19,19 +19,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 )
 
-// The Storage Read API checks of spec section 17. They read no tables:
-//
-//	BQT_LIVE_EXECUTION_PROJECT=... [BQT_LIVE_PROJECT=...] [BQT_LIVE_LOCATION=US] \
-//	  go test -tags live ./pkg/bq -run TestLiveStorageRead -v
-//
-// With BQT_LIVE_PROJECT set, the region of that project with the most
-// datasets is also snapshotted both ways and the timings are logged.
-// TestLiveStorageReadFallback needs BQT_LIVE_NO_READ_SESSION_PROJECT: an
-// Execution project where the credentials lack bigquery.readsessions.create
-// (or where the BigQuery Storage API is disabled).
-
-// manyRows is a query whose result spans several REST pages, so the Go client
-// reads it through a read session. It scans no table.
 const manyRows = "SELECT n, CONCAT('row-', CAST(n AS STRING)) AS s FROM UNNEST(GENERATE_ARRAY(1, 500000)) AS n"
 
 func liveLocation() string {
@@ -66,7 +53,6 @@ func liveRows(t *testing.T, ctx context.Context, c *Client) ([]string, string) {
 	return rows, read
 }
 
-// TestLiveStorageReadMatchesREST reads the same result both ways.
 func TestLiveStorageReadMatchesREST(t *testing.T) {
 	exec := os.Getenv("BQT_LIVE_EXECUTION_PROJECT")
 	if exec == "" {
@@ -121,11 +107,6 @@ func TestLiveStorageReadMatchesREST(t *testing.T) {
 		tables *api.Snapshot
 		cols   []TableColumns
 	}
-	// Both phases of a region unit; with no column filter, phase 2 reads
-	// every table's columns. Where the region views are refused, one
-	// dataset's views (BQT_LIVE_STORAGE_DATASET, or the location's first),
-	// as sync falls back to. BQT_LIVE_SHARD_PATTERN, when set, filters phase
-	// 2 as a shard pattern would, so its WHERE precedes readInOrder.
 	filter := ColumnFilter{}
 	if pat := os.Getenv("BQT_LIVE_SHARD_PATTERN"); pat != "" {
 		filter.Pattern, filter.Keep = "^(?:"+pat+")$", []string{}
@@ -162,8 +143,6 @@ func TestLiveStorageReadMatchesREST(t *testing.T) {
 	}
 	a, tookA := snapshot(storage)
 	b, tookB := snapshot(rest)
-	// Tables come in no fixed order; each table's columns must match exactly,
-	// in order (nested ordinals depend on it).
 	for _, u := range []unit{a, b} {
 		slices.SortFunc(u.tables.Tables, func(x, y api.TableMeta) int {
 			return strings.Compare(x.Dataset+"."+x.Name, y.Dataset+"."+y.Name)
@@ -184,8 +163,6 @@ func TestLiveStorageReadMatchesREST(t *testing.T) {
 		proj, loc, len(req.Datasets), len(a.tables.Tables), cols, tookA.Round(time.Millisecond), tookB.Round(time.Millisecond))
 }
 
-// TestLiveStorageReadFallback checks the fallback on an Execution project
-// where read sessions are refused.
 func TestLiveStorageReadFallback(t *testing.T) {
 	exec := os.Getenv("BQT_LIVE_NO_READ_SESSION_PROJECT")
 	if exec == "" {

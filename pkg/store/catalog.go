@@ -13,19 +13,10 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 )
 
-// CatalogSchemaVersion is the catalog.db schema version. The catalog has no
-// migrations: a mismatch deletes and recreates the file (ticket 06). A column
-// with a default is added in place instead (addedColumns), without a version
-// change, so that older bqt binaries sharing the file keep working.
 const CatalogSchemaVersion = 3
 
-// addedColumns are the columns added to the schema after its version: the
-// writer open adds any an existing file lacks, and the read-only open reads
-// a missing one as its default. Older binaries name their columns, so they
-// never see these.
 var addedColumns = []struct{ table, column, decl, def string }{
 	{"tables", "require_partition_filter", "INTEGER NOT NULL DEFAULT 0", "0"},
-	// shard families from shard_patterns (spec section 8.3)
 	{"tables", "shard_name", "TEXT NOT NULL DEFAULT ''", "''"},
 	{"tables", "shard_suffix", "TEXT NOT NULL DEFAULT ''", "''"},
 	{"tables", "shard_date", "INTEGER NOT NULL DEFAULT 0", "0"},
@@ -117,28 +108,18 @@ CREATE TABLE sync_units (
 );
 `
 
-// ErrNoCatalog is returned when a read-only open finds no catalog.
 var ErrNoCatalog = errors.New("no catalog yet (run `bqt sync`)")
 
-// Catalog is the metadata index.
 type Catalog struct {
 	db        *sql.DB
 	path      string
 	readOnly  bool
 	recreated string
-	// missing lists the added tables columns a read-only file predates:
-	// the readers select their defaults instead (see tcol).
-	missing map[string]bool
-	// trim retries a WAL truncation that a reader blocked (trimWAL).
-	trim walTrimmer
+	missing   map[string]bool
+	trim      walTrimmer
 }
 
-// OpenCatalog opens (creating if needed) the catalog for writing. A schema
-// version mismatch or a corrupt file recreates it; Recreated reports why.
 func OpenCatalog(path string) (*Catalog, error) {
-	// Creating or recreating the file must not interleave with another
-	// process doing the same (two first launches at once), so the whole
-	// check-and-create sequence runs under a blocking init lock.
 	unlock, err := lockBlocking(path + ".init.lock")
 	if err != nil {
 		return nil, err
@@ -162,7 +143,6 @@ func OpenCatalog(path string) (*Catalog, error) {
 				}
 				return &Catalog{db: db, path: path}, nil
 			case v == 0:
-				// empty file: fall through to create
 			default:
 				reason = fmt.Sprintf("catalog schema changed (v%d to v%d) and has been recreated", v, CatalogSchemaVersion)
 			}
@@ -188,7 +168,6 @@ func OpenCatalog(path string) (*Catalog, error) {
 	return c, nil
 }
 
-// OpenCatalogReadOnly opens an existing catalog without ever modifying it.
 func OpenCatalogReadOnly(path string) (*Catalog, error) {
 	if !fileExists(path) {
 		return nil, ErrNoCatalog
@@ -216,14 +195,12 @@ func OpenCatalogReadOnly(path string) (*Catalog, error) {
 			if c.missing == nil {
 				c.missing = map[string]bool{}
 			}
-			c.missing[a.column] = true // written before the column: read its default
+			c.missing[a.column] = true
 		}
 	}
 	return c, nil
 }
 
-// addMissingColumns adds the columns an existing file lacks, keeping its data.
-// The caller holds the init lock.
 func addMissingColumns(db *sql.DB) error {
 	for _, a := range addedColumns {
 		has, err := hasColumn(db, a.table, a.column)
@@ -273,22 +250,17 @@ func (c *Catalog) create() error {
 	return tx.Commit()
 }
 
-// Recreated is non-empty when the file was recreated on open.
 func (c *Catalog) Recreated() string { return c.recreated }
 
-// Path returns the file path.
 func (c *Catalog) Path() string { return c.path }
 
-// DB exposes the handle for search and completion (later phases).
 func (c *Catalog) DB() *sql.DB { return c.db }
 
-// Close closes the database.
 func (c *Catalog) Close() error {
 	c.trim.stop()
 	return c.db.Close()
 }
 
-// Meta reads a meta value.
 func (c *Catalog) Meta(ctx context.Context, key string) (string, bool, error) {
 	var v string
 	err := c.db.QueryRowContext(ctx, "SELECT value FROM meta WHERE key = ?", key).Scan(&v)
@@ -298,26 +270,19 @@ func (c *Catalog) Meta(ctx context.Context, key string) (string, bool, error) {
 	return v, err == nil, err
 }
 
-// SetMeta writes a meta value.
 func (c *Catalog) SetMeta(ctx context.Context, key, value string) error {
 	_, err := c.db.ExecContext(ctx, "INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", key, value)
 	return err
 }
 
-// DatasetMode says how ApplyUnit treats a dataset's tables.
 type DatasetMode int
 
 const (
-	// ModeReplace stores the supplied tables and removes the rest.
 	ModeReplace DatasetMode = iota
-	// ModeNamesOnly stores name-only tables (no columns) and removes the rest.
 	ModeNamesOnly
-	// ModeKeepOld leaves the dataset's existing tables untouched and only
-	// records that it could not be refreshed.
 	ModeKeepOld
 )
 
-// DatasetApply is one dataset's part of an ApplyUnit call.
 type DatasetApply struct {
 	Meta   api.DatasetMeta
 	Mode   DatasetMode
@@ -325,22 +290,17 @@ type DatasetApply struct {
 	Tables []api.TableMeta
 }
 
-// ApplyRequest replaces one (project, location) unit atomically.
 type ApplyRequest struct {
 	Unit     api.UnitRef
 	Datasets []DatasetApply
-	State    api.UnitState // Status, Error and the time fields are taken from here
+	State    api.UnitState
 }
 
-// ApplyStats reports what changed.
 type ApplyStats struct {
 	DatasetsAdded, DatasetsRemoved                             int
 	TablesAdded, TablesUpdated, TablesUnchanged, TablesRemoved int
 }
 
-// ApplyUnit swaps one unit's rows in a single transaction: new and changed
-// rows are written, rows missing from the snapshot are deleted. Readers see
-// the old or the new snapshot, never a half-written one.
 func (c *Catalog) ApplyUnit(ctx context.Context, req ApplyRequest) (ApplyStats, error) {
 	var st ApplyStats
 	tx, err := c.db.BeginTx(ctx, nil)
@@ -435,12 +395,6 @@ func (c *Catalog) ApplyUnit(ctx context.Context, req ApplyRequest) (ApplyStats, 
 	return st, nil
 }
 
-// trimWAL checkpoints the WAL and truncates it, so a large unit does not
-// leave a WAL file of its size behind while the process keeps running (#91).
-// It never waits: a reader still in the WAL (another pooled connection, or
-// the TUI, CLI or MCP process) makes it give up at once instead of holding
-// the write lock for busy_timeout, and it then retries in the background
-// until the WAL is truncated or the catalog closes.
 func (c *Catalog) trimWAL(ctx context.Context) {
 	if done, _ := truncateWAL(ctx, c.db); !done {
 		c.trim.retry(ctx, c.db)
@@ -463,8 +417,7 @@ func upsertDataset(ctx context.Context, tx *sql.Tx, projectID int64, m api.Datas
 			m.Description, m.FriendlyName, labels, string(status), id)
 		return id, false, err
 	}
-	// The dataset may exist under another location only if it was recreated
-	// elsewhere; handle by replacing it.
+	// ADR-0006
 	if _, err = tx.ExecContext(ctx, "DELETE FROM datasets WHERE project_id=? AND name=?", projectID, m.Name); err != nil {
 		return 0, false, err
 	}
@@ -527,7 +480,7 @@ func applyTables(ctx context.Context, tx *sql.Tx, datasetID int64, tables []api.
 			}
 		}
 		if seen[t.Name] {
-			continue // defensive: duplicate names in a snapshot
+			continue
 		}
 		seen[t.Name] = true
 		if namesOnly {
@@ -581,8 +534,8 @@ func applyTables(ctx context.Context, tx *sql.Tx, datasetID int64, tables []api.
 }
 
 func insertColumns(ctx context.Context, ins *sql.Stmt, tableID int64, cols []api.ColumnMeta) error {
-	// Parents first so parent_id can be resolved.
 	ordered := append([]api.ColumnMeta(nil), cols...)
+	// ADR-0006
 	sortByDepth(ordered)
 	ids := make(map[string]int64, len(ordered))
 	for _, c := range ordered {
@@ -617,8 +570,6 @@ ON CONFLICT(project,location) DO UPDATE SET last_attempt=excluded.last_attempt,
 	return err
 }
 
-// RecordUnitFailure records a failed attempt without touching any data. The
-// previous last_success and counts are kept.
 func (c *Catalog) RecordUnitFailure(ctx context.Context, s api.UnitState) error {
 	_, err := c.db.ExecContext(ctx, `INSERT INTO sync_units(project,location,last_attempt,last_success,status,error)
 VALUES(?,?,?,0,?,?)
@@ -627,9 +578,6 @@ ON CONFLICT(project,location) DO UPDATE SET last_attempt=excluded.last_attempt,s
 	return err
 }
 
-// RecordEmptyProject records a complete dataset listing that left nothing to
-// sync: the project has no (project, location) unit, so its discovery unit
-// (location "") carries the successful sync, with 0 datasets.
 func (c *Catalog) RecordEmptyProject(ctx context.Context, project string, at time.Time) error {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -645,16 +593,6 @@ func (c *Catalog) RecordEmptyProject(ctx context.Context, project string, at tim
 	return tx.Commit()
 }
 
-// RecordListing stores a project's dataset listing before its units sync.
-// Every listed dataset the catalog does not hold yet is inserted as pending,
-// with the listing's location, friendly name and labels and no tables; rows
-// the catalog already holds in the listed location are never touched. A
-// dataset listed in another location than its row was recreated there, so
-// its row is replaced by a pending one in the new location: otherwise the
-// old location's unit or its vanished-location removal would delete it, and
-// it would be missing until the new location's unit commits. When the
-// listing is complete (no unreachable locations), pending rows it no longer
-// returns are deleted. It reports how many rows it added and removed.
 func (c *Catalog) RecordListing(ctx context.Context, project string, listed []api.DatasetMeta, complete bool) (added, removed int, err error) {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -669,7 +607,7 @@ func (c *Catalog) RecordListing(ctx context.Context, project string, listed []ap
 	} else {
 		err = tx.QueryRowContext(ctx, "SELECT id FROM projects WHERE name = ?", project).Scan(&projectID)
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, 0, nil // nothing listed, nothing held
+			return 0, 0, nil
 		}
 		if err != nil {
 			return 0, 0, err
@@ -724,7 +662,6 @@ func (c *Catalog) RecordListing(ctx context.Context, project string, listed []ap
 	return added, removed, tx.Commit()
 }
 
-// PendingUnits counts the pending datasets per (project, location).
 func (c *Catalog) PendingUnits(ctx context.Context) (map[api.UnitRef]int, error) {
 	out := map[api.UnitRef]int{}
 	err := eachRow(ctx, c.db, func(rows *sql.Rows) error {
@@ -740,8 +677,6 @@ WHERE d.status = ? GROUP BY p.name, d.location`, string(api.DatasetPending))
 	return out, err
 }
 
-// RemoveUnit deletes a unit's datasets and its state row (used when a
-// location no longer has any datasets).
 func (c *Catalog) RemoveUnit(ctx context.Context, u api.UnitRef) error {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -757,7 +692,6 @@ func (c *Catalog) RemoveUnit(ctx context.Context, u api.UnitRef) error {
 	return tx.Commit()
 }
 
-// Units returns the persisted state of every unit.
 func (c *Catalog) Units(ctx context.Context) ([]api.UnitState, error) {
 	rows, err := c.db.QueryContext(ctx, `SELECT project,location,last_attempt,last_success,status,error,datasets,tables,names_only,inaccessible FROM sync_units ORDER BY project, location`)
 	if err != nil {
@@ -780,8 +714,6 @@ func (c *Catalog) Units(ctx context.Context) ([]api.UnitState, error) {
 	return out, rows.Err()
 }
 
-// Locations returns the locations the catalog holds datasets or unit state
-// for in a project.
 func (c *Catalog) Locations(ctx context.Context, project string) ([]string, error) {
 	rows, err := c.db.QueryContext(ctx, `SELECT location FROM sync_units WHERE project = ? AND location <> ''
 UNION SELECT d.location FROM datasets d JOIN projects p ON p.id = d.project_id WHERE p.name = ?`, project, project)
@@ -800,10 +732,8 @@ UNION SELECT d.location FROM datasets d JOIN projects p ON p.id = d.project_id W
 	return out, rows.Err()
 }
 
-// Counts are the catalog totals.
 type Counts struct{ Projects, Datasets, Tables, Columns int }
 
-// Counts returns row counts.
 func (c *Catalog) Counts(ctx context.Context) (Counts, error) {
 	var n Counts
 	err := c.db.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM projects),(SELECT COUNT(*) FROM datasets),(SELECT COUNT(*) FROM tables),(SELECT COUNT(*) FROM columns)`).
@@ -811,14 +741,12 @@ func (c *Catalog) Counts(ctx context.Context) (Counts, error) {
 	return n, err
 }
 
-// DatasetRow is a dataset as stored.
 type DatasetRow struct {
 	api.DatasetMeta
 	Status api.DatasetStatus
 	Tables int
 }
 
-// Datasets lists a project's datasets.
 func (c *Catalog) Datasets(ctx context.Context, project string) ([]DatasetRow, error) {
 	rows, err := c.db.QueryContext(ctx, `SELECT d.name,d.location,d.description,d.friendly_name,d.labels,d.status,
  (SELECT COUNT(*) FROM tables t WHERE t.dataset_id = d.id)
@@ -842,7 +770,6 @@ func (c *Catalog) Datasets(ctx context.Context, project string) ([]DatasetRow, e
 	return out, rows.Err()
 }
 
-// Tables lists a dataset's tables (without columns).
 func (c *Catalog) Tables(ctx context.Context, project, dataset string) ([]api.TableMeta, error) {
 	//nolint:gosec // tcol and shardSelect are fixed column expressions, never input
 	rows, err := c.db.QueryContext(ctx, `SELECT t.name,t.type,t.created_at,t.description,t.labels,t.expires_at,t.view_sql,t.names_only,`+c.tcol("require_partition_filter")+`,`+c.shardSelect()+`
@@ -880,7 +807,6 @@ WHERE p.name = ? AND d.name = ? ORDER BY t.name_lc`, project, dataset)
 	return out, rows.Err()
 }
 
-// Columns lists a table's field paths in order.
 func (c *Catalog) Columns(ctx context.Context, project, dataset, table string) ([]api.ColumnMeta, error) {
 	rows, err := c.db.QueryContext(ctx, `SELECT c.field_path,c.ordinal,c.data_type,c.description,c.partitioning,c.clustering_ordinal,c.required
 FROM columns c JOIN tables t ON t.id=c.table_id JOIN datasets d ON d.id=t.dataset_id JOIN projects p ON p.id=d.project_id
@@ -902,12 +828,8 @@ WHERE p.name=? AND d.name=? AND t.name=? ORDER BY c.top_level DESC, c.ordinal, c
 	return out, rows.Err()
 }
 
-// PruneStats reports what Prune removed.
 type PruneStats struct{ Projects, Datasets, Tables int }
 
-// Prune removes everything the current configuration no longer allows,
-// without any BigQuery call. allowed is the project allowlist; ignored decides
-// dataset and table exclusion (an empty table asks about a dataset).
 func (c *Catalog) Prune(ctx context.Context, allowed map[string]bool, ignored func(project, dataset, table string) bool) (PruneStats, error) {
 	var st PruneStats
 	tx, err := c.db.BeginTx(ctx, nil)
@@ -933,10 +855,6 @@ func (c *Catalog) Prune(ctx context.Context, allowed map[string]bool, ignored fu
 		return st, err
 	}
 	for _, p := range projects {
-		// Only the allowlist removes a whole project (nil keeps every
-		// project). An ignored project can still hold re-included datasets
-		// ("p", "!p.keep"), so ignore rules are applied per dataset and per
-		// table, exactly as sync applies them.
 		if allowed != nil && !allowed[p.name] {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM projects WHERE id = ?", p.id); err != nil {
 				return st, err
@@ -997,8 +915,6 @@ func (c *Catalog) Prune(ctx context.Context, allowed map[string]bool, ignored fu
 	return st, tx.Commit()
 }
 
-// --- helpers
-
 const insertColumnSQL = `INSERT INTO columns(table_id,parent_id,field_path,field_path_lc,top_level,ordinal,data_type,description,partitioning,clustering_ordinal,required) VALUES(?,?,?,?,?,?,?,?,?,?,?)`
 
 func unix(t time.Time) int64 {
@@ -1034,7 +950,7 @@ func encodeLabels(m map[string]string) string {
 	if len(m) == 0 {
 		return ""
 	}
-	b, _ := json.Marshal(m) // sorted keys
+	b, _ := json.Marshal(m)
 	return string(b)
 }
 

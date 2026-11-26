@@ -19,7 +19,6 @@ func cmdSearch(ctx context.Context, o *out, g *globals, args []string) error {
 	fs.IntVar(&limit, "limit", 50, "maximum number of results")
 	fs.StringVar(&cursor, "cursor", "", "continue from a previous next_cursor")
 	fs.BoolVar(&tablesOnly, "tables-only", false, "leave out project and dataset results")
-	// flags may follow the query; a negated filter such as -d:tmp is part of it
 	pos, err := parseAnywhere(fs, args)
 	if err != nil {
 		return err
@@ -57,8 +56,6 @@ func cmdSearch(ctx context.Context, o *out, g *globals, args []string) error {
 	for i, r := range resp.Results {
 		touched = append(touched, r.Path.Project)
 		if r.Kind == api.KindShards && r.Shard != nil {
-			// the CLI and MCP name: a suffix-less date family keeps its
-			// wildcard events_* (spec 8.3); Name, which the spans index, stays
 			resp.Results[i].Path.Table = r.Shard.AgentName()
 		}
 	}

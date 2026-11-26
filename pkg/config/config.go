@@ -1,5 +1,5 @@
 // Package config loads, validates and describes bqt's single TOML
-// configuration file (ticket 05, spec section 4).
+// configuration file (spec section 4).
 package config
 
 import (
@@ -21,7 +21,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/shard"
 )
 
-// Defaults.
 const (
 	DefaultSyncTTL              = 24 * time.Hour
 	DefaultMaxBytesBilled int64 = 1 << 40
@@ -30,13 +29,11 @@ const (
 	DefaultMaxConcurrent        = 4
 )
 
-// Editing styles of a query editor ([tui] editing and [gui] editing).
 const (
 	EditingVim   = "vim"
 	EditingPlain = "plain"
 )
 
-// Editing returns the TUI editor's editing style: vim (the default) or plain.
 func (c *Config) Editing() string {
 	if s, _ := c.TUI["editing"].(string); s == EditingPlain {
 		return EditingPlain
@@ -44,8 +41,6 @@ func (c *Config) Editing() string {
 	return EditingVim
 }
 
-// GUIEditing returns the GUI editor's editing style ([gui] editing): plain
-// (the default, unlike the TUI's) or vim. bqt itself never reads it.
 func (c *Config) GUIEditing() string {
 	if s, _ := c.GUI["editing"].(string); s == EditingVim {
 		return EditingVim
@@ -53,45 +48,34 @@ func (c *Config) GUIEditing() string {
 	return EditingPlain
 }
 
-// Config is the effective, validated configuration.
 type Config struct {
-	// ExecutionOverride is an Execution project given for this invocation
-	// (--execution-project or BQT_EXECUTION_PROJECT); ExecutionOverrideFrom
-	// says which ("flag" or "env"). The saved choice lives in the selection
-	// state, not here.
 	ExecutionOverride     string
 	ExecutionOverrideFrom string
 	Location              string
 	Ignore                []string
-	// ShardPatterns are the configured shard patterns (RE2), in order.
-	ShardPatterns        []string
-	DataDir              string
-	FavoritesDir         string
-	ExportDir            string // empty: the working directory
-	SyncTTL              time.Duration
-	ConfirmBytes         ByteLimit
-	MaxBytesBilled       ByteLimit
-	MaxConcurrentQueries int
-	HistoryRetentionDays int
-	AgentMaxBytes        int64
-	AgentTimeout         time.Duration
-	CLIAllowWrites       bool
-	TUI                  map[string]any
-	// GUI is the [gui] table, read by BigQuery Studio (a separate module
-	// that shares this file); the TUI, CLI and MCP ignore it.
-	GUI map[string]any
+	ShardPatterns         []string
+	DataDir               string
+	FavoritesDir          string
+	ExportDir             string
+	SyncTTL               time.Duration
+	ConfirmBytes          ByteLimit
+	MaxBytesBilled        ByteLimit
+	MaxConcurrentQueries  int
+	HistoryRetentionDays  int
+	AgentMaxBytes         int64
+	AgentTimeout          time.Duration
+	CLIAllowWrites        bool
+	TUI                   map[string]any
+	GUI                   map[string]any
 
-	// Path is the file the configuration was read from.
 	Path string
 
 	matcher *Matcher
 	shards  *shard.Patterns
 }
 
-// Matcher returns the compiled ignore matcher.
 func (c *Config) Matcher() *Matcher { return c.matcher }
 
-// Shards returns the compiled shard patterns (spec section 8.3).
 func (c *Config) Shards() *shard.Patterns {
 	if c.shards == nil {
 		return &shard.Patterns{}
@@ -99,12 +83,8 @@ func (c *Config) Shards() *shard.Patterns {
 	return c.shards
 }
 
-// DefaultFamilyRows is how many of an expanded family's newest members the
-// tree shows by default ([tui] family_rows).
 const DefaultFamilyRows = 20
 
-// FamilyRows is how many of an expanded shard family's newest members the
-// TUI's tree style shows ([tui] family_rows).
 func (c *Config) FamilyRows() int {
 	if n, ok := c.TUI["family_rows"].(int64); ok && n >= 0 {
 		return int(n)
@@ -112,14 +92,10 @@ func (c *Config) FamilyRows() int {
 	return DefaultFamilyRows
 }
 
-// Filter is the part of the configuration that decides what the catalog
-// contains: the ignore patterns (the Selected projects decide what is synced,
-// never what is pruned). Its hash decides "config changed, sync needed".
 type Filter struct {
 	Ignore []string `json:"ignore"`
 }
 
-// Filter returns the effective ignore filter.
 func (c *Config) Filter() Filter {
 	ig := []string{}
 	for _, p := range c.Ignore {
@@ -132,17 +108,15 @@ func (c *Config) Filter() Filter {
 	return Filter{Ignore: ig}
 }
 
-// Hash is a stable hash of the effective filter.
 func (f Filter) Hash() string {
 	b, _ := json.Marshal(f)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
 
-// Error is one configuration problem.
 type Error struct {
 	Key  string
-	Line int // 0 when unknown
+	Line int
 	Msg  string
 }
 
@@ -158,7 +132,6 @@ func (e *Error) Error() string {
 	return b.String()
 }
 
-// Errors is a list of configuration problems.
 type Errors []*Error
 
 func (es Errors) Error() string {
@@ -169,23 +142,16 @@ func (es Errors) Error() string {
 	return strings.Join(parts, "; ")
 }
 
-// ErrNoConfig is returned when no configuration file exists.
 type ErrNoConfig struct{ Path string }
 
 func (e *ErrNoConfig) Error() string {
 	return fmt.Sprintf("no config file at %s (run `bqt init` to create one)", e.Path)
 }
 
-// LoadOptions controls Load.
 type LoadOptions struct {
-	// Path overrides the config location (--config). Empty falls back to
-	// BQT_CONFIG, then the default path.
-	Path string
-	// Getenv defaults to os.Getenv.
+	Path   string
 	Getenv func(string) string
-	// Flags are command-line overrides keyed by config key
-	// (for example "execution_project"). They win over the environment.
-	Flags map[string]string
+	Flags  map[string]string
 }
 
 func (o LoadOptions) getenv(k string) string {
@@ -195,8 +161,6 @@ func (o LoadOptions) getenv(k string) string {
 	return os.Getenv(k)
 }
 
-// DefaultPath returns $XDG_CONFIG_HOME/bqt/config.toml or
-// ~/.config/bqt/config.toml.
 func DefaultPath(getenv func(string) string) string {
 	if getenv == nil {
 		getenv = os.Getenv
@@ -208,7 +172,6 @@ func DefaultPath(getenv func(string) string) string {
 	return filepath.Join(home, ".config", "bqt", "config.toml")
 }
 
-// ResolvePath applies the --config / BQT_CONFIG / default order.
 func ResolvePath(opts LoadOptions) string {
 	if opts.Path != "" {
 		return expandPath(opts.Path, opts.getenv)
@@ -220,8 +183,6 @@ func ResolvePath(opts LoadOptions) string {
 }
 
 type fileConfig struct {
-	// ExecutionProject and Projects are no longer settings; they are read
-	// only to point the user at the Projects dialog.
 	ExecutionProject     *string        `toml:"execution_project"`
 	Location             *string        `toml:"location"`
 	Projects             []string       `toml:"projects"`
@@ -242,26 +203,20 @@ type fileConfig struct {
 	GUI                  map[string]any `toml:"gui"`
 }
 
-// envKeys lists the keys that can be set through BQT_<UPPERCASE KEY>.
 var envKeys = []string{
 	"execution_project", "location", "data_dir", "favorites_dir", "export_dir",
 	"sync_ttl", "confirm_bytes", "max_bytes_billed", "max_concurrent_queries",
 	"history_retention_days", "agent_max_bytes", "agent_timeout", "cli_allow_writes",
 }
 
-// Load reads the config file, applies environment and flag overrides, and
-// validates the result. Problems are returned as Errors; a missing file as
-// *ErrNoConfig.
 func Load(opts LoadOptions) (*Config, error) {
 	path := ResolvePath(opts)
 	raw, err := readFile(path)
 	return fromRead(path, raw, err, opts)
 }
 
-// readFile is os.ReadFile; tests replace it.
 var readFile = os.ReadFile
 
-// fromRead is Load for content already read from path.
 func fromRead(path string, raw []byte, err error, opts LoadOptions) (*Config, error) {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -272,7 +227,6 @@ func fromRead(path string, raw []byte, err error, opts LoadOptions) (*Config, er
 	return Parse(raw, path, opts)
 }
 
-// Parse is Load for in-memory content.
 func Parse(raw []byte, path string, opts LoadOptions) (*Config, error) {
 	var fc fileConfig
 	dec := toml.NewDecoder(bytes.NewReader(raw))
@@ -302,7 +256,6 @@ func Parse(raw []byte, path string, opts LoadOptions) (*Config, error) {
 	values := map[string]layered{}
 	put := func(key string, v any, src string) { values[key] = layered{v: v, src: src} }
 
-	// file layer
 	for _, k := range []struct {
 		key string
 		set bool
@@ -347,13 +300,11 @@ func Parse(raw []byte, path string, opts LoadOptions) (*Config, error) {
 	if fc.CLIAllowWrites != nil {
 		put("cli_allow_writes", *fc.CLIAllowWrites, "file")
 	}
-	// environment layer
 	for _, k := range envKeys {
 		if v := opts.getenv("BQT_" + strings.ToUpper(k)); v != "" {
 			put(k, v, "env BQT_"+strings.ToUpper(k))
 		}
 	}
-	// flag layer
 	for k, v := range opts.Flags {
 		if v != "" {
 			put(k, v, "flag --"+strings.ReplaceAll(k, "_", "-"))
@@ -435,9 +386,6 @@ func (b *builder) lineOfKey(key string) int {
 	return strings.Count(b.raw[:loc[0]], "\n") + 1
 }
 
-// lineOfTableKey finds key inside the [table] section, so the same key in
-// [tui] and [gui] is told apart. A dotted key (table.key = …) or an inline
-// table (table = { … }) gives the line of that assignment instead.
 func (b *builder) lineOfTableKey(table, key string) int {
 	header := regexp.MustCompile(`(?m)^[ \t]*\[[ \t]*` + regexp.QuoteMeta(table) + `[ \t]*\]`)
 	if loc := header.FindStringIndex(b.raw); loc != nil {
@@ -466,8 +414,6 @@ func (b *builder) lineOfValue(val string) int {
 
 var projectRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:\-]*$`)
 
-// ValidProjectID reports whether s looks like a GCP project ID (including
-// domain-scoped ones such as example.com:proj).
 func ValidProjectID(s string) bool { return projectRe.MatchString(s) }
 
 func (b *builder) build(c *Config, v map[string]layered, errs *Errors) {
@@ -493,7 +439,6 @@ func (b *builder) build(c *Config, v map[string]layered, errs *Errors) {
 		return strings.TrimSpace(s), true
 	}
 
-	// execution_project: an override for this invocation only (flag or env)
 	if s, ok := str("execution_project"); ok {
 		src := v["execution_project"].src
 		if !ValidProjectID(s) {
@@ -512,7 +457,6 @@ func (b *builder) build(c *Config, v map[string]layered, errs *Errors) {
 		c.Location = s
 	}
 
-	// paths
 	dataDir := ""
 	if s, ok := str("data_dir"); ok {
 		dataDir = expandPath(s, b.getenv)
@@ -533,7 +477,6 @@ func (b *builder) build(c *Config, v map[string]layered, errs *Errors) {
 		c.ExportDir = expandPath(s, b.getenv)
 	}
 
-	// durations
 	c.SyncTTL = DefaultSyncTTL
 	if s, ok := str("sync_ttl"); ok {
 		d, err := ParseDuration(s)
@@ -559,7 +502,6 @@ func (b *builder) build(c *Config, v map[string]layered, errs *Errors) {
 		}
 	}
 
-	// byte limits
 	c.ConfirmBytes = ByteLimit{Mode: ByteLimitAuto}
 	if l, ok := v["confirm_bytes"]; ok {
 		if bl, err := parseByteLimit(l.v, true); err != nil {
@@ -589,7 +531,6 @@ func (b *builder) build(c *Config, v map[string]layered, errs *Errors) {
 		}
 	}
 
-	// integers
 	c.MaxConcurrentQueries = DefaultMaxConcurrent
 	if l, ok := v["max_concurrent_queries"]; ok {
 		n, err := asInt(l.v)
@@ -678,7 +619,6 @@ func defaultDataDir(getenv func(string) string) string {
 	return filepath.Join(home, ".local", "share", "bqt")
 }
 
-// expandPath expands ~ and $VARS in path values.
 func expandPath(p string, getenv func(string) string) string {
 	if getenv == nil {
 		getenv = os.Getenv

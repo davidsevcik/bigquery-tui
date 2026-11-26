@@ -35,7 +35,6 @@ func TestFindProblems(t *testing.T) {
 			unit("US", api.UnitDegraded, "quota"),
 			unit("", api.UnitOK, ""),
 		}},
-		// deselected: its problems are not listed, but its unit errors still hide the matching warning
 		{Project: "old", Selected: false, Units: []api.UnitState{unit("EU", api.UnitInaccessible, "denied")}},
 	}}
 	datasets := map[string][]api.BrowseNode{
@@ -56,7 +55,6 @@ func TestFindProblems(t *testing.T) {
 	if us.Project != "acme" || us.Location != "US" || us.Unit == nil || us.Unit.Error != "quota" || !reflect.DeepEqual(us.NotSynced, []string{"us_a", "us_b"}) {
 		t.Fatalf("a unit problem carries its not-synced datasets: %+v", us)
 	}
-	// locations that are only not synced follow, A to Z; one being synced is not a problem
 	if got.List[1].Location != "asia-northeast1" || got.List[1].Unit != nil || !reflect.DeepEqual(got.List[1].NotSynced, []string{"tok"}) ||
 		got.List[2].Location != "europe-west3" {
 		t.Fatalf("%+v", got.List[1:])

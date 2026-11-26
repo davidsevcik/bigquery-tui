@@ -22,14 +22,11 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/search"
 )
 
-// Defaults of the list tools.
 const (
 	defaultList = 20
 	maxList     = 200
 )
 
-// Instructions are sent to the client at initialization. Claude Code cuts
-// them (and tool descriptions) at 2,048 characters.
 const Instructions = `bqt gives read-only access to the user's BigQuery projects through a local metadata catalog.
 
 Workflow: search_catalog to find tables (filters p: d: type: col: desc: label:), get_schema for columns, dry_run to check cost, run_query to run a SELECT, get_results for more rows. Reuse saved queries with list_favorites and past runs with search_history.
@@ -40,19 +37,16 @@ Limits, enforced by bqt: only SELECT; at most the configured byte limit per quer
 
 The catalog is only as fresh as the last sync; this server cannot sync. Results in projects the user has not selected are marked selected: false and come last; their catalog is never refreshed on its own. When a result carries a warning, catalog_status says it is stale, or a table is missing, ask the user to run ` + "`bqt sync`" + ` (or ` + "`bqt sync --project ID`" + ` for one project).`
 
-// Server serves the tools of one engine. When the server starts before the
-// first sync, the engine is reopened once a catalog exists.
 type Server struct {
 	open func(context.Context) (*engine.Engine, error)
 
 	mu   sync.Mutex
 	eng  *engine.Engine
-	old  []*engine.Engine // replaced engines, closed with the server
-	wctx context.Context  // lives until Close: the catalog watchers
+	old  []*engine.Engine
+	wctx context.Context
 	stop context.CancelFunc
 }
 
-// New builds a server around an engine opener (read-only, source mcp).
 func New(ctx context.Context, open func(context.Context) (*engine.Engine, error)) (*Server, error) {
 	eng, err := open(ctx)
 	if err != nil {
@@ -64,8 +58,6 @@ func New(ctx context.Context, open func(context.Context) (*engine.Engine, error)
 	return s, nil
 }
 
-// watch keeps an engine's search index current: another process's sync
-// changes the catalog under this long-lived server.
 func (s *Server) watch(eng *engine.Engine) {
 	ch := eng.WatchCatalog(s.wctx, 2*time.Second)
 	go func() {
@@ -74,7 +66,6 @@ func (s *Server) watch(eng *engine.Engine) {
 	}()
 }
 
-// Close releases the engines.
 func (s *Server) Close() error {
 	s.stop()
 	s.mu.Lock()
@@ -86,8 +77,6 @@ func (s *Server) Close() error {
 	return errors.Join(errs...)
 }
 
-// engine returns the engine, reopening it when it was opened without a
-// catalog and one exists now.
 func (s *Server) engine(ctx context.Context) *engine.Engine {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -99,14 +88,14 @@ func (s *Server) engine(ctx context.Context) *engine.Engine {
 			fresh.Close()
 			return s.eng
 		}
-		s.old = append(s.old, s.eng) // a query may still run on it
+		// ADR-0010
+		s.old = append(s.old, s.eng)
 		s.eng = fresh
 		s.watch(fresh)
 	}
 	return s.eng
 }
 
-// MCP builds the protocol server with the eight tools.
 func (s *Server) MCP(version string) *sdk.Server {
 	srv := sdk.NewServer(&sdk.Implementation{Name: "bqt", Title: "bqt (BigQuery)", Version: version},
 		&sdk.ServerOptions{Instructions: Instructions})
@@ -180,7 +169,6 @@ func (s *Server) MCP(version string) *sdk.Server {
 	return srv
 }
 
-// Run serves the tools over stdio until the client disconnects or ctx ends.
 func (s *Server) Run(ctx context.Context, version string) error {
 	return s.MCP(version).Run(ctx, &sdk.StdioTransport{})
 }
@@ -262,7 +250,6 @@ func query(sql string, params map[string]string, limit int, maxBytes int64, time
 	return engine.AgentQuery{SQL: sql, Params: ps, Limit: limit, MaxBytes: maxBytes, Timeout: time.Duration(timeoutSec) * time.Second}, nil
 }
 
-// toolErr words an error for the agent: a refusal says what to do instead.
 func toolErr(err error) error {
 	var pe *policy.Error
 	if errors.As(err, &pe) {
@@ -274,8 +261,6 @@ func toolErr(err error) error {
 	return err
 }
 
-// historyToolDescription describes search_history; the status: and source:
-// values come from search, which validates them.
 var historyToolDescription = "Queries run before (newest first, identical SQL grouped). Free terms match the SQL; filters status:" +
 	strings.Join(search.HistoryStates, "|") + ", source:" + strings.Join(search.HistorySources, "|") +
 	", project:, since:7d or since:2026-10-01. A done entry carries a result_id for get_results while BigQuery keeps it."

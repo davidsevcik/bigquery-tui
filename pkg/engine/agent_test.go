@@ -17,8 +17,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/runs"
 )
 
-// agent opens a read-only engine for an agent entry point over the synced
-// catalog, as `bqt query` or `bqt mcp` do.
 func (e *env) agent(source api.Source) *Engine {
 	e.t.Helper()
 	eng, err := Open(ctx, Options{
@@ -62,13 +60,11 @@ func TestAgentQueryReturnsAPageAndAResultID(t *testing.T) {
 	if labels["bqt_source"] != "mcp" || labels["bqt"] != "1" {
 		t.Fatalf("audit labels: %v", labels)
 	}
-	// the next page, from another process, by the result ID alone
 	other := e.agent("cli")
 	next, err := other.AgentResults(ctx, res.ResultID, 248, 50)
 	if err != nil || len(next.Rows) != 2 || next.Truncated || next.StartIndex != 248 || *next.Rows[1][1] != "row 249" {
 		t.Fatalf("%v %+v", err, next)
 	}
-	// History: one entry, source mcp, and the list offers the result
 	hl, err := other.HistoryList(ctx, "source:mcp", 10, 0)
 	if err != nil || len(hl.Items) != 1 || hl.Items[0].ResultID != res.ResultID || hl.Items[0].Source != "mcp" {
 		t.Fatalf("%v %+v", err, hl)
@@ -221,7 +217,7 @@ func TestRowReadingIsBoundedByTheTimeout(t *testing.T) {
 	e, _ := synced(t, "proj-a")
 	eng := e.agent("mcp")
 	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1200) }
-	calls := 0 // the first page is read inside the Run; slow down the second
+	calls := 0
 	e.fake.OnCall = func(c bqtest.Call) {
 		if c.Method == "QueryRows" {
 			calls++
