@@ -144,7 +144,7 @@ type Model struct {
 	syncLater  []string
 	forceLater []string
 	forceAll   bool
-	openAfter  *api.ObjectPath
+	openAfter  *pendingOpen
 	status     *api.CatalogStatus
 	cfgErr     string
 	kick       chan struct{}
@@ -434,6 +434,21 @@ func waitSync(run SyncRun) tea.Cmd {
 	}
 }
 
+func (m *Model) onSyncStarted(msg syncStartedMsg) tea.Cmd {
+	if msg.err != nil {
+		m.syncStartFailed(msg.err)
+		return nil
+	}
+	if msg.run == nil {
+		return nil
+	}
+	m.syncRun, m.syncing, m.syncDone, m.syncTotal, m.syncLog = msg.run, true, 0, 0, nil
+	if m.openAfter != nil {
+		m.openAfter.failure = ""
+	}
+	return waitSync(msg.run)
+}
+
 func (m *Model) onSyncDone(msg syncDoneMsg) tea.Cmd {
 	m.syncing, m.syncRun = false, nil
 	table := m.syncTable
@@ -455,7 +470,7 @@ func (m *Model) onSyncDone(msg syncDoneMsg) tea.Cmd {
 	}
 	m.reloadBrowse()
 	m.refreshProjects()
-	return tea.Batch(m.reconcileCmd(false), m.rerunSearches(), m.afterSelect(), m.afterSync())
+	return tea.Batch(m.reconcileCmd(false), m.rerunSearches(), m.afterSelect(), m.afterSync(msg))
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -563,17 +578,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case recordMsg:
 		m.onRecord(msg)
 	case syncStartedMsg:
-		if msg.err != nil {
-			m.toast = "sync: " + msg.err.Error()
-			return m, nil
-		}
-		if msg.run == nil {
-			return m, nil
-		}
-		m.syncRun, m.syncing, m.syncDone, m.syncTotal, m.syncLog = msg.run, true, 0, 0, nil
-		return m, waitSync(msg.run)
+		return m, m.onSyncStarted(msg)
 	case syncEventMsg:
 		m.onSyncEvent(msg.ev)
+		m.noteSyncFailure(msg.ev)
 		switch msg.ev.Kind {
 		case api.EventUnitDone, api.EventUnitFailed:
 			m.refreshProjects()

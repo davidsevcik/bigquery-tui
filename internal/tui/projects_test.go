@@ -15,6 +15,8 @@ import (
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/config"
+	"github.com/davidsevcik/bigquery-tui/pkg/engine"
 )
 
 func projectsRig(t *testing.T) *rig {
@@ -273,6 +275,209 @@ func TestPastingAPathInAnUncachedProjectOpensItAfterItsSync(t *testing.T) {
 	}
 	if s := r.m.sel(); s.path.String() != "acme-new.raw.hits" {
 		t.Fatalf("the path is not open: %+v", s.path)
+	}
+}
+
+func addToFake(r *rig, project string, ds bqtest.Dataset) {
+	p := r.fake.Projects[project]
+	for i, d := range p.Datasets {
+		if d.Meta.Name == ds.Meta.Name {
+			p.Datasets[i].Tables = append(p.Datasets[i].Tables, ds.Tables...)
+			return
+		}
+	}
+	p.Datasets = append(p.Datasets, ds)
+}
+
+func (r *rig) paste(path string) {
+	r.t.Helper()
+	r.press("ctrl+t")
+	r.typeText(path)
+	r.press("enter")
+}
+
+func TestPastingAPathMissingFromASelectedProjectSyncsItAndOpensThePath(t *testing.T) {
+	for _, path := range []string{"acme-prod.sales.fresh_table", "acme-prod.fresh_ds.fresh_table", "`acme-prod.sales.fresh_table`"} {
+		t.Run(path, func(t *testing.T) {
+			r := newRig(t, 120, 30)
+			addToFake(r, "acme-prod", bqtest.DS("sales", "EU", bqtest.Table("fresh_table", "id")))
+			addToFake(r, "acme-prod", bqtest.DS("fresh_ds", "EU", bqtest.Table("fresh_table", "id")))
+			before := len(r.fake.CallsTo("ListDatasets"))
+			r.paste(path)
+			if r.m.ov != ovNone {
+				t.Fatal("the overlay stayed open")
+			}
+			if got := syncedSince(r, before); got != "acme-prod" || len(r.fake.CallsTo("ListDatasets")) != before+1 {
+				t.Fatalf("want one sync of acme-prod, synced %q", got)
+			}
+			want := strings.Trim(path, "`")
+			if s := r.m.sel(); s.path.String() != want {
+				t.Fatalf("the pasted path is not open: %+v (toast %q)", s.path, r.m.toast)
+			}
+		})
+	}
+}
+
+func TestPastingAPathThatExistsNowhereSaysSoAfterTheSync(t *testing.T) {
+	r := newRig(t, 120, 30)
+	before := len(r.fake.CallsTo("ListDatasets"))
+	r.paste("acme-prod.sales.nope")
+	if got := syncedSince(r, before); got != "acme-prod" {
+		t.Fatalf("synced %q", got)
+	}
+	if !strings.Contains(r.m.toast, "acme-prod.sales.nope is not in the catalog after syncing acme-prod") {
+		t.Fatalf("toast %q", r.m.toast)
+	}
+}
+
+func TestAFailedSyncOfAPastedPathSaysWhy(t *testing.T) {
+	cases := []struct {
+		name, project, path string
+	}{
+		{"cached", "acme-prod", "acme-prod.sales.fresh_table"},
+		{"uncached", "acme-new", "acme-new.raw.hits"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := projectsRig(t)
+			r.fake.Projects[c.project].ListErr = bqtest.PermissionError("datasets.list")
+			r.paste(c.path)
+			if !strings.Contains(r.m.toast, c.path) || !strings.Contains(r.m.toast, "access denied: datasets.list") || strings.Contains(r.m.toast, "not in the catalog") {
+				t.Fatalf("toast %q", r.m.toast)
+			}
+			if r.m.openAfter != nil {
+				t.Fatal("the open is left pending")
+			}
+		})
+	}
+}
+
+func TestPastingAPathMissingFromAFreshDeselectedProjectSyncsIt(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.press("ctrl+x", "p", "o", "esc")
+	addToFake(r, "acme-staging", bqtest.DS("sales", "EU", bqtest.Table("fresh_table", "id")))
+	before := len(r.fake.CallsTo("ListDatasets"))
+	r.paste("acme-staging.sales.fresh_table")
+	if !r.eng.Selection().Has("acme-staging") {
+		t.Fatalf("not selected: %v", r.eng.Selection().IDs())
+	}
+	if got := syncedSince(r, before); got != "acme-staging" {
+		t.Fatalf("synced %q", got)
+	}
+	if s := r.m.sel(); s.path.String() != "acme-staging.sales.fresh_table" {
+		t.Fatalf("the pasted path is not open: %+v (toast %q)", s.path, r.m.toast)
+	}
+}
+
+func TestAPastedPathWaitsForTheRunningSyncOfItsProject(t *testing.T) {
+	r := newRig(t, 120, 30)
+	addToFake(r, "acme-prod", bqtest.DS("sales", "EU", bqtest.Table("fresh_table", "id")))
+	r.m.syncing, r.m.syncScope = true, []string{"acme-prod"}
+	before := len(r.fake.CallsTo("ListDatasets"))
+	r.paste("acme-prod.sales.fresh_table")
+	if n := len(r.fake.CallsTo("ListDatasets")); n != before || len(r.m.forceLater) != 0 {
+		t.Fatalf("started or queued a second sync (%d calls, queued %v)", n-before, r.m.forceLater)
+	}
+	if !strings.Contains(r.m.toast, "acme-prod.sales.fresh_table opens when") {
+		t.Fatalf("toast %q", r.m.toast)
+	}
+	hd, err := r.eng.StartSync(context.Background(), api.SyncScope{Projects: []string{"acme-prod"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hd.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	r.send(syncDoneMsg{})
+	if s := r.m.sel(); s.path.String() != "acme-prod.sales.fresh_table" {
+		t.Fatalf("the pasted path is not open: %+v (toast %q)", s.path, r.m.toast)
+	}
+	if n := len(r.fake.CallsTo("ListDatasets")); n != before+1 {
+		t.Fatalf("synced again after the running sync (%d calls)", n-before)
+	}
+}
+
+func TestAPastedPathQueuesASyncBehindOneOfAnotherProject(t *testing.T) {
+	for _, running := range []struct {
+		name  string
+		scope []string
+		table *api.ObjectPath
+	}{
+		{"another project", []string{"acme-staging"}, nil},
+		{"a table of the same project", []string{"acme-prod"}, &api.ObjectPath{Project: "acme-prod", Dataset: "sales", Table: "orders"}},
+	} {
+		t.Run(running.name, func(t *testing.T) {
+			r := newRig(t, 120, 30)
+			addToFake(r, "acme-prod", bqtest.DS("sales", "EU", bqtest.Table("fresh_table", "id")))
+			r.m.syncing, r.m.syncScope, r.m.syncTable = true, running.scope, running.table
+			before := len(r.fake.CallsTo("ListDatasets"))
+			r.paste("acme-prod.sales.fresh_table")
+			if n := len(r.fake.CallsTo("ListDatasets")); n != before {
+				t.Fatalf("started a second sync (%d calls)", n-before)
+			}
+			if !strings.Contains(r.m.toast, "acme-prod syncs right after it") || !strings.Contains(r.m.toast, "acme-prod.sales.fresh_table") {
+				t.Fatalf("toast %q", r.m.toast)
+			}
+			r.send(syncDoneMsg{})
+			if got := syncedSince(r, before); got != "acme-prod" {
+				t.Fatalf("synced %q", got)
+			}
+			if s := r.m.sel(); s.path.String() != "acme-prod.sales.fresh_table" {
+				t.Fatalf("the pasted path is not open: %+v (toast %q)", s.path, r.m.toast)
+			}
+		})
+	}
+}
+
+func TestAnIgnoredPastedPathStartsNoSync(t *testing.T) {
+	r := newRig(t, 120, 30)
+	src := "data_dir = \"" + r.dir + "/data\"\nignore = [\"acme-prod.scratch\"]\n"
+	if err := os.WriteFile(r.cfg, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(config.LoadOptions{Path: r.cfg, Getenv: func(string) string { return "" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.m.be.SetConfig(cfg)
+	before := len(r.fake.CallsTo("ListDatasets"))
+	r.paste("acme-prod.scratch.tmp_1")
+	if n := len(r.fake.CallsTo("ListDatasets")); n != before {
+		t.Fatalf("started a sync (%d calls)", n-before)
+	}
+	if r.m.ov != ovNone || !strings.Contains(r.m.toast, "acme-prod.scratch.tmp_1 is excluded by the ignore config") {
+		t.Fatalf("overlay %v toast %q", r.m.ov, r.m.toast)
+	}
+}
+
+func TestAPastedPathTheSearchHasNotFoundYetOpensWithoutASync(t *testing.T) {
+	r := newRig(t, 120, 30)
+	before := len(r.fake.CallsTo("ListDatasets"))
+	r.run(r.m.openMissing(api.ObjectPath{Project: "acme-prod", Dataset: "sales", Table: "customers"}))
+	if n := len(r.fake.CallsTo("ListDatasets")); n != before {
+		t.Fatalf("started a sync (%d calls)", n-before)
+	}
+	if s := r.m.sel(); s.path.String() != "acme-prod.sales.customers" {
+		t.Fatalf("the path is not open: %+v", s.path)
+	}
+}
+
+type noSyncBackend struct {
+	EngineBackend
+	err error
+}
+
+func (b noSyncBackend) StartSync(context.Context, api.SyncScope) (SyncRun, error) { return nil, b.err }
+
+func TestAPastedPathWhoseSyncCannotStartSaysSo(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.m.be = noSyncBackend{EngineBackend: r.m.be.(EngineBackend), err: engine.ErrReadOnly}
+	r.paste("acme-prod.sales.fresh_table")
+	if !strings.Contains(r.m.toast, "acme-prod.sales.fresh_table") || !strings.Contains(r.m.toast, engine.ErrReadOnly.Error()) {
+		t.Fatalf("toast %q", r.m.toast)
+	}
+	if r.m.openAfter != nil {
+		t.Fatal("the open is left pending")
 	}
 }
 
