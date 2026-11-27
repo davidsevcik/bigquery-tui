@@ -303,16 +303,24 @@ func TestComplete(t *testing.T) {
 	}
 }
 
-func TestACandidateSpellingTheDashedTextBeforeTheWordReplacesItToo(t *testing.T) {
-	text := "select my-ord from acme-prod.sales.my-orders"
-	got := map[string]string{}
-	for _, c := range Complete(text, len("select my-ord"), testCat, Options{}) {
-		got[c.Label] = text[:c.Start] + c.Insert + text[c.End:]
-	}
-	if got["my-orders"] != "select my-orders from acme-prod.sales.my-orders" {
-		t.Errorf("the alias named after a dashed table repeats its dashed part: %q", got["my-orders"])
-	}
-	if got["ORDER BY"] != "select my-ORDER BY from acme-prod.sales.my-orders" {
-		t.Errorf("a keyword after a minus replaces only the word: %q", got["ORDER BY"])
+func TestACandidateSpellingTheDashedTextAroundTheWordReplacesItToo(t *testing.T) {
+	for _, c := range []struct{ name, marked, label, want string }{
+		{"the dashed text before the word", "select my-ord| from acme-prod.sales.my-orders", "my-orders", "select my-orders from acme-prod.sales.my-orders"},
+		{"the dashed text after the word", "select my|-ord from acme-prod.sales.my-orders", "my-orders", "select my-orders from acme-prod.sales.my-orders"},
+		{"the dashed text on both sides", "select my-bi|g-or from acme-prod.sales.my-big-orders", "my-big-orders", "select my-big-orders from acme-prod.sales.my-big-orders"},
+		{"a keyword after a minus replaces only the word", "select my-ord| from acme-prod.sales.my-orders", "ORDER BY", "select my-ORDER BY from acme-prod.sales.my-orders"},
+		{"a function between minuses replaces only the word", "select my-bi|g-or from acme-prod.sales.my-big-orders", "BIT_COUNT", "select my-BIT_COUNT(-or from acme-prod.sales.my-big-orders"},
+	} {
+		at := strings.Index(c.marked, "|")
+		text := c.marked[:at] + c.marked[at+1:]
+		got := "not offered"
+		for _, cand := range Complete(text, at, testCat, Options{}) {
+			if cand.Label == c.label {
+				got = text[:cand.Start] + cand.Insert + text[cand.End:]
+			}
+		}
+		if got != c.want {
+			t.Errorf("%s: accepting %s in %q gives %q, want %q", c.name, c.label, c.marked, got, c.want)
+		}
 	}
 }

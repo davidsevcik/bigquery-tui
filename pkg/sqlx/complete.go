@@ -100,7 +100,7 @@ func Complete(text string, cursor int, cat Catalog, o Options) []api.Candidate {
 			c.partial, c.pStart, c.pEnd = text[dStart:cursor], dStart, toks[last].End
 			quals, start, k = qualifiers(text, toks, first-1, dStart)
 		} else {
-			c.dashedLead = text[dStart:c.pStart]
+			c.dashedLead, c.dashedTail = text[dStart:c.pStart], text[c.pEnd:toks[last].End]
 		}
 	}
 	c.chainStart = start
@@ -660,6 +660,7 @@ type completer struct {
 	chainStart int
 	quoted     bool
 	dashedLead string
+	dashedTail string
 }
 
 type ranked struct {
@@ -693,11 +694,18 @@ func (c *completer) add(out *[]ranked, order int, cand api.Candidate) {
 	}
 	if cand.Start == 0 && cand.End == 0 {
 		cand.Start, cand.End = c.pStart, c.pEnd
-		if c.dashedLead != "" && len(cand.Insert) >= len(c.dashedLead) && strings.EqualFold(cand.Insert[:len(c.dashedLead)], c.dashedLead) {
+		if hasPrefixFold(cand.Insert, c.dashedLead) {
 			cand.Start -= len(c.dashedLead)
+		}
+		if c.dashedTail != "" && hasPrefixFold(cand.Insert, c.dashedLead+c.text[c.pStart:c.pEnd]+c.dashedTail) {
+			cand.End += len(c.dashedTail)
 		}
 	}
 	*out = append(*out, ranked{cand, rank, order})
+}
+
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
 func (c *completer) finish(rs []ranked) []api.Candidate {
