@@ -363,7 +363,7 @@ Vim keys (`hjkl`, `gg`/`G`, `ctrl+d`/`ctrl+u`), `/` to filter (8.1), the command
 
 ### 9.3 Popup (TUI-only)
 
-Triggered after 2 typed characters in an identifier position, and immediately after `.` or a backtick; `ctrl+space` forces it. Tab accepts, Enter inserts a newline and never accepts, `ctrl+n`/`ctrl+p` and the arrows navigate, Esc dismisses. Accepting a project or dataset adds the dot and continues with the next segment; accepting a table closes an open backtick. A table name that needs quoting (a wildcard) replaces the whole unquoted path with a backticked one. In a table position an unquoted dashed name is one word, as GoogleSQL reads it: `acme-pr` offers the project `acme-prod` and accepting it gives `acme-prod.`; anywhere else `-` is a minus. Drawn with the TUI's own overlay helper, as the other popups are.
+Triggered after 2 typed characters in an identifier position, and immediately after `.` or a backtick; `ctrl+space` forces it. Tab accepts, Enter inserts a newline and never accepts, `ctrl+n`/`ctrl+p` and the arrows navigate, Esc dismisses. Accepting a project or dataset adds the dot and continues with the next segment; accepting a table closes an open backtick. A table name that needs quoting (a wildcard) replaces the whole unquoted path with a backticked one. In a table position an unquoted dashed name is one word, as GoogleSQL reads it: `acme-pr` offers the project `acme-prod` and accepting it gives `acme-prod.`, and digits after a dash belong to the name (`my-proj-412345.sales`); anywhere else `-` is a minus. Drawn with the TUI's own overlay helper, as the other popups are.
 
 ## 10. Query runs and results (phase 3) [02, 11, 15]
 

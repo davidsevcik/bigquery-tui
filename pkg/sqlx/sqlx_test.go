@@ -27,6 +27,11 @@ func TestTokenize(t *testing.T) {
 		{"`open\nx", "quoted:`open | ident:x"},
 		{"a→b", "ident:a | punct:→ | ident:b"},
 		{"my_func (1)", "function:my_func | punct:( | number:1 | punct:)"},
+		{"from my-proj-412345.sales.orders", "keyword:from | ident:my | punct:- | ident:proj | punct:- | ident:412345 | punct:. | ident:sales | punct:. | ident:orders"},
+		{"from a, my-1st-proj.d.t", "keyword:from | ident:a | punct:, | ident:my | punct:- | ident:1st | punct:- | ident:proj | punct:. | ident:d | punct:. | ident:t"},
+		{"select 1.5, x-1.0 from t limit 10", "keyword:select | number:1.5 | punct:, | ident:x | punct:- | number:1.0 | keyword:from | ident:t | keyword:limit | number:10"},
+		{"from t where n-12", "keyword:from | ident:t | keyword:where | ident:n | punct:- | number:12"},
+		{"from a; select x-1", "keyword:from | ident:a | punct:; | keyword:select | ident:x | punct:- | number:1"},
 	}
 	for _, c := range cases {
 		if got := kinds(c.in); got != c.want {
@@ -95,7 +100,7 @@ type fakeCat struct {
 func (f fakeCat) DefaultProject() string { return f.def }
 func (f fakeCat) Projects() []string {
 	var out []string
-	for _, p := range []string{"acme-prod", "acme-staging", "exec"} {
+	for _, p := range []string{"acme-prod", "acme-staging", "exec", "my-proj-412345"} {
 		if _, ok := f.data[p]; ok {
 			out = append(out, p)
 		}
@@ -150,8 +155,9 @@ var testCat = fakeCat{def: "exec", data: map[string]map[string]map[string][]stri
 		},
 		"finance": {"refunds": {"id", "amount"}},
 	},
-	"acme-staging": {"sales": {"orders": {"id"}}},
-	"exec":         {"scratch": {"tmp": {"x", "y"}}},
+	"acme-staging":   {"sales": {"orders": {"id"}}},
+	"exec":           {"scratch": {"tmp": {"x", "y"}}},
+	"my-proj-412345": {"sales": {"orders": {"id", "total"}}},
 }}
 
 func complete(t *testing.T, marked string, forced bool) ([]string, string) {
@@ -181,7 +187,7 @@ func TestComplete(t *testing.T) {
 		want    string
 		applied string
 	}{
-		{name: "backtick: projects and datasets", in: "select * from `|", want: "scratch,acme-prod,acme-staging,exec,finance,sales,sales"},
+		{name: "backtick: projects and datasets", in: "select * from `|", want: "scratch,acme-prod,acme-staging,exec,my-proj-412345,finance,sales,sales,sales"},
 		{name: "backtick: project prefix", in: "select * from `acme-p|", want: "acme-prod", applied: "select * from `acme-prod"},
 		{name: "backtick: datasets of a project", in: "select * from `acme-prod.|", want: "finance,sales"},
 		{name: "backtick: tables", in: "select * from `acme-prod.sales.|`", want: "customers,events_*,orders"},
@@ -199,6 +205,11 @@ func TestComplete(t *testing.T) {
 		{name: "unquoted: a dashed project right after its dash", in: "select * from acme-|", want: "acme-prod,acme-staging", applied: "select * from acme-prod"},
 		{name: "unquoted: a dashed project replaces the rest of its name", in: "select * from acme|-pr", want: "acme-prod,acme-staging", applied: "select * from acme-prod"},
 		{name: "unquoted: a dashed project after join", in: "select * from scratch.tmp join acme-st|", want: "acme-staging", applied: "select * from scratch.tmp join acme-staging"},
+		{name: "unquoted: a dashed project that ends in digits", in: "select * from my-proj-4123|", want: "my-proj-412345", applied: "select * from my-proj-412345"},
+		{name: "unquoted: datasets after a project that ends in digits", in: "select * from my-proj-412345.|", want: "sales"},
+		{name: "unquoted: dataset prefix after a project that ends in digits", in: "select * from my-proj-412345.sa|", want: "sales", applied: "select * from my-proj-412345.sales"},
+		{name: "unquoted: tables of a project that ends in digits", in: "select * from my-proj-412345.sales.o|", want: "orders", applied: "select * from my-proj-412345.sales.orders"},
+		{name: "unquoted: columns of a table in a project that ends in digits", in: "select t| from my-proj-412345.sales.orders", forced: true, want: "total,…"},
 		{name: "a dash in the select list is a minus", in: "select a-b|", want: ""},
 		{name: "a dash in the select list is a minus when forced", in: "select a-b|", forced: true, want: "BETWEEN,…", applied: "select a-BETWEEN"},
 		{name: "a column after a minus", in: "select a-cu| from acme-prod.sales.orders", want: "customer_id,CURRENT ROW,…", applied: "select a-customer_id from acme-prod.sales.orders"},

@@ -96,11 +96,11 @@ func Complete(text string, cursor int, cat Catalog, o Options) []api.Candidate {
 	quals, start, k := qualifiers(text, toks, k, c.pStart)
 	if first, last, ok := dashedName(text, toks, cur); ok {
 		dStart := toks[first].Start
-		if dQuals, dChain, dk := qualifiers(text, toks, first-1, dStart); dk >= 0 && inTableContext(text, toks, dk) {
+		if dQuals, dChain, dk, inPath := tablePath(text, toks, first); inPath {
 			c.partial, c.pStart, c.pEnd = text[dStart:cursor], dStart, toks[last].End
 			quals, start, k = dQuals, dChain, dk
 		} else {
-			c.lead = text[dStart:c.pStart]
+			c.dashedLead = text[dStart:c.pStart]
 		}
 	}
 	c.chainStart = start
@@ -187,32 +187,42 @@ func qualifiers(text string, toks []api.Token, k, start int) ([]string, int, int
 	return quals, start, k
 }
 
+func tablePath(text string, toks []api.Token, first int) ([]string, int, int, bool) {
+	quals, chain, k := qualifiers(text, toks, first-1, toks[first].Start)
+	return quals, chain, k, k >= 0 && inTableContext(text, toks, k)
+}
+
+func namePart(t api.Token) bool { return isWord(t) || t.Kind == api.TokNumber }
+
+func dashJoined(text string, toks []api.Token, i int) bool {
+	return i >= 0 && i+2 < len(toks) && namePart(toks[i]) && isPunct(text, toks[i+1], "-") && namePart(toks[i+2]) &&
+		toks[i].End == toks[i+1].Start && toks[i+1].End == toks[i+2].Start
+}
+
 func dashedName(text string, toks []api.Token, cur int) (int, int, bool) {
 	if cur < 0 || cur >= len(toks) {
 		return 0, 0, false
 	}
-	dash := func(i int) bool { return isPunct(text, toks[i], "-") }
-	part := func(i int) bool { return isWord(toks[i]) || toks[i].Kind == api.TokNumber }
-	linked := func(i int) bool {
-		return toks[i].End == toks[i+1].Start && ((dash(i) && part(i+1)) || (part(i) && dash(i+1)))
-	}
-	if !dash(cur) && !part(cur) {
+	first, last := cur, cur
+	switch {
+	case isPunct(text, toks[cur], "-"):
+		if cur == 0 || !namePart(toks[cur-1]) || toks[cur-1].End != toks[cur].Start {
+			return 0, 0, false
+		}
+		first = cur - 1
+		if dashJoined(text, toks, first) {
+			last = cur + 1
+		}
+	case !namePart(toks[cur]):
 		return 0, 0, false
 	}
-	first, last := cur, cur
-	for first > 0 && linked(first-1) {
-		first--
+	for dashJoined(text, toks, first-2) {
+		first -= 2
 	}
-	for last+1 < len(toks) && linked(last) {
-		last++
+	for dashJoined(text, toks, last) {
+		last += 2
 	}
-	if dash(first) {
-		first++
-	}
-	if last > cur && dash(last) {
-		last--
-	}
-	return first, last, first < last && first <= cur
+	return first, last, first < last
 }
 
 func wordWithHyphens(text string, toks []api.Token, i int) ([]string, int, int) {
@@ -220,14 +230,11 @@ func wordWithHyphens(text string, toks []api.Token, i int) ([]string, int, int) 
 	if t.Kind == api.TokQuoted {
 		return strings.Split(strings.Trim(text[t.Start:t.End], "`"), "."), t.Start, i - 1
 	}
-	start := t.Start
-	k := i - 1
-	for k >= 1 && isPunct(text, toks[k], "-") && toks[k].End == start && toks[k-1].End == toks[k].Start &&
-		(isWord(toks[k-1]) || toks[k-1].Kind == api.TokNumber) {
-		start = toks[k-1].Start
-		k -= 2
+	first := i
+	for dashJoined(text, toks, first-2) {
+		first -= 2
 	}
-	return []string{text[start:t.End]}, start, k
+	return []string{text[toks[first].Start:t.End]}, toks[first].Start, first - 1
 }
 
 var clauseKeywords = []string{"SELECT", "WHERE", "ON", "GROUP", "ORDER", "HAVING", "QUALIFY", "LIMIT", "SET", "USING", "WINDOW", "VALUES", "WHEN", "THEN", "BY"}
@@ -400,8 +407,7 @@ func (s *scope) parseRef(i int) (relation, int, bool) {
 			if toks[i].Kind == api.TokQuoted {
 				rel.path = append(rel.path, strings.Split(strings.Trim(seg, "`"), ".")...)
 			} else {
-				for i+2 < len(toks) && isPunct(text, toks[i+1], "-") && toks[i+1].Start == toks[i].End && toks[i+2].Start == toks[i+1].End &&
-					(isWord(toks[i+2]) || toks[i+2].Kind == api.TokNumber) {
+				for dashJoined(text, toks, i) {
 					seg += "-" + text[toks[i+2].Start:toks[i+2].End]
 					i += 2
 				}
@@ -649,7 +655,7 @@ type completer struct {
 	pEnd       int
 	chainStart int
 	quoted     bool
-	lead       string
+	dashedLead string
 }
 
 type ranked struct {
@@ -683,8 +689,8 @@ func (c *completer) add(out *[]ranked, order int, cand api.Candidate) {
 	}
 	if cand.Start == 0 && cand.End == 0 {
 		cand.Start, cand.End = c.pStart, c.pEnd
-		if c.lead != "" && len(cand.Insert) >= len(c.lead) && strings.EqualFold(cand.Insert[:len(c.lead)], c.lead) {
-			cand.Start -= len(c.lead)
+		if c.dashedLead != "" && len(cand.Insert) >= len(c.dashedLead) && strings.EqualFold(cand.Insert[:len(c.dashedLead)], c.dashedLead) {
+			cand.Start -= len(c.dashedLead)
 		}
 	}
 	*out = append(*out, ranked{cand, rank, order})

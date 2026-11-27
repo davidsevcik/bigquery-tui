@@ -62,6 +62,13 @@ func Tokenize(text string) []api.Token {
 			}
 			emit(i, j, api.TokParam)
 			i = j
+		case isDigit(c) && continuesDashedPath(text, out, i):
+			j := i + 1
+			for j < n && isIdentByte(text[j]) {
+				j++
+			}
+			emit(i, j, api.TokIdent)
+			i = j
 		case isDigit(c) || (c == '.' && i+1 < n && isDigit(text[i+1]) && !prevIsIdent(out, i)):
 			end := scanNumber(text, i)
 			emit(i, end, api.TokNumber)
@@ -125,6 +132,21 @@ func prevIsDot(toks []api.Token, text string, at int) bool {
 	}
 	p := toks[len(toks)-1]
 	return p.End == at && p.Kind == api.TokPunct && text[p.Start:p.End] == "."
+}
+
+func continuesDashedPath(text string, toks []api.Token, at int) bool {
+	n := len(toks)
+	if n < 2 || toks[n-1].End != at || !isPunct(text, toks[n-1], "-") {
+		return false
+	}
+	lo, _ := statementBounds(text, toks, at)
+	stmt := toks[lo:]
+	first, _, ok := dashedName(text, stmt, len(stmt)-1)
+	if !ok {
+		return false
+	}
+	_, _, _, inPath := tablePath(text, stmt, first)
+	return inPath
 }
 
 func prevIsIdent(toks []api.Token, at int) bool {
