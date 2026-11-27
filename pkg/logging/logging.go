@@ -13,8 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/natefinch/lumberjack.v2"
-
 	"github.com/davidsevcik/bigquery-tui/pkg/version"
 )
 
@@ -65,11 +63,11 @@ func New(o Options) (*slog.Logger, func() error, error) {
 	closeFn := func() error { return nil }
 	if o.Dir != "" && fileWritable(o.Dir) {
 		path := filepath.Join(o.Dir, FileName)
-		lj := &lumberjack.Logger{Filename: path, MaxSize: 5, MaxBackups: 3}
-		handlers = append(handlers, slog.NewJSONHandler(lj, &slog.HandlerOptions{Level: level}))
-		closeFn = lj.Close
+		sink := newRotatingFile(path, maxFileSize, maxBackups)
+		handlers = append(handlers, slog.NewJSONHandler(sink, &slog.HandlerOptions{Level: level}))
+		closeFn = sink.Close
 		if o.Command != "" {
-			slog.New(slog.NewJSONHandler(lj, nil)).Info("bqt started",
+			slog.New(slog.NewJSONHandler(sink, nil)).Info("bqt started",
 				"command", o.Command, "version", version.String(), "log_level", level.String(), "log_dir", o.Dir)
 		}
 	}
