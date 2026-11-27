@@ -230,7 +230,6 @@ func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.Syn
 	}
 	r.event(api.SyncEvent{Kind: api.EventRunStarted, Message: msg})
 
-	// ADR-0006
 	if err := s.reconcileThenSync(ctx, scope, projects, r); err != nil && ctx.Err() == nil {
 		return res, err
 	}

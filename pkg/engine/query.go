@@ -221,7 +221,7 @@ func (e *Engine) StartExport(ctx context.Context, runID int64, path string, f ex
 	if err != nil {
 		return nil, err
 	}
-	bctx, unregister, err := e.bg.start(context.WithoutCancel(ctx))
+	bctx, release, err := e.bg.start(context.WithoutCancel(ctx))
 	if err != nil {
 		tmp.Close()
 		os.Remove(tmp.Name())
@@ -230,7 +230,7 @@ func (e *Engine) StartExport(ctx context.Context, runID int64, path string, f ex
 	ectx, cancel := context.WithCancel(bctx)
 	h := &ExportHandle{cancel: cancel, events: make(chan api.ExportEvent, 16), done: make(chan struct{})}
 	go func() {
-		defer unregister()
+		defer release()
 		defer close(h.done)
 		defer close(h.events)
 		defer cancel()

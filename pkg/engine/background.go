@@ -13,7 +13,7 @@ type background struct {
 	stopped bool
 }
 
-func (b *background) start(parent context.Context) (ctx context.Context, unregister func(), err error) {
+func (b *background) start(parent context.Context) (ctx context.Context, release func(), err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.stopped {

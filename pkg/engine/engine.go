@@ -157,7 +157,6 @@ func (e *Engine) History() (*store.History, error) {
 	return h, nil
 }
 
-// ADR-0008
 func (e *Engine) Close() error {
 	e.bg.stop()
 	e.runs.Close()
@@ -506,7 +505,7 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 		lock.Unlock()
 		return nil, err
 	}
-	bctx, unregister, err := e.bg.start(ctx)
+	bctx, release, err := e.bg.start(ctx)
 	if err != nil {
 		lock.Unlock()
 		return nil, err
@@ -527,7 +526,7 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 		Parallelism: e.o.Parallelism, Retries: e.o.Retries, Backoff: e.o.Backoff,
 	})
 	go func() {
-		defer unregister()
+		defer release()
 		defer cancel()
 		res, err := s.Run(rctx, scope, func(ev api.SyncEvent) {
 			e.observeSync(track, ev)

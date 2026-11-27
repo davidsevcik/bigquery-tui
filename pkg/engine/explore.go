@@ -292,13 +292,13 @@ func (e *Engine) WatchCatalog(ctx context.Context, interval time.Duration) <-cha
 		interval = time.Second
 	}
 	out := make(chan struct{}, 1)
-	ctx, unregister, err := e.bg.start(ctx)
+	ctx, release, err := e.bg.start(ctx)
 	if err != nil {
 		close(out)
 		return out
 	}
 	go func() {
-		defer unregister()
+		defer release()
 		defer close(out)
 		var w *store.Watcher
 		defer func() {
