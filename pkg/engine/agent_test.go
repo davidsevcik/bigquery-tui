@@ -199,7 +199,7 @@ func TestFavoriteList(t *testing.T) {
 	}
 }
 
-func TestHistoryListCountsTheGroups(t *testing.T) {
+func TestHistoryListCountsTheGroupsOnEveryPage(t *testing.T) {
 	e, _ := synced(t, "proj-a")
 	eng := e.agent("cli")
 	for _, sql := range []string{"select 1", "select 2", "select 3", "select 1"} {
@@ -207,9 +207,14 @@ func TestHistoryListCountsTheGroups(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	l, err := eng.HistoryList(ctx, "", 2, 0)
-	if err != nil || l.Total != 3 || len(l.Items) != 2 || !l.Truncated || l.NextCursor != "2" {
-		t.Fatalf("%v %+v", err, l)
+	for _, c := range []struct {
+		offset, items int
+		cursor        string
+	}{{0, 2, "2"}, {2, 1, ""}, {3, 0, ""}, {10, 0, ""}} {
+		l, err := eng.HistoryList(ctx, "", 2, c.offset)
+		if err != nil || l.Total != 3 || len(l.Items) != c.items || l.Truncated != (c.cursor != "") || l.NextCursor != c.cursor {
+			t.Errorf("offset %d: %v %+v", c.offset, err, l)
+		}
 	}
 }
 

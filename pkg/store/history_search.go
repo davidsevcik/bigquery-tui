@@ -247,7 +247,7 @@ func (h *History) SearchHistory(ctx context.Context, q HistoryQuery, limit, offs
 	if len(where) > 0 {
 		filter = "WHERE " + strings.Join(where, " AND ")
 	}
-	query := `WITH m AS (SELECT h.* FROM history h ` + filter + `),
+	groups := `WITH m AS (SELECT h.* FROM history h ` + filter + `),
 k AS (SELECT m.*, COALESCE(sql_key, 'id:' || id) AS k,
   ROW_NUMBER() OVER (PARTITION BY COALESCE(sql_key, 'id:' || id) ORDER BY created_at DESC, id DESC) AS rn FROM m),
 g AS (SELECT k, COUNT(*) AS n,
@@ -255,27 +255,30 @@ g AS (SELECT k, COUNT(*) AS n,
   SUM(CASE WHEN reservation_id != '' THEN COALESCE(total_slot_ms, 0) ELSE 0 END) AS slot
   FROM k GROUP BY k),
 r AS (SELECT id, k FROM k WHERE rn = 1)
-SELECT ` + entryCols + `, g.n, g.billed, g.slot, g.k, COUNT(*) OVER () FROM g JOIN r ON r.k = g.k JOIN history h ON h.id = r.id
-ORDER BY h.created_at DESC, h.id DESC LIMIT ? OFFSET ?`
-	args = append(args, limit+1, offset)
-	rows, err := h.db.QueryContext(ctx, query, args...)
+`
+	tx, err := h.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, false, 0, err
 	}
-	defer rows.Close()
-	out := []api.HistoryGroup{}
+	defer tx.Rollback()
 	total := 0
-	for rows.Next() {
+	if err := tx.QueryRowContext(ctx, groups+`SELECT COUNT(*) FROM g`, args...).Scan(&total); err != nil {
+		return nil, false, 0, err
+	}
+	out := []api.HistoryGroup{}
+	err = eachRow(ctx, tx, func(rows *sql.Rows) error {
 		var g api.HistoryGroup
-		e, err := scanEntry(rows, &g.Runs, &g.BytesBilled, &g.SlotMs, &g.Key, &total)
+		e, err := scanEntry(rows, &g.Runs, &g.BytesBilled, &g.SlotMs, &g.Key)
 		if err != nil {
-			return nil, false, 0, err
+			return err
 		}
 		g.Latest = e
 		g.Spans = termSpans(e.SQL, q.Terms)
 		out = append(out, g)
-	}
-	if err := rows.Err(); err != nil {
+		return nil
+	}, groups+`SELECT `+entryCols+`, g.n, g.billed, g.slot, g.k FROM g JOIN r ON r.k = g.k JOIN history h ON h.id = r.id
+ORDER BY h.created_at DESC, h.id DESC LIMIT ? OFFSET ?`, append(args, limit+1, offset)...)
+	if err != nil {
 		return nil, false, 0, err
 	}
 	more := len(out) > limit

@@ -74,6 +74,46 @@ func TestHistorySearchGroupsIdenticalSQL(t *testing.T) {
 	}
 }
 
+func TestHistorySearchTotalIsTheGroupCountOnEveryPage(t *testing.T) {
+	h := historyFixture(t)
+	addRun(t, h, "j6", "SELECT revenue FROM sales.returns", api.RunDone, "cli", hbase.Add(4*time.Hour), 0, "")
+	addRun(t, h, "j7", "SELECT 2", api.RunFailed, "tui", hbase.Add(5*time.Hour), 0, "")
+	for _, c := range []struct {
+		name   string
+		q      HistoryQuery
+		groups int
+	}{
+		{"no filter", HistoryQuery{}, 6},
+		{"term", HistoryQuery{Terms: []api.QueryTerm{{Text: "revenue"}}}, 3},
+		{"source", HistoryQuery{Conds: []HistoryCond{{Field: "source", Values: []string{"tui"}}}}, 4},
+		{"negated state", HistoryQuery{Conds: []HistoryCond{{Field: "state", Values: []string{"done"}, Negated: true}}}, 3},
+	} {
+		for _, p := range []struct {
+			name   string
+			offset int
+		}{{"first", 0}, {"middle", 1}, {"last", c.groups - 1}, {"at the count", c.groups}, {"past the end", c.groups + 5}} {
+			gs, more, total, err := h.SearchHistory(ctx, c.q, 1, p.offset)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantLen, wantMore := min(1, max(0, c.groups-p.offset)), p.offset+1 < c.groups
+			if total != c.groups || len(gs) != wantLen || more != wantMore {
+				t.Errorf("%s, %s page: %d groups, more %v, total %d; want %d, %v, %d", c.name, p.name, len(gs), more, total, wantLen, wantMore, c.groups)
+			}
+		}
+	}
+}
+
+func TestHistorySearchTotalIsZeroWhenNothingMatches(t *testing.T) {
+	h := historyFixture(t)
+	for _, offset := range []int{0, 3} {
+		gs, more, total, err := h.SearchHistory(ctx, HistoryQuery{Terms: []api.QueryTerm{{Text: "nothingmatches"}}}, 10, offset)
+		if err != nil || len(gs) != 0 || more || total != 0 {
+			t.Errorf("offset %d: %v, %d groups, more %v, total %d", offset, err, len(gs), more, total)
+		}
+	}
+}
+
 func TestHistorySearchTermsAndFilters(t *testing.T) {
 	h := historyFixture(t)
 	q := func(hq HistoryQuery) []string {
