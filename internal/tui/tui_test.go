@@ -283,7 +283,7 @@ func TestTypingInTheJumpPopupNeverTriggersCommands(t *testing.T) {
 	if r.m.ov != ovJump || r.m.jump.in.value() != "qLPrRy?gg" {
 		t.Fatalf("printable keys must type: ov=%v text=%q", r.m.ov, r.m.jump.in.value())
 	}
-	if r.m.syncing || r.m.style != styleColumns {
+	if r.m.syncPhase != syncIdle || r.m.style != styleColumns {
 		t.Fatal("no command may run while typing")
 	}
 }
