@@ -14,7 +14,8 @@ Package `engine` is the facade every frontend (TUI, CLI, MCP server) uses: it wi
 - **`engine`** (package): the single facade every frontend uses. It wires the config, the store, the BigQuery ports and the sync engine, and exposes long operations as a handle plus a stream of plain-data events, so frontends stay thin.
 - **`engine.Options`** (`Meta`): the BigQuery metadata client is built lazily, so commands that never sync (`status`) need no credentials. `nil` uses the real client.
 - **`engine.Options`** (`Execution`): when set, it fixes the Execution project for the engine's lifetime. `bqt mcp` keeps the one it started with (`ResolveExecution`), even if the selection changes later.
-- **`engine.(*Engine).Close`**: takes `e.mu`, because operations still running (a late `TouchRecent`, a client being built) set its fields under `e.mu`.
+- **`engine.(*Engine).Close`**: first stops the engine's background work. It cancels every sync (`StartSync`), catalog watcher (`WatchCatalog`) and export (`StartExport`) still running and waits until each goroutine has ended, because they use the catalog, the history and the clients that `Close` closes next. A sync's own tail still runs during that wait, in its usual order (reload the index, end the sync track, release the lock, complete the handle), and its handle reports the sync cancelled. It waits before it takes `e.mu`, so calls still running on other goroutines are not held up behind the wait. Then `Close` takes `e.mu`, because operations still running (a late `TouchRecent`, a client being built) set its fields under `e.mu`. It is safe to call twice and from any goroutine.
+- **`engine.background`**: every goroutine the engine starts that outlives the call that started it (a sync, a catalog watcher, an export) registers here with its cancel function, so `Close` can stop it and wait for it. Once `Close` has begun, nothing more registers: `StartSync` and `StartExport` return `ErrClosed`, and `WatchCatalog` returns a closed channel.
 
 ### BigQuery clients and the Execution project
 
@@ -91,5 +92,6 @@ Package `engine` is the facade every frontend (TUI, CLI, MCP server) uses: it wi
 - A Run, an export and a client stay bound to the Execution project they started in. Changing the Execution project never closes a client or moves work in flight, so clients accumulate for the engine's lifetime.
 - The agent surface never prompts and never syncs. Its limits can only go down from the policy profile, and one deadline bounds the whole query including the row read.
 - The order at the end of a sync is load-bearing: commit, reload the index, then end the sync track and release the lock. Reordering it makes datasets flash "not synced" or leaves results unsearchable when completion is announced.
+- `Close` blocks until the background work it cancelled has ended: a frontend that quits during a sync waits for the in-flight units to stop and the index to reload, and one that quits during an export waits for the partial file to be removed.
 - "Syncing" is local knowledge. Only the process running a sync can show it; every other process sees Pending datasets as not synced.
 - Only Selected projects are browsed, completed and refreshed automatically. Deselected projects keep their cache and stay reachable only through an explicit sync, a qualified table name, or the Execution project.

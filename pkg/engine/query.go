@@ -219,8 +219,16 @@ func (e *Engine) StartExport(ctx context.Context, runID int64, path string, f ex
 		return nil, err
 	}
 	ectx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	done, err := e.bg.add(cancel)
+	if err != nil {
+		cancel()
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return nil, err
+	}
 	h := &ExportHandle{cancel: cancel, events: make(chan api.ExportEvent, 16), done: make(chan struct{})}
 	go func() {
+		defer done()
 		defer close(h.done)
 		defer close(h.events)
 		defer cancel()

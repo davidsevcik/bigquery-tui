@@ -430,6 +430,38 @@ func TestOperationsAfterCloseFailCleanly(t *testing.T) {
 	if err := eng.TouchRecent(ctx, api.ObjectPath{Project: "p", Dataset: "d", Table: "t"}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("%v", err)
 	}
+	if _, err := eng.StartSync(ctx, api.SyncScope{}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("a sync after Close: %v", err)
+	}
+	if _, ok := <-eng.WatchCatalog(ctx, time.Millisecond); ok {
+		t.Fatal("a catalog watcher started after Close")
+	}
+	h, err := e.openWithTables().StartSync(ctx, api.SyncScope{})
+	if err != nil {
+		t.Fatalf("the closed engine kept the sync lock: %v", err)
+	}
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCloseStopsTheCatalogWatcher(t *testing.T) {
+	e := newEnv(t, "proj-a")
+	eng := e.openWithTables()
+	changed := eng.WatchCatalog(ctx, time.Millisecond)
+	if err := eng.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		select {
+		case _, ok := <-changed:
+			if !ok {
+				return
+			}
+		default:
+			t.Fatal("Close returned while the catalog watcher still ran")
+		}
+	}
 }
 
 func TestDetailRejectsAStaleIndexEntry(t *testing.T) {

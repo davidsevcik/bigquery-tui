@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
+	"github.com/davidsevcik/bigquery-tui/pkg/bq"
 	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 	"github.com/davidsevcik/bigquery-tui/pkg/export"
 	"github.com/davidsevcik/bigquery-tui/pkg/format"
@@ -329,5 +330,57 @@ func TestExportDirThatIsAFileFailsTheExport(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(blocker); string(b) != "x" {
 		t.Fatalf("the file was touched: %q", b)
+	}
+}
+
+type heldQueryRows struct {
+	*bqtest.Fake
+	gate *closeGate
+}
+
+func (j heldQueryRows) QueryRows(c context.Context, ref api.JobRef, startIndex int64, maxRows int) (bq.ResultPage, error) {
+	if startIndex >= runs.PageRows {
+		j.gate.hold(c)
+	}
+	return j.Fake.QueryRows(c, ref, startIndex, maxRows)
+}
+
+func TestCloseCancelsARunningExportAndWaitsForIt(t *testing.T) {
+	e := newEnv(t, "proj-a")
+	gate := newCloseGate()
+	eng, err := Open(ctx, Options{
+		Config: e.cfg,
+		Meta:   func(context.Context) (bq.Metadata, error) { return e.fake, nil },
+		Jobs:   func(context.Context) (bq.Jobs, error) { return heldQueryRows{e.fake, gate}, nil },
+		Now:    func() time.Time { return e.now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { eng.Close() })
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(2 * runs.PageRows) }
+	info := eng.StartRun(ctx, runs.Request{SQL: "select"}).Wait()
+	dir := t.TempDir()
+	h, err := eng.StartExport(ctx, info.ID, filepath.Join(dir, "out.csv"), export.CSV)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate.closeWhileHeld(t, eng)
+	select {
+	case <-h.done:
+	default:
+		t.Fatal("Close returned before the export finished")
+	}
+	if ev := h.Wait(); !ev.Done || ev.Error != "cancelled" {
+		t.Fatalf("%+v", ev)
+	}
+	if left, _ := os.ReadDir(dir); len(left) != 0 {
+		t.Fatalf("files left: %v", left)
+	}
+	if _, err := eng.StartExport(ctx, info.ID, filepath.Join(dir, "late.csv"), export.CSV); !errors.Is(err, ErrClosed) {
+		t.Fatalf("an export after Close: %v", err)
+	}
+	if left, _ := os.ReadDir(dir); len(left) != 0 {
+		t.Fatalf("files left: %v", left)
 	}
 }

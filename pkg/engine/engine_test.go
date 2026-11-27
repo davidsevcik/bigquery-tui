@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -148,19 +150,30 @@ func TestStatusReportsConfigChange(t *testing.T) {
 
 func TestSecondSyncIsRefusedWhileRunning(t *testing.T) {
 	e := newEnv(t, "proj-a")
-	e.fake.Delay = 150 * time.Millisecond
+	reached, release := make(chan struct{}), make(chan struct{})
+	var listed atomic.Int32
+	e.fake.OnCall = func(c bqtest.Call) {
+		if c.Method == "ListDatasets" && listed.Add(1) == 1 {
+			close(reached)
+			<-release
+		}
+	}
 	one := e.open(false)
 	h, err := one.StartSync(ctx, api.SyncScope{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	two := e.open(false)
+	releaseOne := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(releaseOne)
+	<-reached
 	if _, err := two.StartSync(ctx, api.SyncScope{}); !errors.Is(err, ErrSyncRunning) {
 		t.Fatalf("want ErrSyncRunning, got %v", err)
 	}
 	if st, _ := two.Status(ctx); !st.SyncRunning {
 		t.Fatal("status must report the running sync")
 	}
+	releaseOne()
 	if _, err := h.Wait(); err != nil {
 		t.Fatal(err)
 	}
@@ -204,6 +217,83 @@ func TestCancelThroughHandle(t *testing.T) {
 	}
 	if time.Since(start) > time.Second {
 		t.Fatal("cancel must interrupt in-flight calls")
+	}
+}
+
+type closeGate struct {
+	held, cancelled, release chan struct{}
+	heldOnce, cancelledOnce  sync.Once
+}
+
+func newCloseGate() *closeGate {
+	return &closeGate{held: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (g *closeGate) hold(c context.Context) {
+	g.heldOnce.Do(func() { close(g.held) })
+	<-c.Done()
+	g.cancelledOnce.Do(func() { close(g.cancelled) })
+	<-g.release
+}
+
+func (g *closeGate) closeWhileHeld(t *testing.T, eng *Engine) {
+	t.Helper()
+	<-g.held
+	closed := make(chan error, 1)
+	go func() { closed <- eng.Close() }()
+	select {
+	case <-g.cancelled:
+	case err := <-closed:
+		t.Fatalf("Close returned while a call was still held (err %v)", err)
+	}
+	close(g.release)
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
+}
+
+type heldRegionTables struct {
+	*bqtest.Fake
+	gate *closeGate
+}
+
+func (m heldRegionTables) RegionTables(c context.Context, req bq.RegionRequest) (*api.Snapshot, error) {
+	m.gate.hold(c)
+	return m.Fake.RegionTables(c, req)
+}
+
+func TestCloseCancelsARunningSyncAndWaitsForIt(t *testing.T) {
+	e := newEnv(t, "proj-a")
+	gate := newCloseGate()
+	eng, err := Open(ctx, Options{
+		Config:  e.cfg,
+		Meta:    func(context.Context) (bq.Metadata, error) { return heldRegionTables{e.fake, gate}, nil },
+		Now:     func() time.Time { return e.now },
+		Backoff: func(int) time.Duration { return 0 },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { eng.Close() })
+	h, err := eng.StartSync(ctx, api.SyncScope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate.closeWhileHeld(t, eng)
+	select {
+	case <-h.done:
+	default:
+		t.Fatal("Close returned before the sync finished")
+	}
+	res, err := h.Wait()
+	if err != nil || !res.Cancelled {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if eng.syncRunning() {
+		t.Fatal("the sync lock outlived Close")
+	}
+	if err := eng.Close(); err != nil {
+		t.Fatalf("a second Close: %v", err)
 	}
 }
 
