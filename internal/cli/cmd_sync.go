@@ -2,8 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"log/slog"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -23,20 +27,41 @@ func load(env Env, g *globals) (*config.Config, error) {
 	return config.Load(g.loadOptions(env))
 }
 
-func newLogger(env Env, g *globals, cfg *config.Config, command string) (func(), *engineLog, error) {
+func openLog(env Env, g *globals, cfg *config.Config, command string, stderr io.Writer) (*slog.Logger, func(), error) {
 	level := g.logLevel
 	if level == "" {
 		level = env.Getenv("BQT_LOG")
 	}
-	opts := logging.Options{Dir: store.PathsFor(cfg.DataDir).LogDir, Level: level, Command: command}
-	if !env.IsTTY(env.Stderr) {
-		opts.Stderr = env.Stderr
-	}
-	l, closeFn, err := logging.New(opts)
+	dir := store.PathsFor(cfg.DataDir).LogDir
+	l, closeFn, err := env.OpenLog(logging.Options{Dir: dir, Level: level, Stderr: stderr, Command: command})
 	if err != nil {
 		return nil, nil, usageErr("%v", err)
 	}
-	return func() { _ = closeFn() }, &engineLog{l}, nil
+	return l, func() {
+		if err := closeFn(); err != nil {
+			warnLogClose(env.Stderr, filepath.Join(dir, logging.FileName), err)
+		}
+	}, nil
+}
+
+func warnLogClose(w io.Writer, path string, err error) {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		err = pe.Err
+	}
+	fmt.Fprintf(w, "warning: closing the log file %s: %v\n", path, err)
+}
+
+func newLogger(env Env, g *globals, cfg *config.Config, command string) (func(), *engineLog, error) {
+	var stderr io.Writer
+	if !env.IsTTY(env.Stderr) {
+		stderr = env.Stderr
+	}
+	l, closeLog, err := openLog(env, g, cfg, command, stderr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return closeLog, &engineLog{l}, nil
 }
 
 func cmdSync(ctx context.Context, o *out, g *globals, args []string) (int, error) {
