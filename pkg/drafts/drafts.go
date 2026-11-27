@@ -233,15 +233,18 @@ func (d *Draft) Save(text string) error {
 	return err
 }
 
+var removeFile = os.Remove
+
 func (d *Draft) Release() {
-	d.lock.Unlock()
 	if d.empty {
-		os.Remove(d.s.lockPath(d.id))
+		_ = removeFile(d.s.lockPath(d.id))
 	}
+	d.lock.Unlock()
 }
 
 func (d *Draft) Discard() {
+	if err := removeFile(d.s.Path(d.id)); err == nil || os.IsNotExist(err) {
+		_ = removeFile(d.s.lockPath(d.id))
+	}
 	d.lock.Unlock()
-	os.Remove(d.s.lockPath(d.id))
-	os.Remove(d.s.Path(d.id))
 }
