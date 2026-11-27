@@ -526,8 +526,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.refilter(f)
 		}
 		if m.zone == ZoneEditor && m.ov == ovNone {
-			m.buf().ed.insert(msg.Content)
-			return m, m.afterEdit(false)
+			return m, m.pasteInEditor(msg.Content)
 		}
 	case runMsg:
 		return m, m.onRun(msg)

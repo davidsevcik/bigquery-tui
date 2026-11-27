@@ -45,10 +45,28 @@ type vim struct {
 	replay  bool
 }
 
+type vimStepKind int
+
+const (
+	stepKey vimStepKind = iota
+	stepCompletion
+	stepPaste
+)
+
 type vimStep struct {
+	kind       vimStepKind
 	key        tea.KeyPressMsg
-	completion *completionEdit
+	completion completionEdit
+	paste      string
 }
+
+func keyStep(k tea.KeyPressMsg) vimStep { return vimStep{kind: stepKey, key: k} }
+
+func completionStep(c completionEdit) vimStep {
+	return vimStep{kind: stepCompletion, completion: c}
+}
+
+func pasteStep(text string) vimStep { return vimStep{kind: stepPaste, paste: text} }
 
 func (v *vim) record(s vimStep) {
 	if !v.replay {
@@ -1317,7 +1335,7 @@ func (m *Model) vimKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 		v.rec, v.tainted, v.idleVer = nil, false, e.version
 		e.beginGroup()
 	}
-	v.record(vimStep{key: msg})
+	v.record(keyStep(msg))
 	before := e.version
 	out := v.key(e, name, max(2, m.editorRows()))
 	cmd := m.vimApply(b, out, before)
@@ -1385,12 +1403,16 @@ func (m *Model) vimRepeat(b *buffer) tea.Cmd {
 	v.replay = true
 	defer func() { v.replay = false }()
 	for _, s := range steps {
-		switch {
-		case s.completion != nil:
+		switch s.kind {
+		case stepCompletion:
 			s.completion.apply(b.ed)
-		case v.mode == vimInsert:
-			m.vimInsertKey(b, s.key, keyName(s.key))
-		default:
+		case stepPaste:
+			b.ed.insert(s.paste)
+		case stepKey:
+			if v.mode == vimInsert {
+				m.vimInsertKey(b, s.key, keyName(s.key))
+				continue
+			}
 			v.key(b.ed, keyName(s.key), max(2, m.editorRows()))
 		}
 	}

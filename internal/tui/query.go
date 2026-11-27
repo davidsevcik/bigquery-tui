@@ -113,7 +113,7 @@ func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	if vimOn {
 		switch {
 		case name == "esc":
-			v.record(vimStep{key: msg})
+			v.record(keyStep(msg))
 			m.vimLeaveInsert(b)
 			m.vimSettle(b)
 			if m.o.NoBackground {
@@ -129,7 +129,7 @@ func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 		switch name {
 		case "tab":
 			if edit, ok := m.acceptCompletion(); ok && vimOn {
-				v.record(vimStep{completion: &edit})
+				v.record(completionStep(edit))
 			}
 			return nil
 		case "down", "ctrl+n":
@@ -144,7 +144,7 @@ func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 		}
 	}
 	if vimOn {
-		v.record(vimStep{key: msg})
+		v.record(keyStep(msg))
 	}
 	if act := keys.action(ZoneEditor, name); act != "" {
 		if act != "complete" {
@@ -161,6 +161,15 @@ func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 		return nil
 	}
 	return m.afterEdit(true)
+}
+
+func (m *Model) pasteInEditor(text string) tea.Cmd {
+	b := m.buf()
+	if m.vimOn() && b.vim.mode == vimInsert {
+		b.vim.record(pasteStep(text))
+	}
+	b.ed.insert(text)
+	return m.afterEdit(false)
 }
 
 func (m *Model) afterEdit(typed bool) tea.Cmd {
