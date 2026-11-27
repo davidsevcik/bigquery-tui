@@ -474,13 +474,7 @@ func assertOldSnapshot(t *testing.T, c *Catalog) {
 
 func TestApplyUnitFinishesWithOneFreeConnection(t *testing.T) {
 	c := openTemp(t)
-	for range c.db.Stats().MaxOpenConnections - 1 {
-		held, err := c.db.Conn(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer held.Close()
-	}
+	holdConnections(t, c.db, c.db.Stats().MaxOpenConnections-1)
 	done := make(chan error, 1)
 	go func() {
 		_, err := c.ApplyUnit(ctx, ApplyRequest{Unit: unit("p", "EU"), State: okState(t0), Datasets: []DatasetApply{dsApply("d1", "EU", table("d1", "a", "x"))}})

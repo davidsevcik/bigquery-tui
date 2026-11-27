@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -80,13 +81,7 @@ func TestBeginTxOnACancelledContextTakesNoConnection(t *testing.T) {
 
 func TestACancelEndsTheWaitForAPooledConnection(t *testing.T) {
 	c := openTemp(t)
-	for range c.db.Stats().MaxOpenConnections {
-		held, err := c.db.Conn(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer held.Close()
-	}
+	holdConnections(t, c.db, c.db.Stats().MaxOpenConnections)
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	waitsBefore := c.db.Stats().WaitCount
@@ -130,6 +125,17 @@ func TestATransactionGivesItsConnectionBackAsSoonAsItEnds(t *testing.T) {
 		if n := c.db.Stats().InUse; n != 0 {
 			t.Fatalf("after %s and the deferred rollback: connections in use = %d", end.name, n)
 		}
+	}
+}
+
+func holdConnections(t *testing.T, db *sql.DB, n int) {
+	t.Helper()
+	for range n {
+		held, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { held.Close() })
 	}
 }
 
