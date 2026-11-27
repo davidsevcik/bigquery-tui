@@ -115,22 +115,23 @@ type Model struct {
 	pendingKey string
 	toast      string
 
-	zone       Zone
-	bufs       []*buffer
-	cur        int
-	bufSeq     int
-	orphans    []orphan
-	comp       completion
-	runs       *runs.Follower
-	grids      map[int64]*grid
-	prompt     promptState
-	confirm    confirmState
-	confirmQ   []confirmState
-	ovSel      int
-	exp        Export
-	expEv      api.ExportEvent
-	jumpInsert bool
-	edX, edY   int
+	zone           Zone
+	bufs           []*buffer
+	cur            int
+	bufSeq         int
+	orphans        []orphan
+	comp           completion
+	runs           *runs.Follower
+	grids          map[int64]*grid
+	prompt         promptState
+	confirm        confirmState
+	confirmQ       []confirmState
+	draftsReleased bool
+	ovSel          int
+	exp            Export
+	expEv          api.ExportEvent
+	jumpInsert     bool
+	edX, edY       int
 
 	syncRun    SyncRun
 	syncing    bool

@@ -141,6 +141,9 @@ func (m *Model) draftProblem() string {
 }
 
 func (m *Model) saveDraft(b *buffer) {
+	if m.draftsReleased {
+		return
+	}
 	if b.path == "" && b.draft == nil {
 		d, err := m.draftStore().Hold(b.id)
 		m.heldDraft(b, d, err)
@@ -169,6 +172,7 @@ func (m *Model) saveDrafts() {
 
 func (m *Model) releaseBuffers() {
 	// ADR-0011
+	m.draftsReleased = true
 	for _, b := range m.bufs {
 		m.writeDraft(b)
 		if b.draft != nil {

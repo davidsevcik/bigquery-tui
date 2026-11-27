@@ -249,6 +249,22 @@ func TestQuitAsksWhenAScratchBufferIsNotInItsDraft(t *testing.T) {
 	})
 }
 
+func TestATickAfterQuitLeavesTheReleasedDraftsAlone(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	r.typeText("select 1")
+	b := r.m.buf()
+	r.m.quit()
+	r.m.Update(tickMsg{})
+	d, err := drafts.In(r.m.be.DraftDir()).Hold(b.id)
+	if err != nil {
+		t.Fatalf("quit released the draft for another instance: %v", err)
+	}
+	d.Release()
+	if got, _ := os.ReadFile(r.m.draftPath(b.id)); string(got) != "select 1" {
+		t.Fatalf("the draft keeps the text: %q", got)
+	}
+}
+
 func TestAFreshBufferWhoseDraftIsHeldTakesAnotherID(t *testing.T) {
 	r := editorRig(t, 120, 30)
 	other, err := drafts.In(r.m.be.DraftDir()).Hold("taken")
