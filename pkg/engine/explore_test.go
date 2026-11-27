@@ -479,6 +479,42 @@ func TestCloseStopsTheCatalogWatcher(t *testing.T) {
 	}
 }
 
+func TestCloseStopsACatalogWatcherWaitingForAConnection(t *testing.T) {
+	e := newEnv(t, "proj-a")
+	eng := e.openWithTables()
+	db := eng.catalog.DB()
+	for range db.Stats().MaxOpenConnections - 1 {
+		held, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer held.Close()
+	}
+	waitsBefore := db.Stats().WaitCount
+	eng.WatchCatalog(ctx, time.Millisecond)
+	waitFor(t, "the watcher waiting for a connection to reload the index", func() bool { return db.Stats().WaitCount > waitsBefore })
+	closed := make(chan error, 1)
+	go func() { closed <- eng.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		db.Close()
+		t.Fatal("Close hung behind a catalog watcher waiting for a connection")
+	}
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); !cond(); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+	}
+}
+
 func TestDetailRejectsAStaleIndexEntry(t *testing.T) {
 	e, eng := synced(t, "proj-a")
 	e.fake.Projects["proj-a"].Datasets[1].Tables = nil

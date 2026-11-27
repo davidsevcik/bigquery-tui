@@ -137,7 +137,7 @@ WHERE p.name = ? AND d.name = ? AND t.name = ?`, p.Project, p.Dataset, p.Table).
 }
 
 func (c *Catalog) ApplyTable(ctx context.Context, project string, t api.TableMeta, own bool) error {
-	tx, err := c.db.BeginTx(ctx, nil)
+	tx, err := beginTx(ctx, c.db, nil)
 	if err != nil {
 		return err
 	}
@@ -166,5 +166,5 @@ WHERE p.name = ? AND d.name = ? AND t.name = ?`, project, t.Dataset, t.Name).Sca
 	if err := insertColumns(ctx, ins, id, t.Columns); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return tx.Commit(ctx)
 }

@@ -29,7 +29,7 @@ type IndexSnapshot struct {
 }
 
 func (c *Catalog) LoadIndex(ctx context.Context) (*IndexSnapshot, error) {
-	tx, err := c.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := beginTx(ctx, c.db, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func (w *Watcher) Close() error { return w.conn.Close() }
 func (c *Catalog) TableByID(ctx context.Context, id int64) (api.TableMeta, error) {
 	var t api.TableMeta
 	// ADR-0006
-	tx, err := c.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := beginTx(ctx, c.db, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return t, err
 	}
