@@ -511,6 +511,30 @@ func TestVimDotReplaysAnEmptyPasteAsNothing(t *testing.T) {
 	}
 }
 
+func TestVimDotNeverReplaysAPasteMadeInVisualMode(t *testing.T) {
+	r := vimRig(t, 120, 30)
+	r.press("i")
+	r.typeText("abc def\nabc def")
+	r.press("esc", "0", "x", "v")
+	r.send(tea.PasteMsg{Content: "ZZ"})
+	r.press("esc", ".")
+	if strings.Count(r.text(), "ZZ") != 1 {
+		t.Fatalf("a paste in Visual mode is not part of the change: %q", r.text())
+	}
+}
+
+func TestVimDotLeavesOutAPasteMadeWhileAnOperatorWaits(t *testing.T) {
+	r := vimRig(t, 120, 30)
+	r.press("i")
+	r.typeText("abc def\nabc def")
+	r.press("esc", "g", "g", "0", "d")
+	r.send(tea.PasteMsg{Content: "ZZ "})
+	r.press("w", "j", "0", ".")
+	if r.text() != "ZZ def\ndef" {
+		t.Fatalf(". repeats dw without the paste: %q", r.text())
+	}
+}
+
 func TestVimDotReplaysPastesCompletionsAndKeysInOrder(t *testing.T) {
 	r := vimRig(t, 120, 30)
 	r.insertOnFirstOfTwoLines()
