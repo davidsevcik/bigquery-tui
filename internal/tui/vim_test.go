@@ -499,6 +499,18 @@ func TestVimDotRepeatsTextPastedInInsertMode(t *testing.T) {
 	}
 }
 
+func TestVimDotReplaysAnEmptyPasteAsNothing(t *testing.T) {
+	r := vimRig(t, 120, 30)
+	r.insertOnFirstOfTwoLines()
+	r.typeText("select ")
+	r.send(tea.PasteMsg{Content: ""})
+	r.typeText("1")
+	r.press("esc", "j", ".")
+	if r.text() != "select 1\nselect 1" {
+		t.Fatalf("%q", r.text())
+	}
+}
+
 func TestVimDotReplaysPastesCompletionsAndKeysInOrder(t *testing.T) {
 	r := vimRig(t, 120, 30)
 	r.insertOnFirstOfTwoLines()
