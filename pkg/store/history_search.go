@@ -247,7 +247,7 @@ func (h *History) SearchHistory(ctx context.Context, q HistoryQuery, limit, offs
 	if len(where) > 0 {
 		filter = "WHERE " + strings.Join(where, " AND ")
 	}
-	groups := `WITH m AS (SELECT h.* FROM history h ` + filter + `),
+	withGroups := `WITH m AS (SELECT h.* FROM history h ` + filter + `),
 k AS (SELECT m.*, COALESCE(sql_key, 'id:' || id) AS k,
   ROW_NUMBER() OVER (PARTITION BY COALESCE(sql_key, 'id:' || id) ORDER BY created_at DESC, id DESC) AS rn FROM m),
 g AS (SELECT k, COUNT(*) AS n,
@@ -262,7 +262,7 @@ r AS (SELECT id, k FROM k WHERE rn = 1)
 	}
 	defer tx.Rollback()
 	total := 0
-	if err := tx.QueryRowContext(ctx, groups+`SELECT COUNT(*) FROM g`, args...).Scan(&total); err != nil {
+	if err := tx.QueryRowContext(ctx, withGroups+`SELECT COUNT(*) FROM g`, args...).Scan(&total); err != nil {
 		return nil, false, 0, err
 	}
 	out := []api.HistoryGroup{}
@@ -276,7 +276,7 @@ r AS (SELECT id, k FROM k WHERE rn = 1)
 		g.Spans = termSpans(e.SQL, q.Terms)
 		out = append(out, g)
 		return nil
-	}, groups+`SELECT `+entryCols+`, g.n, g.billed, g.slot, g.k FROM g JOIN r ON r.k = g.k JOIN history h ON h.id = r.id
+	}, withGroups+`SELECT `+entryCols+`, g.n, g.billed, g.slot, g.k FROM g JOIN r ON r.k = g.k JOIN history h ON h.id = r.id
 ORDER BY h.created_at DESC, h.id DESC LIMIT ? OFFSET ?`, append(args, limit+1, offset)...)
 	if err != nil {
 		return nil, false, 0, err
