@@ -20,6 +20,7 @@ type buffer struct {
 	draft        *drafts.Draft
 	draftVersion int
 	savedVersion int
+	draftErr     string
 
 	vim vim
 
@@ -42,7 +43,8 @@ func (m *Model) draftPath(id string) string { return m.draftStore().Path(id) }
 func (b *buffer) modified() bool { return b.path != "" && b.ed.version != b.savedVersion }
 
 func (b *buffer) state() drafts.Buffer {
-	return drafts.Buffer{Path: b.path, Empty: b.ed.empty(), Modified: b.modified(), Ran: b.runID != 0}
+	drafted := b.draft != nil && b.draftVersion == b.ed.version
+	return drafts.Buffer{Path: b.path, Empty: b.ed.empty(), Modified: b.modified(), Ran: b.runID != 0, Drafted: drafted}
 }
 
 func (b *buffer) title() string {
@@ -67,7 +69,12 @@ func (m *Model) addBufferWith(text, path, id string, d *drafts.Draft) *buffer {
 	b.name = fmt.Sprintf("query %d", m.bufSeq)
 	b.ed.row, b.ed.col, b.ed.want = 0, 0, 0
 	if path == "" && b.draft == nil {
-		b.draft, _ = m.draftStore().Hold(b.id)
+		d, err := m.draftStore().Hold(b.id)
+		if errors.Is(err, drafts.ErrHeld) {
+			b.id = drafts.NewID()
+			d, err = m.draftStore().Hold(b.id)
+		}
+		m.heldDraft(b, d, err)
 		b.draftVersion = b.ed.version
 	}
 	m.bufs = append(m.bufs, b)
@@ -106,18 +113,52 @@ func (m *Model) removeDraft(b *buffer) {
 		b.draft.Discard()
 		b.draft = nil
 	}
+	b.draftErr = ""
+}
+
+func (m *Model) heldDraft(b *buffer, d *drafts.Draft, err error) {
+	if err != nil {
+		m.draftFailed(b, "hold the buffer's draft", err)
+		return
+	}
+	b.draft, b.draftErr = d, ""
+}
+
+func (m *Model) draftFailed(b *buffer, what string, err error) {
+	if err.Error() != b.draftErr {
+		m.o.Log.Warn(what, "buffer", b.id, "err", err)
+	}
+	b.draftErr = err.Error()
+}
+
+func (m *Model) draftProblem() string {
+	for _, b := range m.bufs {
+		if b.draftErr != "" {
+			return b.draftErr
+		}
+	}
+	return ""
 }
 
 func (m *Model) saveDraft(b *buffer) {
+	if b.path == "" && b.draft == nil {
+		d, err := m.draftStore().Hold(b.id)
+		m.heldDraft(b, d, err)
+		b.draftVersion = -1
+	}
+	m.writeDraft(b)
+}
+
+func (m *Model) writeDraft(b *buffer) {
 	if b.path != "" || b.draft == nil || b.draftVersion == b.ed.version {
 		return
 	}
 	version := b.ed.version
 	if err := b.draft.Save(b.ed.text()); err != nil {
-		m.draftErr = err.Error()
+		m.draftFailed(b, "save the buffer's draft", err)
 		return
 	}
-	b.draftVersion, m.draftErr = version, ""
+	b.draftVersion, b.draftErr = version, ""
 }
 
 func (m *Model) saveDrafts() {
@@ -127,8 +168,9 @@ func (m *Model) saveDrafts() {
 }
 
 func (m *Model) releaseBuffers() {
+	// ADR-0011
 	for _, b := range m.bufs {
-		m.saveDraft(b)
+		m.writeDraft(b)
 		if b.draft != nil {
 			b.draft.Release()
 			b.draft = nil

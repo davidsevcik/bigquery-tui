@@ -50,7 +50,7 @@ func cmdTUI(ctx context.Context, o *out, g *globals, args []string) error {
 	}
 	defer eng.Close()
 
-	m := tui.New(tui.EngineBackend{Engine: eng, Load: g.loadOptions(env)}, tui.Options{Getenv: env.Getenv, Now: env.Now, File: file})
+	m := tui.New(tui.EngineBackend{Engine: eng, Load: g.loadOptions(env)}, tui.Options{Getenv: env.Getenv, Now: env.Now, File: file, Log: log})
 	defer m.Close()
 	if _, err := tea.NewProgram(m, tea.WithContext(ctx)).Run(); err != nil && ctx.Err() == nil {
 		return fmt.Errorf("ui: %w", err)
