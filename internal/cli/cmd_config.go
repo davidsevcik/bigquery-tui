@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -78,16 +79,42 @@ func cmdConfig(ctx context.Context, o *out, g *globals, args []string) error {
 		if run == nil {
 			return fmt.Errorf("no editor runner available")
 		}
+		before, beforeErr := os.ReadFile(path)
 		if err := run(ctx, argv, env); err != nil {
 			return fmt.Errorf("editor %q: %w", argv[0], err)
 		}
+		after, afterErr := os.ReadFile(path)
+		changed := beforeErr != nil || afterErr != nil || !bytes.Equal(before, after)
 		if _, err := config.Load(g.loadOptions(env)); err != nil {
-			return err
+			if changed {
+				return err
+			}
+			return unchangedConfigErr(path, err)
 		}
-		o.result(map[string]any{"path": path, "valid": true}, func(w io.Writer) {
-			fmt.Fprintf(w, "%s is valid\n", path)
+		o.result(map[string]any{"path": path, "valid": true, "changed": changed}, func(w io.Writer) {
+			if changed {
+				fmt.Fprintf(w, "%s is valid\n", path)
+			} else {
+				fmt.Fprintf(w, "no changes to %s; it is valid\n", path)
+			}
 		})
+		if !changed {
+			fmt.Fprintln(env.Stderr, "hint: "+waitingEditorHint)
+		}
 		return nil
 	}
 	return usageErr("unknown config subcommand %q (use path or edit)", sub)
+}
+
+const waitingEditorHint = "an editor that returns before you save needs a command that waits, for example VISUAL='code --wait'"
+
+func unchangedConfigErr(path string, err error) error {
+	ce := *classify(err)
+	ce.msg = "no changes to " + path + "; " + ce.msg
+	if ce.hint == "" {
+		ce.hint = waitingEditorHint
+	} else {
+		ce.hint += "; " + waitingEditorHint
+	}
+	return &ce
 }

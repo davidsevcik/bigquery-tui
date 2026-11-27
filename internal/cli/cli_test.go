@@ -231,8 +231,11 @@ func TestConfigPathAndEdit(t *testing.T) {
 		t.Fatalf("editor argv %v", argv)
 	}
 	data := decode(t, out).Data.(map[string]any)
-	if _, ok := data["projects"]; data["valid"] != true || ok {
+	if _, ok := data["projects"]; data["valid"] != true || data["changed"] != true || ok {
 		t.Fatalf("%v", data)
+	}
+	if strings.Contains(errOut, "--wait") {
+		t.Fatalf("a saved edit needs no hint: %q", errOut)
 	}
 
 	s.edit = func([]string) {
