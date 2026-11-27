@@ -69,12 +69,7 @@ func (m *Model) addBufferWith(text, path, id string, d *drafts.Draft) *buffer {
 	b.name = fmt.Sprintf("query %d", m.bufSeq)
 	b.ed.row, b.ed.col, b.ed.want = 0, 0, 0
 	if path == "" && b.draft == nil {
-		d, err := m.draftStore().Hold(b.id)
-		if errors.Is(err, drafts.ErrHeld) {
-			b.id = drafts.NewID()
-			d, err = m.draftStore().Hold(b.id)
-		}
-		m.heldDraft(b, d, err)
+		m.holdDraft(b, true)
 		b.draftVersion = b.ed.version
 	}
 	m.bufs = append(m.bufs, b)
@@ -116,7 +111,12 @@ func (m *Model) removeDraft(b *buffer) {
 	b.draftErr = ""
 }
 
-func (m *Model) heldDraft(b *buffer, d *drafts.Draft, err error) {
+func (m *Model) holdDraft(b *buffer, mayRenew bool) {
+	d, err := m.draftStore().Hold(b.id)
+	if mayRenew && errors.Is(err, drafts.ErrHeld) {
+		b.id = drafts.NewID()
+		d, err = m.draftStore().Hold(b.id)
+	}
 	if err != nil {
 		m.draftFailed(b, "hold the buffer's draft", err)
 		return
@@ -145,8 +145,7 @@ func (m *Model) saveDraft(b *buffer) {
 		return
 	}
 	if b.path == "" && b.draft == nil {
-		d, err := m.draftStore().Hold(b.id)
-		m.heldDraft(b, d, err)
+		m.holdDraft(b, false)
 		b.draftVersion = -1
 	}
 	m.writeDraft(b)
