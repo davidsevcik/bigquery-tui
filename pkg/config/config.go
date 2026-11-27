@@ -212,12 +212,12 @@ var envKeys = []string{
 func Load(opts LoadOptions) (*Config, error) {
 	path := ResolvePath(opts)
 	raw, err := readFile(path)
-	return fromRead(path, raw, err, opts)
+	return FromRead(path, raw, err, opts)
 }
 
 var readFile = os.ReadFile
 
-func fromRead(path string, raw []byte, err error, opts LoadOptions) (*Config, error) {
+func FromRead(path string, raw []byte, err error, opts LoadOptions) (*Config, error) {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, &ErrNoConfig{Path: path}

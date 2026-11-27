@@ -1,9 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
-	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,14 +13,7 @@ const waitExample = "VISUAL='code --wait'"
 
 func oneEnvelope(t *testing.T, out string) map[string]any {
 	t.Helper()
-	dec := json.NewDecoder(strings.NewReader(out))
-	var doc json.RawMessage
-	if err := dec.Decode(&doc); err != nil {
-		t.Fatalf("stdout holds no JSON document: %v\n%s", err, out)
-	}
-	if err := dec.Decode(&doc); !errors.Is(err, io.EOF) {
-		t.Fatalf("stdout holds more than one JSON document:\n%s", out)
-	}
+	oneDocument(t, out)
 	return decode(t, out).Data.(map[string]any)
 }
 

@@ -85,7 +85,7 @@ func cmdConfig(ctx context.Context, o *out, g *globals, args []string) error {
 		}
 		after, afterErr := os.ReadFile(path)
 		changed := beforeErr != nil || afterErr != nil || !bytes.Equal(before, after)
-		if err := validateEdited(path, after, afterErr, g.loadOptions(env)); err != nil {
+		if _, err := config.FromRead(path, after, afterErr, g.loadOptions(env)); err != nil {
 			if changed {
 				return err
 			}
@@ -107,15 +107,6 @@ func cmdConfig(ctx context.Context, o *out, g *globals, args []string) error {
 }
 
 const waitingEditorHint = "an editor that returns before you save needs a command that waits, for example VISUAL='code --wait'"
-
-func validateEdited(path string, raw []byte, readErr error, opts config.LoadOptions) error {
-	if readErr != nil {
-		_, err := config.Load(opts)
-		return err
-	}
-	_, err := config.Parse(raw, path, opts)
-	return err
-}
 
 func noChanges(path string) string { return "no changes to " + path + "; " }
 
