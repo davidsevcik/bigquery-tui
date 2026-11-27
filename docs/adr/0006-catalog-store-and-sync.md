@@ -86,6 +86,7 @@ The `store` package owns the two SQLite files in the data directory: `catalog.db
 - **`sync.(*Syncer).fromSnapshot`**: a full region snapshot becomes dataset applies, dropping the datasets that were not requested, because region views can leak deleted and temporary datasets, and the tables the ignore rules exclude.
 - **`sync.(*Syncer).fallbackDataset`**: a NotFound error drops the dataset instead of keeping its old data, because it was deleted since `datasets.list`.
 - **`sync.(*Syncer).fallbackDataset`**: the `gs` own-schema marks are carried onto names-only tables, so they outlast a names-only refresh.
+- **`sync.(*Syncer).ownSchemaMarks`**: a failed read of a unit's `gs` own-schema marks fails the unit (`store:` error) before any of the unit's tables or columns are read from BigQuery, and its old rows are kept. Applying the unit without the marks would clear them and drop the marked members' columns, and later syncs would no longer read those members. Marks returned with an error are not used.
 - **`sync.(*Syncer).withDatasetOptions`**: on the fallback paths the description, friendly name and labels come from `datasets.get`, since `SCHEMATA_OPTIONS` exists only at region scope. A failure is logged and leaves the `datasets.list` values, because the tables are still fresh.
 - **`sync.DeniedUnit`**: a unit's last failure counts as a permission (or not found) error, meaning the project is not accessible rather than failing for another reason, by the `kind:` prefix `errText` writes into the stored error. `errText` must keep that prefix.
 

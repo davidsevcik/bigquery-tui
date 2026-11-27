@@ -10,13 +10,12 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
-func (s *Syncer) ownSchemaMarks(ctx context.Context, u api.UnitRef) map[string]bool {
+func (s *Syncer) ownSchemaMarks(ctx context.Context, u api.UnitRef) (map[string]bool, error) {
 	marks, err := s.o.Catalog.OwnSchemaTables(ctx, u)
 	if err != nil {
-		s.o.Log.Warn("read own-schema marks", "project", u.Project, "location", u.Location, "err", err)
-		return nil
+		return nil, fmt.Errorf("store: read own-schema marks: %w", err)
 	}
-	return marks
+	return marks, nil
 }
 
 func (s *Syncer) readColumns(ctx context.Context, project string, applies []store.DatasetApply, op string, r *run, fetch func(bq.ColumnFilter) ([]bq.TableColumns, error)) error {

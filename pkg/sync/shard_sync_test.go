@@ -1,8 +1,10 @@
 package sync
 
 import (
+	"context"
 	"slices"
 	"strings"
+	gosync "sync"
 	"testing"
 	"time"
 
@@ -420,6 +422,161 @@ func TestSyncTableMarksOutlastANamesOnlyRefresh(t *testing.T) {
 	}
 	if got := h.columns("shop", member.Table); strings.Join(got, ",") != "id,legacy_flag" {
 		t.Fatalf("%v", got)
+	}
+}
+
+func markedMemberHarness(t *testing.T) (*harness, api.ObjectPath) {
+	t.Helper()
+	h := newHarness(t, "projects = [\"p\"]\n"+cfgHex)
+	h.fake.AddProject("p").Datasets = []bqtest.Dataset{bqtest.DS("shop", "EU",
+		createdOn(1, bqtest.Table("orders_"+hexID("a1"), "id", "legacy_flag")),
+		createdOn(2, bqtest.Table("orders_"+hexID("a2"), "id", "total")),
+		bqtest.Table("customers", "id"))}
+	h.run(api.SyncScope{})
+	member := api.ObjectPath{Project: "p", Dataset: "shop", Table: "orders_" + hexID("a1")}
+	h.run(api.SyncScope{Table: &member})
+	if tb := h.tables("shop")[member.Table]; !tb.OwnSchema {
+		t.Fatalf("gs marks the member: %+v", tb)
+	}
+	h.now = h.now.Add(time.Hour)
+	return h, member
+}
+
+func (h *harness) hideOwnSchemaDuringTheMarksRead() (restore func()) {
+	var mu gosync.Mutex
+	hidden := false
+	rename := func(from, to string, want bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		if hidden == want {
+			return
+		}
+		if _, err := h.cat.DB().Exec("ALTER TABLE tables RENAME COLUMN " + from + " TO " + to); err != nil {
+			h.t.Error(err)
+			return
+		}
+		hidden = want
+	}
+	h.fake.OnCall = func(c bqtest.Call) {
+		switch c.Method {
+		case "ListDatasets":
+			rename("own_schema", "own_schema_hidden", true)
+		default:
+			rename("own_schema_hidden", "own_schema", false)
+		}
+	}
+	return func() {
+		h.fake.OnCall = nil
+		rename("own_schema_hidden", "own_schema", false)
+	}
+}
+
+func (h *harness) tableOrColumnReadsSince(n int) []bqtest.Call {
+	var out []bqtest.Call
+	for _, c := range h.fake.Calls[n:] {
+		switch c.Method {
+		case "RegionTables", "RegionColumns", "DatasetTables", "DatasetColumns", "ListTableNames", "GetTableMeta":
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func TestSyncFailsAUnitWhoseOwnSchemaMarksCannotBeRead(t *testing.T) {
+	h, member := markedMemberHarness(t)
+	before := h.unit("p", "EU")
+	if before.LastSuccess == nil {
+		t.Fatalf("%+v", before)
+	}
+	calls, reads := len(h.fake.Calls), len(h.fake.ColumnReads())
+	restore := h.hideOwnSchemaDuringTheMarksRead()
+	res := h.run(api.SyncScope{})
+	restore()
+
+	if res.UnitsFailed != 1 || res.UnitsOK != 0 || res.Cancelled {
+		t.Fatalf("%+v", res)
+	}
+	var started, failed int
+	for _, e := range h.events {
+		switch e.Kind {
+		case api.EventUnitStarted:
+			started++
+		case api.EventUnitFailed:
+			failed++
+		case api.EventUnitDone:
+			t.Fatalf("the unit is not done: %+v", e)
+		}
+	}
+	if started != 1 || failed != 1 {
+		t.Fatalf("%d started, %d failed: %+v", started, failed, h.events)
+	}
+	u := h.unit("p", "EU")
+	if !strings.HasPrefix(u.Error, "store: ") || DeniedUnit(u) {
+		t.Fatalf("a store failure, not a denied unit: %+v", u)
+	}
+	if u.Status != api.UnitDegraded || u.LastSuccess == nil || !u.LastSuccess.Equal(*before.LastSuccess) {
+		t.Fatalf("degraded, keeping the last success %v: %+v", before.LastSuccess, u)
+	}
+	if got := h.tableOrColumnReadsSince(calls); len(got) != 0 {
+		t.Fatalf("nothing of the unit is read from BigQuery: %+v", got)
+	}
+	if got := h.fake.ColumnReads()[reads:]; len(got) != 0 {
+		t.Fatalf("%v", got)
+	}
+	tb := h.tables("shop")[member.Table]
+	if !tb.OwnSchema || tb.SharedSchema {
+		t.Fatalf("the mark is kept: %+v", tb)
+	}
+	if got := h.columns("shop", member.Table); strings.Join(got, ",") != "id,legacy_flag" {
+		t.Fatalf("the member keeps its own columns: %v", got)
+	}
+
+	h.now = h.now.Add(time.Hour)
+	reads = len(h.fake.ColumnReads())
+	if res := h.run(api.SyncScope{}); res.UnitsOK != 1 || res.UnitsFailed != 0 {
+		t.Fatalf("the next sync: %+v", res)
+	}
+	if !slices.Contains(h.fake.ColumnReads()[reads:], "p.shop."+member.Table) {
+		t.Fatal("the next sync reads the member's own columns")
+	}
+	if tb := h.tables("shop")[member.Table]; !tb.OwnSchema || tb.SharedSchema {
+		t.Fatalf("the next sync keeps the mark: %+v", tb)
+	}
+	if got := h.columns("shop", member.Table); strings.Join(got, ",") != "id,legacy_flag" {
+		t.Fatalf("%v", got)
+	}
+	if u := h.unit("p", "EU"); u.Status != api.UnitOK || u.Error != "" {
+		t.Fatalf("%+v", u)
+	}
+}
+
+func TestSyncCancelledDuringTheMarksReadRecordsNoFailure(t *testing.T) {
+	h, member := markedMemberHarness(t)
+	before := h.unit("p", "EU")
+	calls := len(h.fake.Calls)
+	cctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var kinds []api.SyncEventKind
+	res, err := h.syncer().Run(cctx, api.SyncScope{}, func(e api.SyncEvent) {
+		kinds = append(kinds, e.Kind)
+		if e.Kind == api.EventUnitStarted {
+			cancel()
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Cancelled || res.UnitsFailed != 0 || slices.Contains(kinds, api.EventUnitFailed) {
+		t.Fatalf("%+v %v", res, kinds)
+	}
+	if u := h.unit("p", "EU"); u.Status != before.Status || u.Error != "" || u.LastAttempt == nil || before.LastAttempt == nil || !u.LastAttempt.Equal(*before.LastAttempt) {
+		t.Fatalf("no failure is recorded: %+v, was %+v", u, before)
+	}
+	if got := h.tableOrColumnReadsSince(calls); len(got) != 0 {
+		t.Fatalf("%+v", got)
+	}
+	if tb := h.tables("shop")[member.Table]; !tb.OwnSchema {
+		t.Fatalf("%+v", tb)
 	}
 }
 
