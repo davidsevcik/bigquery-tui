@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,9 +14,12 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/bq"
 	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/logging"
 	"github.com/davidsevcik/bigquery-tui/pkg/selection"
 	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
@@ -30,6 +34,8 @@ type sandbox struct {
 	stdin   string
 	runs    int
 	authErr error
+	logErr  error
+	ui      func(stderr string)
 }
 
 func newSandbox(t *testing.T) *sandbox {
@@ -97,6 +103,19 @@ func (s *sandbox) run(args ...string) (code int, stdout, stderr string) {
 		RunEditor: func(ctx context.Context, argv []string, env Env) error {
 			if s.edit != nil {
 				s.edit(argv)
+			}
+			return nil
+		},
+		OpenLog: func(o logging.Options) (*slog.Logger, func() error, error) {
+			l, closeFn, err := logging.New(o)
+			if err != nil || s.logErr == nil {
+				return l, closeFn, err
+			}
+			return l, func() error { _ = closeFn(); return s.logErr }, nil
+		},
+		RunUI: func(context.Context, tea.Model) error {
+			if s.ui != nil {
+				s.ui(se.String())
 			}
 			return nil
 		},
