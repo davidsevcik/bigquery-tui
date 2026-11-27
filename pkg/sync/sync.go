@@ -184,9 +184,11 @@ func (r *run) logUnfinished() {
 	}
 }
 
-func (r *run) warn(project, msg string) { r.warnWith(project, msg, "") }
+func (r *run) warn(project, msg string) { r.addWarning(project, msg, "") }
 
-func (r *run) warnWith(project, msg, unitError string) {
+func (r *run) warnIncompleteListing(project, msg string) { r.addWarning(project, msg, msg) }
+
+func (r *run) addWarning(project, msg, unitError string) {
 	line := msg
 	if project != "" {
 		line = project + ": " + msg
@@ -402,7 +404,7 @@ func (s *Syncer) discover(ctx context.Context, project string, r *run) discovery
 
 	if len(list.Unreachable) > 0 {
 		msg := fmt.Sprintf("BigQuery could not enumerate: %v", list.Unreachable)
-		r.warnWith(project, msg, msg)
+		r.warnIncompleteListing(project, msg)
 		st := api.UnitState{UnitRef: api.UnitRef{Project: project}, Status: api.UnitDegraded, Error: msg, LastAttempt: &now}
 		if rerr := s.o.Catalog.RecordUnitFailure(ctx, st); rerr != nil {
 			s.o.Log.Error("record unreachable", "project", project, "err", rerr)

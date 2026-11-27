@@ -580,7 +580,7 @@ func (m *Model) openAfterSync(done syncDoneMsg) tea.Cmd {
 	if cmd, ok := m.openIfHeld(*p); ok {
 		return cmd
 	}
-	switch why := m.runProblems[p.Project].reason(p.Project); {
+	switch why := m.runProblems.reason(p.Project); {
 	case done.err != nil:
 		m.cannotOpen(*p, "sync failed: "+done.err.Error())
 	case why != "":
@@ -597,8 +597,10 @@ type runProblem struct {
 	failed, incomplete string
 }
 
-func (p runProblem) reason(project string) string {
-	switch {
+type runProblems map[string]runProblem
+
+func (ps runProblems) reason(project string) string {
+	switch p := ps[project]; {
 	case p.failed != "":
 		return "the sync of " + project + " failed: " + p.failed
 	case p.incomplete != "":
@@ -607,21 +609,21 @@ func (p runProblem) reason(project string) string {
 	return ""
 }
 
-type runProblems map[string]runProblem
-
 func (ps *runProblems) note(ev api.SyncEvent) {
-	failed := ev.Kind == api.EventUnitFailed
-	if ev.Project == "" || ev.Error == "" || (!failed && ev.Kind != api.EventWarning) {
+	if ev.Project == "" || ev.Error == "" {
+		return
+	}
+	p := (*ps)[ev.Project]
+	switch ev.Kind {
+	case api.EventUnitFailed:
+		p.failed = cmp.Or(p.failed, ev.Error)
+	case api.EventWarning:
+		p.incomplete = cmp.Or(p.incomplete, ev.Error)
+	default:
 		return
 	}
 	if *ps == nil {
 		*ps = runProblems{}
-	}
-	p := (*ps)[ev.Project]
-	if failed {
-		p.failed = cmp.Or(p.failed, ev.Error)
-	} else {
-		p.incomplete = cmp.Or(p.incomplete, ev.Error)
 	}
 	(*ps)[ev.Project] = p
 }
