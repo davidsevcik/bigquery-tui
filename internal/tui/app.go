@@ -151,6 +151,7 @@ type Model struct {
 
 	syncAllSelected []string
 	syncFailed      map[string]string
+	syncIncomplete  map[string]string
 }
 
 type syncPhase uint8
@@ -458,7 +459,8 @@ func (m *Model) onSyncStarted(msg syncStartedMsg) tea.Cmd {
 	if msg.run == nil {
 		return m.startQueuedSync()
 	}
-	m.syncRun, m.syncPhase, m.syncDone, m.syncTotal, m.syncLog, m.syncFailed = msg.run, syncRunning, 0, 0, nil, nil
+	m.syncRun, m.syncPhase, m.syncDone, m.syncTotal, m.syncLog = msg.run, syncRunning, 0, 0, nil
+	m.syncFailed, m.syncIncomplete = nil, nil
 	return waitSync(msg.run)
 }
 
@@ -661,20 +663,29 @@ func (m *Model) onSyncEvent(ev api.SyncEvent) {
 		line = fmt.Sprintf("%s: %d datasets, %d tables (%s)", where, ev.Datasets, ev.Tables, ev.Status)
 	case api.EventUnitFailed:
 		line = fmt.Sprintf("%s: FAILED: %s", where, ev.Error)
-		if _, seen := m.syncFailed[ev.Project]; !seen {
-			if m.syncFailed == nil {
-				m.syncFailed = map[string]string{}
-			}
-			m.syncFailed[ev.Project] = ev.Error
-		}
+		m.syncFailed = keepFirst(m.syncFailed, ev.Project, ev.Error)
 	case api.EventWarning:
 		line = "warning: " + ev.Project + " " + ev.Message
+		if ev.Project != "" && ev.Error != "" {
+			m.syncIncomplete = keepFirst(m.syncIncomplete, ev.Project, ev.Error)
+		}
 	case api.EventRunFinished:
 		line = "finished: " + ev.Message
 	}
 	if line != "" {
 		m.syncLog = append(m.syncLog, ev.Time.Format("15:04:05")+"  "+line)
 	}
+}
+
+func keepFirst(byProject map[string]string, project, text string) map[string]string {
+	if _, seen := byProject[project]; seen {
+		return byProject
+	}
+	if byProject == nil {
+		byProject = map[string]string{}
+	}
+	byProject[project] = text
+	return byProject
 }
 
 func (m *Model) onConfig(ev config.Event) tea.Cmd {

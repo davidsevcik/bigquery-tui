@@ -378,6 +378,18 @@ func TestAFailedSyncOfAPastedPathSaysWhy(t *testing.T) {
 	}
 }
 
+func TestAPastedPathInALocationTheListingMissedSaysSo(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.fake.Projects["acme-prod"].Unreachable = []string{"asia-east1"}
+	r.paste("acme-prod.apac_ds.fresh_table")
+	if want := "could not open acme-prod.apac_ds.fresh_table: the dataset listing of acme-prod was incomplete: BigQuery could not enumerate: [asia-east1]"; r.m.toast != want {
+		t.Fatalf("toast %q, want %q", r.m.toast, want)
+	}
+	if r.m.openAfter != nil {
+		t.Fatal("the open is left pending")
+	}
+}
+
 func TestAPastedPathStillMissingAfterItsSyncSaysWhy(t *testing.T) {
 	const path = "acme-prod.eu_new.fresh_table"
 	denied := api.SyncEvent{Kind: api.EventUnitFailed, Project: "acme-prod", Location: "EU", Error: "permission: access denied: tables"}
