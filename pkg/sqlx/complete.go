@@ -100,7 +100,7 @@ func Complete(text string, cursor int, cat Catalog, o Options) []api.Candidate {
 			c.partial, c.pStart, c.pEnd = text[dStart:cursor], dStart, toks[last].End
 			quals, start, k = qualifiers(text, toks, first-1, dStart)
 		} else {
-			c.dashedLead, c.dashedTail = text[dStart:c.pStart], text[c.pEnd:toks[last].End]
+			c.dashedStart, c.dashedEnd = dStart, toks[last].End
 		}
 	}
 	c.chainStart = start
@@ -650,17 +650,17 @@ func (s *scope) cteColumns(c *cte) []api.ColumnMeta {
 }
 
 type completer struct {
-	text       string
-	cat        Catalog
-	sc         *scope
-	o          Options
-	partial    string
-	pStart     int
-	pEnd       int
-	chainStart int
-	quoted     bool
-	dashedLead string
-	dashedTail string
+	text        string
+	cat         Catalog
+	sc          *scope
+	o           Options
+	partial     string
+	pStart      int
+	pEnd        int
+	chainStart  int
+	quoted      bool
+	dashedStart int
+	dashedEnd   int
 }
 
 type ranked struct {
@@ -694,11 +694,11 @@ func (c *completer) add(out *[]ranked, order int, cand api.Candidate) {
 	}
 	if cand.Start == 0 && cand.End == 0 {
 		cand.Start, cand.End = c.pStart, c.pEnd
-		if hasPrefixFold(cand.Insert, c.dashedLead) {
-			cand.Start -= len(c.dashedLead)
+		if c.dashedEnd > c.dashedStart && hasPrefixFold(cand.Insert, c.text[c.dashedStart:c.pStart]) {
+			cand.Start = c.dashedStart
 		}
-		if c.dashedTail != "" && hasPrefixFold(cand.Insert, c.dashedLead+c.text[c.pStart:c.pEnd]+c.dashedTail) {
-			cand.End += len(c.dashedTail)
+		if c.dashedEnd > c.dashedStart && hasPrefixFold(cand.Insert, c.text[c.dashedStart:c.dashedEnd]) {
+			cand.End = c.dashedEnd
 		}
 	}
 	*out = append(*out, ranked{cand, rank, order})
