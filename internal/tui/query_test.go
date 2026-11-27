@@ -816,15 +816,13 @@ func TestDraftWriteFailureIsRetried(t *testing.T) {
 	r := editorRig(t, 120, 30)
 	b := r.m.buf()
 	dir := r.m.be.DraftDir()
-	if err := os.MkdirAll(filepath.Join(r.m.draftPath(b.id)+".tmp", "keep"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	restore := r.failDraftWrites(b)
 	r.typeText("select 1")
 	if b.draftVersion == b.ed.version {
 		t.Fatal("a failed write must not count as saved")
 	}
 	r.contains("draft not saved (retrying)")
-	os.RemoveAll(r.m.draftPath(b.id) + ".tmp")
+	restore()
 	r.m.saveDrafts()
 	if got, _ := os.ReadFile(filepath.Join(dir, b.id+".sql")); string(got) != "select 1" || b.draftVersion != b.ed.version {
 		t.Fatalf("the next attempt saves it: %q", got)
