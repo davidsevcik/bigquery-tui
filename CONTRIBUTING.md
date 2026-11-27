@@ -54,7 +54,7 @@ Scale measurements: `BQT_SCALE=500 go test ./pkg/store -run Scale -v` (catalog a
 
 Pushing a tag `v*` runs `.github/workflows/release.yml`, which builds the binaries with GoReleaser (`.goreleaser.yaml`) and publishes a GitHub release. Try the config locally with `goreleaser release --snapshot --clean`.
 
-The same run updates the Homebrew cask in `davidsevcik/homebrew-tap`, but only if the `HOMEBREW_TAP_GITHUB_TOKEN` secret can push there, so a green run doesn't prove it. After each release, check that the tap's latest commit is `Brew cask update for bqt version vX.Y.Z`, and that the sha256 values in `Casks/bqt.rb` match the release's `checksums.txt`:
+The same run updates the Homebrew cask in `davidsevcik/homebrew-tap`, but only if the `HOMEBREW_TAP_GITHUB_TOKEN` secret is set, so a green run doesn't prove it. A pre-release tag such as `v0.4.0-rc1` never updates the cask. After each release that isn't a pre-release, check that the tap's latest commit is `Brew cask update for bqt version vX.Y.Z`, and that the sha256 values in `Casks/bqt.rb` match the release's `checksums.txt`:
 
 ```sh
 gh api repos/davidsevcik/homebrew-tap/contents/Casks/bqt.rb --jq .content | base64 -d
