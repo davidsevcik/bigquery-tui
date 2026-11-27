@@ -98,6 +98,113 @@ func TestSaveWritesTheDraftAndEmptyTextRemovesIt(t *testing.T) {
 	}
 }
 
+func occupyWithADirectory(t *testing.T, p string) {
+	t.Helper()
+	if err := os.RemoveAll(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(p, "keep"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAFailedRemoveKeepsTheLockAndTheRecordedExecutionProject(t *testing.T) {
+	s := In(t.TempDir())
+	d, err := s.Hold("x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetExecutionProject("p"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Save("select 1"); err != nil {
+		t.Fatal(err)
+	}
+	occupyWithADirectory(t, s.Path("x"))
+	if err := d.Save(""); err == nil {
+		t.Fatal("a failed remove must be reported")
+	}
+	d.Release()
+	if !exists(t, s.Path("x")) || !exists(t, s.lockPath("x")) {
+		t.Fatal("a draft whose file could not be removed keeps its lock file")
+	}
+	if err := os.RemoveAll(s.Path("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.Path("x"), []byte("select 1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wantOneOrphanUnder(t, s, time.Now(), "p")
+}
+
+func TestEmptyTextWithoutADraftFileLeavesNoLock(t *testing.T) {
+	s := In(t.TempDir())
+	fresh, err := s.Hold("fresh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fresh.Save(""); err != nil {
+		t.Fatal(err)
+	}
+	fresh.Release()
+	gone, err := s.Hold("gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gone.Save("select 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(s.Path("gone")); err != nil {
+		t.Fatal(err)
+	}
+	if err := gone.Save(""); err != nil {
+		t.Fatalf("a draft file that is already gone is not an error: %v", err)
+	}
+	gone.Release()
+	for _, id := range []string{"fresh", "gone"} {
+		if exists(t, s.lockPath(id)) {
+			t.Fatalf("%s: an empty draft leaves no lock file", id)
+		}
+	}
+}
+
+func TestAFailedWriteKeepsWhetherTheDraftIsEmpty(t *testing.T) {
+	for _, step := range []struct{ name, blocked string }{{"write", ".sql.tmp"}, {"rename", ".sql"}} {
+		t.Run(step.name, func(t *testing.T) {
+			s := In(t.TempDir())
+			blocked := func(id string) string { return filepath.Join(s.dir, id+step.blocked) }
+			empty, err := s.Hold("empty")
+			if err != nil {
+				t.Fatal(err)
+			}
+			occupyWithADirectory(t, blocked("empty"))
+			if err := empty.Save("select 1"); err == nil {
+				t.Fatal("a failed save must be reported")
+			}
+			empty.Release()
+			if exists(t, s.lockPath("empty")) {
+				t.Fatal("a draft still empty leaves no lock file")
+			}
+
+			full, err := s.Hold("full")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := full.Save("select 1"); err != nil {
+				t.Fatal(err)
+			}
+			occupyWithADirectory(t, blocked("full"))
+			if err := full.Save("select 2"); err == nil {
+				t.Fatal("a failed save must be reported")
+			}
+			full.Release()
+			if !exists(t, s.lockPath("full")) {
+				t.Fatal("a draft with text keeps its lock file")
+			}
+		})
+	}
+}
+
 func TestReleaseKeepsTheDraftAndDiscardDeletesIt(t *testing.T) {
 	s := In(t.TempDir())
 	kept, _ := s.Hold("kept")
