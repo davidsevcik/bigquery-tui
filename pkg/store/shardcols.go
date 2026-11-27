@@ -166,5 +166,5 @@ WHERE p.name = ? AND d.name = ? AND t.name = ?`, project, t.Dataset, t.Name).Sca
 	if err := insertColumns(ctx, ins, id, t.Columns); err != nil {
 		return err
 	}
-	return commitTx(ctx, tx)
+	return tx.Commit(ctx)
 }

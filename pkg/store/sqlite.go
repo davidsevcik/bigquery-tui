@@ -60,18 +60,34 @@ func openDB(path string, readOnly bool) (*sql.DB, error) {
 	return db, nil
 }
 
-func beginTx(ctx context.Context, db *sql.DB, opts *sql.TxOptions) (*sql.Tx, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	return db.BeginTx(context.WithoutCancel(ctx), opts)
+type storeTx struct {
+	*sql.Tx
+	conn *sql.Conn
 }
 
-func commitTx(ctx context.Context, tx *sql.Tx) error {
+func beginTx(ctx context.Context, db *sql.DB, opts *sql.TxOptions) (*storeTx, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := conn.BeginTx(context.WithoutCancel(ctx), opts)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return &storeTx{Tx: tx, conn: conn}, nil
+}
+
+func (t *storeTx) Commit(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return t.Tx.Commit()
+}
+
+func (t *storeTx) Rollback() {
+	t.Tx.Rollback()
+	t.conn.Close()
 }
 
 func isCorrupt(err error) bool {

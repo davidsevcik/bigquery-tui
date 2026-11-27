@@ -2,12 +2,17 @@ package store
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"modernc.org/sqlite"
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 )
@@ -397,15 +402,74 @@ func TestPrune(t *testing.T) {
 }
 
 func TestApplyUnitCancelledLeavesOldData(t *testing.T) {
-	c := openTemp(t)
-	apply(t, c, unit("p", "EU"), t0, dsApply("d1", "EU", table("d1", "a", "x")))
-	cctx, cancel := context.WithCancel(ctx)
-	cancel()
-	_, err := c.ApplyUnit(cctx, ApplyRequest{Unit: unit("p", "EU"), State: okState(t0.Add(time.Hour)), Datasets: []DatasetApply{dsApply("d1", "EU", table("d1", "zzz", "y"))}})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled apply returned %v", err)
+	for _, tc := range []struct{ name, cancelOn string }{
+		{"before it begins", ""},
+		{"while writing its first new table", "AFTER INSERT ON tables"},
+		{"while writing the unit state, its last statement", "AFTER UPDATE ON sync_units"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := openTempCancellable(t)
+			apply(t, c, unit("p", "EU"), t0, dsApply("d1", "EU", table("d1", "a", "x")))
+			cctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			if tc.cancelOn == "" {
+				cancel()
+			} else {
+				cancelInTrigger(t, c, tc.cancelOn, cancel)
+			}
+			_, err := c.ApplyUnit(cctx, ApplyRequest{Unit: unit("p", "EU"), State: okState(t0.Add(time.Hour)), Datasets: []DatasetApply{dsApply("d1", "EU", table("d1", "zzz", "y"))}})
+			if cctx.Err() == nil {
+				t.Fatal("the apply was never cancelled")
+			}
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancelled apply returned %v", err)
+			}
+			assertOldSnapshot(t, c)
+		})
 	}
-	assertOldSnapshot(t, c)
+}
+
+var (
+	registerTestCancel sync.Once
+	testCancel         atomic.Pointer[context.CancelFunc]
+)
+
+func openTempCancellable(t *testing.T) *Catalog {
+	t.Helper()
+	registerTestCancel.Do(func() {
+		sqlite.MustRegisterScalarFunction("test_cancel", 0, func(*sqlite.FunctionContext, []driver.Value) (driver.Value, error) {
+			if cancel := testCancel.Load(); cancel != nil {
+				(*cancel)()
+			}
+			return nil, nil
+		})
+	})
+	return openTemp(t)
+}
+
+func cancelInTrigger(t *testing.T, c *Catalog, event string, cancel context.CancelFunc) {
+	t.Helper()
+	if _, err := c.db.Exec("CREATE TRIGGER test_cancel " + event + " BEGIN SELECT test_cancel(); END"); err != nil {
+		t.Fatal(err)
+	}
+	testCancel.Store(&cancel)
+	t.Cleanup(func() { testCancel.Store(nil) })
+}
+
+func assertOldSnapshot(t *testing.T, c *Catalog) {
+	t.Helper()
+	tabs, err := c.Tables(ctx, "p", "d1")
+	if err != nil || len(tabs) != 1 || tabs[0].Name != "a" {
+		t.Fatalf("old tables must remain: %+v, %v", tabs, err)
+	}
+	cols, err := c.Columns(ctx, "p", "d1", "a")
+	if err != nil || len(cols) != 1 || cols[0].FieldPath != "x" {
+		t.Fatalf("old columns must remain: %+v, %v", cols, err)
+	}
+	units, err := c.Units(ctx)
+	if err != nil || len(units) != 1 || units[0].LastSuccess == nil || !units[0].LastSuccess.Equal(t0) {
+		t.Fatalf("old unit state must remain: %+v, %v", units, err)
+	}
 }
 
 func TestContentHashIgnoresShardAndColumnOrder(t *testing.T) {

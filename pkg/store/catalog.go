@@ -388,7 +388,7 @@ func (c *Catalog) ApplyUnit(ctx context.Context, req ApplyRequest) (ApplyStats, 
 	if err := upsertUnit(ctx, tx, state); err != nil {
 		return st, err
 	}
-	if err := commitTx(ctx, tx); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return st, err
 	}
 	c.trimWAL(ctx)
@@ -401,7 +401,7 @@ func (c *Catalog) trimWAL(ctx context.Context) {
 	}
 }
 
-func ensureProject(ctx context.Context, tx *sql.Tx, name string) (int64, error) {
+func ensureProject(ctx context.Context, tx *storeTx, name string) (int64, error) {
 	if _, err := tx.ExecContext(ctx, "INSERT INTO projects(name) VALUES(?) ON CONFLICT(name) DO NOTHING", name); err != nil {
 		return 0, err
 	}
@@ -410,7 +410,7 @@ func ensureProject(ctx context.Context, tx *sql.Tx, name string) (int64, error) 
 	return id, err
 }
 
-func upsertDataset(ctx context.Context, tx *sql.Tx, projectID int64, m api.DatasetMeta, status api.DatasetStatus, existing map[string]int64) (id int64, isNew bool, err error) {
+func upsertDataset(ctx context.Context, tx *storeTx, projectID int64, m api.DatasetMeta, status api.DatasetStatus, existing map[string]int64) (id int64, isNew bool, err error) {
 	labels := encodeLabels(m.Labels)
 	if id, ok := existing[m.Name]; ok {
 		_, err = tx.ExecContext(ctx, `UPDATE datasets SET description=?, friendly_name=?, labels=?, status=? WHERE id=?`,
@@ -435,7 +435,7 @@ type tableRow struct {
 	hash string
 }
 
-func applyTables(ctx context.Context, tx *sql.Tx, datasetID int64, tables []api.TableMeta, namesOnly bool) (ApplyStats, error) {
+func applyTables(ctx context.Context, tx *storeTx, datasetID int64, tables []api.TableMeta, namesOnly bool) (ApplyStats, error) {
 	var st ApplyStats
 	existing := map[string]tableRow{}
 	err := eachRow(ctx, tx, func(rows *sql.Rows) error {
@@ -560,7 +560,7 @@ func sortByDepth(cols []api.ColumnMeta) {
 	sort.SliceStable(cols, func(i, j int) bool { return depth(cols[i]) < depth(cols[j]) })
 }
 
-func upsertUnit(ctx context.Context, tx *sql.Tx, s api.UnitState) error {
+func upsertUnit(ctx context.Context, tx *storeTx, s api.UnitState) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO sync_units(project,location,last_attempt,last_success,status,error,datasets,tables,names_only,inaccessible)
 VALUES(?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(project,location) DO UPDATE SET last_attempt=excluded.last_attempt,
@@ -590,7 +590,7 @@ func (c *Catalog) RecordEmptyProject(ctx context.Context, project string, at tim
 	if err := upsertUnit(ctx, tx, api.UnitState{UnitRef: api.UnitRef{Project: project}, Status: api.UnitOK, LastAttempt: &at, LastSuccess: &at}); err != nil {
 		return err
 	}
-	return commitTx(ctx, tx)
+	return tx.Commit(ctx)
 }
 
 func (c *Catalog) RecordListing(ctx context.Context, project string, listed []api.DatasetMeta, complete bool) (added, removed int, err error) {
@@ -659,7 +659,7 @@ func (c *Catalog) RecordListing(ctx context.Context, project string, listed []ap
 			removed++
 		}
 	}
-	return added, removed, commitTx(ctx, tx)
+	return added, removed, tx.Commit(ctx)
 }
 
 func (c *Catalog) PendingUnits(ctx context.Context) (map[api.UnitRef]int, error) {
@@ -689,7 +689,7 @@ func (c *Catalog) RemoveUnit(ctx context.Context, u api.UnitRef) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM sync_units WHERE project = ? AND location = ?", u.Project, u.Location); err != nil {
 		return err
 	}
-	return commitTx(ctx, tx)
+	return tx.Commit(ctx)
 }
 
 func (c *Catalog) Units(ctx context.Context) ([]api.UnitState, error) {
@@ -912,7 +912,7 @@ func (c *Catalog) Prune(ctx context.Context, allowed map[string]bool, ignored fu
 			}
 		}
 	}
-	return st, commitTx(ctx, tx)
+	return st, tx.Commit(ctx)
 }
 
 const insertColumnSQL = `INSERT INTO columns(table_id,parent_id,field_path,field_path_lc,top_level,ordinal,data_type,description,partitioning,clustering_ordinal,required) VALUES(?,?,?,?,?,?,?,?,?,?,?)`

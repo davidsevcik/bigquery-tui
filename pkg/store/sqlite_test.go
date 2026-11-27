@@ -2,20 +2,14 @@ package store
 
 import (
 	"context"
-	"database/sql"
-	"database/sql/driver"
 	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
-
-	"modernc.org/sqlite"
 )
 
 func TestACancelledCallerDoesNotEndItsTransaction(t *testing.T) {
@@ -27,7 +21,7 @@ func TestACancelledCallerDoesNotEndItsTransaction(t *testing.T) {
 	}
 	defer tx.Rollback()
 	cancel()
-	waitForARollbackBehindTheCallersBack(c.db, 100*time.Millisecond)
+	waitForARollbackBehindTheCallersBack(tx, 100*time.Millisecond)
 	stmt, err := tx.PrepareContext(context.Background(), "INSERT INTO meta(key, value) VALUES(?, ?)")
 	if err != nil {
 		t.Fatalf("prepare after the caller's cancel: %v", err)
@@ -36,7 +30,7 @@ func TestACancelledCallerDoesNotEndItsTransaction(t *testing.T) {
 	if _, err := stmt.ExecContext(context.Background(), "k", "v"); err != nil {
 		t.Fatalf("exec after the caller's cancel: %v", err)
 	}
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(context.Background()); err != nil {
 		t.Fatalf("commit after the caller's cancel: %v", err)
 	}
 	if v, ok, err := c.Meta(ctx, "k"); err != nil || !ok || v != "v" {
@@ -44,9 +38,11 @@ func TestACancelledCallerDoesNotEndItsTransaction(t *testing.T) {
 	}
 }
 
-func waitForARollbackBehindTheCallersBack(db *sql.DB, limit time.Duration) {
-	for deadline := time.Now().Add(limit); time.Now().Before(deadline) && db.Stats().InUse > 0; {
-		time.Sleep(time.Millisecond)
+func waitForARollbackBehindTheCallersBack(tx *storeTx, limit time.Duration) {
+	for deadline := time.Now().Add(limit); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		if _, err := tx.ExecContext(context.Background(), "SELECT 1"); err != nil {
+			return
+		}
 	}
 }
 
@@ -62,7 +58,7 @@ func TestATransactionsStatementsStillStopOnTheCallersCancel(t *testing.T) {
 	if _, err := tx.ExecContext(cctx, "INSERT INTO meta(key, value) VALUES('k', 'v')"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("exec on the cancelled context: %v", err)
 	}
-	if err := commitTx(cctx, tx); !errors.Is(err, context.Canceled) {
+	if err := tx.Commit(cctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("commit on the cancelled context: %v", err)
 	}
 	if _, ok, _ := c.Meta(ctx, "k"); ok {
@@ -82,69 +78,57 @@ func TestBeginTxOnACancelledContextTakesNoConnection(t *testing.T) {
 	}
 }
 
-var (
-	registerTestCancel sync.Once
-	testCancel         atomic.Pointer[context.CancelFunc]
-)
-
-func openTempCancellable(t *testing.T) *Catalog {
-	t.Helper()
-	registerTestCancel.Do(func() {
-		sqlite.MustRegisterScalarFunction("test_cancel", 0, func(*sqlite.FunctionContext, []driver.Value) (driver.Value, error) {
-			if cancel := testCancel.Load(); cancel != nil {
-				(*cancel)()
-			}
-			return nil, nil
-		})
-	})
-	return openTemp(t)
-}
-
-func cancelInTrigger(t *testing.T, c *Catalog, event string, cancel context.CancelFunc) {
-	t.Helper()
-	if _, err := c.db.Exec("CREATE TRIGGER test_cancel " + event + " BEGIN SELECT test_cancel(); END"); err != nil {
-		t.Fatal(err)
+func TestACancelEndsTheWaitForAPooledConnection(t *testing.T) {
+	c := openTemp(t)
+	for range c.db.Stats().MaxOpenConnections {
+		held, err := c.db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer held.Close()
 	}
-	testCancel.Store(&cancel)
-	t.Cleanup(func() { testCancel.Store(nil) })
+	cctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	waitsBefore := c.db.Stats().WaitCount
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.LoadIndex(cctx)
+		done <- err
+	}()
+	for c.db.Stats().WaitCount == waitsBefore {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("LoadIndex cancelled while waiting for a connection returned %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("LoadIndex kept waiting for a connection after its caller cancelled")
+	}
 }
 
-func TestApplyUnitCancelledBetweenStatementsLeavesOldData(t *testing.T) {
-	for _, tc := range []struct{ name, event string }{
-		{"while writing its first new table", "AFTER INSERT ON tables"},
-		{"while writing the unit state, its last statement", "AFTER UPDATE ON sync_units"},
+func TestATransactionGivesItsConnectionBack(t *testing.T) {
+	c := openTemp(t)
+	for _, end := range []struct {
+		name string
+		end  func(*storeTx) error
+	}{
+		{"commit", func(tx *storeTx) error { return tx.Commit(ctx) }},
+		{"rollback", func(*storeTx) error { return nil }},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			c := openTempCancellable(t)
-			apply(t, c, unit("p", "EU"), t0, dsApply("d1", "EU", table("d1", "a", "x")))
-			cctx, cancel := context.WithCancel(ctx)
-			defer cancel()
-			cancelInTrigger(t, c, tc.event, cancel)
-			_, err := c.ApplyUnit(cctx, ApplyRequest{Unit: unit("p", "EU"), State: okState(t0.Add(time.Hour)), Datasets: []DatasetApply{dsApply("d1", "EU", table("d1", "zzz", "y"))}})
-			if cctx.Err() == nil {
-				t.Fatal("the trigger never cancelled the apply")
-			}
-			if !errors.Is(err, context.Canceled) {
-				t.Fatalf("cancelled apply returned %v", err)
-			}
-			assertOldSnapshot(t, c)
-		})
-	}
-}
-
-func assertOldSnapshot(t *testing.T, c *Catalog) {
-	t.Helper()
-	tabs, err := c.Tables(ctx, "p", "d1")
-	if err != nil || len(tabs) != 1 || tabs[0].Name != "a" {
-		t.Fatalf("old tables must remain: %+v, %v", tabs, err)
-	}
-	cols, err := c.Columns(ctx, "p", "d1", "a")
-	if err != nil || len(cols) != 1 || cols[0].FieldPath != "x" {
-		t.Fatalf("old columns must remain: %+v, %v", cols, err)
-	}
-	units, err := c.Units(ctx)
-	if err != nil || len(units) != 1 || units[0].LastSuccess == nil || !units[0].LastSuccess.Equal(t0) {
-		t.Fatalf("old unit state must remain: %+v, %v", units, err)
+		tx, err := beginTx(ctx, c.db, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := end.end(tx); err != nil {
+			t.Fatal(err)
+		}
+		tx.Rollback()
+		if n := c.db.Stats().InUse; n != 0 {
+			t.Fatalf("after %s: connections in use = %d", end.name, n)
+		}
 	}
 }
 
@@ -166,41 +150,20 @@ func TestNoStoreTransactionBeginsOnTheCallersContext(t *testing.T) {
 		scanned++
 		for _, d := range f.Decls {
 			fd, ok := d.(*ast.FuncDecl)
-			if !ok || fd.Body == nil {
+			if !ok || fd.Body == nil || fd.Name.Name == "beginTx" {
 				continue
 			}
-			calls := calledNames(fset, fd.Body)
-			if pos, ok := calls["BeginTx"]; ok && fd.Name.Name != "beginTx" {
-				t.Errorf("%s: %s calls BeginTx, begin through beginTx", pos, fd.Name.Name)
-			}
-			if pos, ok := calls["Commit"]; ok && calls["beginTx"] != "" && fd.Name.Name != "commitTx" {
-				t.Errorf("%s: %s commits a beginTx transaction with Commit, commit through commitTx", pos, fd.Name.Name)
-			}
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				if call, ok := n.(*ast.CallExpr); ok {
+					if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "BeginTx" {
+						t.Errorf("%s: %s calls BeginTx, begin through beginTx", fset.Position(call.Pos()), fd.Name.Name)
+					}
+				}
+				return true
+			})
 		}
 	}
 	if scanned == 0 {
 		t.Fatal("no store sources found")
 	}
-}
-
-func calledNames(fset *token.FileSet, body *ast.BlockStmt) map[string]string {
-	calls := map[string]string{}
-	ast.Inspect(body, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		var name string
-		switch fn := call.Fun.(type) {
-		case *ast.SelectorExpr:
-			name = fn.Sel.Name
-		case *ast.Ident:
-			name = fn.Name
-		}
-		if _, seen := calls[name]; name != "" && !seen {
-			calls[name] = fset.Position(call.Pos()).String()
-		}
-		return true
-	})
-	return calls
 }
