@@ -85,7 +85,7 @@ func cmdConfig(ctx context.Context, o *out, g *globals, args []string) error {
 		}
 		after, afterErr := os.ReadFile(path)
 		changed := beforeErr != nil || afterErr != nil || !bytes.Equal(before, after)
-		if _, err := config.FromRead(path, after, afterErr, g.loadOptions(env)); err != nil {
+		if _, err := config.ParseRead(after, afterErr, path, g.loadOptions(env)); err != nil {
 			if changed {
 				return err
 			}
