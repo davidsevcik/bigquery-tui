@@ -74,6 +74,8 @@ type Engine struct {
 	trackMu gosync.Mutex
 	track   *syncTrack
 
+	bg background
+
 	retainedDays int
 	retainedAt   time.Time
 }
@@ -156,6 +158,7 @@ func (e *Engine) History() (*store.History, error) {
 }
 
 func (e *Engine) Close() error {
+	e.bg.stop()
 	e.runs.Close()
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -464,6 +467,9 @@ func (h *SyncHandle) finish(res api.SyncResult, err error) {
 }
 
 func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandle, error) {
+	if e.bg.closed() {
+		return nil, ErrClosed
+	}
 	if e.o.ReadOnly {
 		return nil, ErrReadOnly
 	}
@@ -499,6 +505,11 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 		lock.Unlock()
 		return nil, err
 	}
+	bctx, release, err := e.bg.start(ctx)
+	if err != nil {
+		lock.Unlock()
+		return nil, err
+	}
 	projects := scope.Projects
 	if len(projects) == 0 {
 		projects = selected
@@ -507,7 +518,7 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 		projects = nil
 	}
 	track := e.startTrack(projects)
-	rctx, cancel := context.WithCancel(ctx)
+	rctx, cancel := context.WithCancel(bctx)
 	h := &SyncHandle{cancel: cancel, out: make(chan api.SyncEvent), done: make(chan struct{}), wake: make(chan struct{}, 1), abandon: make(chan struct{})}
 	go h.pump()
 	s := catsync.New(catsync.Options{
@@ -515,6 +526,7 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 		Parallelism: e.o.Parallelism, Retries: e.o.Retries, Backoff: e.o.Backoff,
 	})
 	go func() {
+		defer release()
 		defer cancel()
 		res, err := s.Run(rctx, scope, func(ev api.SyncEvent) {
 			e.observeSync(track, ev)

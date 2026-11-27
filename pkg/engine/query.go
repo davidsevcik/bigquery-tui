@@ -198,6 +198,9 @@ func (e *Engine) DefaultExportPath(f export.Format) string {
 }
 
 func (e *Engine) StartExport(ctx context.Context, runID int64, path string, f export.Format) (*ExportHandle, error) {
+	if e.bg.closed() {
+		return nil, ErrClosed
+	}
 	r := e.runs.Get(runID)
 	if r == nil {
 		return nil, ErrUnknownRun
@@ -218,9 +221,16 @@ func (e *Engine) StartExport(ctx context.Context, runID int64, path string, f ex
 	if err != nil {
 		return nil, err
 	}
-	ectx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	bctx, release, err := e.bg.start(context.WithoutCancel(ctx))
+	if err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return nil, err
+	}
+	ectx, cancel := context.WithCancel(bctx)
 	h := &ExportHandle{cancel: cancel, events: make(chan api.ExportEvent, 16), done: make(chan struct{})}
 	go func() {
+		defer release()
 		defer close(h.done)
 		defer close(h.events)
 		defer cancel()

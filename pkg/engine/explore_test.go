@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,8 +13,10 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/bq"
 	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/export"
 	"github.com/davidsevcik/bigquery-tui/pkg/format"
 	"github.com/davidsevcik/bigquery-tui/pkg/handoff"
+	"github.com/davidsevcik/bigquery-tui/pkg/runs"
 )
 
 func (e *env) openWithTables() *Engine {
@@ -426,9 +430,52 @@ func TestUnreadSyncEventsDoNotLeakThePump(t *testing.T) {
 func TestOperationsAfterCloseFailCleanly(t *testing.T) {
 	e := newEnv(t, "proj-a")
 	eng := e.openWithTables()
+	e.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(3) }
+	run := eng.StartRun(ctx, runs.Request{SQL: "select"}).Wait()
 	eng.Close()
 	if err := eng.TouchRecent(ctx, api.ObjectPath{Project: "p", Dataset: "d", Table: "t"}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("%v", err)
+	}
+	for _, scope := range []api.SyncScope{{}, {Projects: []string{"proj-a"}}} {
+		if _, err := eng.StartSync(ctx, scope); !errors.Is(err, ErrClosed) {
+			t.Fatalf("a sync of %v after Close: %v", scope.Projects, err)
+		}
+	}
+	dir := filepath.Join(t.TempDir(), "new")
+	if _, err := eng.StartExport(ctx, run.ID, filepath.Join(dir, "out.csv"), export.CSV); !errors.Is(err, ErrClosed) {
+		t.Fatalf("an export after Close: %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("an export after Close made its directory: %v", err)
+	}
+	if _, ok := <-eng.WatchCatalog(ctx, time.Millisecond); ok {
+		t.Fatal("a catalog watcher started after Close")
+	}
+	h, err := e.openWithTables().StartSync(ctx, api.SyncScope{})
+	if err != nil {
+		t.Fatalf("the closed engine kept the sync lock: %v", err)
+	}
+	if _, err := h.Wait(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCloseStopsTheCatalogWatcher(t *testing.T) {
+	e := newEnv(t, "proj-a")
+	eng := e.openWithTables()
+	changed := eng.WatchCatalog(ctx, time.Millisecond)
+	if err := eng.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		select {
+		case _, ok := <-changed:
+			if !ok {
+				return
+			}
+		default:
+			t.Fatal("Close returned while the catalog watcher still ran")
+		}
 	}
 }
 
