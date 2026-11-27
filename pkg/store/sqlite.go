@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -57,6 +58,54 @@ func openDB(path string, readOnly bool) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+type storeTx struct {
+	tx   *sql.Tx
+	conn *sql.Conn
+}
+
+func beginTx(ctx context.Context, db *sql.DB, opts *sql.TxOptions) (*storeTx, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := conn.BeginTx(context.WithoutCancel(ctx), opts)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return &storeTx{tx: tx, conn: conn}, nil
+}
+
+func (t *storeTx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return t.tx.ExecContext(ctx, query, args...)
+}
+
+func (t *storeTx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return t.tx.QueryContext(ctx, query, args...)
+}
+
+func (t *storeTx) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return t.tx.QueryRowContext(ctx, query, args...)
+}
+
+func (t *storeTx) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+	return t.tx.PrepareContext(ctx, query)
+}
+
+func (t *storeTx) Commit(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	err := t.tx.Commit()
+	t.conn.Close()
+	return err
+}
+
+func (t *storeTx) Rollback() {
+	t.tx.Rollback()
+	t.conn.Close()
 }
 
 func isCorrupt(err error) bool {
