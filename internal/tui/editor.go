@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -285,6 +286,20 @@ func (e *editor) replaceBytes(start, end int, s string) {
 	e.deleteRange(r1, c1, r2, c2)
 	e.insertRaw(s)
 	e.changed()
+}
+
+func (e *editor) replaceAround(before, after int, s string) {
+	text, start := e.text(), e.offset()
+	end := start
+	for ; before > 0 && start > 0; before-- {
+		_, n := utf8.DecodeLastRuneInString(text[:start])
+		start -= n
+	}
+	for ; after > 0 && end < len(text); after-- {
+		_, n := utf8.DecodeRuneInString(text[end:])
+		end += n
+	}
+	e.replaceBytes(start, end, s)
 }
 
 func (e *editor) newline() {

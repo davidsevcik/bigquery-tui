@@ -38,11 +38,22 @@ type vim struct {
 
 	anchorR, anchorC int
 
-	rec     []tea.KeyPressMsg
-	last    []tea.KeyPressMsg
+	rec     []vimStep
+	last    []vimStep
 	idleVer int
 	tainted bool
 	replay  bool
+}
+
+type vimStep struct {
+	key        tea.KeyPressMsg
+	completion *completionEdit
+}
+
+func (v *vim) record(s vimStep) {
+	if !v.replay {
+		v.rec = append(v.rec, s)
+	}
 }
 
 type vimOut struct {
@@ -1012,10 +1023,9 @@ func (v *vim) normalKey(e *editor, key string, page int) vimOut {
 		v.shorthand(e, key, n, &out)
 	case "p", "P":
 		v.paste(e, key == "P", n)
-	case "u":
-		out.toast = e.undoTimes(n, false)
-	case "ctrl+r":
-		out.toast = e.undoTimes(n, true)
+	case "u", "ctrl+r":
+		v.tainted = true
+		out.toast = e.undoTimes(n, key == "ctrl+r")
 	case "J":
 		e.joinLines(max(1, n-1))
 	case "~":
@@ -1307,9 +1317,7 @@ func (m *Model) vimKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 		v.rec, v.tainted, v.idleVer = nil, false, e.version
 		e.beginGroup()
 	}
-	if !v.replay {
-		v.rec = append(v.rec, msg)
-	}
+	v.record(vimStep{key: msg})
 	before := e.version
 	out := v.key(e, name, max(2, m.editorRows()))
 	cmd := m.vimApply(b, out, before)
@@ -1373,15 +1381,18 @@ func (m *Model) vimRepeat(b *buffer) tea.Cmd {
 	if len(v.last) == 0 {
 		return nil
 	}
-	keys := v.last
+	steps := v.last
 	v.replay = true
 	defer func() { v.replay = false }()
-	for _, k := range keys {
-		if v.mode == vimInsert {
-			m.vimInsertKey(b, k, keyName(k))
-			continue
+	for _, s := range steps {
+		switch {
+		case s.completion != nil:
+			s.completion.apply(b.ed)
+		case v.mode == vimInsert:
+			m.vimInsertKey(b, s.key, keyName(s.key))
+		default:
+			v.key(b.ed, keyName(s.key), max(2, m.editorRows()))
 		}
-		v.key(b.ed, keyName(k), max(2, m.editorRows()))
 	}
 	// ADR-0011
 	if v.mode == vimInsert {
