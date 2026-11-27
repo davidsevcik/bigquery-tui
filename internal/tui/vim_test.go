@@ -380,6 +380,105 @@ func TestVimCompletionInInsertMode(t *testing.T) {
 	}
 }
 
+func vimShopRig(t *testing.T) *rig {
+	t.Helper()
+	rigEditing = "vim"
+	defer func() { rigEditing = "plain" }()
+	r := shopRig(t, 120, 30, "")
+	r.press("ctrl+w", "l")
+	return r
+}
+
+func (r *rig) appendToFirstOf(lines string, keys ...string) {
+	r.t.Helper()
+	r.press("i")
+	r.typeText(lines)
+	r.press("esc", "g", "g", "A")
+	r.press(keys...)
+	r.press("esc")
+}
+
+func TestVimDotRepeatsAChangeThatAcceptedACompletion(t *testing.T) {
+	cases := []struct {
+		name string
+		keys []string
+		want string
+	}{
+		{name: "a project adds the dot", keys: []string{"acme", "tab", "sales"}, want: "select * from acme-prod.sales"},
+		{name: "a table closes the backtick", keys: []string{"`acme-p", "tab", "sa", "tab", "ord", "tab"}, want: "select * from `acme-prod.sales.order_items`"},
+		{name: "a wildcard table backticks the path", keys: []string{"acme", "tab", "sho", "tab", "ord", "tab"}, want: "select * from `acme-prod.shop.orders_*`"},
+		{name: "a candidate picked with the arrows", keys: []string{"acme", "down", "tab", "sales"}, want: "select * from acme-staging.sales"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := vimShopRig(t)
+			r.appendToFirstOf("select * from \nselect * from \n", c.keys...)
+			if r.text() != c.want+"\nselect * from \n" {
+				t.Fatalf("the change: %q", r.text())
+			}
+			r.press("j", ".")
+			if r.text() != c.want+"\n"+c.want+"\n" {
+				t.Fatalf(". inserts the completed text again: %q", r.text())
+			}
+			if r.m.comp.open || r.m.buf().vim.mode != vimNormal {
+				t.Fatal("the repeat opens no popup and ends in Normal mode")
+			}
+			r.press("u")
+			if r.text() != c.want+"\nselect * from \n" {
+				t.Fatalf("the repeat is one undo step: %q", r.text())
+			}
+		})
+	}
+}
+
+func TestVimDotRepeatsTheCompletionChangeNotTheOneBefore(t *testing.T) {
+	r := vimRig(t, 120, 30)
+	r.press("i")
+	r.typeText("xselect * from \nselect * from ")
+	r.press("esc", "g", "g", "0", "x", "A")
+	r.typeText("acme")
+	r.press("tab")
+	r.typeText("sales")
+	r.press("esc", "j", ".")
+	want := "select * from acme-prod.sales"
+	if r.text() != want+"\n"+want {
+		t.Fatalf("%q", r.text())
+	}
+}
+
+func TestVimDotAfterUndoRedoOrSearchStillRepeatsTheLastChange(t *testing.T) {
+	r := vimRig(t, 120, 30)
+	r.appendToFirstOf("select * from \nselect * from \nselect * from ", "acme", "tab", "sales")
+	want := "select * from acme-prod.sales"
+	r.press("u", ".")
+	if r.text() != want+"\nselect * from \nselect * from " {
+		t.Fatalf(". after u: %q", r.text())
+	}
+	r.press("/")
+	r.typeText("from")
+	r.press("enter", ".")
+	if r.text() != want+"\n"+want+"\nselect * from " {
+		t.Fatalf(". after a search: %q", r.text())
+	}
+	r.press("u", "ctrl+r", "G", ".")
+	if r.text() != want+"\n"+want+"\n"+want {
+		t.Fatalf(". after ctrl+r: %q", r.text())
+	}
+}
+
+func TestVimCountedDotTreatsACompletionChangeLikeATypedOne(t *testing.T) {
+	repeat := func(keys ...string) string {
+		r := vimRig(t, 120, 30)
+		r.appendToFirstOf("select * from \nselect * from ", keys...)
+		r.press("j", "3", ".")
+		return r.text()
+	}
+	typed, completed := repeat("acme-prod.sales"), repeat("acme", "tab", "sales")
+	if completed != typed {
+		t.Fatalf("completed %q, typed %q", completed, typed)
+	}
+}
+
 func TestPlainEditingIsStillAvailable(t *testing.T) {
 	r := editorRig(t, 120, 30)
 	r.typeText("dd")
