@@ -880,15 +880,22 @@ func (m *Model) onExtEdit(msg extEditMsg) {
 		return
 	}
 	b, _ := m.bufferOf(msg.buf)
+	if b == nil {
+		m.toast = "the edit is dropped: its buffer was closed while the editor ran"
+		return
+	}
 	data, err := os.ReadFile(msg.path)
-	if b == nil || err != nil {
+	if err != nil {
+		m.toast = "editor: " + err.Error()
 		return
 	}
 	text := strings.TrimRight(string(data), "\n")
-	if text != b.ed.text() {
-		b.ed.setText(text)
-		m.saveDraft(b)
+	if text == strings.TrimRight(b.ed.text(), "\n") {
+		m.toast = "editor made no changes (if it returns before you save: VISUAL='code --wait')"
+		return
 	}
+	b.ed.setText(text)
+	m.saveDraft(b)
 }
 
 func (m *Model) resultsAction(act string) tea.Cmd {
