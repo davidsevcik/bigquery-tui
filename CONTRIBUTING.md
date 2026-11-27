@@ -54,6 +54,13 @@ Scale measurements: `BQT_SCALE=500 go test ./pkg/store -run Scale -v` (catalog a
 
 Pushing a tag `v*` runs `.github/workflows/release.yml`, which builds the binaries with GoReleaser (`.goreleaser.yaml`) and publishes a GitHub release. Try the config locally with `goreleaser release --snapshot --clean`.
 
+The same run updates the Homebrew cask in `davidsevcik/homebrew-tap`, but only if the `HOMEBREW_TAP_GITHUB_TOKEN` secret can push there, so a green run doesn't prove it. After each release, check that the tap's latest commit is `Brew cask update for bqt version vX.Y.Z`, and that the sha256 values in `Casks/bqt.rb` match the release's `checksums.txt`:
+
+```sh
+gh api repos/davidsevcik/homebrew-tap/contents/Casks/bqt.rb --jq .content | base64 -d
+gh release download vX.Y.Z -p '*checksums*' -O -
+```
+
 The project page in `site/` is published to GitHub Pages by `.github/workflows/pages.yml` on every push to `master` that changes it.
 
 The screenshots in `site/img` (used by the page and the README) are the real bqt in a real terminal, on fictional data from a local BigQuery emulator. When the UI changes, record them again with `internal/tools/screenshots/record.sh` (needs Docker, Go and python3). Each screen is a [VHS](https://github.com/charmbracelet/vhs) tape in that folder.
