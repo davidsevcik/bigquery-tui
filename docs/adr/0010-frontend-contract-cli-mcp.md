@@ -87,7 +87,7 @@ Package `api` holds the plain data types the core shares with every frontend. Pa
 ### Logging and the terminal
 
 - **`cli.cmdMCP`** (stdout): serves the MCP tools over stdio (spec 14.2), or prints the client configuration snippets. stdout belongs to the protocol, so logs go only to the log file and stderr.
-- **`cli.cmdTUI`**: logs go to the log file only, never stderr, because the terminal belongs to the UI and stray output would corrupt the screen.
+- **`cli.cmdTUI`**: logs go to the log file only, never stderr, because the terminal belongs to the UI and stray output would corrupt the screen. The one line it writes to stderr is the warning about a failed close of the log file, after the UI has quit and the terminal is restored. So `closeLog` stays the first defer: it runs last, after `m.Close` and `eng.Close`, which may still log.
 - **`cli.openAgent`**: opens its logger without a start record, because agents call these short commands often and a start record per call would flood the log.
 
 ### The MCP server

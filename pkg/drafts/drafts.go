@@ -214,12 +214,12 @@ func (d *Draft) SetExecutionProject(project string) error {
 }
 
 func (d *Draft) Save(text string) error {
-	d.empty = text == ""
 	p := d.s.Path(d.id)
-	if d.empty {
+	if text == "" {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			return err
 		}
+		d.empty = true
 		return nil
 	}
 	tmp := p + ".tmp"
@@ -229,19 +229,24 @@ func (d *Draft) Save(text string) error {
 	}
 	if err != nil {
 		os.Remove(tmp)
+		return err
 	}
-	return err
+	d.empty = false
+	return nil
 }
 
+var removeFile = os.Remove
+
 func (d *Draft) Release() {
-	d.lock.Unlock()
 	if d.empty {
-		os.Remove(d.s.lockPath(d.id))
+		_ = removeFile(d.s.lockPath(d.id))
 	}
+	d.lock.Unlock()
 }
 
 func (d *Draft) Discard() {
+	if err := removeFile(d.s.Path(d.id)); err == nil || os.IsNotExist(err) {
+		_ = removeFile(d.s.lockPath(d.id))
+	}
 	d.lock.Unlock()
-	os.Remove(d.s.lockPath(d.id))
-	os.Remove(d.s.Path(d.id))
 }

@@ -9,8 +9,6 @@ import (
 	"github.com/davidsevcik/bigquery-tui/internal/tui"
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/engine"
-	"github.com/davidsevcik/bigquery-tui/pkg/logging"
-	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
 
 func cmdTUI(ctx context.Context, o *out, g *globals, args []string) error {
@@ -35,25 +33,27 @@ func cmdTUI(ctx context.Context, o *out, g *globals, args []string) error {
 	if err != nil {
 		return err
 	}
-	level := g.logLevel
-	if level == "" {
-		level = env.Getenv("BQT_LOG")
-	}
-	log, closeLog, err := logging.New(logging.Options{Dir: store.PathsFor(cfg.DataDir).LogDir, Level: level, Command: "tui"})
+	log, closeLog, err := openLog(env, g, cfg, "tui", nil)
 	if err != nil {
-		return usageErr("%v", err)
+		return err
 	}
-	defer func() { _ = closeLog() }()
+	// ADR-0010
+	defer closeLog()
 	eng, err := engine.Open(ctx, engine.Options{Config: cfg, Meta: env.Meta, Now: env.Now, Log: log, Source: api.SourceTUI})
 	if err != nil {
 		return err
 	}
 	defer eng.Close()
 
-	m := tui.New(tui.EngineBackend{Engine: eng, Load: g.loadOptions(env)}, tui.Options{Getenv: env.Getenv, Now: env.Now, File: file})
+	m := tui.New(tui.EngineBackend{Engine: eng, Load: g.loadOptions(env)}, tui.Options{Getenv: env.Getenv, Now: env.Now, File: file, Log: log})
 	defer m.Close()
-	if _, err := tea.NewProgram(m, tea.WithContext(ctx)).Run(); err != nil && ctx.Err() == nil {
+	if err := env.RunUI(ctx, m); err != nil && ctx.Err() == nil {
 		return fmt.Errorf("ui: %w", err)
 	}
 	return nil
+}
+
+func runProgram(ctx context.Context, m tea.Model) error {
+	_, err := tea.NewProgram(m, tea.WithContext(ctx)).Run()
+	return err
 }

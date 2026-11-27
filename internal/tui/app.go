@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,6 +60,7 @@ type Options struct {
 	Now          func() time.Time
 	Location     *time.Location
 	File         string
+	Log          *slog.Logger
 }
 
 type Model struct {
@@ -113,26 +115,26 @@ type Model struct {
 	pendingKey string
 	toast      string
 
-	zone       Zone
-	bufs       []*buffer
-	cur        int
-	bufSeq     int
-	orphans    []orphan
-	comp       completion
-	runs       *runs.Follower
-	grids      map[int64]*grid
-	prompt     promptState
-	confirm    confirmState
-	confirmQ   []confirmState
-	draftErr   string
-	ovSel      int
-	exp        Export
-	expEv      api.ExportEvent
-	jumpInsert bool
-	edX, edY   int
+	zone           Zone
+	bufs           []*buffer
+	cur            int
+	bufSeq         int
+	orphans        []orphan
+	comp           completion
+	runs           *runs.Follower
+	grids          map[int64]*grid
+	prompt         promptState
+	confirm        confirmState
+	confirmQ       []confirmState
+	draftsReleased bool
+	ovSel          int
+	exp            Export
+	expEv          api.ExportEvent
+	jumpInsert     bool
+	edX, edY       int
 
 	syncRun    SyncRun
-	syncing    bool
+	syncPhase  syncPhase
 	syncDone   int
 	syncTotal  int
 	syncLog    []string
@@ -148,7 +150,18 @@ type Model struct {
 	status     *api.CatalogStatus
 	cfgErr     string
 	kick       chan struct{}
+
+	syncAllSelected []string
+	runProblems     runProblems
 }
+
+type syncPhase uint8
+
+const (
+	syncIdle syncPhase = iota
+	syncStarting
+	syncRunning
+)
 
 func New(be Backend, o Options) *Model {
 	if o.Getenv == nil {
@@ -159,6 +172,9 @@ func New(be Backend, o Options) *Model {
 	}
 	if o.Location == nil {
 		o.Location = time.Local
+	}
+	if o.Log == nil {
+		o.Log = slog.New(slog.DiscardHandler)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30, termH: 30, preset: presetClassic, panes: presetTree(presetClassic)}
@@ -402,14 +418,18 @@ type configWait struct {
 }
 
 func (m *Model) startSync(scope api.SyncScope, auto bool) tea.Cmd {
-	if m.syncing {
+	if m.syncPhase != syncIdle {
 		m.toast = "a sync is already running (gd shows progress)"
 		return nil
 	}
+	m.syncPhase = syncStarting
 	m.syncScope = scope.Projects
 	m.syncTable = scope.Table
+	m.syncAllSelected = nil
 	if scope.Table != nil {
 		m.syncScope = []string{scope.Table.Project}
+	} else if len(scope.Projects) == 0 && !auto {
+		m.syncAllSelected = m.be.Selection().IDs()
 	}
 	return func() tea.Msg {
 		var run SyncRun
@@ -434,8 +454,22 @@ func waitSync(run SyncRun) tea.Cmd {
 	}
 }
 
+func (m *Model) onSyncStarted(msg syncStartedMsg) tea.Cmd {
+	m.syncPhase = syncIdle
+	if msg.err != nil {
+		m.syncStartFailed(msg.err)
+		return m.startQueuedSync()
+	}
+	if msg.run == nil {
+		return m.startQueuedSync()
+	}
+	m.syncRun, m.syncPhase, m.syncDone, m.syncTotal, m.syncLog = msg.run, syncRunning, 0, 0, nil
+	m.runProblems = nil
+	return waitSync(msg.run)
+}
+
 func (m *Model) onSyncDone(msg syncDoneMsg) tea.Cmd {
-	m.syncing, m.syncRun = false, nil
+	m.syncPhase, m.syncRun = syncIdle, nil
 	table := m.syncTable
 	m.syncTable = nil
 	switch {
@@ -455,7 +489,7 @@ func (m *Model) onSyncDone(msg syncDoneMsg) tea.Cmd {
 	}
 	m.reloadBrowse()
 	m.refreshProjects()
-	return tea.Batch(m.reconcileCmd(false), m.rerunSearches(), m.afterSelect(), m.afterSync())
+	return tea.Batch(m.reconcileCmd(false), m.rerunSearches(), m.afterSelect(), m.afterSync(msg))
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -563,15 +597,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case recordMsg:
 		m.onRecord(msg)
 	case syncStartedMsg:
-		if msg.err != nil {
-			m.toast = "sync: " + msg.err.Error()
-			return m, nil
-		}
-		if msg.run == nil {
-			return m, nil
-		}
-		m.syncRun, m.syncing, m.syncDone, m.syncTotal, m.syncLog = msg.run, true, 0, 0, nil
-		return m, waitSync(msg.run)
+		return m, m.onSyncStarted(msg)
 	case syncEventMsg:
 		m.onSyncEvent(msg.ev)
 		switch msg.ev.Kind {
@@ -607,7 +633,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			st := msg.st
 			m.status = &st
-			if !m.syncing {
+			if m.syncPhase != syncRunning {
 				m.syncNeeded, m.syncReason = st.SyncNeeded, st.SyncReason
 			}
 		}
@@ -649,6 +675,7 @@ func (m *Model) onSyncEvent(ev api.SyncEvent) {
 	if line != "" {
 		m.syncLog = append(m.syncLog, ev.Time.Format("15:04:05")+"  "+line)
 	}
+	m.runProblems.note(ev)
 }
 
 func (m *Model) onConfig(ev config.Event) tea.Cmd {
@@ -734,13 +761,14 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 	}
 	switch act {
 	case "quit":
+		m.saveDrafts()
 		var why []string
 		if n := len(m.activeRuns()); n > 0 {
 			why = append(why, fmt.Sprintf("%d run(s) are still in flight and will be cancelled.", n))
 		}
 		var unsaved []string
 		for _, b := range m.bufs {
-			if b.modified() {
+			if b.state().LostOnQuit() {
 				unsaved = append(unsaved, b.title())
 			}
 		}
@@ -793,7 +821,7 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 		if m.cancelFocused() {
 			return nil, true
 		}
-		if m.syncing && m.syncRun != nil {
+		if m.syncPhase == syncRunning && m.syncRun != nil {
 			m.syncRun.Cancel()
 			m.toast = "cancelling the sync…"
 		} else {

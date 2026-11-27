@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,9 +14,12 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/bq"
 	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
+	"github.com/davidsevcik/bigquery-tui/pkg/logging"
 	"github.com/davidsevcik/bigquery-tui/pkg/selection"
 	"github.com/davidsevcik/bigquery-tui/pkg/store"
 )
@@ -30,6 +34,8 @@ type sandbox struct {
 	stdin   string
 	runs    int
 	authErr error
+	logErr  error
+	ui      func(stderr string)
 }
 
 func newSandbox(t *testing.T) *sandbox {
@@ -63,10 +69,13 @@ func (s *sandbox) writeConfig(extra string) {
 		}
 		extra = projectsLine.ReplaceAllString(extra, "")
 	}
-	src := "data_dir = \"" + filepath.Join(s.dir, "data") + "\"\n" + extra
-	if err := os.WriteFile(s.cfgPath, []byte(src), 0o600); err != nil {
+	if err := os.WriteFile(s.cfgPath, []byte(s.configBody(extra)), 0o600); err != nil {
 		s.t.Fatal(err)
 	}
+}
+
+func (s *sandbox) configBody(extra string) string {
+	return "data_dir = \"" + filepath.Join(s.dir, "data") + "\"\n" + extra
 }
 
 func (s *sandbox) run(args ...string) (code int, stdout, stderr string) {
@@ -94,6 +103,19 @@ func (s *sandbox) run(args ...string) (code int, stdout, stderr string) {
 		RunEditor: func(ctx context.Context, argv []string, env Env) error {
 			if s.edit != nil {
 				s.edit(argv)
+			}
+			return nil
+		},
+		OpenLog: func(o logging.Options) (*slog.Logger, func() error, error) {
+			l, closeFn, err := logging.New(o)
+			if err != nil || s.logErr == nil {
+				return l, closeFn, err
+			}
+			return l, func() error { _ = closeFn(); return s.logErr }, nil
+		},
+		RunUI: func(context.Context, tea.Model) error {
+			if s.ui != nil {
+				s.ui(se.String())
 			}
 			return nil
 		},
@@ -219,7 +241,7 @@ func TestConfigPathAndEdit(t *testing.T) {
 	var argv []string
 	s.edit = func(a []string) {
 		argv = a
-		if err := os.WriteFile(s.cfgPath, []byte("location = \"EU\"\ndata_dir = \""+filepath.Join(s.dir, "data")+"\"\n"), 0o600); err != nil {
+		if err := os.WriteFile(s.cfgPath, []byte(s.configBody("location = \"EU\"\n")), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -231,8 +253,11 @@ func TestConfigPathAndEdit(t *testing.T) {
 		t.Fatalf("editor argv %v", argv)
 	}
 	data := decode(t, out).Data.(map[string]any)
-	if _, ok := data["projects"]; data["valid"] != true || ok {
+	if _, ok := data["projects"]; data["valid"] != true || data["changed"] != true || ok {
 		t.Fatalf("%v", data)
+	}
+	if strings.Contains(errOut, "--wait") {
+		t.Fatalf("a saved edit needs no hint: %q", errOut)
 	}
 
 	s.edit = func([]string) {

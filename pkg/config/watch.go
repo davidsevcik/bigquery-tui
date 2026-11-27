@@ -68,7 +68,7 @@ func Watch(ctx context.Context, current *Config, o WatchOptions) <-chan Event {
 			}
 			seen = h
 			ev := Event{}
-			cfg, err := fromRead(path, raw, rerr, o.Load)
+			cfg, err := ParseRead(raw, rerr, path, o.Load)
 			if err != nil {
 				ev.Err = err
 			} else {

@@ -156,7 +156,7 @@ func (m *Model) searchKey(st *searchState, msg tea.KeyPressMsg, name string, hal
 			s := st.selection()
 			if s.kind == "" {
 				if st == m.jump && !m.jumpInsert && st.parsed.Path != nil {
-					return m.openUncached(*st.parsed.Path)
+					return m.openMissing(*st.parsed.Path)
 				}
 				return nil
 			}
