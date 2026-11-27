@@ -96,9 +96,9 @@ func Complete(text string, cursor int, cat Catalog, o Options) []api.Candidate {
 	quals, start, k := qualifiers(text, toks, k, c.pStart)
 	if first, last, ok := dashedName(text, toks, cur); ok {
 		dStart := toks[first].Start
-		if dQuals, dChain, dk, inPath := tablePath(text, toks, first); inPath {
+		if inTablePath(text, toks, first) {
 			c.partial, c.pStart, c.pEnd = text[dStart:cursor], dStart, toks[last].End
-			quals, start, k = dQuals, dChain, dk
+			quals, start, k = qualifiers(text, toks, first-1, dStart)
 		} else {
 			c.dashedLead = text[dStart:c.pStart]
 		}
@@ -187,9 +187,9 @@ func qualifiers(text string, toks []api.Token, k, start int) ([]string, int, int
 	return quals, start, k
 }
 
-func tablePath(text string, toks []api.Token, first int) ([]string, int, int, bool) {
-	quals, chain, k := qualifiers(text, toks, first-1, toks[first].Start)
-	return quals, chain, k, k >= 0 && inTableContext(text, toks, k)
+func inTablePath(text string, toks []api.Token, first int) bool {
+	_, _, k := qualifiers(text, toks, first-1, toks[first].Start)
+	return k >= 0 && inTableContext(text, toks, k)
 }
 
 func namePart(t api.Token) bool { return isWord(t) || t.Kind == api.TokNumber }
@@ -249,6 +249,8 @@ func inTableContext(text string, toks []api.Token, k int) bool {
 	depth := 0
 	for i := k - 1; i >= 0; i-- {
 		switch {
+		case isPunct(text, toks[i], ";"):
+			return false
 		case isPunct(text, toks[i], ")"):
 			depth++
 		case isPunct(text, toks[i], "("):

@@ -1,8 +1,10 @@
 package sqlx
 
 import (
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 )
@@ -32,11 +34,38 @@ func TestTokenize(t *testing.T) {
 		{"select 1.5, x-1.0 from t limit 10", "keyword:select | number:1.5 | punct:, | ident:x | punct:- | number:1.0 | keyword:from | ident:t | keyword:limit | number:10"},
 		{"from t where n-12", "keyword:from | ident:t | keyword:where | ident:n | punct:- | number:12"},
 		{"from a; select x-1", "keyword:from | ident:a | punct:; | keyword:select | ident:x | punct:- | number:1"},
+		{"from a; x, y-1", "keyword:from | ident:a | punct:; | ident:x | punct:, | ident:y | punct:- | number:1"},
+		{"insert into t values (1,-1), (2, x=-2)", "keyword:insert | keyword:into | ident:t | keyword:values | punct:( | number:1 | punct:, | punct:- | number:1 | punct:) | punct:, | punct:( | number:2 | punct:, | ident:x | punct:= | punct:- | number:2 | punct:)"},
 	}
 	for _, c := range cases {
 		if got := kinds(c.in); got != c.want {
 			t.Errorf("%q\n got  %s\n want %s", c.in, got, c.want)
 		}
+	}
+}
+
+func TestTokenizeTimeGrowsLinearlyWithNegativeLiterals(t *testing.T) {
+	values := func(rows int) string {
+		var b strings.Builder
+		b.WriteString("insert into t (a, b, c) values ")
+		for i := range rows {
+			n := strconv.Itoa(i)
+			b.WriteString("(" + n + ",-" + n + ", x =-" + n + "),")
+		}
+		return b.String()
+	}
+	fastest := func(text string) time.Duration {
+		best := time.Hour
+		for range 5 {
+			start := time.Now()
+			Tokenize(text)
+			best = min(best, time.Since(start))
+		}
+		return best
+	}
+	small, large := fastest(values(1000)), fastest(values(10000))
+	if large > 40*small && large > 250*time.Millisecond {
+		t.Fatalf("ten times the rows took %.0f times as long (%v, %v)", float64(large)/float64(small), small, large)
 	}
 }
 

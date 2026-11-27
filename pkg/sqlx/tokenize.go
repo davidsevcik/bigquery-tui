@@ -57,16 +57,11 @@ func Tokenize(text string) []api.Token {
 			if j < n && text[j] == '@' {
 				j++
 			}
-			for j < n && isIdentByte(text[j]) {
-				j++
-			}
+			j = scanIdent(text, j)
 			emit(i, j, api.TokParam)
 			i = j
 		case isDigit(c) && continuesDashedPath(text, out, i):
-			j := i + 1
-			for j < n && isIdentByte(text[j]) {
-				j++
-			}
+			j := scanIdent(text, i)
 			emit(i, j, api.TokIdent)
 			i = j
 		case isDigit(c) || (c == '.' && i+1 < n && isDigit(text[i+1]) && !prevIsIdent(out, i)):
@@ -74,10 +69,7 @@ func Tokenize(text string) []api.Token {
 			emit(i, end, api.TokNumber)
 			i = end
 		case isIdentStart(c):
-			j := i + 1
-			for j < n && isIdentByte(text[j]) {
-				j++
-			}
+			j := scanIdent(text, i)
 			word := text[i:j]
 			if j < n && (text[j] == '\'' || text[j] == '"') && isStringPrefix(word) {
 				end := scanString(text, j, strings.ContainsAny(word, "rR"))
@@ -136,17 +128,11 @@ func prevIsDot(toks []api.Token, text string, at int) bool {
 
 func continuesDashedPath(text string, toks []api.Token, at int) bool {
 	n := len(toks)
-	if n < 2 || toks[n-1].End != at || !isPunct(text, toks[n-1], "-") {
+	if n < 2 || toks[n-1].End != at || !isPunct(text, toks[n-1], "-") || !namePart(toks[n-2]) || toks[n-2].End != toks[n-1].Start {
 		return false
 	}
-	lo, _ := statementBounds(text, toks, at)
-	stmt := toks[lo:]
-	first, _, ok := dashedName(text, stmt, len(stmt)-1)
-	if !ok {
-		return false
-	}
-	_, _, _, inPath := tablePath(text, stmt, first)
-	return inPath
+	first, _, _ := dashedName(text, toks, n-1)
+	return inTablePath(text, toks, first)
 }
 
 func prevIsIdent(toks []api.Token, at int) bool {
@@ -187,6 +173,13 @@ func scanString(text string, i int, raw bool) int {
 		j++
 	}
 	return j
+}
+
+func scanIdent(text string, i int) int {
+	for i < len(text) && isIdentByte(text[i]) {
+		i++
+	}
+	return i
 }
 
 func scanNumber(text string, i int) int {
