@@ -425,7 +425,14 @@ func (s *Syncer) processUnit(ctx context.Context, job unitJob, r *run) {
 	r.event(api.SyncEvent{Kind: api.EventUnitStarted, Project: job.ref.Project, Location: job.ref.Location, Datasets: len(names)})
 	r.startUnit(job.ref, "datasets", len(names))
 
-	marks := s.ownSchemaMarks(ctx, job.ref)
+	marks, err := s.ownSchemaMarks(ctx, job.ref)
+	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		s.failUnit(ctx, job, now, err, r)
+		return
+	}
 	req := bq.RegionRequest{Project: job.ref.Project, Location: job.ref.Location, Datasets: names}
 	where := job.ref.Project + "/" + job.ref.Location
 	snap, err := retry(ctx, s, "region tables "+where, func() (*api.Snapshot, error) {
