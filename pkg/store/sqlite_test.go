@@ -95,9 +95,7 @@ func TestACancelEndsTheWaitForAPooledConnection(t *testing.T) {
 		_, err := c.LoadIndex(cctx)
 		done <- err
 	}()
-	for c.db.Stats().WaitCount == waitsBefore {
-		time.Sleep(time.Millisecond)
-	}
+	waitFor(t, "LoadIndex waiting for a connection", func() bool { return c.db.Stats().WaitCount > waitsBefore })
 	cancel()
 	select {
 	case err := <-done:
@@ -109,14 +107,14 @@ func TestACancelEndsTheWaitForAPooledConnection(t *testing.T) {
 	}
 }
 
-func TestATransactionGivesItsConnectionBack(t *testing.T) {
+func TestATransactionGivesItsConnectionBackAsSoonAsItEnds(t *testing.T) {
 	c := openTemp(t)
 	for _, end := range []struct {
 		name string
 		end  func(*storeTx) error
 	}{
 		{"commit", func(tx *storeTx) error { return tx.Commit(ctx) }},
-		{"rollback", func(*storeTx) error { return nil }},
+		{"rollback", func(tx *storeTx) error { tx.Rollback(); return nil }},
 	} {
 		tx, err := beginTx(ctx, c.db, nil)
 		if err != nil {
@@ -125,9 +123,21 @@ func TestATransactionGivesItsConnectionBack(t *testing.T) {
 		if err := end.end(tx); err != nil {
 			t.Fatal(err)
 		}
-		tx.Rollback()
 		if n := c.db.Stats().InUse; n != 0 {
 			t.Fatalf("after %s: connections in use = %d", end.name, n)
+		}
+		tx.Rollback()
+		if n := c.db.Stats().InUse; n != 0 {
+			t.Fatalf("after %s and the deferred rollback: connections in use = %d", end.name, n)
+		}
+	}
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); !cond(); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
 		}
 	}
 }

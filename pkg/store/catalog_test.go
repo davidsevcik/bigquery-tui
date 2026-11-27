@@ -472,6 +472,57 @@ func assertOldSnapshot(t *testing.T, c *Catalog) {
 	}
 }
 
+func TestApplyUnitFinishesWithOneFreeConnection(t *testing.T) {
+	c := openTemp(t)
+	for range c.db.Stats().MaxOpenConnections - 1 {
+		held, err := c.db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer held.Close()
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.ApplyUnit(ctx, ApplyRequest{Unit: unit("p", "EU"), State: okState(t0), Datasets: []DatasetApply{dsApply("d1", "EU", table("d1", "a", "x"))}})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ApplyUnit waited for a second connection after its commit")
+	}
+}
+
+func TestParallelApplyUnitsFinishWithTheStoresConnections(t *testing.T) {
+	c := openTemp(t)
+	applies := c.db.Stats().MaxOpenConnections
+	var tables []api.TableMeta
+	for i := range 500 {
+		tables = append(tables, table("d", fmt.Sprintf("t%03d", i), "x", "y"))
+	}
+	done := make(chan error, applies)
+	for i := range applies {
+		go func() {
+			_, err := c.ApplyUnit(ctx, ApplyRequest{Unit: unit(fmt.Sprintf("p%d", i), "EU"), State: okState(t0), Datasets: []DatasetApply{dsApply("d", "EU", tables...)}})
+			done <- err
+		}()
+	}
+	deadline := time.After(10 * time.Second)
+	for range applies {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-deadline:
+			t.Fatal("parallel applies waited for each other's connections")
+		}
+	}
+}
+
 func TestContentHashIgnoresShardAndColumnOrder(t *testing.T) {
 	a := table("d", "t", "a", "b")
 	b := a

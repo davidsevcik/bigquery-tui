@@ -61,7 +61,7 @@ func openDB(path string, readOnly bool) (*sql.DB, error) {
 }
 
 type storeTx struct {
-	*sql.Tx
+	tx   *sql.Tx
 	conn *sql.Conn
 }
 
@@ -75,18 +75,36 @@ func beginTx(ctx context.Context, db *sql.DB, opts *sql.TxOptions) (*storeTx, er
 		conn.Close()
 		return nil, err
 	}
-	return &storeTx{Tx: tx, conn: conn}, nil
+	return &storeTx{tx: tx, conn: conn}, nil
+}
+
+func (t *storeTx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return t.tx.ExecContext(ctx, query, args...)
+}
+
+func (t *storeTx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return t.tx.QueryContext(ctx, query, args...)
+}
+
+func (t *storeTx) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return t.tx.QueryRowContext(ctx, query, args...)
+}
+
+func (t *storeTx) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+	return t.tx.PrepareContext(ctx, query)
 }
 
 func (t *storeTx) Commit(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return t.Tx.Commit()
+	err := t.tx.Commit()
+	t.conn.Close()
+	return err
 }
 
 func (t *storeTx) Rollback() {
-	t.Tx.Rollback()
+	t.tx.Rollback()
 	t.conn.Close()
 }
 
