@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/davidsevcik/bigquery-tui/pkg/bq/bqtest"
 )
 
@@ -476,6 +478,43 @@ func TestVimCountedDotTreatsACompletionChangeLikeATypedOne(t *testing.T) {
 	typed, completed := repeat("acme-prod.sales"), repeat("acme", "tab", "sales")
 	if completed != typed {
 		t.Fatalf("completed %q, typed %q", completed, typed)
+	}
+}
+
+func (r *rig) insertOnFirstOfTwoLines() {
+	r.t.Helper()
+	r.press("i")
+	r.typeText("\n")
+	r.press("esc", "g", "g", "i")
+}
+
+func TestVimDotRepeatsTextPastedInInsertMode(t *testing.T) {
+	r := vimRig(t, 120, 30)
+	r.insertOnFirstOfTwoLines()
+	r.typeText("select ")
+	r.send(tea.PasteMsg{Content: "1, 2"})
+	r.press("esc", "j", ".")
+	if r.text() != "select 1, 2\nselect 1, 2" {
+		t.Fatalf("%q", r.text())
+	}
+}
+
+func TestVimDotReplaysPastesCompletionsAndKeysInOrder(t *testing.T) {
+	r := vimRig(t, 120, 30)
+	r.insertOnFirstOfTwoLines()
+	r.typeText("select ")
+	r.send(tea.PasteMsg{Content: "id, name"})
+	r.typeText(" from acme")
+	r.press("tab")
+	r.send(tea.PasteMsg{Content: "sales.orders"})
+	r.press("esc")
+	want := "select id, name from acme-prod.sales.orders"
+	if r.text() != want+"\n" {
+		t.Fatalf("the change: %q", r.text())
+	}
+	r.press("j", ".")
+	if r.text() != want+"\n"+want {
+		t.Fatalf("the repeat: %q", r.text())
 	}
 }
 

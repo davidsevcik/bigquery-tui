@@ -48,6 +48,7 @@ type vim struct {
 type vimStep struct {
 	key        tea.KeyPressMsg
 	completion *completionEdit
+	paste      string
 }
 
 func (v *vim) record(s vimStep) {
@@ -1388,6 +1389,8 @@ func (m *Model) vimRepeat(b *buffer) tea.Cmd {
 		switch {
 		case s.completion != nil:
 			s.completion.apply(b.ed)
+		case s.paste != "":
+			b.ed.insert(s.paste)
 		case v.mode == vimInsert:
 			m.vimInsertKey(b, s.key, keyName(s.key))
 		default:

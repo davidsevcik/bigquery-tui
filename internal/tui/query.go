@@ -163,6 +163,15 @@ func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	return m.afterEdit(true)
 }
 
+func (m *Model) pasteInEditor(text string) tea.Cmd {
+	b := m.buf()
+	if m.vimOn() && b.vim.mode == vimInsert && text != "" {
+		b.vim.record(vimStep{paste: text})
+	}
+	b.ed.insert(text)
+	return m.afterEdit(false)
+}
+
 func (m *Model) afterEdit(typed bool) tea.Cmd {
 	if typed {
 		m.updateCompletion(false)
