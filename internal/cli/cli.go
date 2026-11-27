@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"runtime"
@@ -17,6 +18,7 @@ import (
 	"time"
 	"unicode"
 
+	tea "charm.land/bubbletea/v2"
 	"golang.org/x/term"
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
@@ -24,6 +26,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/config"
 	"github.com/davidsevcik/bigquery-tui/pkg/engine"
 	"github.com/davidsevcik/bigquery-tui/pkg/favorites"
+	"github.com/davidsevcik/bigquery-tui/pkg/logging"
 	"github.com/davidsevcik/bigquery-tui/pkg/policy"
 	"github.com/davidsevcik/bigquery-tui/pkg/runs"
 	catsync "github.com/davidsevcik/bigquery-tui/pkg/sync"
@@ -41,6 +44,8 @@ type Env struct {
 	CheckAuth      func(context.Context) (bq.AuthInfo, error)
 	RunEditor      func(ctx context.Context, argv []string, env Env) error
 	Backoff        func(int) time.Duration
+	OpenLog        func(logging.Options) (*slog.Logger, func() error, error)
+	RunUI          func(ctx context.Context, m tea.Model) error
 }
 
 func DefaultEnv() Env {
@@ -54,6 +59,8 @@ func DefaultEnv() Env {
 			cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 			return cmd.Run()
 		},
+		OpenLog: logging.New,
+		RunUI:   runProgram,
 	}
 }
 
