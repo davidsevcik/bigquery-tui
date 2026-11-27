@@ -412,6 +412,11 @@ func TestSyncUnreachableWarning(t *testing.T) {
 	if u.Status != api.UnitDegraded {
 		t.Fatalf("%+v", u)
 	}
+	for _, e := range h.events {
+		if e.Kind == api.EventWarning && (e.Project != "proj-b" || e.Error != u.Error) {
+			t.Fatalf("the listing warning does not carry its project's unit error: %+v", e)
+		}
+	}
 }
 
 type warningMeta struct{ *bqtest.Fake }
@@ -446,6 +451,9 @@ func TestSyncAddsAClientWarningOncePerRun(t *testing.T) {
 		for _, e := range events {
 			if e.Kind == api.EventWarning {
 				n++
+				if e.Error != "" {
+					t.Fatalf("run %d: a client warning carries a unit error: %+v", i, e)
+				}
 			}
 		}
 		if n != 1 || res.UnitsOK != 3 {

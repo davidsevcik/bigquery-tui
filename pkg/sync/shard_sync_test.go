@@ -181,6 +181,11 @@ func TestSyncSafetyNetRereadsMissingColumns(t *testing.T) {
 	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "regex dialect") || !strings.Contains(res.Warnings[0], "2 table(s)") {
 		t.Fatalf("warnings: %q", res.Warnings)
 	}
+	for _, e := range h.events {
+		if e.Kind == api.EventWarning && e.Error != "" {
+			t.Fatalf("the dialect warning carries a unit error: %+v", e)
+		}
+	}
 	if u := h.unit("p", "EU"); u.Status != api.UnitOK {
 		t.Fatalf("%+v", u)
 	}

@@ -152,7 +152,7 @@ func TestTypingAFilterNeverTriggersCommands(t *testing.T) {
 	if f := r.m.typingFilter(); f == nil || f.in.value() != "qLPrRy?gg" {
 		t.Fatalf("printable keys must type: %+v", f)
 	}
-	if r.m.syncing || r.m.style != styleColumns || r.m.ov != ovNone {
+	if r.m.syncPhase != syncIdle || r.m.style != styleColumns || r.m.ov != ovNone {
 		t.Fatal("no command may run while typing")
 	}
 }
