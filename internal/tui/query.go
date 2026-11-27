@@ -890,8 +890,8 @@ func (m *Model) onExtEdit(msg extEditMsg) {
 		return
 	}
 	text := strings.TrimRight(string(data), "\n")
-	if text == b.ed.text() {
-		m.toast = "no changes from the editor; if your editor returns before you save, set VISUAL to a command that waits, e.g. VISUAL='code --wait'"
+	if text == strings.TrimRight(b.ed.text(), "\n") {
+		m.toast = "editor made no changes (if it returns before you save: VISUAL='code --wait')"
 		return
 	}
 	b.ed.setText(text)

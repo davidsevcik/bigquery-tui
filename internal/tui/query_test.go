@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -621,7 +622,7 @@ func TestEditorHandOffNeedsATerminalEditor(t *testing.T) {
 	r.contains("set $EDITOR")
 }
 
-const waitHint = "no changes from the editor; if your editor returns before you save, set VISUAL to a command that waits, e.g. VISUAL='code --wait'"
+const waitHint = "editor made no changes (if it returns before you save: VISUAL='code --wait')"
 
 func (r *rig) handOffToEditor() string {
 	r.t.Helper()
@@ -654,16 +655,19 @@ func (r *rig) editorReturns(b *buffer, path string, err error) {
 }
 
 func TestTheEditorHandOffSaysWhatHappened(t *testing.T) {
-	t.Run("an editor that returns without touching the file", func(t *testing.T) {
-		r := editorRig(t, 160, 30)
-		r.typeText("select 1")
-		b := r.m.buf()
-		r.editorReturns(b, r.handOffToEditor(), nil)
-		if r.text() != "select 1" || r.m.toast != waitHint {
-			t.Fatalf("the buffer stays and the toast hints at a waiting editor: %q %q", r.text(), r.m.toast)
-		}
-		r.contains("no changes from the editor")
-	})
+	for _, text := range []string{"select 1", "select 1\n"} {
+		t.Run(fmt.Sprintf("an editor that returns without touching %q", text), func(t *testing.T) {
+			r := editorRig(t, 80, 24)
+			r.typeText(text)
+			b := r.m.buf()
+			version := b.ed.version
+			r.editorReturns(b, r.handOffToEditor(), nil)
+			if r.text() != text || b.ed.version != version || r.m.toast != waitHint {
+				t.Fatalf("the buffer stays and the toast hints at a waiting editor: %q %v %q", r.text(), b.ed.version != version, r.m.toast)
+			}
+			r.contains("editor made no changes", "VISUAL='code --wait'")
+		})
+	}
 	t.Run("an editor that rewrites the file", func(t *testing.T) {
 		r := editorRig(t, 120, 30)
 		r.typeText("select 1")
