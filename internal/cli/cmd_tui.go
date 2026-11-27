@@ -37,6 +37,7 @@ func cmdTUI(ctx context.Context, o *out, g *globals, args []string) error {
 	if err != nil {
 		return err
 	}
+	// ADR-0010
 	defer closeLog()
 	eng, err := engine.Open(ctx, engine.Options{Config: cfg, Meta: env.Meta, Now: env.Now, Log: log, Source: api.SourceTUI})
 	if err != nil {
