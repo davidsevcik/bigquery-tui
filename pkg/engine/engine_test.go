@@ -297,6 +297,20 @@ func TestCloseCancelsARunningSyncAndWaitsForIt(t *testing.T) {
 	}
 }
 
+func TestASyncCancelledBeforeItReconcilesReportsCancelled(t *testing.T) {
+	e := newEnv(t, "proj-a")
+	eng := e.open(false)
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	h, err := eng.StartSync(cctx, api.SyncScope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res, err := h.Wait(); err != nil || !res.Cancelled {
+		t.Fatalf("%+v %v", res, err)
+	}
+}
+
 func TestReadOnlyAndNoProjects(t *testing.T) {
 	e := newEnv(t, "proj-a")
 	e.open(false)

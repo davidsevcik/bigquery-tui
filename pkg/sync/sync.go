@@ -230,23 +230,9 @@ func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.Syn
 	}
 	r.event(api.SyncEvent{Kind: api.EventRunStarted, Message: msg})
 
-	rec, err := ReconcileConfig(ctx, s.o.Catalog, s.o.Config)
-	if err != nil {
-		return res, fmt.Errorf("reconcile config: %w", err)
-	}
-	if rec.Pruned.Projects+rec.Pruned.Datasets+rec.Pruned.Tables > 0 {
-		r.warn("", fmt.Sprintf("config changed: pruned %d project(s), %d dataset(s), %d table(s) from the catalog", rec.Pruned.Projects, rec.Pruned.Datasets, rec.Pruned.Tables))
-	}
-	if rec.Reason == ReasonDateRuleGone {
-		r.warn("", ReasonDateRuleGone)
-	}
-
-	if scope.Table != nil {
-		if err := s.syncTable(ctx, *scope.Table, scope.Family, r); err != nil {
-			return res, err
-		}
-	} else {
-		s.syncProjects(ctx, projects, r)
+	// ADR-0006
+	if err := s.reconcileThenSync(ctx, scope, projects, r); err != nil && ctx.Err() == nil {
+		return res, err
 	}
 
 	r.logUnfinished()
@@ -281,6 +267,24 @@ func (s *Syncer) Run(ctx context.Context, scope api.SyncScope, emit func(api.Syn
 	}
 	r.event(api.SyncEvent{Kind: api.EventRunFinished, Message: fmt.Sprintf("%d ok, %d degraded, %d failed", res.UnitsOK, res.UnitsDegraded, res.UnitsFailed)})
 	return res, nil
+}
+
+func (s *Syncer) reconcileThenSync(ctx context.Context, scope api.SyncScope, projects []string, r *run) error {
+	rec, err := ReconcileConfig(ctx, s.o.Catalog, s.o.Config)
+	if err != nil {
+		return fmt.Errorf("reconcile config: %w", err)
+	}
+	if rec.Pruned.Projects+rec.Pruned.Datasets+rec.Pruned.Tables > 0 {
+		r.warn("", fmt.Sprintf("config changed: pruned %d project(s), %d dataset(s), %d table(s) from the catalog", rec.Pruned.Projects, rec.Pruned.Datasets, rec.Pruned.Tables))
+	}
+	if rec.Reason == ReasonDateRuleGone {
+		r.warn("", ReasonDateRuleGone)
+	}
+	if scope.Table != nil {
+		return s.syncTable(ctx, *scope.Table, scope.Family, r)
+	}
+	s.syncProjects(ctx, projects, r)
+	return nil
 }
 
 func (s *Syncer) syncProjects(ctx context.Context, projects []string, r *run) {

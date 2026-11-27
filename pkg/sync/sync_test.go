@@ -573,6 +573,25 @@ func TestSyncCancelKeepsCommittedUnits(t *testing.T) {
 	}
 }
 
+func TestASyncCancelledBeforeItReconcilesReportsCancelled(t *testing.T) {
+	h := newHarness(t, `projects = ["proj-a", "proj-b"]`)
+	twoProjectFake(h.fake)
+	h.run(api.SyncScope{})
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	orders := api.ObjectPath{Project: "proj-a", Dataset: "sales", Table: "orders"}
+	for _, scope := range []api.SyncScope{{}, {Table: &orders}} {
+		var kinds []api.SyncEventKind
+		res, err := h.syncer().Run(cctx, scope, func(e api.SyncEvent) { kinds = append(kinds, e.Kind) })
+		if err != nil || !res.Cancelled || res.UnitsFailed != 0 {
+			t.Fatalf("%+v: %+v %v", scope, res, err)
+		}
+		if len(kinds) == 0 || kinds[len(kinds)-1] != api.EventRunFinished {
+			t.Fatalf("%+v: %v", scope, kinds)
+		}
+	}
+}
+
 func TestSyncRespectsParallelism(t *testing.T) {
 	h := newHarness(t, `projects = ["p"]`)
 	p := h.fake.AddProject("p")
