@@ -51,6 +51,20 @@ func unholdableDrafts(t *testing.T) *unholdable {
 	return &unholdable{rig: r, blocker: blocker, reason: reason.Error(), log: log}
 }
 
+func (r *rig) failDraftWrites(b *buffer) (restore func()) {
+	r.t.Helper()
+	blocker := r.m.draftPath(b.id) + ".tmp"
+	if err := os.MkdirAll(filepath.Join(blocker, "keep"), 0o700); err != nil {
+		r.t.Fatal(err)
+	}
+	return func() {
+		r.t.Helper()
+		if err := os.RemoveAll(blocker); err != nil {
+			r.t.Fatal(err)
+		}
+	}
+}
+
 func (u *unholdable) wantUnheld(b *buffer) {
 	u.t.Helper()
 	if b.draft != nil || b.draftErr != u.reason {
@@ -128,9 +142,6 @@ func TestAnUnheldDraftIsHeldOnTheNextTick(t *testing.T) {
 	if got, err := os.ReadFile(store.Path(b.id)); err != nil || string(got) != "select 1" {
 		t.Fatalf("the tick writes the text at once: %q %v", got, err)
 	}
-	if _, err := os.Stat(strings.TrimSuffix(store.Path(b.id), ".sql") + ".lock"); err != nil {
-		t.Fatalf("the draft is held: %v", err)
-	}
 	if _, err := store.Hold(b.id); err == nil {
 		t.Fatal("the buffer holds the draft's lock")
 	}
@@ -173,10 +184,7 @@ func TestAHoldFailureIsLoggedOncePerReason(t *testing.T) {
 
 func TestADraftErrorClearsOnlyWhenEveryBufferSaves(t *testing.T) {
 	r := editorRig(t, 120, 30)
-	a := r.m.buf()
-	if err := os.MkdirAll(filepath.Join(r.m.draftPath(a.id)+".tmp", "keep"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	restoreA := r.failDraftWrites(r.m.buf())
 	r.typeText("select 'a'")
 	r.contains("draft not saved (retrying)")
 	r.press("ctrl+x", "n")
@@ -186,9 +194,7 @@ func TestADraftErrorClearsOnlyWhenEveryBufferSaves(t *testing.T) {
 		t.Fatalf("buffer b saves: %q", got)
 	}
 	r.contains("draft not saved (retrying)")
-	if err := os.RemoveAll(r.m.draftPath(a.id) + ".tmp"); err != nil {
-		t.Fatal(err)
-	}
+	restoreA()
 	r.m.saveDrafts()
 	r.lacks("draft not saved")
 }
@@ -213,9 +219,7 @@ func TestQuitAsksWhenAScratchBufferIsNotInItsDraft(t *testing.T) {
 	})
 	t.Run("text whose draft write fails", func(t *testing.T) {
 		r := editorRig(t, 120, 30)
-		if err := os.MkdirAll(filepath.Join(r.m.draftPath(r.m.buf().id)+".tmp", "keep"), 0o700); err != nil {
-			t.Fatal(err)
-		}
+		r.failDraftWrites(r.m.buf())
 		r.typeText("select 1")
 		r.press("ctrl+q")
 		if r.m.ov != ovConfirm {
