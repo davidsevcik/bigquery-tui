@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -225,6 +227,69 @@ func TestReleaseKeepsTheDraftAndDiscardDeletesIt(t *testing.T) {
 	if exists(t, s.Path("gone")) || exists(t, s.lockPath("gone")) {
 		t.Fatal("a discarded draft is deleted with its lock")
 	}
+}
+
+func TestReleaseAndDiscardRemoveWhileTheyHoldTheLock(t *testing.T) {
+	s := In(t.TempDir())
+	var removed []string
+	removeFile = func(p string) error {
+		lock := strings.TrimSuffix(p, filepath.Ext(p)) + ".lock"
+		if exists(t, lock) {
+			l, err := store.TryLock(lock)
+			if !errors.Is(err, store.ErrLocked) {
+				l.Unlock()
+				t.Errorf("%s was removed while its lock was free: %v", filepath.Base(p), err)
+			}
+		}
+		removed = append(removed, filepath.Base(p))
+		return os.Remove(p)
+	}
+	t.Cleanup(func() { removeFile = os.Remove })
+	empty, err := s.Hold("empty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty.Release()
+	gone, err := s.Hold("gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gone.Save("select 1"); err != nil {
+		t.Fatal(err)
+	}
+	gone.Discard()
+	if want := []string{"empty.lock", "gone.sql", "gone.lock"}; !slices.Equal(removed, want) {
+		t.Fatalf("want the removals %v, got %v", want, removed)
+	}
+}
+
+func TestADiscardThatCannotRemoveTheTextKeepsItsLock(t *testing.T) {
+	s := In(t.TempDir())
+	d, err := s.Hold("kept")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetExecutionProject("p"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Save("select 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(s.Path("kept")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(s.Path("kept"), "keep"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	d.Discard()
+	if !exists(t, s.lockPath("kept")) || projectOnDisk(t, s, "kept") != "p" {
+		t.Fatal("a draft file that could not be removed keeps its lock file and its record")
+	}
+	again, err := s.Hold("kept")
+	if err != nil {
+		t.Fatalf("a discarded draft is released: %v", err)
+	}
+	again.Release()
 }
 
 func TestOrphansListsUnheldDraftsNewestFirstAndCleansUp(t *testing.T) {
