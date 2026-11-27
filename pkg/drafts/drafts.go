@@ -214,12 +214,12 @@ func (d *Draft) SetExecutionProject(project string) error {
 }
 
 func (d *Draft) Save(text string) error {
-	d.empty = text == ""
 	p := d.s.Path(d.id)
-	if d.empty {
+	if text == "" {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			return err
 		}
+		d.empty = true
 		return nil
 	}
 	tmp := p + ".tmp"
@@ -229,8 +229,10 @@ func (d *Draft) Save(text string) error {
 	}
 	if err != nil {
 		os.Remove(tmp)
+		return err
 	}
-	return err
+	d.empty = false
+	return nil
 }
 
 func (d *Draft) Release() {
