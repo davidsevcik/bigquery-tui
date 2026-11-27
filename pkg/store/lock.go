@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"syscall"
 )
@@ -16,11 +17,28 @@ type Lock struct {
 	f *os.File
 }
 
+var betweenOpenAndFlock = func(string) {}
+
+const lockAttempts = 10
+
+var errPathChanged = errors.New("the lock file's path names another file")
+
 func TryLock(path string) (*Lock, error) {
+	for range lockAttempts {
+		l, err := lockOnce(path)
+		if !errors.Is(err, errPathChanged) {
+			return l, err
+		}
+	}
+	return nil, ErrLocked
+}
+
+func lockOnce(path string) (*Lock, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open lockfile: %w", err)
 	}
+	betweenOpenAndFlock(path)
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {
@@ -28,7 +46,30 @@ func TryLock(path string) (*Lock, error) {
 		}
 		return nil, fmt.Errorf("flock: %w", err)
 	}
-	return &Lock{f: f}, nil
+	l := &Lock{f: f}
+	if err := l.checkNamedBy(path); err != nil {
+		l.Unlock()
+		return nil, err
+	}
+	return l, nil
+}
+
+func (l *Lock) checkNamedBy(path string) error {
+	held, err := l.f.Stat()
+	if err != nil {
+		return fmt.Errorf("stat lockfile: %w", err)
+	}
+	named, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return errPathChanged
+	}
+	if err != nil {
+		return fmt.Errorf("stat lockfile: %w", err)
+	}
+	if !os.SameFile(held, named) {
+		return errPathChanged
+	}
+	return nil
 }
 
 func (l *Lock) Read() ([]byte, error) {
