@@ -91,3 +91,5 @@ Output is JSON when stdout is not a terminal and text otherwise (`--format json|
 ## Config
 
 The config file lives at `~/.config/bqt/config.toml` (or `$BQT_CONFIG`, or `--config`). Unknown keys are errors. See the comments in the file `bqt init` writes.
+
+`bqt config edit` opens it in `$VISUAL`, `$EDITOR` or the OS opener and validates it when the editor returns. A GUI editor needs its wait flag (`VISUAL='code --wait'`): one that returns before you save gets `no changes to <path>` (`"changed": false` in JSON) and the file is validated as it was.
