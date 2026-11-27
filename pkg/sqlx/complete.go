@@ -93,12 +93,15 @@ func Complete(text string, cursor int, cat Catalog, o Options) []api.Candidate {
 			}
 		}
 	}
-	var quals []string
-	start := c.pStart
-	for k >= 1 && isPunct(text, toks[k], ".") && toks[k].End == start && toks[k-1].End == toks[k].Start && (isWord(toks[k-1]) || toks[k-1].Kind == api.TokQuoted) {
-		seg, s, nk := wordWithHyphens(text, toks, k-1)
-		quals = append(seg, quals...)
-		start, k = s, nk
+	quals, start, k := qualifiers(text, toks, k, c.pStart)
+	if first, last, ok := dashedName(text, toks, cur); ok {
+		dStart := toks[first].Start
+		if dQuals, dChain, dk := qualifiers(text, toks, first-1, dStart); dk >= 0 && inTableContext(text, toks, dk) {
+			c.partial, c.pStart, c.pEnd = text[dStart:cursor], dStart, toks[last].End
+			quals, start, k = dQuals, dChain, dk
+		} else {
+			c.lead = text[dStart:c.pStart]
+		}
 	}
 	c.chainStart = start
 	tableCtx := k >= 0 && inTableContext(text, toks, k)
@@ -172,6 +175,44 @@ func statementBounds(text string, toks []api.Token, cursor int) (int, int) {
 		}
 	}
 	return lo, hi
+}
+
+func qualifiers(text string, toks []api.Token, k, start int) ([]string, int, int) {
+	var quals []string
+	for k >= 1 && isPunct(text, toks[k], ".") && toks[k].End == start && toks[k-1].End == toks[k].Start && (isWord(toks[k-1]) || toks[k-1].Kind == api.TokQuoted) {
+		seg, s, nk := wordWithHyphens(text, toks, k-1)
+		quals = append(seg, quals...)
+		start, k = s, nk
+	}
+	return quals, start, k
+}
+
+func dashedName(text string, toks []api.Token, cur int) (int, int, bool) {
+	if cur < 0 || cur >= len(toks) {
+		return 0, 0, false
+	}
+	dash := func(i int) bool { return isPunct(text, toks[i], "-") }
+	part := func(i int) bool { return isWord(toks[i]) || toks[i].Kind == api.TokNumber }
+	linked := func(i int) bool {
+		return toks[i].End == toks[i+1].Start && ((dash(i) && part(i+1)) || (part(i) && dash(i+1)))
+	}
+	if !dash(cur) && !part(cur) {
+		return 0, 0, false
+	}
+	first, last := cur, cur
+	for first > 0 && linked(first-1) {
+		first--
+	}
+	for last+1 < len(toks) && linked(last) {
+		last++
+	}
+	if dash(first) {
+		first++
+	}
+	if last > cur && dash(last) {
+		last--
+	}
+	return first, last, first < last && first <= cur
 }
 
 func wordWithHyphens(text string, toks []api.Token, i int) ([]string, int, int) {
@@ -608,6 +649,7 @@ type completer struct {
 	pEnd       int
 	chainStart int
 	quoted     bool
+	lead       string
 }
 
 type ranked struct {
@@ -641,6 +683,9 @@ func (c *completer) add(out *[]ranked, order int, cand api.Candidate) {
 	}
 	if cand.Start == 0 && cand.End == 0 {
 		cand.Start, cand.End = c.pStart, c.pEnd
+		if c.lead != "" && len(cand.Insert) >= len(c.lead) && strings.EqualFold(cand.Insert[:len(c.lead)], c.lead) {
+			cand.Start -= len(c.lead)
+		}
 	}
 	*out = append(*out, ranked{cand, rank, order})
 }
@@ -669,7 +714,7 @@ func (c *completer) finish(rs []ranked) []api.Candidate {
 			break
 		}
 	}
-	if len(out) == 1 && out[0].Insert == c.partial && out[0].End == c.pEnd {
+	if len(out) == 1 && out[0].End == c.pEnd && out[0].Insert == c.text[out[0].Start:c.pStart+len(c.partial)] {
 		return nil
 	}
 	return out

@@ -36,7 +36,7 @@ func TestTokenize(t *testing.T) {
 }
 
 func FuzzTokenize(f *testing.F) {
-	for _, s := range []string{"select 1", "`a.b", "'x", "/* x", "r'''a", "@", "0x", "1e+", "a.b.c", "é`'\"", "--", "#\n"} {
+	for _, s := range []string{"select 1", "`a.b", "'x", "/* x", "r'''a", "@", "0x", "1e+", "a.b.c", "é`'\"", "--", "#\n", "from a-b.c-1-", "select x-y-"} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
@@ -194,6 +194,14 @@ func TestComplete(t *testing.T) {
 		{name: "unquoted: tables after dataset dot", in: "select * from scratch.|", want: "tmp"},
 		{name: "unquoted: hyphenated project", in: "select * from acme-prod.sales.o|", want: "orders", applied: "select * from acme-prod.sales.orders"},
 		{name: "unquoted: a wildcard table gets backticks", in: "select * from acme-prod.sales.ev|", want: "events_*", applied: "select * from `acme-prod.sales.events_*`"},
+		{name: "unquoted: a dashed project is one word", in: "select * from acme-pr|", want: "acme-prod", applied: "select * from acme-prod"},
+		{name: "unquoted: datasets of a dashed project", in: "select * from acme-prod.sa|", want: "sales", applied: "select * from acme-prod.sales"},
+		{name: "unquoted: a dashed project right after its dash", in: "select * from acme-|", want: "acme-prod,acme-staging", applied: "select * from acme-prod"},
+		{name: "unquoted: a dashed project replaces the rest of its name", in: "select * from acme|-pr", want: "acme-prod,acme-staging", applied: "select * from acme-prod"},
+		{name: "unquoted: a dashed project after join", in: "select * from scratch.tmp join acme-st|", want: "acme-staging", applied: "select * from scratch.tmp join acme-staging"},
+		{name: "a dash in the select list is a minus", in: "select a-b|", want: ""},
+		{name: "a dash in the select list is a minus when forced", in: "select a-b|", forced: true, want: "BETWEEN,…", applied: "select a-BETWEEN"},
+		{name: "a column after a minus", in: "select a-cu| from acme-prod.sales.orders", want: "customer_id,CURRENT ROW,…", applied: "select a-customer_id from acme-prod.sales.orders"},
 		{name: "join is a table position", in: "select * from scratch.tmp join sc|", want: "scratch"},
 		{name: "comma join is a table position", in: "select * from scratch.tmp, sc|", want: "scratch"},
 		{name: "select list comma is not a table position", in: "select xx, sc| from scratch.tmp", want: ""},
@@ -246,5 +254,19 @@ func TestComplete(t *testing.T) {
 		if c.applied != "" && applied != c.applied {
 			t.Errorf("%s: accepting gives %q, want %q", c.name, applied, c.applied)
 		}
+	}
+}
+
+func TestACandidateSpellingTheDashedTextBeforeTheWordReplacesItToo(t *testing.T) {
+	text := "select my-ord from acme-prod.sales.my-orders"
+	got := map[string]string{}
+	for _, c := range Complete(text, len("select my-ord"), testCat, Options{}) {
+		got[c.Label] = text[:c.Start] + c.Insert + text[c.End:]
+	}
+	if got["my-orders"] != "select my-orders from acme-prod.sales.my-orders" {
+		t.Errorf("the alias named after a dashed table repeats its dashed part: %q", got["my-orders"])
+	}
+	if got["ORDER BY"] != "select my-ORDER BY from acme-prod.sales.my-orders" {
+		t.Errorf("a keyword after a minus replaces only the word: %q", got["ORDER BY"])
 	}
 }

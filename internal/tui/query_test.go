@@ -173,6 +173,23 @@ func TestCompletionPopup(t *testing.T) {
 	}
 }
 
+func TestCompletionOfAnUnquotedDashedProject(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	r.typeText("select * from acme-pr")
+	if !r.m.comp.open || r.m.comp.cands[0].Label != "acme-prod" {
+		t.Fatalf("popup after an unquoted dashed name: %+v", r.m.comp)
+	}
+	r.press("tab")
+	if r.text() != "select * from acme-prod." || !r.m.comp.open {
+		t.Fatalf("%q open=%v", r.text(), r.m.comp.open)
+	}
+	r.typeText("sa")
+	r.press("tab")
+	if r.text() != "select * from acme-prod.sales." {
+		t.Fatalf("%q", r.text())
+	}
+}
+
 func TestRunWithParametersShowsResults(t *testing.T) {
 	r := editorRig(t, 120, 36)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1234) }

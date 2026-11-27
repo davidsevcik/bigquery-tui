@@ -80,6 +80,8 @@ Package `search` is catalog search: the query grammar, tiered ranking, Shard fam
 - **`sqlx.fromOfFunction`**: FROM also appears inside calls such as `EXTRACT(x FROM y)`, `TRIM` and `SUBSTRING`; such a FROM is not a query's FROM clause.
 - **`sqlx.(*scope).parseRef`**: the word under the cursor after a table reference is not its alias, because the user is still typing it and it must stay completable.
 - **`sqlx.(*completer).finish`**: returns no candidates when the only one left is exactly the typed text, because typing a whole candidate is not a reason to keep the popup open.
+- **`sqlx.dashedName`**, **`sqlx.Complete`**: GoogleSQL allows dashes in an unquoted table path (`acme-prod.sales.orders`), so in a table position the word under the cursor runs across dashes, both for the typed prefix and for the replace range. Anywhere else a `-` is a minus and the word stops at it: `a-b` in a select list is two words.
+- **`sqlx.(*completer).add`** (`lead`): outside a table position, a candidate that begins with the dashed text before the typed word (an alias named after a dashed path) replaces from where that text starts, so accepting a candidate never writes text that is already there a second time.
 
 ### Tokenizer
 
