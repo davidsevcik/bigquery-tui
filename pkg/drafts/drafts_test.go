@@ -169,15 +169,14 @@ func TestEmptyTextWithoutADraftFileLeavesNoLock(t *testing.T) {
 }
 
 func TestAFailedWriteKeepsWhetherTheDraftIsEmpty(t *testing.T) {
-	for _, step := range []struct{ name, blocked string }{{"write", ".sql.tmp"}, {"rename", ".sql"}} {
+	for _, step := range []struct{ name, suffix string }{{"write", ".tmp"}, {"rename", ""}} {
 		t.Run(step.name, func(t *testing.T) {
 			s := In(t.TempDir())
-			blocked := func(id string) string { return filepath.Join(s.dir, id+step.blocked) }
 			empty, err := s.Hold("empty")
 			if err != nil {
 				t.Fatal(err)
 			}
-			occupyWithADirectory(t, blocked("empty"))
+			occupyWithADirectory(t, s.Path("empty")+step.suffix)
 			if err := empty.Save("select 1"); err == nil {
 				t.Fatal("a failed save must be reported")
 			}
@@ -193,7 +192,7 @@ func TestAFailedWriteKeepsWhetherTheDraftIsEmpty(t *testing.T) {
 			if err := full.Save("select 1"); err != nil {
 				t.Fatal(err)
 			}
-			occupyWithADirectory(t, blocked("full"))
+			occupyWithADirectory(t, s.Path("full")+step.suffix)
 			if err := full.Save("select 2"); err == nil {
 				t.Fatal("a failed save must be reported")
 			}
