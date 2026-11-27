@@ -486,7 +486,7 @@ func (m *Model) syncIfNeeded(ids []string) tea.Cmd {
 	if err != nil || len(need) == 0 {
 		return nil
 	}
-	if m.syncing {
+	if m.syncBusy() {
 		var wait []string
 		for _, id := range need {
 			if !m.syncComing(id) {
@@ -503,8 +503,14 @@ func (m *Model) syncIfNeeded(ids []string) tea.Cmd {
 	return m.startSync(api.SyncScope{Projects: need}, false)
 }
 
+func (m *Model) syncBusy() bool { return m.syncing || m.syncStarting }
+
 func (m *Model) syncComing(id string) bool {
-	return (m.syncTable == nil && slices.Contains(m.syncScope, id)) || m.forcedSyncQueued(id)
+	return m.runningSyncCovers(id) || m.forcedSyncQueued(id)
+}
+
+func (m *Model) runningSyncCovers(id string) bool {
+	return m.syncTable == nil && (slices.Contains(m.syncScope, id) || slices.Contains(m.syncAllSelected, id))
 }
 
 func (m *Model) forcedSyncQueued(id string) bool {
@@ -512,7 +518,7 @@ func (m *Model) forcedSyncQueued(id string) bool {
 }
 
 func (m *Model) syncNow(ids []string) tea.Cmd {
-	if !m.syncing {
+	if !m.syncBusy() {
 		return m.startSync(api.SyncScope{Projects: ids}, false)
 	}
 	if ids == nil {
@@ -562,90 +568,96 @@ func (m *Model) startQueuedSync() tea.Cmd {
 	return nil
 }
 
-type pendingOpen struct {
-	path    api.ObjectPath
-	failure string
-}
-
 func (m *Model) openAfterSync(done syncDoneMsg) tea.Cmd {
-	po := m.openAfter
-	if po == nil || m.forcedSyncQueued(po.path.Project) {
+	p := m.openAfter
+	if p == nil || m.forcedSyncQueued(p.Project) {
 		return nil
 	}
 	m.openAfter = nil
-	p := po.path
-	if _, err := m.be.TableDetail(m.ctx, p); err == nil {
-		return m.reveal(p, api.KindTable)
+	if cmd, ok := m.openIfHeld(*p); ok {
+		return cmd
 	}
-	switch {
+	switch unitErr := unitError(done.res, p.Project); {
 	case done.err != nil:
-		m.toast = "could not open " + p.String() + ": sync failed: " + done.err.Error()
-	case po.failure != "":
-		m.toast = "could not open " + p.String() + ": the sync of " + p.Project + " failed: " + po.failure
+		m.cannotOpen(*p, "sync failed: "+done.err.Error())
+	case unitErr != "":
+		m.cannotOpen(*p, "syncing "+p.Project+": "+unitErr)
 	case done.res.Cancelled:
-		m.toast = "could not open " + p.String() + ": the sync was cancelled"
+		m.cannotOpen(*p, "the sync was cancelled")
 	default:
 		m.toast = p.String() + " is not in the catalog after syncing " + p.Project
 	}
 	return nil
 }
 
-func (m *Model) noteSyncFailure(ev api.SyncEvent) {
-	if po := m.openAfter; po != nil && ev.Kind == api.EventUnitFailed && ev.Project == po.path.Project && po.failure == "" {
-		po.failure = ev.Error
+func unitError(res api.SyncResult, project string) string {
+	for _, u := range res.Units {
+		if u.Project == project && u.Error != "" {
+			return u.Error
+		}
 	}
+	return ""
+}
+
+func (m *Model) openIfHeld(p api.ObjectPath) (tea.Cmd, bool) {
+	if _, err := m.be.TableDetail(m.ctx, p); err != nil {
+		return nil, false
+	}
+	return m.reveal(p, api.KindTable), true
+}
+
+func (m *Model) cannotOpen(p api.ObjectPath, why string) {
+	m.toast = "could not open " + p.String() + ": " + why
 }
 
 func (m *Model) syncStartFailed(err error) {
 	m.toast = "sync: " + err.Error()
-	if po := m.openAfter; po != nil && !m.syncing {
+	if p := m.openAfter; p != nil && !m.syncing {
 		m.openAfter = nil
-		m.toast = "could not open " + po.path.String() + ": cannot sync " + po.path.Project + ": " + err.Error()
+		m.cannotOpen(*p, "cannot sync "+p.Project+": "+err.Error())
 	}
 }
 
 func (m *Model) openMissing(p api.ObjectPath) tea.Cmd {
 	m.ov = ovNone
 	if err := config.CheckProjectID(p.Project); err != nil {
-		m.toast = "could not open " + p.String() + ": " + err.Error()
+		m.cannotOpen(p, err.Error())
 		return nil
 	}
-	if _, err := m.be.TableDetail(m.ctx, p); err == nil {
-		return m.reveal(p, api.KindTable)
+	if cmd, ok := m.openIfHeld(p); ok {
+		return cmd
 	}
 	if m.be.Config().Matcher().Ignored(p.Project, p.Dataset, p.Table) {
 		m.toast = p.String() + " is excluded by the ignore config, so no sync brings it in"
 		return nil
 	}
-	var sel tea.Cmd
-	newlySelected := !m.be.Selection().Has(p.Project)
-	if newlySelected {
-		var err error
-		if sel, err = m.selectProject(p.Project); err != nil {
-			return nil
-		}
+	if m.be.Selection().Has(p.Project) {
+		m.openAfter = &p
+		return m.syncForPath(p)
 	}
-	m.openAfter = &pendingOpen{path: p}
-	return tea.Batch(sel, m.syncForPath(p, newlySelected))
+	sel, err := m.selectProject(p.Project)
+	if err != nil {
+		m.cannotOpen(p, err.Error())
+		return nil
+	}
+	m.openAfter = &p
+	cmd := m.syncForPath(p)
+	m.toast = "selected project " + p.Project + "; " + m.toast
+	return tea.Batch(sel, cmd)
 }
 
-func (m *Model) syncForPath(p api.ObjectPath, newlySelected bool) tea.Cmd {
-	opens := p.String() + " opens when its sync finishes"
+func (m *Model) syncForPath(p api.ObjectPath) tea.Cmd {
 	switch {
-	case !m.syncing:
-		cmd := m.startSync(api.SyncScope{Projects: []string{p.Project}}, false)
-		m.toast = "syncing " + p.Project + ": " + opens
-		if newlySelected {
-			m.toast = "selected project " + p.Project + "; " + opens
-		}
-		return cmd
-	case m.syncComing(p.Project):
+	case !m.syncBusy():
+		m.toast = "syncing " + p.Project + ": " + p.String() + " opens when its sync finishes"
+		return m.startSync(api.SyncScope{Projects: []string{p.Project}}, false)
+	case m.runningSyncCovers(p.Project) && !m.forcedSyncQueued(p.Project):
 		m.toast = p.String() + " opens when the running sync of " + p.Project + " finishes"
-	default:
-		m.syncNow([]string{p.Project})
-		m.toast = "a sync is running: " + p.Project + " syncs right after it, then " + p.String() + " opens"
+		return nil
 	}
-	return nil
+	cmd := m.syncNow([]string{p.Project})
+	m.toast = "a sync is running: " + p.Project + " syncs right after it, then " + p.String() + " opens"
+	return cmd
 }
 
 func (m *Model) selectForPath(p string) tea.Cmd {

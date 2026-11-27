@@ -144,10 +144,13 @@ type Model struct {
 	syncLater  []string
 	forceLater []string
 	forceAll   bool
-	openAfter  *pendingOpen
+	openAfter  *api.ObjectPath
 	status     *api.CatalogStatus
 	cfgErr     string
 	kick       chan struct{}
+
+	syncStarting    bool
+	syncAllSelected []string
 }
 
 func New(be Backend, o Options) *Model {
@@ -402,14 +405,19 @@ type configWait struct {
 }
 
 func (m *Model) startSync(scope api.SyncScope, auto bool) tea.Cmd {
-	if m.syncing {
+	if m.syncBusy() {
 		m.toast = "a sync is already running (gd shows progress)"
 		return nil
 	}
+	// ADR-0011
+	m.syncStarting = true
 	m.syncScope = scope.Projects
 	m.syncTable = scope.Table
+	m.syncAllSelected = nil
 	if scope.Table != nil {
 		m.syncScope = []string{scope.Table.Project}
+	} else if len(scope.Projects) == 0 && !auto {
+		m.syncAllSelected = m.be.Selection().IDs()
 	}
 	return func() tea.Msg {
 		var run SyncRun
@@ -435,6 +443,7 @@ func waitSync(run SyncRun) tea.Cmd {
 }
 
 func (m *Model) onSyncStarted(msg syncStartedMsg) tea.Cmd {
+	m.syncStarting = false
 	if msg.err != nil {
 		m.syncStartFailed(msg.err)
 		return nil
@@ -443,9 +452,6 @@ func (m *Model) onSyncStarted(msg syncStartedMsg) tea.Cmd {
 		return nil
 	}
 	m.syncRun, m.syncing, m.syncDone, m.syncTotal, m.syncLog = msg.run, true, 0, 0, nil
-	if m.openAfter != nil {
-		m.openAfter.failure = ""
-	}
 	return waitSync(msg.run)
 }
 
@@ -581,7 +587,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onSyncStarted(msg)
 	case syncEventMsg:
 		m.onSyncEvent(msg.ev)
-		m.noteSyncFailure(msg.ev)
 		switch msg.ev.Kind {
 		case api.EventUnitDone, api.EventUnitFailed:
 			m.refreshProjects()
