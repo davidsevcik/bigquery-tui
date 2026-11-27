@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -579,19 +580,50 @@ func (m *Model) openAfterSync(done syncDoneMsg) tea.Cmd {
 	if cmd, ok := m.openIfHeld(*p); ok {
 		return cmd
 	}
-	switch failed, incomplete := m.syncFailed[p.Project], m.syncIncomplete[p.Project]; {
+	switch why := m.runProblems[p.Project].reason(p.Project); {
 	case done.err != nil:
 		m.cannotOpen(*p, "sync failed: "+done.err.Error())
-	case failed != "":
-		m.cannotOpen(*p, "the sync of "+p.Project+" failed: "+failed)
-	case incomplete != "":
-		m.cannotOpen(*p, "the dataset listing of "+p.Project+" was incomplete: "+incomplete)
+	case why != "":
+		m.cannotOpen(*p, why)
 	case done.res.Cancelled:
 		m.cannotOpen(*p, "the sync was cancelled")
 	default:
 		m.toast = p.String() + " is not in the catalog after syncing " + p.Project
 	}
 	return nil
+}
+
+type runProblem struct {
+	failed, incomplete string
+}
+
+func (p runProblem) reason(project string) string {
+	switch {
+	case p.failed != "":
+		return "the sync of " + project + " failed: " + p.failed
+	case p.incomplete != "":
+		return "the dataset listing of " + project + " was incomplete: " + p.incomplete
+	}
+	return ""
+}
+
+type runProblems map[string]runProblem
+
+func (ps *runProblems) note(ev api.SyncEvent) {
+	failed := ev.Kind == api.EventUnitFailed
+	if ev.Project == "" || ev.Error == "" || (!failed && ev.Kind != api.EventWarning) {
+		return
+	}
+	if *ps == nil {
+		*ps = runProblems{}
+	}
+	p := (*ps)[ev.Project]
+	if failed {
+		p.failed = cmp.Or(p.failed, ev.Error)
+	} else {
+		p.incomplete = cmp.Or(p.incomplete, ev.Error)
+	}
+	(*ps)[ev.Project] = p
 }
 
 func (m *Model) openIfHeld(p api.ObjectPath) (tea.Cmd, bool) {

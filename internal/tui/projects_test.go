@@ -390,6 +390,18 @@ func TestAPastedPathInALocationTheListingMissedSaysSo(t *testing.T) {
 	}
 }
 
+func TestAPastedPathMissingFromAProjectWhoseSyncOnlyWarnedIsNotInTheCatalog(t *testing.T) {
+	r := newRig(t, 120, 30)
+	r.fake.MissColumns = map[string]bool{"acme-prod.sales.customers": true}
+	r.paste("acme-prod.sales.nope")
+	if len(r.m.syncWarns) != 1 || !strings.Contains(r.m.syncWarns[0], "regex dialect") {
+		t.Fatalf("precondition: the sync warns about the column query: %q", r.m.syncWarns)
+	}
+	if want := "acme-prod.sales.nope is not in the catalog after syncing acme-prod"; r.m.toast != want {
+		t.Fatalf("toast %q, want %q", r.m.toast, want)
+	}
+}
+
 func TestAPastedPathStillMissingAfterItsSyncSaysWhy(t *testing.T) {
 	const path = "acme-prod.eu_new.fresh_table"
 	denied := api.SyncEvent{Kind: api.EventUnitFailed, Project: "acme-prod", Location: "EU", Error: "permission: access denied: tables"}

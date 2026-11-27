@@ -451,6 +451,9 @@ func TestSyncAddsAClientWarningOncePerRun(t *testing.T) {
 		for _, e := range events {
 			if e.Kind == api.EventWarning {
 				n++
+				if e.Error != "" {
+					t.Fatalf("run %d: a client warning carries a unit error: %+v", i, e)
+				}
 			}
 		}
 		if n != 1 || res.UnitsOK != 3 {

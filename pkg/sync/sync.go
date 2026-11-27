@@ -184,19 +184,17 @@ func (r *run) logUnfinished() {
 	}
 }
 
-func (r *run) warn(project, msg string) {
-	r.warnEvent(api.SyncEvent{Kind: api.EventWarning, Project: project, Message: msg, Error: msg})
-}
+func (r *run) warn(project, msg string) { r.warnWith(project, msg, "") }
 
-func (r *run) warnEvent(ev api.SyncEvent) {
-	line := ev.Message
-	if ev.Project != "" {
-		line = ev.Project + ": " + ev.Message
+func (r *run) warnWith(project, msg, unitError string) {
+	line := msg
+	if project != "" {
+		line = project + ": " + msg
 	}
 	r.mu.Lock()
 	r.warns = append(r.warns, line)
 	r.mu.Unlock()
-	r.event(ev)
+	r.event(api.SyncEvent{Kind: api.EventWarning, Project: project, Message: msg, Error: unitError})
 }
 
 func (r *run) clientWarn(msg string) {
@@ -404,7 +402,7 @@ func (s *Syncer) discover(ctx context.Context, project string, r *run) discovery
 
 	if len(list.Unreachable) > 0 {
 		msg := fmt.Sprintf("BigQuery could not enumerate: %v", list.Unreachable)
-		r.warnEvent(api.SyncEvent{Kind: api.EventWarning, Project: project, Message: msg, Error: msg})
+		r.warnWith(project, msg, msg)
 		st := api.UnitState{UnitRef: api.UnitRef{Project: project}, Status: api.UnitDegraded, Error: msg, LastAttempt: &now}
 		if rerr := s.o.Catalog.RecordUnitFailure(ctx, st); rerr != nil {
 			s.o.Log.Error("record unreachable", "project", project, "err", rerr)
