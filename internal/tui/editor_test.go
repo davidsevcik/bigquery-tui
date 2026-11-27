@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/davidsevcik/bigquery-tui/pkg/api"
 	"github.com/davidsevcik/bigquery-tui/pkg/sqlx"
 )
 
@@ -193,6 +194,19 @@ func TestEditorAutoIndentPasteAndReplace(t *testing.T) {
 	e.doUndo()
 	if e.text() != "select čau, cu from t" {
 		t.Fatalf("%q", e.text())
+	}
+}
+
+func TestEditorHighlightsTheDigitsOfAProjectIDAsPartOfThePath(t *testing.T) {
+	text := "select * from my-proj-412345.sales.orders limit 10"
+	e := newEditor(text)
+	e.view(80, 3, true, sqlx.Tokenize, "")
+	digits, limit := strings.Index(text, "412345"), strings.Index(text, "10")
+	if e.hl[0][digits] != api.TokIdent || e.hl[0][digits+5] != api.TokIdent {
+		t.Fatalf("the project ID's digits are highlighted as %q", e.hl[0][digits])
+	}
+	if e.hl[0][limit] != api.TokNumber {
+		t.Fatalf("a LIMIT count is highlighted as %q", e.hl[0][limit])
 	}
 }
 

@@ -1,8 +1,10 @@
 package sqlx
 
 import (
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 )
@@ -27,6 +29,16 @@ func TestTokenize(t *testing.T) {
 		{"`open\nx", "quoted:`open | ident:x"},
 		{"a→b", "ident:a | punct:→ | ident:b"},
 		{"my_func (1)", "function:my_func | punct:( | number:1 | punct:)"},
+		{"from my-proj-412345.sales.orders", "keyword:from | ident:my | punct:- | ident:proj | punct:- | ident:412345 | punct:. | ident:sales | punct:. | ident:orders"},
+		{"from a, my-1st-proj.d.t", "keyword:from | ident:a | punct:, | ident:my | punct:- | ident:1st | punct:- | ident:proj | punct:. | ident:d | punct:. | ident:t"},
+		{"select 1.5, x-1.0 from t limit 10", "keyword:select | number:1.5 | punct:, | ident:x | punct:- | number:1.0 | keyword:from | ident:t | keyword:limit | number:10"},
+		{"from t where n-12", "keyword:from | ident:t | keyword:where | ident:n | punct:- | number:12"},
+		{"from a; select x-1", "keyword:from | ident:a | punct:; | keyword:select | ident:x | punct:- | number:1"},
+		{"from a; x, y-1", "keyword:from | ident:a | punct:; | ident:x | punct:, | ident:y | punct:- | number:1"},
+		{"select trim(a; delete from my-proj-412345.sales.orders", "keyword:select | function:trim | punct:( | ident:a | punct:; | keyword:delete | keyword:from | ident:my | punct:- | ident:proj | punct:- | ident:412345 | punct:. | ident:sales | punct:. | ident:orders"},
+		{"select extract(a; update my-proj-412345.sales.orders set x = 1", "keyword:select | keyword:extract | punct:( | ident:a | punct:; | keyword:update | ident:my | punct:- | ident:proj | punct:- | ident:412345 | punct:. | ident:sales | punct:. | ident:orders | keyword:set | ident:x | punct:= | number:1"},
+		{"select substring(a; insert into my-proj-412345.sales.orders values (1)", "keyword:select | function:substring | punct:( | ident:a | punct:; | keyword:insert | keyword:into | ident:my | punct:- | ident:proj | punct:- | ident:412345 | punct:. | ident:sales | punct:. | ident:orders | keyword:values | punct:( | number:1 | punct:)"},
+		{"insert into t values (1,-1), (2, x=-2)", "keyword:insert | keyword:into | ident:t | keyword:values | punct:( | number:1 | punct:, | punct:- | number:1 | punct:) | punct:, | punct:( | number:2 | punct:, | ident:x | punct:= | punct:- | number:2 | punct:)"},
 	}
 	for _, c := range cases {
 		if got := kinds(c.in); got != c.want {
@@ -35,8 +47,33 @@ func TestTokenize(t *testing.T) {
 	}
 }
 
+func TestTokenizeTimeGrowsLinearlyWithNegativeLiterals(t *testing.T) {
+	values := func(rows int) string {
+		var b strings.Builder
+		b.WriteString("insert into t (a, b, c) values ")
+		for i := range rows {
+			n := strconv.Itoa(i)
+			b.WriteString("(" + n + ",-" + n + ", x =-" + n + "),")
+		}
+		return b.String()
+	}
+	fastest := func(text string) time.Duration {
+		best := time.Hour
+		for range 5 {
+			start := time.Now()
+			Tokenize(text)
+			best = min(best, time.Since(start))
+		}
+		return best
+	}
+	small, large := fastest(values(1000)), fastest(values(10000))
+	if large > 40*small && large > 250*time.Millisecond {
+		t.Fatalf("ten times the rows took %.0f times as long (%v, %v)", float64(large)/float64(small), small, large)
+	}
+}
+
 func FuzzTokenize(f *testing.F) {
-	for _, s := range []string{"select 1", "`a.b", "'x", "/* x", "r'''a", "@", "0x", "1e+", "a.b.c", "é`'\"", "--", "#\n"} {
+	for _, s := range []string{"select 1", "`a.b", "'x", "/* x", "r'''a", "@", "0x", "1e+", "a.b.c", "é`'\"", "--", "#\n", "from a-b.c-1-", "select x-y-"} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
@@ -95,7 +132,7 @@ type fakeCat struct {
 func (f fakeCat) DefaultProject() string { return f.def }
 func (f fakeCat) Projects() []string {
 	var out []string
-	for _, p := range []string{"acme-prod", "acme-staging", "exec"} {
+	for _, p := range []string{"acme-prod", "acme-staging", "exec", "my-proj-412345"} {
 		if _, ok := f.data[p]; ok {
 			out = append(out, p)
 		}
@@ -150,8 +187,9 @@ var testCat = fakeCat{def: "exec", data: map[string]map[string]map[string][]stri
 		},
 		"finance": {"refunds": {"id", "amount"}},
 	},
-	"acme-staging": {"sales": {"orders": {"id"}}},
-	"exec":         {"scratch": {"tmp": {"x", "y"}}},
+	"acme-staging":   {"sales": {"orders": {"id"}}},
+	"exec":           {"scratch": {"tmp": {"x", "y"}}},
+	"my-proj-412345": {"sales": {"orders": {"id", "total"}}},
 }}
 
 func complete(t *testing.T, marked string, forced bool) ([]string, string) {
@@ -181,7 +219,7 @@ func TestComplete(t *testing.T) {
 		want    string
 		applied string
 	}{
-		{name: "backtick: projects and datasets", in: "select * from `|", want: "scratch,acme-prod,acme-staging,exec,finance,sales,sales"},
+		{name: "backtick: projects and datasets", in: "select * from `|", want: "scratch,acme-prod,acme-staging,exec,my-proj-412345,finance,sales,sales,sales"},
 		{name: "backtick: project prefix", in: "select * from `acme-p|", want: "acme-prod", applied: "select * from `acme-prod"},
 		{name: "backtick: datasets of a project", in: "select * from `acme-prod.|", want: "finance,sales"},
 		{name: "backtick: tables", in: "select * from `acme-prod.sales.|`", want: "customers,events_*,orders"},
@@ -194,6 +232,22 @@ func TestComplete(t *testing.T) {
 		{name: "unquoted: tables after dataset dot", in: "select * from scratch.|", want: "tmp"},
 		{name: "unquoted: hyphenated project", in: "select * from acme-prod.sales.o|", want: "orders", applied: "select * from acme-prod.sales.orders"},
 		{name: "unquoted: a wildcard table gets backticks", in: "select * from acme-prod.sales.ev|", want: "events_*", applied: "select * from `acme-prod.sales.events_*`"},
+		{name: "unquoted: a dashed project is one word", in: "select * from acme-pr|", want: "acme-prod", applied: "select * from acme-prod"},
+		{name: "unquoted: datasets of a dashed project", in: "select * from acme-prod.sa|", want: "sales", applied: "select * from acme-prod.sales"},
+		{name: "unquoted: a dashed project right after its dash", in: "select * from acme-|", want: "acme-prod,acme-staging", applied: "select * from acme-prod"},
+		{name: "unquoted: a dashed project replaces the rest of its name", in: "select * from acme|-pr", want: "acme-prod,acme-staging", applied: "select * from acme-prod"},
+		{name: "unquoted: a dashed project after join", in: "select * from scratch.tmp join acme-st|", want: "acme-staging", applied: "select * from scratch.tmp join acme-staging"},
+		{name: "unquoted: a dashed project that ends in digits", in: "select * from my-proj-4123|", want: "my-proj-412345", applied: "select * from my-proj-412345"},
+		{name: "unquoted: datasets after a project that ends in digits", in: "select * from my-proj-412345.|", want: "sales"},
+		{name: "unquoted: dataset prefix after a project that ends in digits", in: "select * from my-proj-412345.sa|", want: "sales", applied: "select * from my-proj-412345.sales"},
+		{name: "unquoted: tables of a project that ends in digits", in: "select * from my-proj-412345.sales.o|", want: "orders", applied: "select * from my-proj-412345.sales.orders"},
+		{name: "unquoted: columns of a table in a project that ends in digits", in: "select t| from my-proj-412345.sales.orders", forced: true, want: "total,…"},
+		{name: "an unclosed call in an earlier statement: delete from", in: "select trim(a; delete from my-proj-412345.sa|", want: "sales", applied: "select trim(a; delete from my-proj-412345.sales"},
+		{name: "an unclosed call in an earlier statement: update", in: "select extract(a; update my-proj-412345.sales.o|", want: "orders", applied: "select extract(a; update my-proj-412345.sales.orders"},
+		{name: "an unclosed call in an earlier statement: insert into", in: "select substring(a; insert into my-proj-4123|", want: "my-proj-412345", applied: "select substring(a; insert into my-proj-412345"},
+		{name: "a dash in the select list is a minus", in: "select a-b|", want: ""},
+		{name: "a dash in the select list is a minus when forced", in: "select a-b|", forced: true, want: "BETWEEN,…", applied: "select a-BETWEEN"},
+		{name: "a column after a minus", in: "select a-cu| from acme-prod.sales.orders", want: "customer_id,CURRENT ROW,…", applied: "select a-customer_id from acme-prod.sales.orders"},
 		{name: "join is a table position", in: "select * from scratch.tmp join sc|", want: "scratch"},
 		{name: "comma join is a table position", in: "select * from scratch.tmp, sc|", want: "scratch"},
 		{name: "select list comma is not a table position", in: "select xx, sc| from scratch.tmp", want: ""},
@@ -245,6 +299,28 @@ func TestComplete(t *testing.T) {
 		}
 		if c.applied != "" && applied != c.applied {
 			t.Errorf("%s: accepting gives %q, want %q", c.name, applied, c.applied)
+		}
+	}
+}
+
+func TestACandidateSpellingTheDashedTextAroundTheWordReplacesItToo(t *testing.T) {
+	for _, c := range []struct{ name, marked, label, want string }{
+		{"the dashed text before the word", "select my-ord| from acme-prod.sales.my-orders", "my-orders", "select my-orders from acme-prod.sales.my-orders"},
+		{"the dashed text after the word", "select my|-ord from acme-prod.sales.my-orders", "my-orders", "select my-orders from acme-prod.sales.my-orders"},
+		{"the dashed text on both sides", "select my-bi|g-or from acme-prod.sales.my-big-orders", "my-big-orders", "select my-big-orders from acme-prod.sales.my-big-orders"},
+		{"a keyword after a minus replaces only the word", "select my-ord| from acme-prod.sales.my-orders", "ORDER BY", "select my-ORDER BY from acme-prod.sales.my-orders"},
+		{"a function between minuses replaces only the word", "select my-bi|g-or from acme-prod.sales.my-big-orders", "BIT_COUNT", "select my-BIT_COUNT(-or from acme-prod.sales.my-big-orders"},
+	} {
+		at := strings.Index(c.marked, "|")
+		text := c.marked[:at] + c.marked[at+1:]
+		got := "not offered"
+		for _, cand := range Complete(text, at, testCat, Options{}) {
+			if cand.Label == c.label {
+				got = text[:cand.Start] + cand.Insert + text[cand.End:]
+			}
+		}
+		if got != c.want {
+			t.Errorf("%s: accepting %s in %q gives %q, want %q", c.name, c.label, c.marked, got, c.want)
 		}
 	}
 }

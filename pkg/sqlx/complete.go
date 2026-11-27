@@ -93,12 +93,15 @@ func Complete(text string, cursor int, cat Catalog, o Options) []api.Candidate {
 			}
 		}
 	}
-	var quals []string
-	start := c.pStart
-	for k >= 1 && isPunct(text, toks[k], ".") && toks[k].End == start && toks[k-1].End == toks[k].Start && (isWord(toks[k-1]) || toks[k-1].Kind == api.TokQuoted) {
-		seg, s, nk := wordWithHyphens(text, toks, k-1)
-		quals = append(seg, quals...)
-		start, k = s, nk
+	quals, start, k := qualifiers(text, toks, k, c.pStart)
+	if first, last, ok := dashedName(text, toks, cur); ok {
+		dStart := toks[first].Start
+		if inTablePath(text, toks, first) {
+			c.partial, c.pStart, c.pEnd = text[dStart:cursor], dStart, toks[last].End
+			quals, start, k = qualifiers(text, toks, first-1, dStart)
+		} else {
+			c.dashedStart, c.dashedEnd = dStart, toks[last].End
+		}
 	}
 	c.chainStart = start
 	tableCtx := k >= 0 && inTableContext(text, toks, k)
@@ -174,19 +177,64 @@ func statementBounds(text string, toks []api.Token, cursor int) (int, int) {
 	return lo, hi
 }
 
+func qualifiers(text string, toks []api.Token, k, start int) ([]string, int, int) {
+	var quals []string
+	for k >= 1 && isPunct(text, toks[k], ".") && toks[k].End == start && toks[k-1].End == toks[k].Start && (isWord(toks[k-1]) || toks[k-1].Kind == api.TokQuoted) {
+		seg, s, nk := wordWithHyphens(text, toks, k-1)
+		quals = append(seg, quals...)
+		start, k = s, nk
+	}
+	return quals, start, k
+}
+
+func inTablePath(text string, toks []api.Token, first int) bool {
+	_, _, k := qualifiers(text, toks, first-1, toks[first].Start)
+	return k >= 0 && inTableContext(text, toks, k)
+}
+
+func namePart(t api.Token) bool { return isWord(t) || t.Kind == api.TokNumber }
+
+func dashJoined(text string, toks []api.Token, i int) bool {
+	return i >= 0 && i+2 < len(toks) && namePart(toks[i]) && isPunct(text, toks[i+1], "-") && namePart(toks[i+2]) &&
+		toks[i].End == toks[i+1].Start && toks[i+1].End == toks[i+2].Start
+}
+
+func dashedName(text string, toks []api.Token, cur int) (int, int, bool) {
+	if cur < 0 || cur >= len(toks) {
+		return 0, 0, false
+	}
+	first, last := cur, cur
+	switch {
+	case isPunct(text, toks[cur], "-"):
+		if cur == 0 || !namePart(toks[cur-1]) || toks[cur-1].End != toks[cur].Start {
+			return 0, 0, false
+		}
+		first = cur - 1
+		if dashJoined(text, toks, first) {
+			last = cur + 1
+		}
+	case !namePart(toks[cur]):
+		return 0, 0, false
+	}
+	for dashJoined(text, toks, first-2) {
+		first -= 2
+	}
+	for dashJoined(text, toks, last) {
+		last += 2
+	}
+	return first, last, first < last
+}
+
 func wordWithHyphens(text string, toks []api.Token, i int) ([]string, int, int) {
 	t := toks[i]
 	if t.Kind == api.TokQuoted {
 		return strings.Split(strings.Trim(text[t.Start:t.End], "`"), "."), t.Start, i - 1
 	}
-	start := t.Start
-	k := i - 1
-	for k >= 1 && isPunct(text, toks[k], "-") && toks[k].End == start && toks[k-1].End == toks[k].Start &&
-		(isWord(toks[k-1]) || toks[k-1].Kind == api.TokNumber) {
-		start = toks[k-1].Start
-		k -= 2
+	first := i
+	for dashJoined(text, toks, first-2) {
+		first -= 2
 	}
-	return []string{text[start:t.End]}, start, k
+	return []string{text[toks[first].Start:t.End]}, toks[first].Start, first - 1
 }
 
 var clauseKeywords = []string{"SELECT", "WHERE", "ON", "GROUP", "ORDER", "HAVING", "QUALIFY", "LIMIT", "SET", "USING", "WINDOW", "VALUES", "WHEN", "THEN", "BY"}
@@ -201,6 +249,8 @@ func inTableContext(text string, toks []api.Token, k int) bool {
 	depth := 0
 	for i := k - 1; i >= 0; i-- {
 		switch {
+		case isPunct(text, toks[i], ";"):
+			return false
 		case isPunct(text, toks[i], ")"):
 			depth++
 		case isPunct(text, toks[i], "("):
@@ -222,6 +272,8 @@ func fromOfFunction(text string, toks []api.Token, i int) bool {
 	depth := 0
 	for j := i - 1; j >= 0; j-- {
 		switch {
+		case isPunct(text, toks[j], ";"):
+			return false
 		case isPunct(text, toks[j], ")"):
 			depth++
 		case isPunct(text, toks[j], "("):
@@ -359,8 +411,7 @@ func (s *scope) parseRef(i int) (relation, int, bool) {
 			if toks[i].Kind == api.TokQuoted {
 				rel.path = append(rel.path, strings.Split(strings.Trim(seg, "`"), ".")...)
 			} else {
-				for i+2 < len(toks) && isPunct(text, toks[i+1], "-") && toks[i+1].Start == toks[i].End && toks[i+2].Start == toks[i+1].End &&
-					(isWord(toks[i+2]) || toks[i+2].Kind == api.TokNumber) {
+				for dashJoined(text, toks, i) {
 					seg += "-" + text[toks[i+2].Start:toks[i+2].End]
 					i += 2
 				}
@@ -599,15 +650,17 @@ func (s *scope) cteColumns(c *cte) []api.ColumnMeta {
 }
 
 type completer struct {
-	text       string
-	cat        Catalog
-	sc         *scope
-	o          Options
-	partial    string
-	pStart     int
-	pEnd       int
-	chainStart int
-	quoted     bool
+	text        string
+	cat         Catalog
+	sc          *scope
+	o           Options
+	partial     string
+	pStart      int
+	pEnd        int
+	chainStart  int
+	quoted      bool
+	dashedStart int
+	dashedEnd   int
 }
 
 type ranked struct {
@@ -641,8 +694,18 @@ func (c *completer) add(out *[]ranked, order int, cand api.Candidate) {
 	}
 	if cand.Start == 0 && cand.End == 0 {
 		cand.Start, cand.End = c.pStart, c.pEnd
+		if c.dashedEnd > c.dashedStart && hasPrefixFold(cand.Insert, c.text[c.dashedStart:c.pStart]) {
+			cand.Start = c.dashedStart
+		}
+		if c.dashedEnd > c.dashedStart && hasPrefixFold(cand.Insert, c.text[c.dashedStart:c.dashedEnd]) {
+			cand.End = c.dashedEnd
+		}
 	}
 	*out = append(*out, ranked{cand, rank, order})
+}
+
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
 func (c *completer) finish(rs []ranked) []api.Candidate {
@@ -669,7 +732,7 @@ func (c *completer) finish(rs []ranked) []api.Candidate {
 			break
 		}
 	}
-	if len(out) == 1 && out[0].Insert == c.partial && out[0].End == c.pEnd {
+	if len(out) == 1 && out[0].End == c.pEnd && out[0].Insert == c.text[out[0].Start:c.pStart+len(c.partial)] {
 		return nil
 	}
 	return out

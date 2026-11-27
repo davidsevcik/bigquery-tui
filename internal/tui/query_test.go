@@ -173,6 +173,53 @@ func TestCompletionPopup(t *testing.T) {
 	}
 }
 
+func TestCompletionOfAnUnquotedDashedProject(t *testing.T) {
+	r := editorRig(t, 120, 30)
+	r.typeText("select * from acme-pr")
+	if !r.m.comp.open || r.m.comp.cands[0].Label != "acme-prod" {
+		t.Fatalf("popup after an unquoted dashed name: %+v", r.m.comp)
+	}
+	r.press("tab")
+	if r.text() != "select * from acme-prod." || !r.m.comp.open {
+		t.Fatalf("%q open=%v", r.text(), r.m.comp.open)
+	}
+	r.typeText("sa")
+	r.press("tab")
+	if r.text() != "select * from acme-prod.sales." {
+		t.Fatalf("%q", r.text())
+	}
+}
+
+func TestCompletionAfterAProjectIDThatEndsInDigits(t *testing.T) {
+	rigFake = func(f *bqtest.Fake) {
+		p := f.AddProject("my-proj-412345")
+		p.Datasets = []bqtest.Dataset{bqtest.DS("billing", "EU", bqtest.Table("invoices", "id"))}
+	}
+	defer func() { rigFake = nil }()
+	r := editorRig(t, 120, 30)
+	if err := r.eng.SelectProjects("my-proj-412345"); err != nil {
+		t.Fatal(err)
+	}
+	hd, err := r.eng.StartSync(t.Context(), api.SyncScope{Projects: []string{"my-proj-412345"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hd.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.eng.ReloadIndex(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.typeText("select * from my-proj-412345.")
+	if !r.m.comp.open || r.m.comp.cands[0].Label != "billing" {
+		t.Fatalf("datasets after a project ID that ends in digits: %+v", r.m.comp)
+	}
+	r.press("tab")
+	if r.text() != "select * from my-proj-412345.billing." {
+		t.Fatalf("%q", r.text())
+	}
+}
+
 func TestRunWithParametersShowsResults(t *testing.T) {
 	r := editorRig(t, 120, 36)
 	r.fake.OnQuery = func(string) bqtest.QueryScript { return bqtest.Numbers(1234) }
