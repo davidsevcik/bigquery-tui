@@ -468,6 +468,9 @@ func (h *SyncHandle) finish(res api.SyncResult, err error) {
 }
 
 func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandle, error) {
+	if e.bg.closed() {
+		return nil, ErrClosed
+	}
 	if e.o.ReadOnly {
 		return nil, ErrReadOnly
 	}
@@ -503,10 +506,8 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 		lock.Unlock()
 		return nil, err
 	}
-	rctx, cancel := context.WithCancel(ctx)
-	done, err := e.bg.add(cancel)
+	bctx, unregister, err := e.bg.start(ctx)
 	if err != nil {
-		cancel()
 		lock.Unlock()
 		return nil, err
 	}
@@ -518,6 +519,7 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 		projects = nil
 	}
 	track := e.startTrack(projects)
+	rctx, cancel := context.WithCancel(bctx)
 	h := &SyncHandle{cancel: cancel, out: make(chan api.SyncEvent), done: make(chan struct{}), wake: make(chan struct{}, 1), abandon: make(chan struct{})}
 	go h.pump()
 	s := catsync.New(catsync.Options{
@@ -525,7 +527,7 @@ func (e *Engine) StartSync(ctx context.Context, scope api.SyncScope) (*SyncHandl
 		Parallelism: e.o.Parallelism, Retries: e.o.Retries, Backoff: e.o.Backoff,
 	})
 	go func() {
-		defer done()
+		defer unregister()
 		defer cancel()
 		res, err := s.Run(rctx, scope, func(ev api.SyncEvent) {
 			e.observeSync(track, ev)

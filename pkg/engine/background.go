@@ -13,25 +13,33 @@ type background struct {
 	stopped bool
 }
 
-func (b *background) add(cancel context.CancelFunc) (done func(), err error) {
+func (b *background) start(parent context.Context) (ctx context.Context, unregister func(), err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.stopped {
-		return nil, ErrClosed
+		return nil, nil, ErrClosed
 	}
 	if b.cancels == nil {
 		b.cancels = map[uint64]context.CancelFunc{}
 	}
+	ctx, cancel := context.WithCancel(parent)
 	b.next++
 	id := b.next
 	b.cancels[id] = cancel
 	b.wg.Add(1)
-	return func() {
+	return ctx, func() {
+		cancel()
 		b.mu.Lock()
 		delete(b.cancels, id)
 		b.mu.Unlock()
 		b.wg.Done()
 	}, nil
+}
+
+func (b *background) closed() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.stopped
 }
 
 func (b *background) stop() {
