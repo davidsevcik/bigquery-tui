@@ -69,10 +69,13 @@ func (s *sandbox) writeConfig(extra string) {
 		}
 		extra = projectsLine.ReplaceAllString(extra, "")
 	}
-	src := "data_dir = \"" + filepath.Join(s.dir, "data") + "\"\n" + extra
-	if err := os.WriteFile(s.cfgPath, []byte(src), 0o600); err != nil {
+	if err := os.WriteFile(s.cfgPath, []byte(s.configBody(extra)), 0o600); err != nil {
 		s.t.Fatal(err)
 	}
+}
+
+func (s *sandbox) configBody(extra string) string {
+	return "data_dir = \"" + filepath.Join(s.dir, "data") + "\"\n" + extra
 }
 
 func (s *sandbox) run(args ...string) (code int, stdout, stderr string) {
@@ -238,7 +241,7 @@ func TestConfigPathAndEdit(t *testing.T) {
 	var argv []string
 	s.edit = func(a []string) {
 		argv = a
-		if err := os.WriteFile(s.cfgPath, []byte("location = \"EU\"\ndata_dir = \""+filepath.Join(s.dir, "data")+"\"\n"), 0o600); err != nil {
+		if err := os.WriteFile(s.cfgPath, []byte(s.configBody("location = \"EU\"\n")), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -250,8 +253,11 @@ func TestConfigPathAndEdit(t *testing.T) {
 		t.Fatalf("editor argv %v", argv)
 	}
 	data := decode(t, out).Data.(map[string]any)
-	if _, ok := data["projects"]; data["valid"] != true || ok {
+	if _, ok := data["projects"]; data["valid"] != true || data["changed"] != true || ok {
 		t.Fatalf("%v", data)
+	}
+	if strings.Contains(errOut, "--wait") {
+		t.Fatalf("a saved edit needs no hint: %q", errOut)
 	}
 
 	s.edit = func([]string) {
