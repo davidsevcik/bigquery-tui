@@ -256,6 +256,7 @@ g AS (SELECT k, COUNT(*) AS n,
   FROM k GROUP BY k),
 r AS (SELECT id, k FROM k WHERE rn = 1)
 `
+	// ADR-0006
 	tx, err := h.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, false, 0, err

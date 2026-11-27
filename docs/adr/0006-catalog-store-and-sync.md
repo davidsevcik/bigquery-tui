@@ -74,6 +74,7 @@ The `store` package owns the two SQLite files in the data directory: `catalog.db
 - **`store.historyMigrations`**: the embedded, forward-only migrations; index i takes `history.db` from version i to i+1. A released migration is never edited; changes are appended.
 - **`store.backupHistory`**: the backup is written with `VACUUM INTO`, which makes a transactionally consistent copy even while other connections hold the WAL open. A plain file copy after a checkpoint can miss committed pages.
 - **`store.NormalizeSQL`**: whitespace is collapsed only outside string literals, quoted identifiers and comments, and a trailing semicolon is dropped. The same query typed twice groups as one History entry, while `'a  b'` and `'a b'` stay apart.
+- **`store.(*History).SearchHistory`**: the total and the page are read in one read transaction, so they come from one snapshot and a Run that finishes in between cannot make them disagree. The total is its own `COUNT(*)` over the matching groups, not a window count on the paged rows, because a page at or past the end has no rows to carry it.
 - **`store.termSpans`**: it marks every case-insensitive occurrence of the terms as byte offsets, folding only ASCII letters (`asciiLower`). Full Unicode case folding can change byte lengths, and the offsets would no longer be valid in the original text.
 
 ### Sync units and the failure ladder
