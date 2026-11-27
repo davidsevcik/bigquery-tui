@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -618,6 +619,109 @@ func TestEditorHandOffNeedsATerminalEditor(t *testing.T) {
 	r := editorRig(t, 120, 30)
 	r.press("ctrl+x", "e")
 	r.contains("set $EDITOR")
+}
+
+const waitHint = "no changes from the editor; if your editor returns before you save, set VISUAL to a command that waits, e.g. VISUAL='code --wait'"
+
+func (r *rig) handOffToEditor() string {
+	r.t.Helper()
+	tmp := r.t.TempDir()
+	r.t.Setenv("TMPDIR", tmp)
+	r.m.o.Getenv = func(k string) string {
+		if k == "EDITOR" {
+			return "true"
+		}
+		return ""
+	}
+	text := r.text()
+	r.press("ctrl+x", "e")
+	files, _ := filepath.Glob(filepath.Join(tmp, "bqt-*.sql"))
+	if len(files) != 1 {
+		r.t.Fatalf("the hand-off writes one temp file: %v (toast %q)", files, r.m.toast)
+	}
+	if got, err := os.ReadFile(files[0]); err != nil || string(got) != text {
+		r.t.Fatalf("the temp file holds the buffer: %q %v", got, err)
+	}
+	return files[0]
+}
+
+func (r *rig) editorReturns(b *buffer, path string, err error) {
+	r.t.Helper()
+	r.send(extEditMsg{b.id, path, err})
+	if _, serr := os.Stat(path); !os.IsNotExist(serr) {
+		r.t.Fatalf("the temp file is removed: %v", serr)
+	}
+}
+
+func TestTheEditorHandOffSaysWhatHappened(t *testing.T) {
+	t.Run("an editor that returns without touching the file", func(t *testing.T) {
+		r := editorRig(t, 160, 30)
+		r.typeText("select 1")
+		b := r.m.buf()
+		r.editorReturns(b, r.handOffToEditor(), nil)
+		if r.text() != "select 1" || r.m.toast != waitHint {
+			t.Fatalf("the buffer stays and the toast hints at a waiting editor: %q %q", r.text(), r.m.toast)
+		}
+		r.contains("no changes from the editor")
+	})
+	t.Run("an editor that rewrites the file", func(t *testing.T) {
+		r := editorRig(t, 120, 30)
+		r.typeText("select 1")
+		b := r.m.buf()
+		path := r.handOffToEditor()
+		if err := os.WriteFile(path, []byte("select 2\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		r.editorReturns(b, path, nil)
+		if r.text() != "select 2" || strings.Contains(r.m.toast, "no changes") {
+			t.Fatalf("the buffer takes the edit with no hint: %q %q", r.text(), r.m.toast)
+		}
+		if got, _ := os.ReadFile(r.m.draftPath(b.id)); string(got) != "select 2" {
+			t.Fatalf("the draft is saved: %q", got)
+		}
+	})
+	t.Run("an editor that exits non-zero", func(t *testing.T) {
+		r := editorRig(t, 120, 30)
+		r.typeText("select 1")
+		b := r.m.buf()
+		r.editorReturns(b, r.handOffToEditor(), errors.New("exit status 1"))
+		if r.text() != "select 1" || r.m.toast != "editor: exit status 1" {
+			t.Fatalf("%q %q", r.text(), r.m.toast)
+		}
+	})
+	t.Run("a temp file that can't be read", func(t *testing.T) {
+		r := editorRig(t, 120, 30)
+		r.typeText("select 1")
+		b := r.m.buf()
+		path := r.handOffToEditor()
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		_, want := os.ReadFile(path)
+		r.editorReturns(b, path, nil)
+		if r.text() != "select 1" || r.m.toast != "editor: "+want.Error() {
+			t.Fatalf("the toast shows the error: %q %q", r.text(), r.m.toast)
+		}
+	})
+	t.Run("a buffer closed while the editor ran", func(t *testing.T) {
+		r := editorRig(t, 120, 30)
+		r.typeText("select 1")
+		r.press("ctrl+x", "n")
+		r.typeText("select 2")
+		b := r.m.buf()
+		path := r.handOffToEditor()
+		if err := os.WriteFile(path, []byte("select 3"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		r.press("ctrl+x", "w", "y")
+		r.editorReturns(b, path, nil)
+		if len(r.m.bufs) != 1 || r.text() != "select 1" || r.m.toast != "the edit is dropped: its buffer was closed while the editor ran" {
+			t.Fatalf("%d buffers %q %q", len(r.m.bufs), r.text(), r.m.toast)
+		}
+	})
 }
 
 func TestCtrlCCancelsTheRunShownInResults(t *testing.T) {
