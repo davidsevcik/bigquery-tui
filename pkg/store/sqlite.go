@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -57,6 +58,20 @@ func openDB(path string, readOnly bool) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+func beginTx(ctx context.Context, db *sql.DB, opts *sql.TxOptions) (*sql.Tx, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return db.BeginTx(context.WithoutCancel(ctx), opts)
+}
+
+func commitTx(ctx context.Context, tx *sql.Tx) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func isCorrupt(err error) bool {

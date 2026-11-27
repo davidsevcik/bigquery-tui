@@ -401,14 +401,11 @@ func TestApplyUnitCancelledLeavesOldData(t *testing.T) {
 	apply(t, c, unit("p", "EU"), t0, dsApply("d1", "EU", table("d1", "a", "x")))
 	cctx, cancel := context.WithCancel(ctx)
 	cancel()
-	_, err := c.ApplyUnit(cctx, ApplyRequest{Unit: unit("p", "EU"), State: okState(t0), Datasets: []DatasetApply{dsApply("d1", "EU", table("d1", "zzz", "x"))}})
-	if err == nil {
-		t.Fatal("cancelled apply must fail")
+	_, err := c.ApplyUnit(cctx, ApplyRequest{Unit: unit("p", "EU"), State: okState(t0.Add(time.Hour)), Datasets: []DatasetApply{dsApply("d1", "EU", table("d1", "zzz", "y"))}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled apply returned %v", err)
 	}
-	tabs, _ := c.Tables(ctx, "p", "d1")
-	if len(tabs) != 1 || tabs[0].Name != "a" {
-		t.Fatalf("old snapshot must remain: %+v", tabs)
-	}
+	assertOldSnapshot(t, c)
 }
 
 func TestContentHashIgnoresShardAndColumnOrder(t *testing.T) {

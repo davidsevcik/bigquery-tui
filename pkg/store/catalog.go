@@ -303,7 +303,7 @@ type ApplyStats struct {
 
 func (c *Catalog) ApplyUnit(ctx context.Context, req ApplyRequest) (ApplyStats, error) {
 	var st ApplyStats
-	tx, err := c.db.BeginTx(ctx, nil)
+	tx, err := beginTx(ctx, c.db, nil)
 	if err != nil {
 		return st, err
 	}
@@ -388,7 +388,7 @@ func (c *Catalog) ApplyUnit(ctx context.Context, req ApplyRequest) (ApplyStats, 
 	if err := upsertUnit(ctx, tx, state); err != nil {
 		return st, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := commitTx(ctx, tx); err != nil {
 		return st, err
 	}
 	c.trimWAL(ctx)
@@ -579,7 +579,7 @@ ON CONFLICT(project,location) DO UPDATE SET last_attempt=excluded.last_attempt,s
 }
 
 func (c *Catalog) RecordEmptyProject(ctx context.Context, project string, at time.Time) error {
-	tx, err := c.db.BeginTx(ctx, nil)
+	tx, err := beginTx(ctx, c.db, nil)
 	if err != nil {
 		return err
 	}
@@ -590,11 +590,11 @@ func (c *Catalog) RecordEmptyProject(ctx context.Context, project string, at tim
 	if err := upsertUnit(ctx, tx, api.UnitState{UnitRef: api.UnitRef{Project: project}, Status: api.UnitOK, LastAttempt: &at, LastSuccess: &at}); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return commitTx(ctx, tx)
 }
 
 func (c *Catalog) RecordListing(ctx context.Context, project string, listed []api.DatasetMeta, complete bool) (added, removed int, err error) {
-	tx, err := c.db.BeginTx(ctx, nil)
+	tx, err := beginTx(ctx, c.db, nil)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -659,7 +659,7 @@ func (c *Catalog) RecordListing(ctx context.Context, project string, listed []ap
 			removed++
 		}
 	}
-	return added, removed, tx.Commit()
+	return added, removed, commitTx(ctx, tx)
 }
 
 func (c *Catalog) PendingUnits(ctx context.Context) (map[api.UnitRef]int, error) {
@@ -678,7 +678,7 @@ WHERE d.status = ? GROUP BY p.name, d.location`, string(api.DatasetPending))
 }
 
 func (c *Catalog) RemoveUnit(ctx context.Context, u api.UnitRef) error {
-	tx, err := c.db.BeginTx(ctx, nil)
+	tx, err := beginTx(ctx, c.db, nil)
 	if err != nil {
 		return err
 	}
@@ -689,7 +689,7 @@ func (c *Catalog) RemoveUnit(ctx context.Context, u api.UnitRef) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM sync_units WHERE project = ? AND location = ?", u.Project, u.Location); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return commitTx(ctx, tx)
 }
 
 func (c *Catalog) Units(ctx context.Context) ([]api.UnitState, error) {
@@ -832,7 +832,7 @@ type PruneStats struct{ Projects, Datasets, Tables int }
 
 func (c *Catalog) Prune(ctx context.Context, allowed map[string]bool, ignored func(project, dataset, table string) bool) (PruneStats, error) {
 	var st PruneStats
-	tx, err := c.db.BeginTx(ctx, nil)
+	tx, err := beginTx(ctx, c.db, nil)
 	if err != nil {
 		return st, err
 	}
@@ -912,7 +912,7 @@ func (c *Catalog) Prune(ctx context.Context, allowed map[string]bool, ignored fu
 			}
 		}
 	}
-	return st, tx.Commit()
+	return st, commitTx(ctx, tx)
 }
 
 const insertColumnSQL = `INSERT INTO columns(table_id,parent_id,field_path,field_path_lc,top_level,ordinal,data_type,description,partitioning,clustering_ordinal,required) VALUES(?,?,?,?,?,?,?,?,?,?,?)`
