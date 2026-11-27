@@ -290,7 +290,7 @@ func (m *Model) projectState(p api.ProjectInfo) string {
 }
 
 func (m *Model) projectSyncing(p api.ProjectInfo) bool {
-	if !m.syncing {
+	if m.syncPhase != syncRunning {
 		return false
 	}
 	if m.syncScope == nil {
@@ -486,7 +486,7 @@ func (m *Model) syncIfNeeded(ids []string) tea.Cmd {
 	if err != nil || len(need) == 0 {
 		return nil
 	}
-	if m.syncBusy() {
+	if m.syncPhase != syncIdle {
 		var wait []string
 		for _, id := range need {
 			if !m.syncComing(id) {
@@ -503,8 +503,6 @@ func (m *Model) syncIfNeeded(ids []string) tea.Cmd {
 	return m.startSync(api.SyncScope{Projects: need}, false)
 }
 
-func (m *Model) syncBusy() bool { return m.syncing || m.syncStarting }
-
 func (m *Model) syncComing(id string) bool {
 	return m.runningSyncCovers(id) || m.forcedSyncQueued(id)
 }
@@ -518,7 +516,7 @@ func (m *Model) forcedSyncQueued(id string) bool {
 }
 
 func (m *Model) syncNow(ids []string) tea.Cmd {
-	if !m.syncBusy() {
+	if m.syncPhase == syncIdle {
 		return m.startSync(api.SyncScope{Projects: ids}, false)
 	}
 	if ids == nil {
@@ -577,26 +575,17 @@ func (m *Model) openAfterSync(done syncDoneMsg) tea.Cmd {
 	if cmd, ok := m.openIfHeld(*p); ok {
 		return cmd
 	}
-	switch unitErr := unitError(done.res, p.Project); {
+	switch failed := m.syncFailed[p.Project]; {
 	case done.err != nil:
 		m.cannotOpen(*p, "sync failed: "+done.err.Error())
-	case unitErr != "":
-		m.cannotOpen(*p, "syncing "+p.Project+": "+unitErr)
+	case failed != "":
+		m.cannotOpen(*p, "the sync of "+p.Project+" failed: "+failed)
 	case done.res.Cancelled:
 		m.cannotOpen(*p, "the sync was cancelled")
 	default:
 		m.toast = p.String() + " is not in the catalog after syncing " + p.Project
 	}
 	return nil
-}
-
-func unitError(res api.SyncResult, project string) string {
-	for _, u := range res.Units {
-		if u.Project == project && u.Error != "" {
-			return u.Error
-		}
-	}
-	return ""
 }
 
 func (m *Model) openIfHeld(p api.ObjectPath) (tea.Cmd, bool) {
@@ -612,7 +601,7 @@ func (m *Model) cannotOpen(p api.ObjectPath, why string) {
 
 func (m *Model) syncStartFailed(err error) {
 	m.toast = "sync: " + err.Error()
-	if p := m.openAfter; p != nil && !m.syncing {
+	if p := m.openAfter; p != nil && !m.forcedSyncQueued(p.Project) {
 		m.openAfter = nil
 		m.cannotOpen(*p, "cannot sync "+p.Project+": "+err.Error())
 	}
@@ -631,33 +620,30 @@ func (m *Model) openMissing(p api.ObjectPath) tea.Cmd {
 		m.toast = p.String() + " is excluded by the ignore config, so no sync brings it in"
 		return nil
 	}
-	if m.be.Selection().Has(p.Project) {
-		m.openAfter = &p
-		return m.syncForPath(p)
-	}
-	sel, err := m.selectProject(p.Project)
-	if err != nil {
-		m.cannotOpen(p, err.Error())
-		return nil
+	var sel tea.Cmd
+	selected := ""
+	if !m.be.Selection().Has(p.Project) {
+		var err error
+		if sel, err = m.selectProject(p.Project); err != nil {
+			m.cannotOpen(p, err.Error())
+			return nil
+		}
+		selected = "selected project " + p.Project + "; "
 	}
 	m.openAfter = &p
-	cmd := m.syncForPath(p)
-	m.toast = "selected project " + p.Project + "; " + m.toast
+	cmd, msg := m.syncForPath(p)
+	m.toast = selected + msg
 	return tea.Batch(sel, cmd)
 }
 
-func (m *Model) syncForPath(p api.ObjectPath) tea.Cmd {
+func (m *Model) syncForPath(p api.ObjectPath) (tea.Cmd, string) {
 	switch {
-	case !m.syncBusy():
-		m.toast = "syncing " + p.Project + ": " + p.String() + " opens when its sync finishes"
-		return m.startSync(api.SyncScope{Projects: []string{p.Project}}, false)
+	case m.syncPhase == syncIdle:
+		return m.startSync(api.SyncScope{Projects: []string{p.Project}}, false), "syncing " + p.Project + ": " + p.String() + " opens when its sync finishes"
 	case m.runningSyncCovers(p.Project) && !m.forcedSyncQueued(p.Project):
-		m.toast = p.String() + " opens when the running sync of " + p.Project + " finishes"
-		return nil
+		return nil, p.String() + " opens when the running sync of " + p.Project + " finishes"
 	}
-	cmd := m.syncNow([]string{p.Project})
-	m.toast = "a sync is running: " + p.Project + " syncs right after it, then " + p.String() + " opens"
-	return cmd
+	return m.syncNow([]string{p.Project}), "a sync is running: " + p.Project + " syncs right after it, then " + p.String() + " opens"
 }
 
 func (m *Model) selectForPath(p string) tea.Cmd {

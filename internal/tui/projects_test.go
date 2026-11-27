@@ -76,7 +76,7 @@ func TestProjectsDialogSelectsWhatIsSyncedAndBrowsed(t *testing.T) {
 	if l := r.row("acme-new"); !strings.Contains(l, "[x]") || !strings.Contains(l, "not synced yet") {
 		t.Fatalf("selected, no cache: %q", l)
 	}
-	if n := listCalls(r); n != 2 {
+	if n := r.listCalls(); n != 2 {
 		t.Fatalf("nothing syncs while the dialog is open (%d calls)", n)
 	}
 	r.press("esc")
@@ -206,7 +206,7 @@ func TestJumpToAPathInADeselectedProjectSelectsIt(t *testing.T) {
 	if !r.eng.Selection().Has("acme-staging") || !strings.Contains(r.m.toast, "selected project acme-staging") {
 		t.Fatalf("selection %v toast %q", r.eng.Selection().IDs(), r.m.toast)
 	}
-	if n := listCalls(r); n != 2 {
+	if n := r.listCalls(); n != 2 {
 		t.Fatalf("a fresh cache needs no sync (%d calls)", n)
 	}
 }
@@ -290,7 +290,7 @@ func (r *rig) paste(path string) {
 	r.press("enter")
 }
 
-func listCalls(r *rig) int { return len(r.fake.CallsTo("ListDatasets")) }
+func (r *rig) listCalls() int { return len(r.fake.CallsTo("ListDatasets")) }
 
 type heldRun struct{}
 
@@ -298,7 +298,7 @@ func (heldRun) Events() <-chan api.SyncEvent  { return nil }
 func (heldRun) Wait() (api.SyncResult, error) { return api.SyncResult{}, nil }
 func (heldRun) Cancel()                       {}
 
-func (r *rig) syncRunning(scope api.SyncScope) {
+func (r *rig) holdSync(scope api.SyncScope) {
 	r.t.Helper()
 	if r.m.startSync(scope, false) == nil {
 		r.t.Fatal("the sync did not start")
@@ -331,12 +331,12 @@ func TestPastingAPathMissingFromASelectedProjectSyncsItAndOpensThePath(t *testin
 			r := newRig(t, 120, 30)
 			addToFake(r, "acme-prod", bqtest.DS("sales", "EU", bqtest.Table("fresh_table", "id")))
 			addToFake(r, "acme-prod", bqtest.DS("fresh_ds", "EU", bqtest.Table("fresh_table", "id")))
-			before := listCalls(r)
+			before := r.listCalls()
 			r.paste(path)
 			if r.m.ov != ovNone {
 				t.Fatal("the overlay stayed open")
 			}
-			if got := syncedSince(r, before); got != "acme-prod" || listCalls(r) != before+1 {
+			if got := syncedSince(r, before); got != "acme-prod" || r.listCalls() != before+1 {
 				t.Fatalf("want one sync of acme-prod, synced %q", got)
 			}
 			r.opened(strings.Trim(path, "`"))
@@ -346,7 +346,7 @@ func TestPastingAPathMissingFromASelectedProjectSyncsItAndOpensThePath(t *testin
 
 func TestPastingAPathThatExistsNowhereSaysSoAfterTheSync(t *testing.T) {
 	r := newRig(t, 120, 30)
-	before := listCalls(r)
+	before := r.listCalls()
 	r.paste("acme-prod.sales.nope")
 	if got := syncedSince(r, before); got != "acme-prod" {
 		t.Fatalf("synced %q", got)
@@ -368,7 +368,7 @@ func TestAFailedSyncOfAPastedPathSaysWhy(t *testing.T) {
 			r := projectsRig(t)
 			r.fake.Projects[c.project].ListErr = bqtest.PermissionError("datasets.list")
 			r.paste(c.path)
-			if want := "could not open " + c.path + ": syncing " + c.project + ": permission: access denied: datasets.list"; r.m.toast != want {
+			if want := "could not open " + c.path + ": the sync of " + c.project + " failed: permission: access denied: datasets.list"; r.m.toast != want {
 				t.Fatalf("toast %q, want %q", r.m.toast, want)
 			}
 			if r.m.openAfter != nil {
@@ -378,9 +378,10 @@ func TestAFailedSyncOfAPastedPathSaysWhy(t *testing.T) {
 	}
 }
 
-func TestAPastedPathWhoseSyncEndsBadlySaysWhy(t *testing.T) {
+func TestAPastedPathStillMissingAfterItsSyncSaysWhy(t *testing.T) {
 	const path = "acme-prod.eu_new.fresh_table"
 	denied := api.SyncEvent{Kind: api.EventUnitFailed, Project: "acme-prod", Location: "EU", Error: "permission: access denied: tables"}
+	namesOnly := api.SyncEvent{Kind: api.EventUnitDone, Project: "acme-prod", Location: "EU", Status: api.UnitDegraded, Error: "2 datasets have table names only (no metadata access): a, b"}
 	cases := []struct {
 		name   string
 		before []api.SyncEvent
@@ -391,12 +392,15 @@ func TestAPastedPathWhoseSyncEndsBadlySaysWhy(t *testing.T) {
 		{"cancelled", nil, syncDoneMsg{res: api.SyncResult{Cancelled: true}}, "could not open " + path + ": the sync was cancelled"},
 		{"unit failed before the paste", []api.SyncEvent{denied}, syncDoneMsg{res: api.SyncResult{UnitsFailed: 1, Units: []api.UnitState{
 			{UnitRef: api.UnitRef{Project: "acme-prod", Location: "EU"}, Status: api.UnitInaccessible, Error: denied.Error},
-		}}}, "could not open " + path + ": syncing acme-prod: " + denied.Error},
+		}}}, "could not open " + path + ": the sync of acme-prod failed: " + denied.Error},
+		{"a degraded unit that synced", []api.SyncEvent{namesOnly}, syncDoneMsg{res: api.SyncResult{UnitsDegraded: 1, Units: []api.UnitState{
+			{UnitRef: api.UnitRef{Project: "acme-prod", Location: "EU"}, Status: api.UnitDegraded, Error: namesOnly.Error},
+		}}}, path + " is not in the catalog after syncing acme-prod"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			r := newRig(t, 120, 30)
-			r.syncRunning(api.SyncScope{Projects: []string{"acme-prod"}})
+			r.holdSync(api.SyncScope{Projects: []string{"acme-prod"}})
 			for _, ev := range c.before {
 				r.m.Update(syncEventMsg{ev: ev})
 			}
@@ -419,7 +423,7 @@ func TestPastingAPathMissingFromAFreshDeselectedProjectSyncsIt(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.press("ctrl+x", "p", "o", "esc")
 	addToFake(r, "acme-staging", bqtest.DS("sales", "EU", bqtest.Table("fresh_table", "id")))
-	before := listCalls(r)
+	before := r.listCalls()
 	r.paste("acme-staging.sales.fresh_table")
 	if !r.eng.Selection().Has("acme-staging") {
 		t.Fatalf("not selected: %v", r.eng.Selection().IDs())
@@ -442,10 +446,10 @@ func TestAPastedPathWaitsForTheRunningSyncThatCoversItsProject(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			r := newRig(t, 120, 30)
 			addToFake(r, "acme-prod", bqtest.DS("sales", "EU", bqtest.Table("fresh_table", "id")))
-			r.syncRunning(c.scope)
-			before := listCalls(r)
+			r.holdSync(c.scope)
+			before := r.listCalls()
 			r.paste("acme-prod.sales.fresh_table")
-			if n := listCalls(r); n != before || len(r.m.forceLater) != 0 || r.m.forceAll {
+			if n := r.listCalls(); n != before || len(r.m.forceLater) != 0 || r.m.forceAll {
 				t.Fatalf("started or queued a second sync (%d calls, queued %v)", n-before, r.m.forceLater)
 			}
 			if want := "acme-prod.sales.fresh_table opens when the running sync of acme-prod finishes"; r.m.toast != want {
@@ -453,7 +457,7 @@ func TestAPastedPathWaitsForTheRunningSyncThatCoversItsProject(t *testing.T) {
 			}
 			r.finishSync(c.scope)
 			r.opened("acme-prod.sales.fresh_table")
-			if n := listCalls(r); n != before+c.syncs {
+			if n := r.listCalls(); n != before+c.syncs {
 				t.Fatalf("synced again after the running sync (%d calls)", n-before)
 			}
 		})
@@ -467,15 +471,15 @@ func TestAPastedPathQueuesASyncWhenTheRunningOneDoesNotCoverIt(t *testing.T) {
 		project string
 		setup   func(r *rig)
 	}{
-		{"a sync of another project", "acme-prod", func(r *rig) { r.syncRunning(api.SyncScope{Projects: []string{"acme-staging"}}) }},
-		{"a table's sync", "acme-prod", func(r *rig) { r.syncRunning(api.SyncScope{Table: &orders}) }},
+		{"a sync of another project", "acme-prod", func(r *rig) { r.holdSync(api.SyncScope{Projects: []string{"acme-staging"}}) }},
+		{"a table's sync", "acme-prod", func(r *rig) { r.holdSync(api.SyncScope{Table: &orders}) }},
 		{"a forced sync already queued", "acme-prod", func(r *rig) {
-			r.syncRunning(api.SyncScope{Projects: []string{"acme-prod"}})
+			r.holdSync(api.SyncScope{Projects: []string{"acme-prod"}})
 			r.m.syncNow([]string{"acme-prod"})
 		}},
-		{"a project selected after a full sync started", "acme-staging", func(r *rig) {
+		{"a project selected after a sync of every Selected project started", "acme-staging", func(r *rig) {
 			r.press("ctrl+x", "p", "o", "esc")
-			r.syncRunning(api.SyncScope{})
+			r.holdSync(api.SyncScope{})
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -483,9 +487,9 @@ func TestAPastedPathQueuesASyncWhenTheRunningOneDoesNotCoverIt(t *testing.T) {
 			path := c.project + ".sales.fresh_table"
 			addToFake(r, c.project, bqtest.DS("sales", "EU", bqtest.Table("fresh_table", "id")))
 			c.setup(r)
-			before := listCalls(r)
+			before := r.listCalls()
 			r.paste(path)
-			if n := listCalls(r); n != before {
+			if n := r.listCalls(); n != before {
 				t.Fatalf("started a second sync (%d calls)", n-before)
 			}
 			if want := c.project + " syncs right after it, then " + path + " opens"; !strings.Contains(r.m.toast, want) {
@@ -505,17 +509,43 @@ func TestAPasteWhileASyncIsStartingStartsNoOther(t *testing.T) {
 		r := newRig(t, 120, 30)
 		addToFake(r, "acme-prod", bqtest.DS("sales", "EU", bqtest.Table("fresh_table", "id")))
 		start := r.m.startSync(api.SyncScope{Projects: []string{"acme-staging"}}, false)
-		before := listCalls(r)
+		before := r.listCalls()
 		r.paste("acme-prod.sales.fresh_table")
 		if !slices.Equal(r.m.syncScope, []string{"acme-staging"}) || !slices.Equal(r.m.forceLater, []string{"acme-prod"}) {
 			t.Fatalf("scope %v, queued %v", r.m.syncScope, r.m.forceLater)
 		}
 		r.run(start)
-		if got := syncedSince(r, before); got != "acme-prod,acme-staging" || listCalls(r) != before+2 {
-			t.Fatalf("synced %q in %d calls", got, listCalls(r)-before)
+		if got := syncedSince(r, before); got != "acme-prod,acme-staging" || r.listCalls() != before+2 {
+			t.Fatalf("synced %q in %d calls", got, r.listCalls()-before)
 		}
 		r.opened("acme-prod.sales.fresh_table")
 	})
+	for _, c := range []struct {
+		name  string
+		start func(r *rig)
+		ends  syncStartedMsg
+	}{
+		{"queued behind an automatic refresh that finds nothing to do", func(r *rig) { r.m.startSync(api.SyncScope{}, true) }, syncStartedMsg{auto: true}},
+		{"queued behind a sync of another project that fails to start", func(r *rig) {
+			r.m.startSync(api.SyncScope{Projects: []string{"acme-staging"}}, false)
+		}, syncStartedMsg{err: engine.ErrSyncRunning}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t, 120, 30)
+			addToFake(r, "acme-prod", bqtest.DS("sales", "EU", bqtest.Table("fresh_table", "id")))
+			c.start(r)
+			before := r.listCalls()
+			r.paste("acme-prod.sales.fresh_table")
+			if !slices.Equal(r.m.forceLater, []string{"acme-prod"}) {
+				t.Fatalf("queued %v, toast %q", r.m.forceLater, r.m.toast)
+			}
+			r.send(c.ends)
+			if got := syncedSince(r, before); got != "acme-prod" {
+				t.Fatalf("synced %q", got)
+			}
+			r.opened("acme-prod.sales.fresh_table")
+		})
+	}
 	t.Run("waiting for it when it fails to start", func(t *testing.T) {
 		r := newRig(t, 120, 30)
 		if r.m.startSync(api.SyncScope{Projects: []string{"acme-prod"}}, false) == nil {
@@ -529,8 +559,8 @@ func TestAPasteWhileASyncIsStartingStartsNoOther(t *testing.T) {
 		if want := "could not open acme-prod.sales.fresh_table: cannot sync acme-prod: " + engine.ErrSyncRunning.Error(); r.m.toast != want {
 			t.Fatalf("toast %q, want %q", r.m.toast, want)
 		}
-		if r.m.openAfter != nil || r.m.syncBusy() {
-			t.Fatalf("pending %v, busy %v", r.m.openAfter, r.m.syncBusy())
+		if r.m.openAfter != nil || r.m.syncPhase != syncIdle {
+			t.Fatalf("pending %v, phase %v", r.m.openAfter, r.m.syncPhase)
 		}
 	})
 }
@@ -546,9 +576,9 @@ func TestAnIgnoredPastedPathStartsNoSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.m.be.SetConfig(cfg)
-	before := listCalls(r)
+	before := r.listCalls()
 	r.paste("acme-prod.scratch.tmp_1")
-	if n := listCalls(r); n != before {
+	if n := r.listCalls(); n != before {
 		t.Fatalf("started a sync (%d calls)", n-before)
 	}
 	if r.m.ov != ovNone || !strings.Contains(r.m.toast, "acme-prod.scratch.tmp_1 is excluded by the ignore config") {
@@ -558,9 +588,9 @@ func TestAnIgnoredPastedPathStartsNoSync(t *testing.T) {
 
 func TestAPastedPathTheSearchHasNotFoundYetOpensWithoutASync(t *testing.T) {
 	r := newRig(t, 120, 30)
-	before := listCalls(r)
+	before := r.listCalls()
 	r.run(r.m.openMissing(api.ObjectPath{Project: "acme-prod", Dataset: "sales", Table: "customers"}))
-	if n := listCalls(r); n != before {
+	if n := r.listCalls(); n != before {
 		t.Fatalf("started a sync (%d calls)", n-before)
 	}
 	r.opened("acme-prod.sales.customers")
@@ -601,20 +631,20 @@ func TestAPastedPathWhoseProjectCannotBeSelectedSaysSo(t *testing.T) {
 	r := newRig(t, 120, 30)
 	r.press("ctrl+x", "p", "o", "esc")
 	r.m.be = stubBackend{EngineBackend: r.m.be.(EngineBackend), selectErr: errFake("disk full")}
-	before := listCalls(r)
+	before := r.listCalls()
 	r.paste("acme-staging.sales.fresh_table")
 	if want := "could not open acme-staging.sales.fresh_table: disk full"; r.m.toast != want {
 		t.Fatalf("toast %q, want %q", r.m.toast, want)
 	}
-	if r.m.openAfter != nil || listCalls(r) != before {
-		t.Fatalf("pending %v, %d sync calls", r.m.openAfter, listCalls(r)-before)
+	if r.m.openAfter != nil || r.listCalls() != before {
+		t.Fatalf("pending %v, %d sync calls", r.m.openAfter, r.listCalls()-before)
 	}
 }
 
 func TestClosingTheDialogDuringASyncQueuesTheNewProjects(t *testing.T) {
 	r := projectsRig(t)
 	r.press("ctrl+x", "p", "j", "j", "j", "space")
-	r.m.syncing = true
+	r.m.syncPhase = syncRunning
 	r.press("esc")
 	if strings.Contains(fmt.Sprint(r.fake.CallsTo("ListDatasets")), "acme-new") {
 		t.Fatal("started a second sync")
@@ -712,7 +742,7 @@ func TestALongProjectsListScrolls(t *testing.T) {
 
 func TestTheDialogSyncsOnDemand(t *testing.T) {
 	r := projectsRig(t)
-	before := listCalls(r)
+	before := r.listCalls()
 	r.press("ctrl+x", "p", "s")
 	calls := r.fake.CallsTo("ListDatasets")
 	if len(calls) != before+1 || calls[len(calls)-1].Project != "acme-prod" {
@@ -724,7 +754,7 @@ func TestTheDialogSyncsOnDemand(t *testing.T) {
 		t.Fatalf("S synced %s", got)
 	}
 	r.press("j", "space")
-	n := listCalls(r)
+	n := r.listCalls()
 	r.press("s")
 	if got := syncedSince(r, n); got != "acme-staging" {
 		t.Fatalf("s on a cached deselected project synced %q", got)
@@ -745,8 +775,8 @@ func syncedSince(r *rig, n int) string {
 func TestSyncKeysWaitForARunningSync(t *testing.T) {
 	r := projectsRig(t)
 	r.press("ctrl+x", "p")
-	before := listCalls(r)
-	r.m.syncing = true
+	before := r.listCalls()
+	r.m.syncPhase = syncRunning
 	r.press("s")
 	if !strings.Contains(r.m.toast, "acme-prod syncs right after it") {
 		t.Fatalf("toast %q", r.m.toast)
@@ -756,8 +786,8 @@ func TestSyncKeysWaitForARunningSync(t *testing.T) {
 		t.Fatalf("queued s synced %q", got)
 	}
 
-	before = listCalls(r)
-	r.m.syncing = true
+	before = r.listCalls()
+	r.m.syncPhase = syncRunning
 	r.press("S")
 	if !strings.Contains(r.m.toast, "every selected project syncs right after it") {
 		t.Fatalf("toast %q", r.m.toast)
@@ -771,7 +801,7 @@ func TestSyncKeysWaitForARunningSync(t *testing.T) {
 func TestClosingDuringAnOnDemandSyncPromisesNothing(t *testing.T) {
 	r := projectsRig(t)
 	r.press("ctrl+x", "p", "j", "j", "j", "space")
-	r.m.syncing, r.m.syncScope = true, []string{"acme-new"}
+	r.m.syncPhase, r.m.syncScope = syncRunning, []string{"acme-new"}
 	r.m.toast = ""
 	r.press("esc")
 	if len(r.m.syncLater) != 0 || strings.Contains(r.m.toast, "right after it") {

@@ -331,8 +331,8 @@ func TestWindowCommandsDoNotClashWithPaneKeys(t *testing.T) {
 	r = newRig(t, 120, 36)
 	syncs := len(r.fake.Calls)
 	r.press("ctrl+w", "L", "ctrl+w", "r")
-	if r.m.style != styleColumns || len(r.fake.Calls) != syncs || r.m.syncing {
-		t.Fatalf("style %s, %d calls, syncing %v", styleNames[r.m.style], len(r.fake.Calls)-syncs, r.m.syncing)
+	if r.m.style != styleColumns || len(r.fake.Calls) != syncs || r.m.syncPhase != syncIdle {
+		t.Fatalf("style %s, %d calls, syncing %v", styleNames[r.m.style], len(r.fake.Calls)-syncs, r.m.syncPhase != syncIdle)
 	}
 	r.tree("row[E:23 S:43 col[Q:50 R:50]:33]")
 }

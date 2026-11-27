@@ -132,7 +132,7 @@ type Model struct {
 	edX, edY   int
 
 	syncRun    SyncRun
-	syncing    bool
+	syncPhase  syncPhase
 	syncDone   int
 	syncTotal  int
 	syncLog    []string
@@ -149,9 +149,17 @@ type Model struct {
 	cfgErr     string
 	kick       chan struct{}
 
-	syncStarting    bool
 	syncAllSelected []string
+	syncFailed      map[string]string
 }
+
+type syncPhase uint8
+
+const (
+	syncIdle syncPhase = iota
+	syncStarting
+	syncRunning
+)
 
 func New(be Backend, o Options) *Model {
 	if o.Getenv == nil {
@@ -405,12 +413,11 @@ type configWait struct {
 }
 
 func (m *Model) startSync(scope api.SyncScope, auto bool) tea.Cmd {
-	if m.syncBusy() {
+	if m.syncPhase != syncIdle {
 		m.toast = "a sync is already running (gd shows progress)"
 		return nil
 	}
-	// ADR-0011
-	m.syncStarting = true
+	m.syncPhase = syncStarting
 	m.syncScope = scope.Projects
 	m.syncTable = scope.Table
 	m.syncAllSelected = nil
@@ -443,20 +450,20 @@ func waitSync(run SyncRun) tea.Cmd {
 }
 
 func (m *Model) onSyncStarted(msg syncStartedMsg) tea.Cmd {
-	m.syncStarting = false
+	m.syncPhase = syncIdle
 	if msg.err != nil {
 		m.syncStartFailed(msg.err)
-		return nil
+		return m.startQueuedSync()
 	}
 	if msg.run == nil {
-		return nil
+		return m.startQueuedSync()
 	}
-	m.syncRun, m.syncing, m.syncDone, m.syncTotal, m.syncLog = msg.run, true, 0, 0, nil
+	m.syncRun, m.syncPhase, m.syncDone, m.syncTotal, m.syncLog, m.syncFailed = msg.run, syncRunning, 0, 0, nil, nil
 	return waitSync(msg.run)
 }
 
 func (m *Model) onSyncDone(msg syncDoneMsg) tea.Cmd {
-	m.syncing, m.syncRun = false, nil
+	m.syncPhase, m.syncRun = syncIdle, nil
 	table := m.syncTable
 	m.syncTable = nil
 	switch {
@@ -620,7 +627,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			st := msg.st
 			m.status = &st
-			if !m.syncing {
+			if m.syncPhase != syncRunning {
 				m.syncNeeded, m.syncReason = st.SyncNeeded, st.SyncReason
 			}
 		}
@@ -654,6 +661,12 @@ func (m *Model) onSyncEvent(ev api.SyncEvent) {
 		line = fmt.Sprintf("%s: %d datasets, %d tables (%s)", where, ev.Datasets, ev.Tables, ev.Status)
 	case api.EventUnitFailed:
 		line = fmt.Sprintf("%s: FAILED: %s", where, ev.Error)
+		if _, seen := m.syncFailed[ev.Project]; !seen {
+			if m.syncFailed == nil {
+				m.syncFailed = map[string]string{}
+			}
+			m.syncFailed[ev.Project] = ev.Error
+		}
 	case api.EventWarning:
 		line = "warning: " + ev.Project + " " + ev.Message
 	case api.EventRunFinished:
@@ -806,7 +819,7 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 		if m.cancelFocused() {
 			return nil, true
 		}
-		if m.syncing && m.syncRun != nil {
+		if m.syncPhase == syncRunning && m.syncRun != nil {
 			m.syncRun.Cancel()
 			m.toast = "cancelling the sync…"
 		} else {

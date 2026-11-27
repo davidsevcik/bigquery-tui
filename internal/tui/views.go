@@ -156,7 +156,7 @@ func (m *Model) statusLine(w int) string {
 	switch {
 	case m.cfgErr != "":
 		b.add("  config error (using the last good config): "+m.cfgErr, sErr)
-	case m.syncing:
+	case m.syncPhase == syncRunning:
 		b.add(fmt.Sprintf("  ⟳ sync %d/%d units", m.syncDone, m.syncTotal), sWarn)
 	case m.syncNeeded:
 		b.add("  sync needed: "+m.syncReason+" (R syncs)", sWarn)
@@ -879,7 +879,7 @@ func cellText(c api.Cell) string {
 func (m *Model) syncLines() []string {
 	var out []string
 	switch {
-	case m.syncing:
+	case m.syncPhase == syncRunning:
 		out = append(out, " "+sWarn.Render(fmt.Sprintf("running: %d of %d units done", m.syncDone, m.syncTotal))+sDim.Render("  ctrl+c cancels (finished units are kept)"))
 	case len(m.syncLog) == 0:
 		out = append(out, " "+sDim.Render("no sync has run in this session. r refreshes the selected project, R everything."))

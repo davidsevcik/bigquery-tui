@@ -41,7 +41,7 @@ func pendingSync(t *testing.T, r *rig) (h *engine.SyncHandle, release func()) {
 			}
 		}
 	}
-	r.m.syncing, r.m.syncDone, r.m.syncTotal = true, last.UnitsDone, last.UnitsTotal
+	r.m.syncPhase, r.m.syncDone, r.m.syncTotal = syncRunning, last.UnitsDone, last.UnitsTotal
 	r.catalogChanged()
 	return h, func() { close(hold) }
 }
@@ -78,7 +78,7 @@ func TestGoldenPendingDatasets(t *testing.T) {
 		if _, err := h.Wait(); err != nil {
 			t.Fatal(err)
 		}
-		r.m.syncing = false
+		r.m.syncPhase = syncIdle
 		r.catalogChanged()
 		r.press("g", "p")
 		r.golden(name("pending_problems"))
@@ -109,7 +109,7 @@ func TestRefreshSyncsNotSyncedDatasets(t *testing.T) {
 	if _, err := h.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	r.m.syncing = false
+	r.m.syncPhase = syncIdle
 	r.catalogChanged()
 	r.fake.Failures = nil
 	r.press("l", "j", "j", "j")
