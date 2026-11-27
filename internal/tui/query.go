@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -107,25 +108,18 @@ func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 				return m.editorAction(act)
 			}
 		}
-		if v.idle() && (name == "u" || name == "ctrl+r" || name == ".") {
-			defer func() { v.tainted = true }()
-		}
 		return m.vimKey(msg, name)
 	}
 	if vimOn {
-		if !v.replay {
-			v.rec = append(v.rec, msg)
-		}
 		switch {
 		case name == "esc":
+			v.record(vimStep{key: msg})
 			m.vimLeaveInsert(b)
 			m.vimSettle(b)
 			if m.o.NoBackground {
 				m.saveDraft(b)
 			}
 			return nil
-		case name == "tab" && m.comp.open:
-			v.tainted = true
 		case name == "ctrl+n" && !m.comp.open:
 			m.updateCompletion(true)
 			return nil
@@ -134,7 +128,10 @@ func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 	if m.comp.open {
 		switch name {
 		case "tab":
-			return m.acceptCompletion()
+			if edit, ok := m.acceptCompletion(); ok && vimOn {
+				v.record(vimStep{completion: &edit})
+			}
+			return nil
 		case "down", "ctrl+n":
 			m.comp.sel = min(m.comp.sel+1, len(m.comp.cands)-1)
 			return nil
@@ -145,6 +142,9 @@ func (m *Model) editorKey(msg tea.KeyPressMsg, name string) tea.Cmd {
 			m.comp.open = false
 			return nil
 		}
+	}
+	if vimOn {
+		v.record(vimStep{key: msg})
 	}
 	if act := keys.action(ZoneEditor, name); act != "" {
 		if act != "complete" {
@@ -184,18 +184,36 @@ func (m *Model) updateCompletion(forced bool) {
 	}
 }
 
-func (m *Model) acceptCompletion() tea.Cmd {
+type completionEdit struct {
+	before, after int
+	insert        string
+	stepOver      bool
+}
+
+func (c completionEdit) apply(e *editor) {
+	e.replaceAround(c.before, c.after, c.insert)
+	if c.stepOver {
+		e.col = min(e.col+1, e.lineLen(e.row))
+	}
+}
+
+func (m *Model) acceptCompletion() (completionEdit, bool) {
 	if m.comp.sel >= len(m.comp.cands) {
 		m.comp.open = false
-		return nil
+		return completionEdit{}, false
 	}
 	c := m.comp.cands[m.comp.sel]
 	ed := m.buf().ed
-	a := sqlx.Accept(ed.text(), c)
-	ed.replaceBytes(c.Start, c.End, a.Insert)
-	if a.StepOver {
-		ed.col++
+	text := ed.text()
+	a := sqlx.Accept(text, c)
+	cursor := clamp(ed.offset(), c.Start, c.End)
+	edit := completionEdit{
+		before:   utf8.RuneCountInString(text[c.Start:cursor]),
+		after:    utf8.RuneCountInString(text[cursor:c.End]),
+		insert:   a.Insert,
+		stepOver: a.StepOver,
 	}
+	edit.apply(ed)
 	m.comp.open = false
 	if a.Again {
 		m.updateCompletion(false)
@@ -203,7 +221,7 @@ func (m *Model) acceptCompletion() tea.Cmd {
 	if m.o.NoBackground {
 		m.saveDraft(m.buf())
 	}
-	return nil
+	return edit, true
 }
 
 func (m *Model) editorAction(act string) tea.Cmd {
