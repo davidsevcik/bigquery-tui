@@ -63,10 +63,13 @@ func (s *sandbox) writeConfig(extra string) {
 		}
 		extra = projectsLine.ReplaceAllString(extra, "")
 	}
-	src := "data_dir = \"" + filepath.Join(s.dir, "data") + "\"\n" + extra
-	if err := os.WriteFile(s.cfgPath, []byte(src), 0o600); err != nil {
+	if err := os.WriteFile(s.cfgPath, []byte(s.configBody(extra)), 0o600); err != nil {
 		s.t.Fatal(err)
 	}
+}
+
+func (s *sandbox) configBody(extra string) string {
+	return "data_dir = \"" + filepath.Join(s.dir, "data") + "\"\n" + extra
 }
 
 func (s *sandbox) run(args ...string) (code int, stdout, stderr string) {
@@ -219,7 +222,7 @@ func TestConfigPathAndEdit(t *testing.T) {
 	var argv []string
 	s.edit = func(a []string) {
 		argv = a
-		if err := os.WriteFile(s.cfgPath, []byte("location = \"EU\"\ndata_dir = \""+filepath.Join(s.dir, "data")+"\"\n"), 0o600); err != nil {
+		if err := os.WriteFile(s.cfgPath, []byte(s.configBody("location = \"EU\"\n")), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

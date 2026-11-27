@@ -12,7 +12,7 @@ import (
 	"github.com/davidsevcik/bigquery-tui/pkg/api"
 )
 
-const waitHint = "VISUAL='code --wait'"
+const waitExample = "VISUAL='code --wait'"
 
 func oneEnvelope(t *testing.T, out string) map[string]any {
 	t.Helper()
@@ -55,13 +55,13 @@ func TestConfigEditReportsAnUnchangedFile(t *testing.T) {
 			if data["valid"] != true || data["changed"] != false || data["path"] != s.cfgPath {
 				t.Fatalf("%v", data)
 			}
-			if strings.Count(errOut, waitHint) != 1 || !strings.HasPrefix(errOut, "hint: ") {
+			if strings.Count(errOut, waitExample) != 1 || !strings.HasPrefix(errOut, "hint: ") {
 				t.Fatalf("want the hint once on stderr, got %q", errOut)
 			}
 
 			s.tty = true
 			code, out, errOut = s.run("config", "edit")
-			if code != api.ExitOK || out != "no changes to "+s.cfgPath+"; it is valid\n" || strings.Count(errOut, waitHint) != 1 {
+			if code != api.ExitOK || out != "no changes to "+s.cfgPath+"; it is valid\n" || strings.Count(errOut, waitExample) != 1 {
 				t.Fatalf("exit %d, stdout %q, stderr %q", code, out, errOut)
 			}
 		})
@@ -74,8 +74,7 @@ func TestConfigEditSavedThroughARenameIsChanged(t *testing.T) {
 	location := "EU"
 	s.edit = func([]string) {
 		tmp := filepath.Join(filepath.Dir(s.cfgPath), ".config.toml.swp")
-		src := "location = \"" + location + "\"\ndata_dir = \"" + filepath.Join(s.dir, "data") + "\"\n"
-		if err := os.WriteFile(tmp, []byte(src), 0o600); err != nil {
+		if err := os.WriteFile(tmp, []byte(s.configBody("location = \""+location+"\"\n")), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.Rename(tmp, s.cfgPath); err != nil {
@@ -106,7 +105,7 @@ func TestConfigEditUnchangedInvalidFileIsAConfigError(t *testing.T) {
 	if e.Code != "config" || !strings.Contains(e.Message, "line 2") || !strings.Contains(e.Message, "nonsense") {
 		t.Fatalf("the error names the key and the line: %+v", e)
 	}
-	if !strings.Contains(e.Message, "no changes to "+s.cfgPath) || strings.Count(e.Hint, waitHint) != 1 {
+	if !strings.Contains(e.Message, "no changes to "+s.cfgPath) || strings.Count(e.Hint, waitExample) != 1 {
 		t.Fatalf("the error says the file is unchanged and hints at a waiting editor: %+v", e)
 	}
 }
@@ -117,7 +116,7 @@ func TestConfigEditOfANewFileThatSavesNothing(t *testing.T) {
 	if code != api.ExitOK {
 		t.Fatalf("exit %d %s", code, errOut)
 	}
-	if !strings.Contains(errOut, "created "+s.cfgPath+" from the template\n") || strings.Count(errOut, waitHint) != 1 {
+	if !strings.Contains(errOut, "created "+s.cfgPath+" from the template\n") || strings.Count(errOut, waitExample) != 1 {
 		t.Fatalf("stderr %q", errOut)
 	}
 	if data := oneEnvelope(t, out); data["valid"] != true || data["changed"] != false {
