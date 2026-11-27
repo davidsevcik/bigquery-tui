@@ -60,6 +60,7 @@ The `store` package owns the two SQLite files in the data directory: `catalog.db
 
 ### Lock files
 
+- **`store.TryLock`**: after the flock it checks that the path still names the file it locked (`os.SameFile` of the descriptor's and the path's stat). A holder can remove the path between another caller's open and its flock; without the check, that caller would hold a file no one else can find while a third creates and locks a new one at the path, and both would think they hold the lock. When the path is gone or names another file, it unlocks, closes and tries again; after 10 tries it gives up with `ErrLocked`, and any other stat error is returned. The check is sound only while a lock file is removed by its holder, before it unlocks (the drafts' rule, ADR 0012). `lockBlocking`, the catalog's init lock, has no check: nothing removes its path.
 - **`store.(*Lock).Rewrite`**, **`store.(*Lock).Read`**: write and read the lock file through the descriptor the lock holds, so the content is the locked file's even when its path has been removed or replaced since; a released lock refuses (`ErrUnlocked`).
 
 ### Reading the catalog
