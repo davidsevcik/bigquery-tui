@@ -128,11 +128,11 @@ func prevIsDot(toks []api.Token, text string, at int) bool {
 
 func continuesDashedPath(text string, toks []api.Token, at int) bool {
 	n := len(toks)
-	if n < 2 || toks[n-1].End != at || !isPunct(text, toks[n-1], "-") || !namePart(toks[n-2]) || toks[n-2].End != toks[n-1].Start {
+	if n == 0 || toks[n-1].End != at || !isPunct(text, toks[n-1], "-") {
 		return false
 	}
-	first, _, _ := dashedName(text, toks, n-1)
-	return inTablePath(text, toks, first)
+	first, _, ok := dashedName(text, toks, n-1)
+	return ok && inTablePath(text, toks, first)
 }
 
 func prevIsIdent(toks []api.Token, at int) bool {

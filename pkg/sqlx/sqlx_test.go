@@ -35,6 +35,9 @@ func TestTokenize(t *testing.T) {
 		{"from t where n-12", "keyword:from | ident:t | keyword:where | ident:n | punct:- | number:12"},
 		{"from a; select x-1", "keyword:from | ident:a | punct:; | keyword:select | ident:x | punct:- | number:1"},
 		{"from a; x, y-1", "keyword:from | ident:a | punct:; | ident:x | punct:, | ident:y | punct:- | number:1"},
+		{"select trim(a; delete from my-proj-412345.sales.orders", "keyword:select | function:trim | punct:( | ident:a | punct:; | keyword:delete | keyword:from | ident:my | punct:- | ident:proj | punct:- | ident:412345 | punct:. | ident:sales | punct:. | ident:orders"},
+		{"select extract(a; update my-proj-412345.sales.orders set x = 1", "keyword:select | keyword:extract | punct:( | ident:a | punct:; | keyword:update | ident:my | punct:- | ident:proj | punct:- | ident:412345 | punct:. | ident:sales | punct:. | ident:orders | keyword:set | ident:x | punct:= | number:1"},
+		{"select substring(a; insert into my-proj-412345.sales.orders values (1)", "keyword:select | function:substring | punct:( | ident:a | punct:; | keyword:insert | keyword:into | ident:my | punct:- | ident:proj | punct:- | ident:412345 | punct:. | ident:sales | punct:. | ident:orders | keyword:values | punct:( | number:1 | punct:)"},
 		{"insert into t values (1,-1), (2, x=-2)", "keyword:insert | keyword:into | ident:t | keyword:values | punct:( | number:1 | punct:, | punct:- | number:1 | punct:) | punct:, | punct:( | number:2 | punct:, | ident:x | punct:= | punct:- | number:2 | punct:)"},
 	}
 	for _, c := range cases {
@@ -239,6 +242,9 @@ func TestComplete(t *testing.T) {
 		{name: "unquoted: dataset prefix after a project that ends in digits", in: "select * from my-proj-412345.sa|", want: "sales", applied: "select * from my-proj-412345.sales"},
 		{name: "unquoted: tables of a project that ends in digits", in: "select * from my-proj-412345.sales.o|", want: "orders", applied: "select * from my-proj-412345.sales.orders"},
 		{name: "unquoted: columns of a table in a project that ends in digits", in: "select t| from my-proj-412345.sales.orders", forced: true, want: "total,…"},
+		{name: "an unclosed call in an earlier statement: delete from", in: "select trim(a; delete from my-proj-412345.sa|", want: "sales", applied: "select trim(a; delete from my-proj-412345.sales"},
+		{name: "an unclosed call in an earlier statement: update", in: "select extract(a; update my-proj-412345.sales.o|", want: "orders", applied: "select extract(a; update my-proj-412345.sales.orders"},
+		{name: "an unclosed call in an earlier statement: insert into", in: "select substring(a; insert into my-proj-4123|", want: "my-proj-412345", applied: "select substring(a; insert into my-proj-412345"},
 		{name: "a dash in the select list is a minus", in: "select a-b|", want: ""},
 		{name: "a dash in the select list is a minus when forced", in: "select a-b|", forced: true, want: "BETWEEN,…", applied: "select a-BETWEEN"},
 		{name: "a column after a minus", in: "select a-cu| from acme-prod.sales.orders", want: "customer_id,CURRENT ROW,…", applied: "select a-customer_id from acme-prod.sales.orders"},

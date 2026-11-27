@@ -272,6 +272,8 @@ func fromOfFunction(text string, toks []api.Token, i int) bool {
 	depth := 0
 	for j := i - 1; j >= 0; j-- {
 		switch {
+		case isPunct(text, toks[j], ";"):
+			return false
 		case isPunct(text, toks[j], ")"):
 			depth++
 		case isPunct(text, toks[j], "("):
