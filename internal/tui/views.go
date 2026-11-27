@@ -147,8 +147,8 @@ func (m *Model) statusLine(w int) string {
 	if act := m.activeRuns(); len(act) > 0 {
 		b.add(fmt.Sprintf("  ▶ %d run(s)", len(act)), sWarn)
 	}
-	if m.draftErr != "" {
-		b.add("  draft not saved (retrying): "+m.draftErr, sErr)
+	if p := m.draftProblem(); p != "" {
+		b.add("  draft not saved (retrying): "+p, sErr)
 	}
 	if m.exp != nil {
 		b.add(fmt.Sprintf("  export %s/%s rows (ctrl+c cancels)", format.Count(m.expEv.Rows), format.Count(m.expEv.Total)), sWarn)
