@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,6 +60,7 @@ type Options struct {
 	Now          func() time.Time
 	Location     *time.Location
 	File         string
+	Log          *slog.Logger
 }
 
 type Model struct {
@@ -113,23 +115,23 @@ type Model struct {
 	pendingKey string
 	toast      string
 
-	zone       Zone
-	bufs       []*buffer
-	cur        int
-	bufSeq     int
-	orphans    []orphan
-	comp       completion
-	runs       *runs.Follower
-	grids      map[int64]*grid
-	prompt     promptState
-	confirm    confirmState
-	confirmQ   []confirmState
-	draftErr   string
-	ovSel      int
-	exp        Export
-	expEv      api.ExportEvent
-	jumpInsert bool
-	edX, edY   int
+	zone           Zone
+	bufs           []*buffer
+	cur            int
+	bufSeq         int
+	orphans        []orphan
+	comp           completion
+	runs           *runs.Follower
+	grids          map[int64]*grid
+	prompt         promptState
+	confirm        confirmState
+	confirmQ       []confirmState
+	draftsReleased bool
+	ovSel          int
+	exp            Export
+	expEv          api.ExportEvent
+	jumpInsert     bool
+	edX, edY       int
 
 	syncRun    SyncRun
 	syncing    bool
@@ -159,6 +161,9 @@ func New(be Backend, o Options) *Model {
 	}
 	if o.Location == nil {
 		o.Location = time.Local
+	}
+	if o.Log == nil {
+		o.Log = slog.New(slog.DiscardHandler)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Model{be: be, o: o, ctx: ctx, cancel: cancel, details: map[string]*detailData{}, kick: make(chan struct{}, 1), w: 100, h: 30, termH: 30, preset: presetClassic, panes: presetTree(presetClassic)}
@@ -734,13 +739,14 @@ func (m *Model) globalAction(act string) (tea.Cmd, bool) {
 	}
 	switch act {
 	case "quit":
+		m.saveDrafts()
 		var why []string
 		if n := len(m.activeRuns()); n > 0 {
 			why = append(why, fmt.Sprintf("%d run(s) are still in flight and will be cancelled.", n))
 		}
 		var unsaved []string
 		for _, b := range m.bufs {
-			if b.modified() {
+			if b.state().LostOnQuit() {
 				unsaved = append(unsaved, b.title())
 			}
 		}
